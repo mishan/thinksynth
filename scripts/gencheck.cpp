@@ -6756,7 +6756,9 @@ checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
 }
 
 /* gen::graft, a flock of bass.dsp bred while a melody plays on it, a
- * generation every two seconds; the scheduler stepped `seconds' along with
+ * generation every two seconds, its edits untuned: what is checked here is
+ * how the host breeds, and flockcheck how well; the scheduler stepped
+ * `seconds' along with
  * `more' in the stage. Returns the nodes on the channel then, and
  * `declared' gets them as loaded, `depth' how many graphs the channel's
  * stack holds, and `kept' a copy of the piece with the champion kept.
@@ -6780,7 +6782,8 @@ graftedFor (const std::map<std::string, thcPlugin *> &plugins,
                "\"A2 C3 E3\"; period = 0.5 s; prob = 1; };\n"
                "    sink { instrument = pad; };\n};\n"
                "chain flock {\n    stage g gen::graft { every = 2 s; "
-               "population = 3; depth = 2; kinds = \"splice\"; " << more
+               "population = 3; depth = 2; kinds = \"splice\"; tune = 0; "
+            << more
             << " };\n    sink { instrument = pad; };\n};\n";
     }
 
@@ -6944,7 +6947,7 @@ checkGraft (const std::map<std::string, thcPlugin *> &plugins,
        nothing goes on; a rewind still leaves no flock to breed on (checked
        in graftedFor). */
     if (graftedFor(plugins, synth, 2.5, again, true, NULL, NULL,
-                   "target = \"same\"; tune = 0;") != declared)
+                   "target = \"same\";") != declared)
         fail("a rewind after gen::graft toward its own graph did not leave "
              "the declared graph");
 

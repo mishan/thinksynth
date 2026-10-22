@@ -28,8 +28,10 @@
 #include <sstream>
 
 #include "think.h"
+#include "thFFT.h"
 
 #include "NodeBreed.h"
+#include "NodeEdit.h"
 #include "NodeEvolve.h"
 
 namespace NodeBreed {
@@ -38,6 +40,52 @@ using NodeMutate::Edit;
 using NodeMutate::Gene;
 using NodeMutate::Shape;
 using NodeMutate::Splice;
+
+/* The centroid and the share under LOW_HZ of `played', `channels'
+   interleaved at `rate', from its power summed over 4096-point frames. */
+static bool toneOf (const vector<float> &played, int channels, double rate,
+                    double &centroid, double &low)
+{
+    thv::FFTR fft(12);
+    vector<float> mag(fft.bins());
+    vector<double> power(fft.bins(), 0);
+    const size_t frames = channels > 0 ? played.size() / channels : 0;
+
+    for (size_t at = 0; at + fft.size() <= frames; at += fft.size())
+    {
+        fft.magnitude([&] (unsigned int i)
+                      {
+                          float sum = 0;
+
+                          for (int c = 0; c < channels; c++)
+                              sum += played[(at + i) * channels + c];
+
+                          return sum / channels;
+                      }, mag.data());
+
+        for (size_t k = 0; k < mag.size(); k++)
+            power[k] += (double)mag[k] * mag[k];
+    }
+
+    double all = 0, weighted = 0, under = 0;
+
+    for (size_t k = 1; k < power.size(); k++)
+    {
+        const double hz = k * rate / fft.size();
+
+        all += power[k];
+        weighted += power[k] * hz;
+        under += hz < LOW_HZ ? power[k] : 0;
+    }
+
+    if (!(all > 0))
+        return false;
+
+    centroid = weighted / all;
+    low = under / all;
+
+    return true;
+}
 
 Ear localEar (const string &pluginPath, const string &base,
               const string &targetGraph, const string &targetWav,
@@ -55,6 +103,17 @@ Ear localEar (const string &pluginPath, const string &base,
     {
         levels->setSeed(1);
         return NodeMutate::level(*levels, text, rms, peak);
+    };
+    ear.tone = [levels] (const string &text, double &rms, double &peak,
+                         double &centroid, double &low)
+    {
+        vector<float> played;
+
+        levels->setSeed(1);
+
+        return NodeMutate::level(*levels, text, rms, peak, &played) &&
+               toneOf(played, levels->audioChannelCount(),
+                      TH_DEFAULT_SAMPLES, centroid, low);
     };
 
     if (!targetGraph.empty() || !targetWav.empty())
@@ -338,6 +397,10 @@ static bool parsedOn (thSynth *synth, const string &text, vector<Gene> &genes,
 
 namespace {
 
+/* How far a member with no target may move the declared graph's
+   brightness before it is marked down, in octaves. */
+const double BRIGHT_OCTAVES = 1.5;
+
 struct Breeding {
     thSynth *synth;
     const string &base;
@@ -347,20 +410,136 @@ struct Breeding {
     vector<Splice> pool;
     double rms, peak;
 
+    /* The declared graph's brightness and low share, 0 where the ear
+       cannot say; and the champion novelty is measured from. */
+    double centroid = 0, low = 0;
+    string played;
+
     bool text (const vector<Op> &ops, string &out)
     {
         return NodeMutate::replay(synth, base, ops, out);
     }
 
-    bool keeps (const string &text)
+    bool keeps (const string &text, double *c = NULL, double *lo = NULL)
     {
-        double r, p;
+        double r, p, cc, ll;
+
+        if (ear.tone ? !ear.tone(text, r, p, cc, ll) : !ear.level(text, r, p))
+            return false;
+
+        if (c != NULL)
+            *c = ear.tone ? cc : 0;
+
+        if (lo != NULL)
+            *lo = ear.tone ? ll : 0;
 
         /* Half the declared level at most, not growth's quarter: a
            flock's champion replaces the instrument every generation, and
            one that drops away reads as the piece stopping. */
-        return ear.level(text, r, p) &&
-               NodeMutate::keepsLevel(r, p, rms, peak) && r >= rms * 0.5;
+        return NodeMutate::keepsLevel(r, p, rms, peak) && r >= rms * 0.5;
+    }
+
+    /* In dB, as novelty is, what a member with no target loses for
+       sounding unlike the instrument it came from: brightness past
+       BRIGHT_OCTAVES either way, and the low end, where the declared
+       graph has one, more than half gone. DEAD for one that does not keep
+       the level. */
+    double flaw (const string &text)
+    {
+        double c, lo;
+
+        if (!keeps(text, &c, &lo))
+            return NodeEvolve::DEAD;
+
+        if (!(centroid > 0) || !(c > 0))
+            return 0;
+
+        const double octaves = std::fabs(std::log2(c / centroid));
+        double f = 4 * std::max(0.0, octaves - BRIGHT_OCTAVES);
+
+        if (low > 0.2 && lo < low * 0.5)
+            f += 6 * (1 - lo / (low * 0.5));
+
+        return f;
+    }
+
+    /* Lower better: how far from the champion just played, up to
+       NOVELTY_DB, less its flaw. */
+    double novelty (const string &text)
+    {
+        const double f = flaw(text);
+        const double apart = f >= NodeEvolve::DEAD ? f : ear.apart(text, played);
+
+        return apart >= NodeEvolve::DEAD ? NodeEvolve::DEAD
+                                         : f - std::min(apart, NOVELTY_DB);
+    }
+
+    /* A frequency `next' brought starts where the declared graph sounds,
+       an octave under to two over by the dice, rather than at its
+       plugin's default: a filter at a kilohertz on a bass is the bass
+       gone. Only frequencies said in Hz or as a fraction of the rate;
+       tuning finds the rest. */
+    void seat (const string &now, string &next)
+    {
+        vector<Gene> genes, had;
+        Shape was, is;
+
+        if (!(centroid > 0) || !parsedOn(synth, now, had, was))
+            return;
+
+        static std::atomic<unsigned int> serial { 0 };
+        const string name = "seat#" + std::to_string(++serial) + ".dsp";
+        thSynthTree *tree;
+
+        {
+            thUtil::GraphHold hold = thUtil::addGraphText(name, next);
+
+            tree = synth->parseTree(name);
+        }
+
+        if (tree == NULL)
+            return;
+
+        NodeMutate::read(tree, next, &genes, &is);
+
+        /* On a semitone: a centroid two hosts' maths put a hair apart
+           still gives both the one constant, so a room breeds alike. */
+        const double hz = 440 * std::pow(2.0, std::round(12 * std::log2(
+                                                   centroid / 440)) / 12 +
+                                                   dice.below(4) - 1.0);
+        string why;
+
+        for (const Gene &g : genes)
+        {
+            thNode *node = g.node.empty() ? NULL : tree->findNode(g.node);
+            thPlugin *plugin = node ? node->plugin() : NULL;
+
+            if (plugin == NULL || !g.choices.empty() ||
+                std::find(was.names.begin(), was.names.end(), g.node) !=
+                    was.names.end())
+                continue;
+
+            for (int i = 0; i < plugin->argCount(); i++)
+            {
+                if (plugin->getArgName(i) != g.arg)
+                    continue;
+
+                const string units = plugin->getArgUnits(i);
+                double v = units == "Hz" ? hz :
+                           units == "fraction of the rate"
+                               ? hz / TH_DEFAULT_SAMPLES : -1;
+
+                if (v < 0)
+                    continue;
+
+                if (g.ranged)
+                    v = std::max(g.lo, std::min(g.hi, v));
+
+                NodeEdit::Text::setValue(next, g.node, g.arg, v, why);
+            }
+        }
+
+        delete tree;
     }
 
     /* `ops' one edit on, or at the depth allowed one edit back; false if
@@ -406,20 +585,28 @@ struct Breeding {
             Op op = allowed[(from + k) % allowed.size()]->op;
             string next = now, what;
 
-            /* Judged as it comes first, which is a render, before it is
-               tuned, which is dozens. */
-            if (!NodeMutate::applyTagged(synth, next, op, what) ||
-                !keeps(next))
+            if (!NodeMutate::applyTagged(synth, next, op, what))
                 continue;
 
-            if (ear.target && params.tune > 0)
-            {
-                const string tuned = NodeEvolve::tuneAdded(
-                    *synth, now, next, params.tune, ear.target);
+            seat(now, next);
 
-                NodeMutate::tunedOf(synth, now, tuned, op);
-                next = tuned;
-            }
+            /* Tuned before it is judged, target or not: an edit with its
+               plugin's defaults is often an edit that fails the level and
+               would not with its constants anywhere near right. */
+            if (params.tune > 0)
+                next = NodeEvolve::tuneAdded(
+                    *synth, now, next, params.tune,
+                    [this] (const string &t)
+                    {
+                        /* A stop asked lets the tune run out unheard,
+                           which is at once, rather than at its end. */
+                        if (params.stop && params.stop())
+                            return NodeEvolve::DEAD;
+
+                        return ear.target ? ear.target(t) : novelty(t);
+                    });
+
+            NodeMutate::tunedOf(synth, now, next, op);
 
             if (keeps(next))
             {
@@ -436,7 +623,8 @@ struct Breeding {
 
 bool generation (thSynth *synth, const string &base, Flock &flock_,
                  const Params &params, unsigned int dice_, const Ear &ear,
-                 string &champion, size_t &depth, string &why)
+                 string &champion, size_t &depth, string &why,
+                 vector<Op> *championOps)
 {
     /* Bred on a copy, so a generation stopped half way leaves the flock
        as it was. */
@@ -455,6 +643,8 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
     Dice dice(dice_);
     Breeding b = { synth, base, params, ear, dice, {}, 0, 0 };
 
+    b.played = flock.played.empty() ? base : flock.played;
+
     if (synth == NULL || !parsedOn(synth, base, genes, shape))
     {
         why = "the declared graph does not parse";
@@ -465,6 +655,14 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
     {
         why = "the declared graph makes no sound to measure against";
         return false;
+    }
+
+    if (ear.tone)
+    {
+        double r, p;
+
+        if (!ear.tone(base, r, p, b.centroid, b.low))
+            b.centroid = b.low = 0;
     }
 
     NodeMutate::buildPool(synth->getPluginManager(), b.pool);
@@ -504,8 +702,7 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
         }
 
     /* Scored, lower nearer: from the target, or from the champion just
-       played -- novelty, up to a point. */
-    const string &played = flock.played.empty() ? base : flock.played;
+       played -- novelty, up to a point, less what it lost. */
     vector<string> texts(flock.members.size());
     vector<double> score(flock.members.size());
 
@@ -526,14 +723,7 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
             score[i] = m.near;
         }
         else
-        {
-            /* One that cannot be heard is no novelty. */
-            const double apart = ear.apart(texts[i], played);
-
-            score[i] = apart >= NodeEvolve::DEAD ? NodeEvolve::DEAD
-                                                 : -std::min(apart,
-                                                             NOVELTY_DB);
-        }
+            score[i] = b.novelty(texts[i]);
     }
 
     vector<size_t> order(flock.members.size());
@@ -548,6 +738,10 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
     champion = texts[order[0]];
     depth = flock.members[order[0]].ops.size();
     flock.played = champion;
+    b.played = champion;
+
+    if (championOps != NULL)
+        *championOps = flock.members[order[0]].ops;
 
     /* The next: the best carried, the rest bred from tournaments of two. */
     auto pick = [&] ()

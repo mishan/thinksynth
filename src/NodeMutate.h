@@ -211,9 +211,11 @@ bool grow (thSynth *synth, const string &text, const string &base,
 
 /* The level grow() judges by: `text' played on `synth' as that phrase, its
    RMS on its quietest output and peak on any; false for a graph that does
-   not load or goes non-finite.
+   not load or goes non-finite. `played', if given, gets the phrase as
+   rendered, its sides interleaved.
    keepsLevel() is grow()'s rule against the declared graph's. */
-bool level (thSynth &synth, const string &text, double &rms, double &peak);
+bool level (thSynth &synth, const string &text, double &rms, double &peak,
+            vector<float> *played = NULL);
 bool keepsLevel (double rms, double peak, double baseRms, double basePeak);
 
 /* ---- a graph as its lineage ----

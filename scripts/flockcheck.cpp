@@ -30,6 +30,7 @@
 #include "config.h"
 
 #include <stdio.h>
+#include <math.h>
 #include <string.h>
 
 #include <algorithm>
@@ -194,7 +195,10 @@ int main (int argc, char **argv)
                      "often its ear has listened", "");
         }
         NodeBreed::Flock kept, carried;
-        bool same = true, changed = false, level = true, deep = true;
+        bool same = true, changed = false, level = true, deep = true,
+             sounds = true;
+        double baseBright = 0, baseLow = 0, r0, p0;
+        string heardAs;
         size_t da0 = 0;
         string last;
         double rms, peak, baseRms = 0, basePeak = 0;
@@ -203,6 +207,7 @@ int main (int argc, char **argv)
         params.crossover = 1;
         params.kinds = "";
         ear.level(noisy, baseRms, basePeak);
+        ear.tone(noisy, r0, p0, baseBright, baseLow);
 
         for (unsigned int g = 1; same && g <= 4; g++)
         {
@@ -229,6 +234,17 @@ int main (int argc, char **argv)
             level &= ear.level(a, rms, peak) &&
                      NodeMutate::keepsLevel(rms, peak, baseRms, basePeak);
 
+            /* Its brightness within the octaves allowed, with one to
+               spare for a flock with nothing better, and its low end. */
+            double bright, low;
+            char said[96];
+
+            sounds &= ear.tone(a, rms, peak, bright, low) &&
+                      std::fabs(std::log2(bright / baseBright)) < 2.5 &&
+                      low > baseLow / 3;
+            snprintf(said, sizeof said, " %.0f Hz %.2f", bright, low);
+            heardAs += said;
+
             for (const NodeBreed::Member &m : kept.members)
                 deep &= m.ops.size() <= params.depth;
         }
@@ -237,6 +253,10 @@ int main (int argc, char **argv)
                  "loaded between generations or not", why);
         okOrFail(changed && level, "with no target the champion keeps "
                  "changing, and keeps its level", "");
+        okOrFail(sounds && baseBright > 0, "with no target the champion "
+                 "keeps near the declared graph's brightness and its low end",
+                 std::to_string((int)baseBright) + " Hz " +
+                 std::to_string(baseLow) + " declared;" + heardAs);
         /* And a depth that comes down holds every member to it, the
            carried ones too. */
         params.depth = 0;

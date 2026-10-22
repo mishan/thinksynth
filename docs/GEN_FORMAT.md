@@ -987,13 +987,17 @@ making the child's again on the declared graph (`src/NodeMutate`, `src/NodeBreed
 Each generation carries the best `elites` (1 unless set) as they are and breeds
 the rest: a parent by a tournament of two, a second with chance `crossover` (0.7),
 one edit more of `kinds` with chance `mutation` (0.8) — or, at `depth` (4) edits,
-one fewer — and a child that moves the level as growth would not is bred again.
-With no `target`, a member scores by how far it sounds from the champion just
-played, up to 6 dB, so the instrument keeps changing; with one — an instrument
-of the piece or a sound file, as `gen::grow` takes — by how near it sounds to
-it, each new edit tuned toward it for `tune` generations (6) first, so the flock
-climbs. The stage sends the generation's dice and the host does the rest, so a
-piece that grafts replays from its seed.
+one fewer — and a child that drops under half the declared level, or on either
+side, or rises as growth would not, is bred again. A filter an edit brings
+starts near the declared graph's brightness, not at its plugin's default, and
+each new edit is tuned for `tune` generations (6) before it is judged. With no
+`target`, a member scores by how far it sounds from the champion just played,
+up to 6 dB, so the instrument keeps changing, marked down for moving the
+brightness more than an octave and a half or losing more than half its low
+end; with one — an instrument of the piece or a sound file, as `gen::grow`
+takes — by how near it sounds to it, so the flock climbs. The stage sends the
+generation's dice and the host does the rest, so a piece that grafts replays
+from its seed.
 
 The channel then holds the declared graph and the champion; select the
 `gen::graft` stage in the Composer and press **Keep the bred graph** to write it

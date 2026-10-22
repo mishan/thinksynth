@@ -410,20 +410,25 @@ const DIP_LU = 8, SIDE_DB = 12;
 // What a listener would say about one part across the windows, `parts'
 // its description in each: a window that falls well under the ones either
 // side, heard as the part dropping out, and one side far under the other.
-export function lapses (name, parts)
+// With `edges', the first and last windows are held to the one beside
+// them: a run of champions, where the last going quiet is a fault, not a
+// piece's fade.
+export function lapses (name, parts, { edges = false } = {})
 {
     const loud = parts.map(p => p?.lufs ?? -70);
 
     return parts.map((p, i) =>
     {
         const out = [];
+        const near = [loud[i - 1], loud[i + 1]].filter(v => v !== undefined);
         // A part that rests is playing what was written; one that sounds
         // and is suddenly faint is the part that went wrong.
-        const under = p?.lufs != null && i > 0 && i + 1 < parts.length
-            ? Math.min(loud[i - 1], loud[i + 1]) - loud[i] : 0;
+        const under = p?.lufs != null && (near.length === 2 || (edges && near.length))
+            ? Math.min(...near) - loud[i] : 0;
 
         if (under > DIP_LU)
-            out.push(`${name} drops ${under.toFixed(0)} LU under the windows either side`);
+            out.push(`${name} drops ${under.toFixed(0)} LU under ` +
+                     (near.length === 2 ? 'the windows either side' : 'the window beside it'));
 
         if (p?.lufs != null && Math.abs(p.balanceDb ?? 0) > SIDE_DB)
             out.push(`${name}'s ${p.balanceDb < 0 ? 'left' : 'right'} is ` +

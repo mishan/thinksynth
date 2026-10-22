@@ -112,6 +112,7 @@
 
 #include "think.h"
 #include "thPhoneme.h"
+#include "thSoundFile.h"
 
 #include "libthink/thDynLib.h"
 #include "thcPlugin.h"
@@ -283,47 +284,6 @@ static void writeEvent (FILE *tape, const thcEvent &ev)
     }
 }
 
-static bool writeWav (const std::string &path, const std::vector<float> &pcm,
-                      int channels, int rate)
-{
-    FILE *w = fopen(path.c_str(), "wb");
-
-    if (w == NULL)
-        return false;
-
-    const uint32_t dataBytes = (uint32_t)pcm.size() * 2;
-    const uint16_t fmt = 1, ch = (uint16_t)channels, bits = 16;
-    const uint16_t align = ch * 2;
-    const uint32_t byteRate = (uint32_t)rate * align;
-    const uint32_t fmtLen = 16, riffLen = 36 + dataBytes;
-    const uint32_t rate32 = (uint32_t)rate;
-
-    fwrite("RIFF", 1, 4, w);  fwrite(&riffLen, 4, 1, w);
-    fwrite("WAVE", 1, 4, w);
-    fwrite("fmt ", 1, 4, w);  fwrite(&fmtLen, 4, 1, w);
-    fwrite(&fmt, 2, 1, w);    fwrite(&ch, 2, 1, w);
-    fwrite(&rate32, 4, 1, w); fwrite(&byteRate, 4, 1, w);
-    fwrite(&align, 2, 1, w);  fwrite(&bits, 2, 1, w);
-    fwrite("data", 1, 4, w);  fwrite(&dataBytes, 4, 1, w);
-
-    /* Clamped here as well as in the engine, because the engine's clamp is
-       what thClampSample promises the output stage and this is a second
-       output stage. */
-    for (size_t i = 0; i < pcm.size(); i++)
-    {
-        float v = pcm[i];
-
-        if (v > 1)  v = 1;
-        if (v < -1) v = -1;
-
-        const int16_t s = (int16_t)lrintf(v * 32767);
-
-        fwrite(&s, 2, 1, w);
-    }
-
-    return fclose(w) == 0;
-}
-
 struct Level
 {
     double sumsq = 0;
@@ -373,7 +333,7 @@ struct Stem
     {
         outputs = channels;
 
-        if (!writeWav(path, std::vector<float>(), channels, rate))
+        if (!thsound::writePcm(path, std::vector<float>(), channels, rate))
             return false;
 
         file = fopen(path.c_str(), "r+b");
@@ -1335,7 +1295,7 @@ int main (int argc, char **argv)
     }
 
     if (!wavFile.empty() &&
-        !writeWav(wavFile, pcm, outChannels, TH_DEFAULT_SAMPLES))
+        !thsound::writePcm(wavFile, pcm, outChannels, TH_DEFAULT_SAMPLES))
     {
         fprintf(stderr, "%s: cannot write %s\n", argv[0], wavFile.c_str());
         return 1;

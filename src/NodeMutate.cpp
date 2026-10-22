@@ -905,7 +905,8 @@ vector<Edit> edits (const string &source, const Shape &shape,
    and a polyphonic one stacks, and then a release. A filter that rings at
    the bottom of the range, or a slide that kicks one, is in the measure.
    False for a graph that does not load or goes non-finite. */
-bool level (thSynth &synth, const string &text, double &rms, double &peak)
+bool level (thSynth &synth, const string &text, double &rms, double &peak,
+            vector<float> *played)
 {
     static std::atomic<unsigned int> serial { 0 };
     const string name = "grow-level#" + std::to_string(++serial) + ".dsp";
@@ -956,6 +957,11 @@ bool level (thSynth &synth, const string &text, double &rms, double &peak)
             sum[i / len] += (double)out[i] * out[i];
             peak = std::max(peak, (double)std::fabs(out[i]));
         }
+
+        if (played != NULL)
+            for (int i = 0; i < len; i++)
+                for (int c = 0; c < channels; c++)
+                    played->push_back(out[c * len + i]);
 
         count += len;
     }

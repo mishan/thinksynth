@@ -36,6 +36,11 @@ namespace thsound {
 THINK_API bool readWav (const std::string &path, std::vector<float> &mono,
                         std::string &why, double rate = TH_DEFAULT_SAMPLES);
 
+/* 16-bit PCM of `channels' interleaved, as it is: clamped to full scale,
+   not normalized, so levels written are levels read back. */
+THINK_API bool writePcm (const std::string &path, const std::vector<float> &pcm,
+                         int channels, double rate = TH_DEFAULT_SAMPLES);
+
 /* 16-bit mono at `rate', peaking 3 dB under full scale whatever the
    signal's own level: the distance does not hear gain, so what a search
    found has none worth keeping, and files at one level can be compared

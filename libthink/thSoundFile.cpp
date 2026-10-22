@@ -274,6 +274,44 @@ bool readWav (const string &path, vector<float> &mono, string &why, double outRa
    level was: the distance does not hear gain, so what it found has none
    worth keeping, and three files at three levels cannot be compared by
    ear. */
+bool writePcm (const string &path, const vector<float> &pcm, int channels,
+               double rate)
+{
+    const unsigned int bytes = (unsigned int)pcm.size() * 2;
+    const unsigned int frame = (unsigned int)channels * 2;
+
+    std::ofstream out(path.c_str(), std::ios::binary);
+
+    unsigned char h[44] = { 'R','I','F','F', 0,0,0,0, 'W','A','V','E',
+                            'f','m','t',' ', 16,0,0,0, 1,0, 0,0,
+                            0,0,0,0, 0,0,0,0, 0,0, 16,0,
+                            'd','a','t','a', 0,0,0,0 };
+    const unsigned int fields[6][3] = { { 4, 36 + bytes, 4 },
+                                        { 22, (unsigned int)channels, 2 },
+                                        { 24, (unsigned int)rate, 4 },
+                                        { 28, (unsigned int)rate * frame, 4 },
+                                        { 32, frame, 2 },
+                                        { 40, bytes, 4 } };
+
+    for (int f = 0; f < 6; f++)
+        for (unsigned int i = 0; i < fields[f][2]; i++)
+            h[fields[f][0] + i] = (unsigned char)(fields[f][1] >> (8 * i));
+
+    out.write((const char *)h, sizeof h);
+
+    for (size_t i = 0; i < pcm.size(); i++)
+    {
+        const float x = std::max(-1.0f, std::min(1.0f, pcm[i]));
+        const int v = (int)lrintf(x * 32767);
+        const unsigned char b[2] = { (unsigned char)(v & 0xff),
+                                     (unsigned char)((v >> 8) & 0xff) };
+
+        out.write((const char *)b, 2);
+    }
+
+    return (bool)out;
+}
+
 bool writeWav (const string &path, const vector<float> &mono, double rate)
 {
     double peak = 0;
@@ -282,36 +320,13 @@ bool writeWav (const string &path, const vector<float> &mono, double rate)
         if (fabs((double)mono[i]) > peak)
             peak = fabs((double)mono[i]);
 
-    const double gain = peak > 0 ? 0.708 * 32767.0 / peak : 0;
-    const unsigned int bytes = (unsigned int)mono.size() * 2;
-
-    std::ofstream out(path.c_str(), std::ios::binary);
-
-    unsigned char h[44] = { 'R','I','F','F', 0,0,0,0, 'W','A','V','E',
-                            'f','m','t',' ', 16,0,0,0, 1,0, 1,0,
-                            0,0,0,0, 0,0,0,0, 2,0, 16,0,
-                            'd','a','t','a', 0,0,0,0 };
-    const unsigned int fields[4][2] = { { 4, 36 + bytes },
-                                        { 24, (unsigned int)rate },
-                                        { 28, (unsigned int)rate * 2 },
-                                        { 40, bytes } };
-
-    for (int f = 0; f < 4; f++)
-        for (int i = 0; i < 4; i++)
-            h[fields[f][0] + i] = (unsigned char)(fields[f][1] >> (8 * i));
-
-    out.write((const char *)h, sizeof h);
+    const double gain = peak > 0 ? 0.708 / peak : 0;
+    vector<float> scaled(mono.size());
 
     for (size_t i = 0; i < mono.size(); i++)
-    {
-        const int v = (int)lrint((double)mono[i] * gain);
-        const unsigned char b[2] = { (unsigned char)(v & 0xff),
-                                     (unsigned char)((v >> 8) & 0xff) };
+        scaled[i] = (float)(mono[i] * gain);
 
-        out.write((const char *)b, 2);
-    }
-
-    return (bool)out;
+    return writePcm(path, scaled, 1, rate);
 }
 
 bool renderNote (thSynth &synth, const string &dspPath,
