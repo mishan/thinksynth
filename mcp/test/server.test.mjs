@@ -92,6 +92,38 @@ test('a render, and an analysis that finds the buried pad', async () =>
     assert.ok(pad(1) < pad(0), `${pad(1)} < ${pad(0)}`);
 });
 
+test('a part that drops out for a window, or goes quiet on one side, is found', async () =>
+{
+    // A tone struck every beat, its right channel a twentieth of its left,
+    // and a knob taking it down 30 dB over the second of three windows.
+    const text = `tempo 120; seed 1; @lvl = 1;
+instrument tone {
+    dsp {
+        @gain = 1;
+        node ionode { channels = 2; out0 = g->out; out1 = side->out; play = env->play; };
+        io ionode;
+        node o osc::simple { freq = ionode->note; waveform = 0; amp = env->out; };
+        node g math::mul { in0 = o->out; in1 = @gain; };
+        node side math::mul { in0 = g->out; in1 = 0.05; };
+        node env env::ad { a = 1 ms; d = 400 ms; trigger = ionode->trigger; };
+    };
+    amp = 30; gain = @lvl;
+};
+chain c {
+    stage s gen::euclid { steps = 1; fills = 1; notes = "A3"; period = 1 beats;
+        hold = 0.2 beats; vel = 100; };
+    sink { instrument = tone; };
+};`;
+    const r = await call('piece_render', { text, seconds: 6, timeline: [
+        { at: 1.5, knob: 'lvl', value: 0.03 }, { at: 4, knob: 'lvl', value: 1 }] });
+    const a = await call('audio_analyze', { render: r.render, window: 2 });
+
+    assert.ok(a.findings.some(f => /^tone drops [23]\d LU under the windows either side \(2\.0 s\)$/.test(f)),
+              a.findings.join('; '));
+    assert.ok(a.findings.some(f => /^tone's right is 2\d dB under its left \(0\.0 s to 6\.0 s\)$/.test(f)),
+              a.findings.join('; '));
+});
+
 test('a trimmed render is analyzed where its audio is', async () =>
 {
     // Section b alone, against the same two seconds of the whole render:

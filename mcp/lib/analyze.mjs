@@ -311,6 +311,27 @@ function peakIn (m, t0, t1)
     return p;
 }
 
+// The left's RMS against the right's, in dB; null for mono or silence.
+function balanceIn (m, t0, t1)
+{
+    if (m.channels.length !== 2)
+        return null;
+
+    const i0 = Math.max(0, Math.floor(t0 * m.rate));
+    const i1 = Math.min(m.channels[0].length, Math.floor(t1 * m.rate));
+    const [l, r] = m.channels.map(c =>
+    {
+        let sum = 0;
+
+        for (let i = i0; i < i1; i++)
+            sum += c[i] * c[i];
+
+        return sum;
+    });
+
+    return l > 0 && r > 0 ? +(10 * Math.log10(l / r)).toFixed(1) : null;
+}
+
 export function describe (m, t0, t1)
 {
     const loud = t1 - t0 >= 0.4 ? integrated(m.blk.list, t0, t1 - 0.4 + 1e-9)
@@ -323,6 +344,7 @@ export function describe (m, t0, t1)
         ...(spectral(m.fr, t0, t1) ?? {}),
         onsetsPerSecond: +(m.hits.filter(t => t >= t0 && t < t1).length /
                            (t1 - t0)).toFixed(2),
+        balanceDb: balanceIn(m, t0, t1),
     };
 }
 
@@ -383,6 +405,34 @@ export function windows (kind, { seconds, tempo, meter, timeline, from = 0 })
 }
 
 const BURIED_LU = 18, CLASH_LU = 6, CLASH_RATIO = 2 ** (1 / 3);
+const DIP_LU = 8, SIDE_DB = 12;
+
+// What a listener would say about one part across the windows, `parts'
+// its description in each: a window that falls well under the ones either
+// side, heard as the part dropping out, and one side far under the other.
+export function lapses (name, parts)
+{
+    const loud = parts.map(p => p?.lufs ?? -70);
+
+    return parts.map((p, i) =>
+    {
+        const out = [];
+        // A part that rests is playing what was written; one that sounds
+        // and is suddenly faint is the part that went wrong.
+        const under = p?.lufs != null && i > 0 && i + 1 < parts.length
+            ? Math.min(loud[i - 1], loud[i + 1]) - loud[i] : 0;
+
+        if (under > DIP_LU)
+            out.push(`${name} drops ${under.toFixed(0)} LU under the windows either side`);
+
+        if (Math.abs(p?.balanceDb ?? 0) > SIDE_DB)
+            out.push(`${name}'s ${p.balanceDb < 0 ? 'left' : 'right'} is ` +
+                     `${Math.abs(p.balanceDb).toFixed(0)} dB under its ` +
+                     `${p.balanceDb < 0 ? 'right' : 'left'}`);
+
+        return out;
+    });
+}
 
 // What a listener would say about one window, from its stems: who is lost
 // under whom, and which two are in each other's way.
