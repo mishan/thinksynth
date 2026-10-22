@@ -224,6 +224,10 @@ think_harness(exprcheck NODEMODEL)
 # the saturator taken out of bass.dsp offered back where it was. No audio.
 think_harness(mutatecheck NODEMODEL)
 
+# A population of instruments bred from one graph (src/NodeBreed): nearer a
+# target, the same flock from the same dice, the level kept. Renders.
+think_harness(flockcheck NODEMODEL)
+
 # The graph that runs on a channel's summed voices: that it runs when nothing
 # is playing, that in0 carries the audio, that its chanargs are its own under
 # `fx.', and that it comes and goes with the channel. Loads the shipped effect
@@ -935,6 +939,8 @@ add_test(NAME exprcheck
 add_test(NAME mutatecheck
          COMMAND mutatecheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  -d "${PROJECT_SOURCE_DIR}/dsp")
+add_test(NAME flockcheck
+         COMMAND flockcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
 # Needs the plugins and nothing else: its graphs are built in C++.
 add_test(NAME statecheck

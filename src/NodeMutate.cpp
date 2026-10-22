@@ -879,8 +879,7 @@ vector<Edit> edits (const string &source, const Shape &shape,
    and a polyphonic one stacks, and then a release. A filter that rings at
    the bottom of the range, or a slide that kicks one, is in the measure.
    False for a graph that does not load or goes non-finite. */
-static bool level (thSynth &synth, const string &text, double &rms,
-                   double &peak)
+bool level (thSynth &synth, const string &text, double &rms, double &peak)
 {
     static unsigned int serial = 0;
     const string name = "grow-level#" + std::to_string(++serial) + ".dsp";
@@ -936,6 +935,13 @@ static bool level (thSynth &synth, const string &text, double &rms,
     rms = count ? sqrt(sum / count) : 0;
 
     return rms > 0;
+}
+
+bool keepsLevel (double rms, double peak, double baseRms, double basePeak)
+{
+    /* +3 dB and -12 dB on the RMS, and +3 dB on the peak. */
+    return rms <= baseRms * 1.4125 && rms >= baseRms * 0.2512 &&
+           peak <= basePeak * 1.4125;
 }
 
 bool grow (thSynth *synth, const string &text, const string &base,
@@ -1015,9 +1021,8 @@ bool grow (thSynth *synth, const string &text, const string &base,
         const Edit &pick = *allowed[(choice + k) % allowed.size()];
         double rms, peak;
 
-        /* +3 dB and -12 dB on the RMS, and +3 dB on the peak. */
-        if (level(ear, pick.source, rms, peak) && rms <= wantRms * 1.4125 &&
-            rms >= wantRms * 0.2512 && peak <= wantPeak * 1.4125)
+        if (level(ear, pick.source, rms, peak) &&
+            keepsLevel(rms, peak, wantRms, wantPeak))
         {
             grown.push_back(pick.source);
             what.push_back(pick.what);
