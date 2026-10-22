@@ -51,6 +51,7 @@ Pieces and instruments go in as text, or as a path relative to the tree; a path 
 | `dsp_audition` | notes at velocities, each measured: peak, brightness at the front and after, time to fall 40 dB |
 | `dsp_sweep` | one control across its range, measured the same way |
 | `dsp_match` | distance from a target recording, or the chanargs fitted to it |
+| `breed_report` | a flock bred from an instrument as `gen::graft` breeds it, for a few seeds: each generation's champion, its edits, distance from a target, move from the last, level, brightness and balance, findings, and a WAV of the champions in turn |
 
 There is no tool for a running instance of the program yet: the desktop
 application has no control channel to reach.

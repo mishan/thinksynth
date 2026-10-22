@@ -228,6 +228,10 @@ think_harness(mutatecheck NODEMODEL)
 # target, the same flock from the same dice, the level kept. Renders.
 think_harness(flockcheck NODEMODEL)
 
+# How a flock does generation by generation, for comparing ways of
+# breeding: JSON per champion, and the champions to listen to.
+think_harness(breedreport NODEMODEL)
+
 # The graph that runs on a channel's summed voices: that it runs when nothing
 # is playing, that in0 carries the audio, that its chanargs are its own under
 # `fx.', and that it comes and goes with the channel. Loads the shipped effect

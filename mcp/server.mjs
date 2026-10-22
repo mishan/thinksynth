@@ -582,6 +582,87 @@ tool('dsp_match',
                                                : undefined };
      });
 
+tool('breed_report',
+     'Breed a flock from an instrument as gen::graft does, for a few seeds, and say how each ' +
+     'generation\'s champion does: its edits, its distance from the target in dB (with one), how ' +
+     'far it moved from the champion before, its level, how long the generation took, and how ' +
+     'it sounds -- loudness, brightness, low/mid/high balance, left against right -- with ' +
+     'findings such as a champion dropping out. Each seed\'s champions are written one after ' +
+     'another, declared graph first, as a WAV to listen to.',
+     { ...dspArgs,
+       targetText: z.string().optional().describe('a .dsp to breed toward'),
+       targetPath: z.string().optional().describe('or a .dsp file to breed toward'),
+       targetWav: z.string().optional().describe('or a recording to breed toward'),
+       seeds: z.array(z.number().int().nonnegative()).min(1).max(8).default([1, 2, 3]),
+       generations: z.number().int().positive().max(40).default(8),
+       population: z.number().int().min(2).max(64).optional(),
+       elites: z.number().int().nonnegative().optional(),
+       crossover: z.number().min(0).max(1).optional(),
+       mutation: z.number().min(0).max(1).optional(),
+       depth: z.number().int().nonnegative().max(16).optional(),
+       kinds: z.string().optional().describe('edit kinds, e.g. "splice modulate"'),
+       tune: z.number().int().nonnegative().max(60).optional() },
+     async (args, call) =>
+     {
+         const dir = await call.workdir('breed');
+         const file = await source(args, dir, 'base.dsp');
+         const cli = ['-p', PLUGINS, '-o', dir, '-s', args.seeds.join(','),
+                      '-g', String(args.generations)];
+
+         if (args.targetText || args.targetPath)
+             cli.push('-t', await source({ text: args.targetText, path: args.targetPath }, dir,
+                                         'target.dsp'));
+         else if (args.targetWav)
+             cli.push('-w', inside(args.targetWav));
+
+         for (const k of ['population', 'elites', 'crossover', 'mutation', 'depth', 'kinds', 'tune'])
+             if (args[k] !== undefined)
+                 cli.push(`--${k}`, String(args[k]));
+
+         const report = json(await call.run('breedreport', [...cli, file], { timeout: 3_600_000 }),
+                             'breedreport');
+
+         call.keep(dir);
+
+         for (const run of report.runs)
+         {
+             const wav = path.join(dir, `seed-${run.seed}.wav`);
+             const spans = [{ start: 0, end: report.phraseSeconds },
+                            ...run.generations.map(g => ({ start: g.start, end: g.end }))];
+             const heard = await measured(wav, () => spans);
+             const found = lapses('the champion', heard.per);
+
+             run.wav = wav;
+             run.declared = heard.per[0];
+             run.generations.forEach((g, i) =>
+                 Object.assign(g, { sound: heard.per[i + 1], findings: found[i + 1] }));
+         }
+
+         // Each generation across the seeds: where the flock is, on the whole.
+         const mean = v => (v.length ? +(v.reduce((a, b) => a + b, 0) / v.length).toFixed(2) : null);
+         const summary = [];
+
+         for (let g = 0; g < args.generations; g++)
+         {
+             const at = report.runs.map(r => r.generations[g]).filter(Boolean);
+
+             if (!at.length)
+                 break;
+
+             summary.push({ generation: g + 1,
+                            distance: mean(at.map(x => x.distance).filter(d => d !== null)),
+                            apart: mean(at.map(x => x.apart).filter(d => d !== null)),
+                            lufs: mean(at.map(x => x.sound.lufs).filter(d => d !== null)),
+                            centroid: mean(at.map(x => x.sound.centroid).filter(d => d != null)),
+                            low: mean(at.map(x => x.sound.bands?.low).filter(d => d != null)),
+                            changed: at.filter(x => x.changed).length,
+                            findings: at.reduce((n, x) => n + x.findings.length, 0),
+                            ms: mean(at.map(x => x.ms)) });
+         }
+
+         return { ...report, summary };
+     });
+
 function midi (name)
 {
     const m = /^([A-Ga-g])([#b]?)(-?\d+)$/.exec(name.trim());
