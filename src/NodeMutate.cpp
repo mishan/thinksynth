@@ -22,6 +22,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -881,7 +882,7 @@ vector<Edit> edits (const string &source, const Shape &shape,
    False for a graph that does not load or goes non-finite. */
 bool level (thSynth &synth, const string &text, double &rms, double &peak)
 {
-    static unsigned int serial = 0;
+    static std::atomic<unsigned int> serial { 0 };
     const string name = "grow-level#" + std::to_string(++serial) + ".dsp";
     thUtil::GraphHold hold = thUtil::addGraphText(name, text);
 
@@ -956,7 +957,7 @@ bool grow (thSynth *synth, const string &text, const string &base,
 
     /* Parsed through the registry an inline graph uses, so nothing is
        written anywhere to be read back. */
-    static unsigned int serial = 0;
+    static std::atomic<unsigned int> serial { 0 };
     const string name = "grow#" + std::to_string(++serial) + ".dsp";
     thSynthTree *tree;
 
@@ -1040,7 +1041,7 @@ bool grow (thSynth *synth, const string &text, const string &base,
 static bool parsed (thSynth *synth, const string &text, vector<Gene> *genes,
                     Shape *shape)
 {
-    static unsigned int serial = 0;
+    static std::atomic<unsigned int> serial { 0 };
     const string name = "lineage#" + std::to_string(++serial) + ".dsp";
     thSynthTree *tree;
 

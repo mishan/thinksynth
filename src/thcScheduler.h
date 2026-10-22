@@ -875,6 +875,18 @@ public:
                       const std::string &champion, size_t depth,
                       const std::string &why);
 
+    /* Whether an answer for `ticket' is still waited on: false once a
+       rewind, a swap or a step that superseded it has let it go, and a
+       grafter can stop breeding it. */
+    bool graftWanted (unsigned int ticket) const
+    {
+        for (const auto &e : grown_)
+            if (ticket != 0 && e.second.asked == ticket)
+                return true;
+
+        return false;
+    }
+
     /* `channel''s flock as the grafter left it, for a host to show; false
        while it has none. */
     bool flockText (int channel, std::string &text) const

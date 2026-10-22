@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -316,7 +317,7 @@ struct Dice {
 static bool parsedOn (thSynth *synth, const string &text, vector<Gene> &genes,
                       Shape &shape)
 {
-    static unsigned int serial = 0;
+    static std::atomic<unsigned int> serial { 0 };
     const string name = "breed#" + std::to_string(++serial) + ".dsp";
     thSynthTree *tree;
 

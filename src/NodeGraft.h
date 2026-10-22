@@ -108,7 +108,8 @@ public:
                               TH_DEFAULT_SAMPLES);
                 NodeBreed::Params params = graftParams(ask);
 
-                params.stop = [this] { return stop_.load(); };
+                params.stop = [this, j]
+                              { return stop_.load() || j->stop.load(); };
                 j->ok = graftStep(&synth, base, flock, ask, params, j->flock,
                                   j->champion, j->depth, j->why);
                 j->done = true;
@@ -118,18 +119,28 @@ public:
         };
     }
 
-    /* The generations bred since the last call, answered in the order
-       they were asked. */
+    /* The generations bred since the last call, answered; and the ones
+       the scheduler has stopped waiting for, stopped. A channel has one
+       generation out at a time, so the order they finish in is theirs. */
     void deliver (thcScheduler &sched)
     {
-        while (!jobs_.empty() && jobs_.front()->done)
+        for (auto j = jobs_.begin(); j != jobs_.end(); )
         {
-            std::unique_ptr<Job> j = std::move(jobs_.front());
+            if (!(*j)->done)
+            {
+                if (!sched.graftWanted((*j)->ticket))
+                    (*j)->stop = true;
 
-            jobs_.pop_front();
-            j->thread.join();
-            sched.graftAnswer(j->ticket, j->ok, j->flock, j->champion,
-                              j->depth, j->why);
+                ++j;
+                continue;
+            }
+
+            std::unique_ptr<Job> done = std::move(*j);
+
+            j = jobs_.erase(j);
+            done->thread.join();
+            sched.graftAnswer(done->ticket, done->ok, done->flock,
+                              done->champion, done->depth, done->why);
         }
     }
 
@@ -141,6 +152,7 @@ private:
         unsigned int ticket = 0;
         std::thread thread;
         std::atomic<bool> done { false };
+        std::atomic<bool> stop { false };
         bool ok = false;
         std::string flock, champion, why;
         size_t depth = 0;
