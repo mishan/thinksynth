@@ -425,7 +425,7 @@ export function lapses (name, parts)
         if (under > DIP_LU)
             out.push(`${name} drops ${under.toFixed(0)} LU under the windows either side`);
 
-        if (Math.abs(p?.balanceDb ?? 0) > SIDE_DB)
+        if (p?.lufs != null && Math.abs(p.balanceDb ?? 0) > SIDE_DB)
             out.push(`${name}'s ${p.balanceDb < 0 ? 'left' : 'right'} is ` +
                      `${Math.abs(p.balanceDb).toFixed(0)} dB under its ` +
                      `${p.balanceDb < 0 ? 'right' : 'left'}`);
