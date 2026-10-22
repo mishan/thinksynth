@@ -297,14 +297,22 @@ void read (thSynthTree *tree, const string &source, vector<Gene> *genes,
                 if (srcIdx < 0 || srcPlugin->getArgUnits(srcIdx) != "full scale")
                     continue;
 
-                bool have = false;
+                bool have = false, twin = false;
 
                 for (size_t i = 0; i < shape->wires.size(); i++)
+                {
                     have |= shape->wires[i].node == w.node &&
                             shape->wires[i].arg == w.arg;
+                    twin |= shape->wires[i].node == w.node &&
+                            shape->wires[i].srcNode == w.srcNode &&
+                            shape->wires[i].srcPort == w.srcPort;
+                }
 
+                /* Outputs that carry one signal stay one: a filter on the
+                   left alone is a channel gone dull or silent. */
                 if (!have)
-                    shape->wires.push_back(w);
+                    (twin && tree->IONode() && w.node == tree->IONode()->name()
+                         ? shape->tied : shape->wires).push_back(w);
             }
         }
 
@@ -565,6 +573,23 @@ static string tagged (const string &name, const string &tag)
     return tag.empty() ? name : name + "_" + tag;
 }
 
+/* `wire' and the outputs tied to it read `node'->`port' instead. */
+static bool reroute (string &source, const Shape &shape, const Wire &wire,
+                     const string &node, const string &port)
+{
+    string why;
+    bool ok = NodeEdit::Text::connect(source, wire.node, wire.arg, node,
+                                      port, why) == NodeEdit::OK;
+
+    for (const Wire &t : shape.tied)
+        if (ok && t.node == wire.node && t.srcNode == wire.srcNode &&
+            t.srcPort == wire.srcPort)
+            ok = NodeEdit::Text::connect(source, t.node, t.arg, node, port,
+                                         why) == NodeEdit::OK;
+
+    return ok;
+}
+
 bool splice (string &source, const Shape &shape, const Wire &wire,
                     const Splice &sp, string &name, const string &tag)
 {
@@ -574,7 +599,7 @@ bool splice (string &source, const Shape &shape, const Wire &wire,
 
     return NodeEdit::Text::addNode(source, name, sp.spelling, sp.initial, why) == NodeEdit::OK &&
            NodeEdit::Text::connect(source, name, sp.in, wire.srcNode, wire.srcPort, why) == NodeEdit::OK &&
-           NodeEdit::Text::connect(source, wire.node, wire.arg, name, sp.out, why) == NodeEdit::OK;
+           reroute(source, shape, wire, name, sp.out);
 }
 
 /* A second oscillator, at the pitch `voice' reads, summed into `wire':
@@ -614,7 +639,7 @@ bool addVoice (string &source, Shape &shape, const Wire &wire,
     return NodeEdit::Text::addNode(source, sum, "math::add", init, why) == NodeEdit::OK &&
            NodeEdit::Text::connect(source, sum, "in0", wire.srcNode, wire.srcPort, why) == NodeEdit::OK &&
            NodeEdit::Text::connect(source, sum, "in1", osc, "out", why) == NodeEdit::OK &&
-           NodeEdit::Text::connect(source, wire.node, wire.arg, sum, "out", why) == NodeEdit::OK &&
+           reroute(source, shape, wire, sum, "out") &&
            (what = string(kind ? "unison saw" : "sub square") + " like " + voice.node +
                    " into " + wire.node + "." + wire.arg, true);
 }
@@ -896,7 +921,11 @@ bool level (thSynth &synth, const string &text, double &rms, double &peak)
     const int windows = 4 * step + thsound::HOLD_WINDOWS +
                         thsound::TAIL_WINDOWS;
     const int len = synth.getWindowlen();
-    double sum = 0;
+    const int channels = synth.audioChannelCount();
+    const thMidiChan *chan = synth.getChannel(0);
+    /* The sides the graph sends: a mono one leaves the rest silent. */
+    const int sent = chan ? std::min(chan->numChannels(), channels) : channels;
+    vector<double> sum(channels, 0);
     long count = 0;
 
     peak = 0;
@@ -917,23 +946,27 @@ bool level (thSynth &synth, const string &text, double &rms, double &peak)
         synth.process();
 
         const float *out = synth.getOutput();
-        const int samples = len * synth.audioChannelCount();
+        const int samples = len * channels;
 
         for (int i = 0; i < samples; i++)
         {
             if (!std::isfinite(out[i]))
                 return false;
 
-            sum += (double)out[i] * out[i];
+            sum[i / len] += (double)out[i] * out[i];
             peak = std::max(peak, (double)std::fabs(out[i]));
         }
 
-        count += samples;
+        count += len;
     }
 
     synth.removeChan(0);
 
-    rms = count ? sqrt(sum / count) : 0;
+    /* The quietest output, so a graph that silences one side is heard as
+       the silence it is rather than averaged into half a level. */
+    rms = count && sent > 0 ? sqrt(*std::min_element(sum.begin(),
+                                                     sum.begin() + sent) /
+                                   count) : 0;
 
     return rms > 0;
 }
