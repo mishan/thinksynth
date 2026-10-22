@@ -2371,7 +2371,7 @@ thcScheduler::graftInstrument (int channel, const GraftAsk &given,
     if (g == NULL)
         return false;
 
-    if (!grafter_)
+    if (!grafter_ && !graftRequest_)
     {
         why = "this host cannot breed a graph";
         return false;
@@ -2420,15 +2420,30 @@ thcScheduler::graftInstrument (int channel, const GraftAsk &given,
         }
     }
 
+    if (!grafter_)
+    {
+        g->asked = ++growTicket_;
+        graftRequest_(g->asked, g->texts[0], g->flock, ask);
+        return true;
+    }
+
     std::string flock, champion;
     size_t depth = 0;
 
     if (!grafter_(g->texts[0], g->flock, ask, flock, champion, depth, why))
         return false;
 
-    g->flock = flock;
+    return placeChampion(channel, *g, flock, champion, depth, why);
+}
 
-    if (champion == g->texts.back())
+bool
+thcScheduler::placeChampion (int channel, Growth &g, const std::string &flock,
+                             const std::string &champion, size_t depth,
+                             std::string &why)
+{
+    g.flock = flock;
+
+    if (champion == g.texts.back())
         return true;
 
     if (depth == 0)
@@ -2442,15 +2457,40 @@ thcScheduler::graftInstrument (int channel, const GraftAsk &given,
                    why))
         return false;
 
-    const size_t top = g->texts.size() - 1;
+    const size_t top = g.texts.size() - 1;
 
-    g->texts.erase(g->texts.begin() + 1, g->texts.begin() + (long)top);
-    g->holds.erase(g->holds.begin() + 1, g->holds.begin() + (long)top);
-    g->whats.erase(g->whats.begin() + 1, g->whats.begin() + (long)top);
-    g->levels.erase(g->levels.begin() + 1, g->levels.begin() + (long)top);
-    g->log.back().depth = 1;
+    g.texts.erase(g.texts.begin() + 1, g.texts.begin() + (long)top);
+    g.holds.erase(g.holds.begin() + 1, g.holds.begin() + (long)top);
+    g.whats.erase(g.whats.begin() + 1, g.whats.begin() + (long)top);
+    g.levels.erase(g.levels.begin() + 1, g.levels.begin() + (long)top);
+    g.log.back().depth = 1;
 
     return true;
+}
+
+void
+thcScheduler::graftAnswer (unsigned int ticket, bool ok,
+                           const std::string &flock,
+                           const std::string &champion, size_t depth,
+                           const std::string &why)
+{
+    for (auto &e : grown_)
+    {
+        if (ticket == 0 || e.second.asked != ticket)
+            continue;
+
+        std::string failed = why;
+
+        e.second.asked = 0;
+
+        if (!ok || !placeChampion(e.first, e.second, flock, champion, depth,
+                                  failed))
+            fprintf(stderr, "thcScheduler: breeding channel %d: %s\n",
+                    e.first + 1, failed.c_str());
+
+        runQueued(e.first);
+        return;
+    }
 }
 
 bool

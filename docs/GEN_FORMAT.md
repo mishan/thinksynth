@@ -995,10 +995,15 @@ it, each new edit tuned toward it for `tune` generations (6) first, so the flock
 climbs. The stage sends the generation's dice and the host does the rest, so a
 piece that grafts replays from its seed.
 
-The channel then holds the declared graph and the champion, which is what Keep
-writes; a rewind puts the declared graph back and the flock is gone. A
-generation is dozens of renders, more with a target, and for now only `genwav`
-breeds: the application and the page say they cannot.
+The channel then holds the declared graph and the champion; select the
+`gen::graft` stage in the Composer and press **Keep the bred graph** to write it
+into the piece, as growth's Keep does. A rewind puts the declared graph back and
+the flock is gone. A generation is dozens of renders, more with a target:
+`genwav` breeds in the tick, so a piece that grafts replays exactly, and the
+application breeds on threads of its own and puts the champion on when the
+generation is done, a moment or a few seconds after the event, with anything
+that comes for the channel meanwhile waiting behind it. The page does not breed
+yet, and says so.
 
 **All four are events**, and that is the whole rate limit: scheduled, so they
 happen on the transport; sparse, so nothing can thrash a channel; replayed from

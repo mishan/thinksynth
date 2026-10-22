@@ -43,6 +43,7 @@ class thSynth;
 class thArg;
 class thcPlugin;
 class thcScheduler;
+class GraftWorker;
 struct thcStage;
 class PianoRoll;
 
@@ -590,6 +591,9 @@ protected:
     /* Evolve toward. One search at a time; `evolving_' is the instrument
        it moves, and the window's widgets are NULL until it is opened. */
     std::unique_ptr<NodeEvolve::Job> evolve_;
+
+    /* gen::graft's generations, bred off the window's thread. */
+    std::unique_ptr<GraftWorker> graft_;
     std::string evolving_;
     sigc::connection evolvePoll_;
     Gtk::Window *evolveWin_ = NULL;

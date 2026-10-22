@@ -20,12 +20,46 @@
 #define NODE_GRAFT_H 1
 
 /* The scheduler's Grafter as NodeBreed breeds, for a host that links the
-   node model: each generation parsed on `synth' and heard on synths of its
-   own. In a header of its own so the node model need not know the
-   scheduler, nor the scheduler the node model. */
+   node model -- in the tick, or on threads of its own (GraftWorker). In a
+   header of its own so the node model need not know the scheduler, nor
+   the scheduler the node model. */
+
+#include <atomic>
+#include <list>
+#include <memory>
+#include <thread>
 
 #include "NodeBreed.h"
 #include "thcScheduler.h"
+
+/* What a GraftAsk asks NodeBreed for. */
+inline NodeBreed::Params
+graftParams (const thcScheduler::GraftAsk &ask)
+{
+    NodeBreed::Params params;
+
+    params.population = (size_t)std::max(ask.population, 2);
+    params.elites = (size_t)std::max(ask.elites, 0);
+    params.crossover = ask.crossover;
+    params.mutation = ask.mutation;
+    params.depth = (size_t)std::max(ask.depth, 0);
+    params.kinds = ask.kinds;
+    params.tune = ask.tune;
+
+    return params;
+}
+
+inline bool
+graftStep (thSynth *synth, const std::string &base, const std::string &flock,
+           const thcScheduler::GraftAsk &ask,
+           const NodeBreed::Params &params, std::string &flockOut,
+           std::string &champion, size_t &depth, std::string &why)
+{
+    return NodeBreed::step(synth, base, flock, params, ask.dice,
+                           ask.targetGraph, ask.targetWav, ask.args,
+                           ask.targetArgs, ask.rate, flockOut, champion,
+                           depth, why);
+}
 
 inline thcScheduler::Grafter
 nodeBreedGrafter (thSynth *synth)
@@ -34,21 +68,87 @@ nodeBreedGrafter (thSynth *synth)
                     const thcScheduler::GraftAsk &ask, std::string &flockOut,
                     std::string &champion, size_t &depth, std::string &why)
     {
-        NodeBreed::Params params;
-
-        params.population = (size_t)std::max(ask.population, 2);
-        params.elites = (size_t)std::max(ask.elites, 0);
-        params.crossover = ask.crossover;
-        params.mutation = ask.mutation;
-        params.depth = (size_t)std::max(ask.depth, 0);
-        params.kinds = ask.kinds;
-        params.tune = ask.tune;
-
-        return NodeBreed::step(synth, base, flock, params, ask.dice,
-                               ask.targetGraph, ask.targetWav, ask.args,
-                               ask.targetArgs, ask.rate, flockOut, champion,
-                               depth, why);
+        return graftStep(synth, base, flock, ask, graftParams(ask), flockOut,
+                         champion, depth, why);
     };
 }
+
+/* The scheduler's GraftRequest on threads of its own, for a host whose
+ * scheduler runs on a thread with a window to draw: each generation
+ * asked for is bred on a thread with a synth of its own, and deliver(),
+ * called where the scheduler runs, answers the ones that are done.
+ * Going away stops the ones under way and waits for them.
+ */
+class GraftWorker
+{
+public:
+    explicit GraftWorker (const std::string &pluginPath)
+        : pluginPath_(pluginPath) {}
+
+    ~GraftWorker (void)
+    {
+        stop_ = true;
+
+        for (auto &j : jobs_)
+            j->thread.join();
+    }
+
+    thcScheduler::GraftRequest request (void)
+    {
+        return [this] (unsigned int ticket, const std::string &base,
+                       const std::string &flock,
+                       const thcScheduler::GraftAsk &ask)
+        {
+            Job *j = new Job;
+
+            j->ticket = ticket;
+            j->thread = std::thread([this, j, base, flock, ask]
+            {
+                thSynth synth(pluginPath_, TH_DEFAULT_WINDOW_LENGTH,
+                              TH_DEFAULT_SAMPLES);
+                NodeBreed::Params params = graftParams(ask);
+
+                params.stop = [this] { return stop_.load(); };
+                j->ok = graftStep(&synth, base, flock, ask, params, j->flock,
+                                  j->champion, j->depth, j->why);
+                j->done = true;
+            });
+
+            jobs_.emplace_back(j);
+        };
+    }
+
+    /* The generations bred since the last call, answered in the order
+       they were asked. */
+    void deliver (thcScheduler &sched)
+    {
+        while (!jobs_.empty() && jobs_.front()->done)
+        {
+            std::unique_ptr<Job> j = std::move(jobs_.front());
+
+            jobs_.pop_front();
+            j->thread.join();
+            sched.graftAnswer(j->ticket, j->ok, j->flock, j->champion,
+                              j->depth, j->why);
+        }
+    }
+
+    bool busy (void) const { return !jobs_.empty(); }
+
+private:
+    struct Job
+    {
+        unsigned int ticket = 0;
+        std::thread thread;
+        std::atomic<bool> done { false };
+        bool ok = false;
+        std::string flock, champion, why;
+        size_t depth = 0;
+    };
+
+    std::string pluginPath_;
+    std::atomic<bool> stop_ { false };
+    std::list<std::unique_ptr<Job> > jobs_;
+};
 
 #endif /* NODE_GRAFT_H */

@@ -6759,12 +6759,15 @@ checkGrow (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
  * generation every two seconds; the scheduler stepped `seconds' along with
  * `more' in the stage. Returns the nodes on the channel then, and
  * `declared' gets them as loaded, `depth' how many graphs the channel's
- * stack holds, and `kept' a copy of the piece with the champion kept. */
+ * stack holds, and `kept' a copy of the piece with the champion kept.
+ * `threaded', each generation is bred on a GraftWorker's thread as the
+ * application breeds it, and its answer taken once the run is over --
+ * after the rewind, with `rewind'. */
 static std::string
 graftedFor (const std::map<std::string, thcPlugin *> &plugins,
             thSynth *synth, double seconds, std::string &declared,
             bool rewind, size_t *stacked = NULL, std::string *kept = NULL,
-            const std::string &more = "")
+            const std::string &more = "", bool threaded = false)
 {
     const std::string path = thUtil::tempFile("gencheck-graft-");
 
@@ -6789,8 +6792,22 @@ graftedFor (const std::map<std::string, thcPlugin *> &plugins,
         thcScheduler sched(synth);
         thcGenLoader loader(plugins);
 
+        GraftWorker worker(synth->getPluginManager()->pluginPath());
+        auto answered = [&]
+        {
+            while (worker.busy())
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                worker.deliver(sched);
+            }
+        };
+
         sched.setAuditionSynchronous(true);
-        sched.setGrafter(nodeBreedGrafter(synth));
+
+        if (threaded)
+            sched.setGraftRequest(worker.request());
+        else
+            sched.setGrafter(nodeBreedGrafter(synth));
 
         if (!loader.load(path, &sched))
             fail("the grafting piece does not load");
@@ -6805,6 +6822,12 @@ graftedFor (const std::map<std::string, thcPlugin *> &plugins,
             for (double t = 0; t < seconds; t += 0.05)
             {
                 sched.stepTransport(0.05);
+                drainSynth();
+            }
+
+            if (!rewind)
+            {
+                answered();
                 drainSynth();
             }
 
@@ -6834,6 +6857,7 @@ graftedFor (const std::map<std::string, thcPlugin *> &plugins,
             if (rewind)
             {
                 sched.reset();
+                answered();
                 drainSynth();
                 grafted = nodesOn(synth, ch);
 
@@ -6903,6 +6927,18 @@ checkGraft (const std::map<std::string, thcPlugin *> &plugins,
     }
     else
         fail("there was no bred graph to keep");
+
+    /* Bred on threads, the generations answered after the run: the same
+       champion, the second generation having waited for the first. And a
+       rewind with one still out takes nothing from its answer. */
+    if (graftedFor(plugins, synth, 4.5, again, false, NULL, NULL, "",
+                   true) != two)
+        fail("gen::graft bred on threads does not breed what it breeds in "
+             "the tick");
+
+    if (graftedFor(plugins, synth, 2.5, again, true, NULL, NULL, "",
+                   true) != declared)
+        fail("a generation answered after a rewind put its champion on");
 
     /* Bred toward its own graph, the declared one stays the champion and
        nothing goes on; a rewind still leaves no flock to breed on (checked

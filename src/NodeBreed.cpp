@@ -430,10 +430,22 @@ struct Breeding {
 
 }
 
-bool generation (thSynth *synth, const string &base, Flock &flock,
+bool generation (thSynth *synth, const string &base, Flock &flock_,
                  const Params &params, unsigned int dice_, const Ear &ear,
                  string &champion, size_t &depth, string &why)
 {
+    /* Bred on a copy, so a generation stopped half way leaves the flock
+       as it was. */
+    Flock flock = flock_;
+    const auto stopped = [&params, &why] ()
+    {
+        if (!params.stop || !params.stop())
+            return false;
+
+        why = "stopped";
+        return true;
+    };
+
     vector<Gene> genes;
     Shape shape;
     Dice dice(dice_);
@@ -497,6 +509,9 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
     {
         Member &m = flock.members[i];
 
+        if (stopped())
+            return false;
+
         if (!b.text(m.ops, texts[i]))
             score[i] = NodeEvolve::DEAD;
         else if (ear.target)
@@ -545,6 +560,9 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
 
     while (next.size() < population)
     {
+        if (stopped())
+            return false;
+
         const size_t a = pick();
         Member child = flock.members[a];
 
@@ -593,6 +611,7 @@ bool generation (thSynth *synth, const string &base, Flock &flock,
 
     flock.members.swap(next);
     flock.generations++;
+    flock_ = flock;
 
     return true;
 }

@@ -856,6 +856,25 @@ public:
 
     void setGrafter (const Grafter &fn) { grafter_ = fn; }
 
+    /* A grafter that answers later, for a host that cannot spend a
+       generation -- dozens of renders -- on the thread this runs on: the
+       application's, which draws its window, and the browser's worklet.
+       Asked with a ticket, and answered through graftAnswer. Used where
+       there is no grafter; what comes after waits for the answer, as it
+       waits for a growth's. */
+    typedef std::function<void (unsigned int ticket, const std::string &base,
+                                const std::string &flock,
+                                const GraftAsk &ask)> GraftRequest;
+
+    void setGraftRequest (const GraftRequest &fn) { graftRequest_ = fn; }
+
+    /* What the grafter bred for `ticket', taken as a Grafter's answer is,
+       unless the channel's growth has moved since it was asked; `ok'
+       false with `why' if it bred nothing. */
+    void graftAnswer (unsigned int ticket, bool ok, const std::string &flock,
+                      const std::string &champion, size_t depth,
+                      const std::string &why);
+
     /* `channel''s flock as the grafter left it, for a host to show; false
        while it has none. */
     bool flockText (int channel, std::string &text) const
@@ -1947,6 +1966,12 @@ private:
     std::map<int, Growth> grown_;
     Grower grower_;
     Grafter grafter_;
+    GraftRequest graftRequest_;
+
+    /* A generation's champion on `channel', its flock now `flock'. */
+    bool placeChampion (int channel, Growth &g, const std::string &flock,
+                        const std::string &champion, size_t depth,
+                        std::string &why);
     GrowRequest growRequest_;
     unsigned int growTicket_ = 0;
     thcAuditioner::Tuner tuner_;

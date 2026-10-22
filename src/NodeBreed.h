@@ -69,6 +69,10 @@ struct Params {
        graphs are played with -- in any spelling that changes when they
        do: a member's distance is kept only while this is what it was. */
     string heard;
+
+    /* Asked between renders: true gives the generation up, the flock as
+       it was. May be empty. */
+    std::function<bool ()> stop;
 };
 
 /* The renders a generation judges by, the host's. */
@@ -119,7 +123,8 @@ bool load (const string &text, Flock &flock);
    `synth': scored, its champion's text in `champion' and how many edits
    it is from `base' in `depth', and the next bred from `dice'. A flock
    with no members starts as `base' and mutants of it. False, with `why',
-   for a base that does not parse or makes no sound. */
+   for a base that does not parse or makes no sound, or a generation that
+   was stopped. */
 bool generation (thSynth *synth, const string &base, Flock &flock,
                  const Params &params, unsigned int dice, const Ear &ear,
                  string &champion, size_t &depth, string &why);
