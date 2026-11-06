@@ -25,18 +25,34 @@ const uint8_t THH_INDEX_INIT[2][5] = {
     { 0x07, 0x03, 0x00, 0x00, 0x00 },   /* light-sensor verbosity */
 };
 
-/* A first instrument: a chord's three notes under the thumb and finger, an
-   octave either way on the stick, and the further the trigger is pulled the
-   louder, so its own note, at the end of the pull, is the loudest. Not the
-   stick's click, which would move the stick it presses. */
+/* The controller's own instrument, after The Hands and the MI.MU gloves:
+   the thumb picks a degree on the trackpad and the trigger strikes it,
+   louder the faster it is pulled; tilt picks the octave, from the angle a
+   controller is held at; the grip's squeeze is loudness and brightness at
+   once, and the fingers' zones and the wrist shape the sound as it plays.
+   Its knobs are dsp/index.dsp's, and are dropped on a patch without them,
+   so the notes play anything. */
 const char *const THH_INDEX_PROFILE =
     "device index {\n"
     "    base = \"C4\";\n"
+    "\n"
+    "    trigger = strike 0 { at = 0.5; };\n"
     "    a = note 0;\n"
-    "    b = note 4;\n"
-    "    trigger_click = note 7;\n"
-    "    stick_y = pitch { step = octave; range = 1; };\n"
-    "    trigger = velocity { min = 40; max = 127; };\n"
+    "    b = note 7;\n"
+    "    pad_y = pitch { range = 7; };\n"
+    "    tilt = pitch { step = octave; range = 1; center = 0.25; };\n"
+    "\n"
+    "    grip_force = \"level\" { min = 0.6; max = 1; };\n"
+    "    grip_force = \"bright\" { min = 0.3; max = 0.9; };\n"
+    "    grip_mid = \"growl\";\n"
+    "    grip_low = \"air\" { max = 0.5; };\n"
+    "    stick_y = \"wobble\" { min = -1; max = 1; };\n"
+    "    roll = \"pan\" { min = -1; max = 1; };\n"
+    "\n"
+    "    layer fist {\n"
+    "        when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };\n"
+    "        roll = \"bend\" { min = -1; max = 1; };\n"
+    "    };\n"
     "};\n";
 
 /* In enum order, so a button's or an axis's index is its slot. */
