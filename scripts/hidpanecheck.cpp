@@ -44,7 +44,8 @@ describe (const std::vector<thhPaneRow> &rows)
     {
         const thhPaneRow &r = rows[i];
 
-        s += (r.layer.empty() ? "" : r.layer + ": ") + r.control + " | " +
+        s += (r.yours ? "" : "own ") +
+             (r.layer.empty() ? "" : r.layer + ": ") + r.control + " | " +
              r.action + " | " + r.target + " | " + r.value +
              (r.warning.empty() ? "" : " | ! " + r.warning) + "\n";
     }
@@ -70,6 +71,9 @@ static const Row ROWS[] = {
     { "the profile's channel over the keyboard's",
       "device index { channel = 2; a = note 4; };", NULL, NULL, 0, 0,
       "a | note +4 | channel 2 | up\n" },
+    { "the controller's own bindings, not the player's",
+      "device index { a = note 4; };", "own", NULL, 0, 0,
+      "own a | note +4 | the keyboard's channel (1) | up\n" },
     { "modifiers and octaves",
       "device index { system = toggle drone; thumbstick = hold mod; "
       "b = octave -1; layer mod { }; layer drone { }; };", NULL, NULL, 0, 0,
@@ -128,10 +132,14 @@ main (void)
         }
 
         s.connected = true;
-        if (r.down)
+        if (r.down && c.button(r.down) >= 0)
             s.buttons = 1u << c.button(r.down);
         if (r.axis)
             s.axis[c.axis(r.axis)] = r.to;
+
+        if (r.down && string(r.down) == "own")
+            for (size_t k = 0; k < blk.bindings.size(); k++)
+                blk.bindings[k].line = -blk.bindings[k].line;
 
         const string got = describe(thhPaneRows(blk, c, s, r.channel, hasArg));
 

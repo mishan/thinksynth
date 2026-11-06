@@ -34,6 +34,7 @@ struct thhPaneRow
     std::string control, action, target;
     std::string value;      /* the control now: down, up, or where it is */
     std::string warning;    /* what won't work, or empty */
+    bool        yours;      /* from the player's file, not the controller's */
 };
 
 /* curChannel is the keyboard's, 0-based; hasArg says whether a channel's

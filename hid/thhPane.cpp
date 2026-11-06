@@ -61,6 +61,7 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
 
     r.layer = layer;
     r.control = b.control;
+    r.yours = b.line > 0;
 
     switch (b.kind)
     {

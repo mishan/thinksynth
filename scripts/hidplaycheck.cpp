@@ -34,6 +34,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -57,10 +58,116 @@ report (const string &name, const string &why)
     }
 }
 
+/* A profile, short: each binding control:what, each layer [name: ...]. */
+static string
+describe (const thcHidBlock &p)
+{
+    std::ostringstream o;
+
+    o << "base" << p.base;
+    for (size_t i = 0; i < p.bindings.size(); i++)
+    {
+        const thcHidBinding &b = p.bindings[i];
+
+        o << " " << b.control << ":" << (b.kind == thcHidBinding::VALUE ? b.arg
+            : b.kind == thcHidBinding::HOLD ? "hold " + b.layer
+            : std::to_string(b.semis));
+    }
+    for (size_t l = 0; l < p.layers.size(); l++)
+    {
+        o << " [" << p.layers[l].name << ":";
+        for (size_t i = 0; i < p.layers[l].bindings.size(); i++)
+            o << " " << p.layers[l].bindings[i].control << ":"
+              << p.layers[l].bindings[i].semis;
+        o << "]";
+    }
+    return o.str();
+}
+
+/* What a file of the player's makes of the controller's own profile. */
 static void
 checkProfiles (const string &scratch)
 {
     const thhControls &c = thhIndexControls();
+    const char *own =
+        "device index {\n"
+        "    a = note 0;\n"
+        "    b = note 7;\n"
+        "    grip_force = \"level\";\n"
+        "    grip_force = \"bright\";\n"
+        "    stick_y = \"wobble\";\n"
+        "    thumbstick = hold fist;\n"
+        "    layer fist { a = note 12; };\n"
+        "};\n";
+    const string asIs = "base60 a:0 b:7 grip_force:level grip_force:bright "
+                        "stick_y:wobble thumbstick:hold fist [fist: a:12]";
+    struct Row
+    {
+        const char *name, *file;    /* NULL: there is no file */
+        bool        ok;
+        const char *want;           /* describe(), or the start of err */
+    };
+    const Row rows[] = {
+        { "no file is the controller's own profile", NULL, true, NULL },
+        { "an empty file is too", "device index { };", true, NULL },
+        { "a control of the player's replaces the controller's",
+          "device index { a = note 5; };", true,
+          "base60 b:7 grip_force:level grip_force:bright stick_y:wobble "
+          "thumbstick:hold fist a:5 [fist: a:12]" },
+        { "every binding of the control, not just one",
+          "device index { grip_force = \"cutoff\"; };", true,
+          "base60 a:0 b:7 stick_y:wobble thumbstick:hold fist "
+          "grip_force:cutoff [fist: a:12]" },
+        { "a control ignored",
+          "device index { ignore stick_y; };", true,
+          "base60 a:0 b:7 grip_force:level grip_force:bright "
+          "thumbstick:hold fist [fist: a:12]" },
+        { "a layer of the player's replaces the one of its name",
+          "device index { layer fist { a = note 24; }; };", true,
+          "base60 a:0 b:7 grip_force:level grip_force:bright stick_y:wobble "
+          "thumbstick:hold fist [fist: a:24]" },
+        { "a setting of the player's",
+          "device index { base = \"C3\"; };", true,
+          "base48 a:0 b:7 grip_force:level grip_force:bright stick_y:wobble "
+          "thumbstick:hold fist [fist: a:12]" },
+        { "ignoring a layer the controller's own still holds",
+          "device index { ignore fist; };", false,
+          "the controller's own profile, line 7: there is no layer 'fist'" },
+        { "ignoring what isn't there",
+          "device index {\n  ignore nothing;\n};", false, "/mine:2: " },
+        { "a control the device doesn't have",
+          "device index {\n  zz = note 5;\n};", false, "/mine:2: " },
+        { "a file that doesn't parse",
+          "device index {\n  a = note\n", false, "/mine:" },
+    };
+
+    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++)
+    {
+        const Row &r = rows[i];
+        const string path = scratch + "/mine";
+        thcHidBlock blk;
+        string err;
+
+        fs::remove(path);
+        if (r.file)
+            std::ofstream(path) << r.file;
+
+        const bool ok = thhLoadProfile(path, c, own, blk, err);
+        const string want = r.want ? r.want : asIs;
+
+        if (r.ok)
+            report(r.name, ok && describe(blk) == want ? "" :
+                   !ok ? "refused: " + err :
+                   "read as\n    " + describe(blk) + "\n  wanted\n    " +
+                   want);
+        else
+            report(r.name,
+                   !ok && err.find(want) != string::npos &&
+                   describe(blk) == asIs ? "" :
+                   ok ? "accepted as " + describe(blk) :
+                   "said \"" + err + "\", played " + describe(blk));
+    }
+
     thcHidBlock blk;
     thhMapper m;
     std::vector<thhAction> none;
@@ -71,45 +178,31 @@ checkProfiles (const string &scratch)
            thcHidParseProfile(THH_INDEX_PROFILE, blk, err, line) &&
            m.configure(blk, c, none, err, line) ? "" : err);
 
-    const bool missing = thhLoadProfile(scratch + "/nothing-here", c,
-                                        THH_INDEX_PROFILE, blk, err);
-
-    report("no file is the Index's own profile",
-           missing && !blk.bindings.empty() ? "" : "said \"" + err + "\"");
-
-    std::ofstream(scratch + "/mine") << "device index {\n  a = note 5;\n};\n";
-    report("a file of the player's own",
-           thhLoadProfile(scratch + "/mine", c, THH_INDEX_PROFILE, blk, err) &&
-           blk.bindings.size() == 1 && blk.bindings[0].semis == 5 ? "" :
-           "said \"" + err + "\"");
-
-    std::ofstream(scratch + "/wrong") << "device index {\n  zz = note 5;\n};\n";
-
-    const bool wrong = thhLoadProfile(scratch + "/wrong", c, THH_INDEX_PROFILE,
-                                      blk, err);
-
-    report("a file that doesn't fit says where, and plays the Index's own",
-           !wrong && err.find(scratch + "/wrong:2: ") == 0 &&
-           blk.bindings.size() > 1 ? "" : "said \"" + err + "\"");
+    /* docs/HID.md's example of a profile of changes, as written there. */
+    std::ofstream(scratch + "/example") <<
+        "device index {\n"
+        "    grip_mid = \"wobble\";          # in place of growl\n"
+        "    ignore stick_y;               # no vibrato on the stick\n"
+        "    layer fist {                  # a fist of your own hand's measure\n"
+        "        when { grip_top = 0.7; grip_mid = 0.7; grip_low = 0.7; };\n"
+        "        roll = \"bend\" { min = -1; max = 1; smooth = 0.05; };\n"
+        "    };\n"
+        "};\n";
+    report("docs/HID.md's example fits the Index's own profile",
+           thhLoadProfile(scratch + "/example", c, THH_INDEX_PROFILE, blk,
+                          err) ? "" : err);
 
     std::ofstream(scratch + "/unreadable") << "device index { };\n";
     fs::permissions(scratch + "/unreadable", fs::perms::none);
     if (!std::ifstream(scratch + "/unreadable"))
         report("a file it may not read says so",
-               !thhLoadProfile(scratch + "/unreadable", c, THH_INDEX_PROFILE,
-                               blk, err) &&
+               !thhLoadProfile(scratch + "/unreadable", c, own, blk, err) &&
                err.find(scratch + "/unreadable") == 0 ? "" :
                "said \"" + err + "\"");
     else
         printf("skip  a file it may not read (it can read anything)\n");
     /* Windows takes none as read-only, which remove_all can't delete. */
     fs::permissions(scratch + "/unreadable", fs::perms::owner_all);
-
-    std::ofstream(scratch + "/broken") << "device index {\n  a = note\n";
-    report("a file that doesn't parse says where",
-           !thhLoadProfile(scratch + "/broken", c, THH_INDEX_PROFILE, blk,
-                           err) &&
-           err.find(scratch + "/broken:") == 0 ? "" : "said \"" + err + "\"");
 }
 
 static thhAction

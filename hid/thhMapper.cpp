@@ -106,10 +106,15 @@ thhMapper::bindLayer (const std::vector<thcHidBinding> &bindings,
             l.velocity = (int)l.binds.size();
         }
 
-        /* The parser has checked the layer exists. */
         for (size_t j = 0; j < profile.layers.size(); j++)
             if (profile.layers[j].name == b.layer)
                 bound.layer = (int)j + 1;
+        if ((b.kind == thcHidBinding::HOLD || b.kind == thcHidBinding::TOGGLE) &&
+            bound.layer < 0)
+        {
+            err = "there is no layer '" + b.layer + "'";
+            return false;
+        }
 
         if (!wantsButton)
             bound.bipolar = controls.axes[axis].bipolar;

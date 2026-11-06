@@ -74,11 +74,30 @@ device index {
 
 ## Your own profile
 
-Write one to `hid/index` in thinksynth's configuration directory, normally
-`~/.config/thinksynth/hid/index`. It is read when thinksynth starts; one
-that can't be read, doesn't parse, or names a control the controller
-hasn't got is reported on the terminal with its line, and the controller
-plays its own instead.
+Your profile is changes to the controller's own: write them to `hid/index`
+in thinksynth's configuration directory, normally
+`~/.config/thinksynth/hid/index` (the Controller pane's Open file starts
+one). A control you bind replaces every binding of it in the controller's
+own profile, a layer replaces the layer of its name, `ignore NAME;` drops a
+control or a layer, and `base`, `channel` and `velocity` are yours if you
+set them. Everything else stays the controller's own, so it reaches you as
+it grows:
+
+```
+device index {
+    grip_mid = "wobble";          # in place of growl
+    ignore stick_y;               # no vibrato on the stick
+    layer fist {                  # a fist of your own hand's measure
+        when { grip_top = 0.7; grip_mid = 0.7; grip_low = 0.7; };
+        roll = "bend" { min = -1; max = 1; smooth = 0.05; };
+    };
+};
+```
+
+It is read when thinksynth starts and when the pane's Reload is pressed; one
+that can't be read, doesn't parse, or names a control the controller hasn't
+got is reported with its line, and the controller plays its own profile
+alone. The pane marks the bindings that are yours.
 
 A profile is settings and bindings, in the `.gen` file's syntax:
 

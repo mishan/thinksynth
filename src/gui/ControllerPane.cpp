@@ -24,8 +24,18 @@
 
 namespace fs = std::filesystem;
 
-static const char *HEADINGS[6] = { "Layer", "Control", "Does", "Where", "Now",
-                                   "" };
+static const char *HEADINGS[7] = { "Layer", "Control", "Does", "Where", "Now",
+                                   "", "" };
+
+/* What Open file writes where there is no profile yet: changes, not a copy,
+   so the controller's own profile still reaches its player as it grows. */
+static const char TEMPLATE[] =
+    "# Your changes to the Valve Index controller's own profile, which\n"
+    "# docs/HID.md lists. A control bound here replaces every binding of it\n"
+    "# there, a layer replaces the layer of its name, `ignore NAME;' drops\n"
+    "# either, and base, channel and velocity are yours if you set them.\n"
+    "device index {\n"
+    "};\n";
 
 ControllerPane::ControllerPane (void)
     : Gtk::Box(Gtk::Orientation::VERTICAL, 6), source_(NULL), generation_(0),
@@ -77,7 +87,7 @@ void ControllerPane::rebuild (size_t rows)
         grid_.remove(*w);
     cells_.clear();
 
-    for (int c = 0; c < 6; c++)
+    for (int c = 0; c < 7; c++)
     {
         Gtk::Label *h = Gtk::make_managed<Gtk::Label>(HEADINGS[c]);
 
@@ -88,15 +98,16 @@ void ControllerPane::rebuild (size_t rows)
 
     for (size_t r = 0; r < rows; r++)
     {
-        std::array<Gtk::Label *, 6> row;
+        std::array<Gtk::Label *, 7> row;
 
-        for (int c = 0; c < 6; c++)
+        for (int c = 0; c < 7; c++)
         {
             row[c] = Gtk::make_managed<Gtk::Label>();
             row[c]->set_xalign(0);
             grid_.attach(*row[c], c, (int)r + 1);
         }
-        row[5]->add_css_class("error");
+        row[5]->add_css_class("dim-label");
+        row[6]->add_css_class("error");
         cells_.push_back(row);
     }
 }
@@ -129,10 +140,12 @@ bool ControllerPane::onTick (void)
     for (size_t r = 0; r < rows.size(); r++)
     {
         const thhPaneRow &row = rows[r];
-        const std::string *text[6] = { &row.layer, &row.control, &row.action,
-                                       &row.target, &row.value, &row.warning };
+        const std::string yours = row.yours ? "yours" : "";
+        const std::string *text[7] = { &row.layer, &row.control, &row.action,
+                                       &row.target, &row.value, &yours,
+                                       &row.warning };
 
-        for (int c = 0; c < 6; c++)
+        for (int c = 0; c < 7; c++)
             if (cells_[r][c]->get_text().raw() != *text[c])
                 cells_[r][c]->set_text(*text[c]);
     }
@@ -143,9 +156,11 @@ bool ControllerPane::onTick (void)
         : why.empty() ? "Looking for a Valve Index controller..."
         : why + ".";
 
-    line += "\nProfile: " + source_->path() +
-            (fs::exists(source_->path()) ? "" : " (none yet; playing the "
-                                                "controller's own)");
+    line += "\nProfile: the controller's own" +
+            (fs::exists(source_->path()) ? ", with your changes in " +
+                                               source_->path()
+                                         : std::string(" (no changes of yours "
+                                                       "yet)"));
     if (status_.get_text().raw() != line)
         status_.set_text(line);
 
@@ -169,7 +184,7 @@ void ControllerPane::onOpen (void)
     if (!fs::exists(path, ec))
     {
         fs::create_directories(path.parent_path(), ec);
-        std::ofstream(path) << THH_INDEX_PROFILE;
+        std::ofstream(path) << TEMPLATE;
     }
 
     try

@@ -48,7 +48,7 @@ private:
     Gtk::Grid   grid_;
     Gtk::Box    buttons_;
     Gtk::Button reload_, open_;
-    std::vector<std::array<Gtk::Label *, 6>> cells_;
+    std::vector<std::array<Gtk::Label *, 7>> cells_;
     sigc::connection tick_;
 
     bool onTick (void);

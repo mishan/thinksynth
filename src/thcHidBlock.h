@@ -90,7 +90,13 @@ struct thcHidBlock
     std::vector<thcHidBinding> bindings;
     std::vector<thcHidLayer>   layers;
 
-    thcHidBlock () : channel(0), base(60), velocity(100) {}
+    /* What a profile of changes says it sets, and drops from what it
+       changes: `ignore NAME;', a control or a layer. */
+    bool                       hasChannel, hasBase, hasVelocity;
+    std::vector<std::pair<std::string, int> > ignore;   /* name, line */
+
+    thcHidBlock () : channel(0), base(60), velocity(100), hasChannel(false),
+                     hasBase(false), hasVelocity(false) {}
 };
 
 /* The body of a block, from the `{' at toks[pos] through its closing `}'.

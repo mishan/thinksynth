@@ -86,6 +86,11 @@ describe (const thcHidBlock &blk)
 
     s << blk.device << " ch" << blk.channel << " base" << blk.base
       << " vel" << blk.velocity;
+    if (blk.hasChannel || blk.hasBase || blk.hasVelocity)
+        s << " sets" << (blk.hasChannel ? " ch" : "") <<
+             (blk.hasBase ? " base" : "") << (blk.hasVelocity ? " vel" : "");
+    for (size_t i = 0; i < blk.ignore.size(); i++)
+        s << " -" << blk.ignore[i].first;
 
     for (size_t i = 0; i < blk.bindings.size(); i++)
         s << " | " << describe(blk.bindings[i]);
@@ -148,7 +153,7 @@ static const Row ROWS[] = {
       "        channel = 2;\n"
       "    };\n"
       "};\n",
-      "index ch1 base60 vel90"
+      "index ch1 base60 vel90 sets ch base vel"
       " | stick_y:pitch octave 2 @5"
       " | a:note 0 @6 | b:note 2 @6 | thumbstick:note 4 @6"
       " | trigger:velocity min30 max127 @7"
@@ -165,7 +170,13 @@ static const Row ROWS[] = {
 
     { "a sharp in the base note",
       "device index { base = \"C#4\"; };",
-      "index ch0 base61 vel100", 0, NULL },
+      "index ch0 base61 vel100 sets base", 0, NULL },
+    { "controls and layers dropped",
+      "device index { ignore stick_y; ignore fist; };",
+      "index ch0 base60 vel100 -stick_y -fist", 0, NULL },
+    { "an ignore inside a layer",
+      "device index {\n  layer a {\n    ignore b;\n  };\n};", NULL, 3,
+      "inside a layer" },
 
     { "a note on its own channel",
       "device index { a = note 0 { channel = 3; }; };",

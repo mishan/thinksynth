@@ -421,8 +421,18 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
     if (tok.kind != Tok::WORD)
         return fail(tok, "expected a control or a setting");
 
-    if (inLayer && (k == "layer" || k == "velocity"))
+    if (inLayer && (k == "layer" || k == "velocity" || k == "ignore"))
         return fail(tok, k + " can't be set inside a layer");
+    if (k == "ignore")
+    {
+        std::string name;
+
+        i_++;
+        if (!word(name, "ignore"))
+            return false;
+        blk.ignore.push_back(std::make_pair(name, tok.line));
+        return expect(';');
+    }
     if (k == "when")
         return fail(tok, "a posture's when belongs in a layer");
     if (k == "layer")
@@ -437,6 +447,9 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
             : k == "base"  ? !baseNote(base)
             : !integer(blk.velocity, 1, 127, "velocity"))
             return false;
+        if (!inLayer)
+            (k == "channel" ? blk.hasChannel : k == "base" ? blk.hasBase
+                                                           : blk.hasVelocity) = true;
         return expect(';');
     }
 
