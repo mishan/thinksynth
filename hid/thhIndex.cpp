@@ -16,6 +16,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <cmath>
+
 #include "thhIndex.h"
 
 const uint8_t THH_INDEX_INIT[2][5] = {
@@ -52,6 +54,7 @@ thhIndexControls ()
             { "grip_force", false }, { "trigger", false },
             { "pad_x", true }, { "pad_y", true }, { "pad_force", false },
             { "stick_x", true }, { "stick_y", true },
+            { "tilt", true }, { "roll", true }, { "twist", true },
         },
     };
 
@@ -120,12 +123,16 @@ thhIndexFeed (const uint8_t *data, size_t len, thhState &s)
 }
 
 /* Walks the descriptor's short items (HID 1.11, 6.2.2.2) for the globals
-   that size a report and the Input items that declare one. */
-bool
-thhIndexIsInput (const uint8_t *desc, size_t len)
+   that size and number a report and the Input items that declare one:
+   the bits of input with no report ID, whether any report has an ID, and
+   whether one of the inputs is report 0x20. False if it is cut short. */
+static bool
+walk (const uint8_t *desc, size_t len, unsigned &bits, bool &ids, bool &imu)
 {
-    unsigned size = 0, count = 0, bits = 0;
+    unsigned size = 0, count = 0, id = 0;
 
+    bits = 0;
+    ids = imu = false;
     for (size_t i = 0; i < len;)
     {
         const uint8_t prefix = desc[i];
@@ -147,12 +154,92 @@ thhIndexIsInput (const uint8_t *desc, size_t len)
 
         switch (prefix & 0xfc)
         {
-        case 0x84: return false;        /* Report ID */
-        case 0x74: size = v; break;     /* Report Size */
-        case 0x94: count = v; break;    /* Report Count */
-        case 0x80: bits += size * count; break;     /* Input */
+        case 0x84: id = v; ids = true; break;   /* Report ID */
+        case 0x74: size = v; break;             /* Report Size */
+        case 0x94: count = v; break;            /* Report Count */
+        case 0x80:                              /* Input */
+            if (!ids)
+                bits += size * count;
+            imu = imu || id == 0x20;
+            break;
         }
     }
 
-    return bits == 64 * 8;
+    return true;
+}
+
+bool
+thhIndexIsInput (const uint8_t *desc, size_t len)
+{
+    unsigned bits;
+    bool ids, imu;
+
+    return walk(desc, len, bits, ids, imu) && !ids && bits == 64 * 8;
+}
+
+bool
+thhIndexIsImu (const uint8_t *desc, size_t len)
+{
+    unsigned bits;
+    bool ids, imu;
+
+    return walk(desc, len, bits, ids, imu) && imu;
+}
+
+/* How much of each sample the smoothed gravity takes: at about 750 samples
+   a second, a time constant near 70 ms, steady enough to hold a pose
+   without lagging a turn of the wrist much. Twist, already a rate, is only
+   taken off its noise. */
+#define THH_INDEX_GRAVITY 0.02f
+#define THH_INDEX_TWISTING 0.2f
+/* The gyro's count at a quick twist of the wrist, which reads as 1. */
+#define THH_INDEX_TWIST_FULL 8192.0f
+
+static float
+clamp1 (float v)
+{
+    return v < -1 ? -1 : v > 1 ? 1 : v;
+}
+
+bool
+thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
+                 thhState &s)
+{
+    if (len < 52 || data[0] != 0x20)
+        return false;
+
+    for (int k = 0; k < 3; k++)
+    {
+        const uint8_t *p = data + 1 + 17 * k;
+        float a[3];
+
+        for (int i = 0; i < 3; i++)
+            a[i] = (int16_t)(p[2 * i] | (p[2 * i + 1] << 8));
+
+        const float twist = (int16_t)(p[6] | (p[7] << 8)) /
+                            THH_INDEX_TWIST_FULL;
+
+        for (int i = 0; i < 3; i++)
+            imu.g[i] = imu.primed ? imu.g[i] + THH_INDEX_GRAVITY * (a[i] - imu.g[i])
+                                  : a[i];
+        imu.twist = imu.primed ? imu.twist + THH_INDEX_TWISTING *
+                                     (twist - imu.twist)
+                               : twist;
+        imu.primed = true;
+    }
+
+    /* The front is -x, and the top -y in the hand. */
+    const float g = std::sqrt(imu.g[0] * imu.g[0] + imu.g[1] * imu.g[1] +
+                              imu.g[2] * imu.g[2]);
+
+    if (g > 0)
+    {
+        s.axis[THH_INDEX_TILT] = clamp1(std::asin(clamp1(-imu.g[0] / g)) /
+                                        (float)(M_PI / 2));
+        s.axis[THH_INDEX_ROLL] = clamp1(std::atan2(imu.g[2], -imu.g[1]) /
+                                        (float)(M_PI / 2));
+    }
+    s.axis[THH_INDEX_TWIST] = clamp1(imu.twist);
+
+    return true;
 }

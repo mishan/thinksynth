@@ -127,7 +127,7 @@ sysTree (const string &root, const std::vector<Node> &nodes)
 static string
 describe (const thhIndexNodes &n)
 {
-    string s = "input " + n.input + ", all";
+    string s = "input " + n.input + ", imu " + n.imu + ", all";
 
     for (size_t i = 0; i < n.all.size(); i++)
         s += " " + n.all[i];
@@ -150,13 +150,15 @@ checkFind (const string &scratch)
             { "1-2", 1, INDEX, VALVE, "light", 13 },
             { "1-2", 2, INDEX, VALVE, "input", 14 },
             { "1-5", 0, "Some Keyboard", "0003:0000046D:0000C31C", "input", 2 } },
-          "input /dev/hidraw14, all /dev/hidraw13 /dev/hidraw14 /dev/hidraw8" },
+          "input /dev/hidraw14, imu /dev/hidraw8, all /dev/hidraw13 "
+          "/dev/hidraw14 /dev/hidraw8" },
         { "the first of two controllers, not a mix of both",
           { { "1-4", 0, INDEX, VALVE, "input", 20 },
             { "1-4", 1, INDEX, VALVE, "imu", 21 },
             { "1-3", 0, INDEX, VALVE, "imu", 30 },
             { "1-3", 1, INDEX, VALVE, "input", 31 } },
-          "input /dev/hidraw31, all /dev/hidraw30 /dev/hidraw31" },
+          "input /dev/hidraw31, imu /dev/hidraw30, all /dev/hidraw30 "
+          "/dev/hidraw31" },
         { "no controller",
           { { "1-1", 0, "HTC Vive Tracker", VALVE, "input", 3 } }, NULL },
         { "a controller with no input interface",
@@ -217,26 +219,30 @@ describe (const std::vector<thhState> &edges)
 /* A reader on one end of a socket pair, the test holding the other. */
 struct Rig
 {
-    int                        far;
+    int                        far, farImu;
     std::atomic<int>           connects, wakes;
     std::unique_ptr<thhReader> reader;
     std::vector<thhState>      edges;
     thhState                   latest;
 
     /* Silence well past any wait here, unless it is what's being checked. */
-    Rig (int silenceMs = 60000) : far(-1), connects(0), wakes(0)
+    Rig (int silenceMs = 60000) : far(-1), farImu(-1), connects(0), wakes(0)
     {
-        int sv[2];
+        int sv[2], mv[2];
 
-        if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0)
+        if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0 ||
+            socketpair(AF_UNIX, SOCK_SEQPACKET, 0, mv) < 0)
             abort();
         far = sv[1];
+        farImu = mv[1];
         reader.reset(new thhReader(
-            [this, sv](int &in, std::vector<int> &fds, string &) {
+            [this, sv, mv](int &in, int &imu, std::vector<int> &fds,
+                           string &) {
                 if (connects++ > 0)
                     return false;
                 in = sv[0];
-                fds.assign(1, sv[0]);
+                imu = mv[0];
+                fds.assign({ sv[0], mv[0] });
                 return true;
             },
             [this]() { wakes++; }, silenceMs));
@@ -247,11 +253,14 @@ struct Rig
         reader.reset();
         if (far >= 0)
             close(far);
+        close(farImu);
     }
 
-    void send (const std::vector<uint8_t> &r)
+    void send (const std::vector<uint8_t> &r, bool toImu = false)
     {
-        if (write(far, r.data(), r.size()) != (ssize_t)r.size())
+        const int to = toImu ? farImu : far;
+
+        if (write(to, r.data(), r.size()) != (ssize_t)r.size())
             abort();
     }
 
@@ -299,6 +308,23 @@ checkReader (void)
                r.edges.empty() &&
                std::fabs(r.latest.axis[THH_INDEX_TRIGGER] - 0x30 / 255.0f) <
                    1e-6 ? "" : "edges: " + describe(r.edges));
+
+        /* The IMU's report: three samples of the front tipped straight up. */
+        std::vector<uint8_t> up(52, 0);
+
+        up[0] = 0x20;
+        for (int k = 0; k < 3; k++)
+        {
+            up[1 + 17 * k] = 0x00;
+            up[2 + 17 * k] = 0xf0;      /* x -4096: the front is -x */
+        }
+        r.send(up, true);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        r.settle(0);
+        report("the IMU moves tilt and is no edge",
+               r.edges.empty() && r.latest.axis[THH_INDEX_TILT] > 0.99f ? "" :
+               "edges: " + describe(r.edges) + ", tilt " +
+               std::to_string(r.latest.axis[THH_INDEX_TILT]));
 
         r.send(input(0, 0));
         r.send(input(1, 0));
@@ -356,10 +382,10 @@ checkPermission (const string &scratch)
     std::ofstream(dev + "/hidraw14") << "";
     chmod((dev + "/hidraw14").c_str(), 0);
 
-    int in = -1;
+    int in = -1, imu = -1;
     std::vector<int> fds;
     string status;
-    const bool ok = thhConnectIndex(sys, dev, in, fds, status);
+    const bool ok = thhConnectIndex(sys, dev, in, imu, fds, status);
 
     report("a node it may not open says how to allow it",
            !ok && status.find("udev") != string::npos ? "" :

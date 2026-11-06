@@ -90,3 +90,6 @@ Axes, 0 to 1 unless they center:
 | `stick_x`, `stick_y` | the stick, -1 to 1, +y away from the hand |
 | `pad_x`, `pad_y` | the trackpad where it is touched, -1 to 1, centered when it isn't |
 | `pad_force` | how hard the trackpad is pressed |
+| `tilt` | the front's angle above level, -1 (straight down) to 1 (straight up); held as you play it, about 0.25 |
+| `roll` | turning around the front, -1 to 1 over a quarter turn either way, + as the buttons turn left |
+| `twist` | how fast it is turning around the front, -1 to 1 |

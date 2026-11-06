@@ -1099,7 +1099,8 @@ add_test(NAME hidmapcheck COMMAND hidmapcheck)
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"
-                          "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt")
+                          "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt"
+                          "${PROJECT_SOURCE_DIR}/scripts/hid/index-imu.txt")
 
 # The corpus, because "a row says what loading the file would have said" is a
 # claim about the shipped graphs; the fixtures run either way. The plugins are

@@ -40,8 +40,8 @@ gthHid::gthHid (thSynth *synth, const std::function<int ()> &channel)
 
     dispatcher_.connect(sigc::mem_fun(*this, &gthHid::drained));
     reader_.reset(new thhReader(
-        [](int &input, std::vector<int> &fds, std::string &status) {
-            return thhConnectIndex("/sys", "/dev", input, fds, status);
+        [](int &input, int &imu, std::vector<int> &fds, std::string &status) {
+            return thhConnectIndex("/sys", "/dev", input, imu, fds, status);
         },
         [this]() { dispatcher_.emit(); }));
 }
