@@ -85,6 +85,7 @@ struct thcHidLayer
 struct thcHidBlock
 {
     std::string device;
+    std::string hand;       /* "left", "right", or empty for either */
     int         channel;    /* 1-16; 0 plays the host's current channel */
     int         base;       /* MIDI note */
     int         velocity;   /* what buttons play at with no velocity source */
@@ -110,5 +111,12 @@ bool thcHidParseBlock (const std::vector<thcGenToken> &toks, size_t &pos,
 /* A whole profile file: `device NAME { ... };' and nothing else. */
 bool thcHidParseProfile (const std::string &text, thcHidBlock &out,
                          std::string &err, int &errLine);
+
+/* A profile of a device a hand holds: `device NAME { ... };' for either
+   hand, and `device NAME left { ... };' and `device NAME right { ... };'
+   for one, each at most once, in any order. */
+bool thcHidParseProfiles (const std::string &text,
+                          std::vector<thcHidBlock> &out, std::string &err,
+                          int &errLine);
 
 #endif /* TH_HID_BLOCK_H */

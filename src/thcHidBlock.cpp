@@ -37,6 +37,7 @@ public:
 
     bool block (thcHidBlock &out);
     bool profile (thcHidBlock &out);
+    bool profiles (std::vector<thcHidBlock> &out);
 
 private:
     const std::vector<Tok> &t_;
@@ -589,6 +590,45 @@ Parser::profile (thcHidBlock &out)
     return true;
 }
 
+/* `device NAME [left|right] { ... };', again for each hand. */
+bool
+Parser::profiles (std::vector<thcHidBlock> &out)
+{
+    out.clear();
+    while (peek().kind != Tok::END)
+    {
+        thcHidBlock b;
+
+        if (!isWord(peek(), "device"))
+            return fail(peek(), "a profile is 'device' blocks");
+        i_++;
+        if (!word(b.device, "device"))
+            return false;
+        if (!out.empty() && b.device != out[0].device)
+            return fail(t_[i_ - 1], "a profile is of one device");
+
+        if (peek().kind == Tok::WORD)
+        {
+            if (peek().text != "left" && peek().text != "right")
+                return fail(peek(), "'" + peek().text + "' is not a hand; "
+                            "write left or right");
+            b.hand = peek().text;
+            i_++;
+        }
+        for (size_t k = 0; k < out.size(); k++)
+            if (out[k].hand == b.hand)
+                return fail(t_[i_ - 1], (b.hand.empty() ? "either hand"
+                                                         : "the " + b.hand +
+                                                           " hand") +
+                            " already has a block");
+
+        if (!block(b) || !expect(';'))
+            return false;
+        out.push_back(b);
+    }
+    return true;
+}
+
 } /* namespace */
 
 bool
@@ -611,4 +651,18 @@ thcHidParseProfile (const std::string &text, thcHidBlock &out,
         return false;
 
     return Parser(toks, pos, err, errLine).profile(out);
+}
+
+bool
+thcHidParseProfiles (const std::string &text, std::vector<thcHidBlock> &out,
+                     std::string &err, int &errLine)
+{
+    std::vector<Tok> toks;
+    size_t pos = 0;
+
+    out.clear();
+    if (!thcGenLoader::tokenize(text, toks, err, errLine))
+        return false;
+
+    return Parser(toks, pos, err, errLine).profiles(out);
 }

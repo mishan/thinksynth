@@ -16,6 +16,7 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -61,87 +62,113 @@ thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
     }
 }
 
-/* The player's changes on the controller's own profile: a control bound in
-   mine replaces every binding of it in own, a layer replaces the one of its
-   name, an ignore drops either, and a setting mine sets is mine. Own's
-   lines go negative, so an error in what is left of it can say so. False
-   if mine ignores what isn't there. */
-static bool
-overlay (const thcHidBlock &own, const thcHidBlock &mine, thcHidBlock &out,
-         std::string &err, int &line)
+/* A block's lines made negative: the device's own, so an error in what is
+   left of it can say so, and the pane can tell it from the player's. */
+static void
+owned (thcHidBlock &b)
 {
-    out = own;
-    for (size_t i = 0; i < out.bindings.size(); i++)
-        out.bindings[i].line = -out.bindings[i].line;
-    for (size_t l = 0; l < out.layers.size(); l++)
+    for (size_t i = 0; i < b.bindings.size(); i++)
+        b.bindings[i].line = -std::abs(b.bindings[i].line);
+    for (size_t l = 0; l < b.layers.size(); l++)
     {
-        out.layers[l].line = -out.layers[l].line;
-        out.layers[l].whenLine = -out.layers[l].whenLine;
-        for (size_t i = 0; i < out.layers[l].bindings.size(); i++)
-            out.layers[l].bindings[i].line = -out.layers[l].bindings[i].line;
+        b.layers[l].line = -std::abs(b.layers[l].line);
+        b.layers[l].whenLine = -std::abs(b.layers[l].whenLine);
+        for (size_t i = 0; i < b.layers[l].bindings.size(); i++)
+            b.layers[l].bindings[i].line = -std::abs(b.layers[l].bindings[i].line);
     }
+}
 
-    if (mine.hasChannel)
-        out.channel = mine.channel;
-    if (mine.hasBase)
-        out.base = mine.base;
-    if (mine.hasVelocity)
-        out.velocity = mine.velocity;
+/* over on top of into: a control bound in over replaces every binding of
+   it in into, a layer replaces the one of its name, an ignore drops
+   either, and a setting over sets is over's. False if over ignores what
+   isn't there. */
+static bool
+overlay (thcHidBlock &into, const thcHidBlock &over, std::string &err,
+         int &line)
+{
+    if (over.hasChannel)
+        into.channel = over.channel;
+    if (over.hasBase)
+        into.base = over.base;
+    if (over.hasVelocity)
+        into.velocity = over.velocity;
 
-    const auto drop = [&out](const std::string &name) {
-        const size_t had = out.bindings.size() + out.layers.size();
+    const auto drop = [&into](const std::string &name) {
+        const size_t had = into.bindings.size() + into.layers.size();
 
-        for (size_t i = out.bindings.size(); i-- > 0;)
-            if (out.bindings[i].control == name)
-                out.bindings.erase(out.bindings.begin() + i);
-        for (size_t l = out.layers.size(); l-- > 0;)
-            if (out.layers[l].name == name)
-                out.layers.erase(out.layers.begin() + l);
-        return out.bindings.size() + out.layers.size() < had;
+        for (size_t i = into.bindings.size(); i-- > 0;)
+            if (into.bindings[i].control == name)
+                into.bindings.erase(into.bindings.begin() + i);
+        for (size_t l = into.layers.size(); l-- > 0;)
+            if (into.layers[l].name == name)
+                into.layers.erase(into.layers.begin() + l);
+        return into.bindings.size() + into.layers.size() < had;
     };
 
-    for (size_t i = 0; i < mine.ignore.size(); i++)
-        if (!drop(mine.ignore[i].first))
+    for (size_t i = 0; i < over.ignore.size(); i++)
+        if (!drop(over.ignore[i].first))
         {
-            err = "the controller's own profile has no '" +
-                  mine.ignore[i].first + "' to ignore";
-            line = mine.ignore[i].second;
+            err = "there is no '" + over.ignore[i].first + "' to ignore";
+            line = over.ignore[i].second;
             return false;
         }
 
-    for (size_t i = 0; i < mine.bindings.size(); i++)
-        for (size_t k = out.bindings.size(); k-- > 0;)
-            if (out.bindings[k].control == mine.bindings[i].control)
-                out.bindings.erase(out.bindings.begin() + k);
-    out.bindings.insert(out.bindings.end(), mine.bindings.begin(),
-                        mine.bindings.end());
+    for (size_t i = 0; i < over.bindings.size(); i++)
+        for (size_t k = into.bindings.size(); k-- > 0;)
+            if (into.bindings[k].control == over.bindings[i].control)
+                into.bindings.erase(into.bindings.begin() + k);
+    into.bindings.insert(into.bindings.end(), over.bindings.begin(),
+                         over.bindings.end());
 
-    for (size_t l = 0; l < mine.layers.size(); l++)
+    for (size_t l = 0; l < over.layers.size(); l++)
     {
         size_t k = 0;
 
-        while (k < out.layers.size() && out.layers[k].name != mine.layers[l].name)
+        while (k < into.layers.size() && into.layers[k].name != over.layers[l].name)
             k++;
-        if (k < out.layers.size())
-            out.layers[k] = mine.layers[l];
+        if (k < into.layers.size())
+            into.layers[k] = over.layers[l];
         else
-            out.layers.push_back(mine.layers[l]);
+            into.layers.push_back(over.layers[l]);
     }
 
     return true;
 }
 
+/* The blocks of a profile for one hand, either hand's first. */
+static bool
+forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
+         bool own, thcHidBlock &into, std::string &err, int &line)
+{
+    for (int pass = 0; pass < 2; pass++)
+        for (size_t i = 0; i < blocks.size(); i++)
+            if (blocks[i].hand == (pass ? hand : std::string()))
+            {
+                thcHidBlock b = blocks[i];
+
+                if (own)
+                    owned(b);
+                into.device = b.device;
+                if (!overlay(into, b, err, line))
+                    return false;
+            }
+    return true;
+}
+
 bool
 thhLoadProfile (const std::string &path, const thhControls &controls,
-                const char *fallback, thcHidBlock &out, std::string &err)
+                const char *fallback, const std::string &hand,
+                thcHidBlock &out, std::string &err)
 {
     std::error_code ec;
     std::string ignored;
+    std::vector<thcHidBlock> ownBlocks;
     thcHidBlock own;
     int line = 0;
 
     err.clear();
-    thcHidParseProfile(fallback, own, ignored, line);
+    thcHidParseProfiles(fallback, ownBlocks, ignored, line);
+    forHand(ownBlocks, hand, true, own, ignored, line);
     out = own;
 
     if (!std::filesystem::exists(path, ec))
@@ -149,15 +176,16 @@ thhLoadProfile (const std::string &path, const thhControls &controls,
 
     std::ifstream in(path.c_str());
     std::ostringstream text;
-    thcHidBlock mine, both;
+    std::vector<thcHidBlock> mine;
+    thcHidBlock both = own;
     thhMapper check;
     std::vector<thhAction> none;
 
     text << in.rdbuf();
     if (!in)
         err = path + ": can't read it";
-    else if (thcHidParseProfile(text.str(), mine, err, line) &&
-             overlay(own, mine, both, err, line) &&
+    else if (thcHidParseProfiles(text.str(), mine, err, line) &&
+             forHand(mine, hand, false, both, err, line) &&
              check.configure(both, controls, none, err, line))
     {
         out = both;

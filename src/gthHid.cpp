@@ -60,7 +60,7 @@ gthHid::reload (std::string &err)
     std::string ignored;
     int line;
     const bool ok = thhLoadProfile(path_, thhIndexControls(), THH_INDEX_PROFILE,
-                                   profile_, err);
+                                   "right", profile_, err);
 
     mapper_.configure(profile_, thhIndexControls(), offs, ignored, line);
     thhPlay(*synth_, offs, NULL);
