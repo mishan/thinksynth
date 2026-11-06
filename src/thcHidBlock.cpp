@@ -263,6 +263,14 @@ Parser::options (thcHidBinding &b)
                 return fail(t_[i_ - 1], k + " is 0 to 1");
             (k == "at" ? b.at : b.off) = v;
         }
+        else if (k == "of" && (bend || aux))
+        {
+            if (!isWord(peek(), "both"))
+                return fail(peek(), "'" + peek().text + "' is not whose notes; "
+                            "write both");
+            b.both = true;
+            i_++;
+        }
         else if (k == "smooth" && (value || bend || aux))
         {
             if (!number(b.smooth, k))

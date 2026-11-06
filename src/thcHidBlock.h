@@ -54,6 +54,7 @@ struct thcHidBinding
     double      center;     /* VALUE, PITCH: where the axis counts from */
     double      smooth;     /* VALUE: seconds it takes to follow the axis */
     bool        latch;      /* NOTE: a press starts it, the next ends it */
+    bool        both;       /* BEND, AUX: the other hand's notes too */
     Shape       shape;      /* VALUE */
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
     int         range;      /* PITCH: steps from the base note, either side
@@ -62,7 +63,7 @@ struct thcHidBinding
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
           hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
-          smooth(0), latch(false), shape(LINEAR),
+          smooth(0), latch(false), both(false), shape(LINEAR),
           octaves(false), range(0) {}
 };
 

@@ -75,6 +75,8 @@ describe (const thcHidBinding &b)
         s << " smooth" << b.smooth;
     if (b.latch)
         s << " latch";
+    if (b.both)
+        s << " both";
 
     s << " @" << b.line;
 
@@ -312,6 +314,12 @@ static const Row ROWS[] = {
     { "a smoothing back in time",
       "device index { t = \"cutoff\" { smooth = -1; }; };", NULL, 1,
       "smooth" },
+    { "a bend of both hands' notes",
+      "device index { turn = bend { range = 2; of = both; }; };",
+      "index ch0 base60 vel100 | turn:bend 2 both @1", 0, NULL },
+    { "of a hand that isn't one",
+      "device index { turn = bend { range = 2; of = this; }; };", NULL, 1,
+      "this" },
     { "a bend with no range",
       "device index { stick_x = bend; };", NULL, 1, "range" },
     { "an aux past the four",

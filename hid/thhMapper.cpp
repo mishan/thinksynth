@@ -248,6 +248,9 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     bend_ = 0;
     memset(aux_, 0, sizeof(aux_));
     smoothing_.clear();
+    sharedBend_ = 0;
+    memset(sharedAux_, 0, sizeof(sharedAux_));
+    memset(reached_, 0, sizeof(reached_));
     for (int i = 0; i < THH_MAX_AXES; i++)
         sent_[i] = Sent();
     memset(armed_, 0, sizeof(armed_));
@@ -492,9 +495,11 @@ thhMapper::smoothed (int key, double raw, double k, const thhState &s)
 void
 thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
 {
-    double bend = 0, aux[4];
+    double bend = 0, aux[4], sharedBend = 0, sharedAux[4];
+    bool shares[4] = { false, false, false, false };
 
     memcpy(aux, aux_, sizeof(aux));
+    memcpy(sharedAux, sharedAux_, sizeof(sharedAux));
     for (int ax = 0; ax < axes_; ax++)
     {
         const Layer *l = axisLayer(ax);
@@ -505,15 +510,26 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
             const int key = ax * 64 + (int)i;
 
             if (bd.b.kind == thcHidBinding::BEND)
-                bend += smoothed(key, (s.axis[ax] - bd.b.center) * bd.b.range,
-                                 bd.b.smooth, s);
+            {
+                const double v = smoothed(key, (s.axis[ax] - bd.b.center) *
+                                               bd.b.range, bd.b.smooth, s);
+
+                bend += v;
+                sharedBend += bd.b.both ? v : 0;
+            }
             else if (bd.b.kind == thcHidBinding::AUX)
             {
                 const double lo = bd.b.hasMin ? bd.b.min : 0;
                 const double hi = bd.b.hasMax ? bd.b.max : 1;
+                const int n = bd.b.semis;
 
-                aux[bd.b.semis] = smoothed(key, lo + along(bd, s) * (hi - lo),
-                                           bd.b.smooth, s);
+                aux[n] = smoothed(key, lo + along(bd, s) * (hi - lo),
+                                  bd.b.smooth, s);
+                if (bd.b.both)
+                {
+                    sharedAux[n] = aux[n];
+                    shares[n] = true;
+                }
             }
         }
     }
@@ -538,6 +554,36 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
             for (int n = 0; n < 4; n++)
                 if (moved[n])
                     express(thhAction::NOTE_AUX, n, aux_[n], ch, note, out);
+        }
+
+    /* The other hand's notes hear only this hand's shares: when a share
+       moves, and, a note the other hand has just started, at once. */
+    const bool sharedBent = std::fabs(sharedBend - sharedBend_) >= 0.005;
+    bool sharedMoved[4];
+
+    for (int n = 0; n < 4; n++)
+        sharedMoved[n] = shares[n] &&
+                         std::fabs(sharedAux[n] - sharedAux_[n]) >= THH_DEADBAND;
+    sharedBend_ = sharedBent ? sharedBend : sharedBend_;
+    for (int n = 0; n < 4; n++)
+        sharedAux_[n] = sharedMoved[n] ? sharedAux[n] : sharedAux_[n];
+
+    for (int ch = 0; ch < 16; ch++)
+        for (int note = 0; note < 128; note++)
+        {
+            const bool theirs = other_ && other_->sounding(ch, note) &&
+                                !sounding_[ch][note];
+            const bool fresh = theirs && !reached_[ch][note];
+
+            reached_[ch][note] = theirs;
+            if (!theirs)
+                continue;
+            if (sharedBent || (fresh && sharedBend_))
+                express(thhAction::NOTE_BEND, 0, sharedBend_, ch, note, out);
+            for (int n = 0; n < 4; n++)
+                if (shares[n] && (sharedMoved[n] || (fresh && sharedAux_[n])))
+                    express(thhAction::NOTE_AUX, n, sharedAux_[n], ch, note,
+                            out);
         }
 }
 

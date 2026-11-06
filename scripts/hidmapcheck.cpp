@@ -568,6 +568,56 @@ checkReconfigure (void)
     }
 }
 
+/* Two hands: the right plays, and the left's bend, of both hands' notes,
+   reaches what the right holds as well as what it holds itself. */
+static void
+checkBoth (void)
+{
+    const thhControls &c = thhIndexControls();
+    thcHidBlock rightP, leftP;
+    thhMapper right, left;
+    std::vector<thhAction> acts;
+    string err;
+    int line;
+
+    thcHidParseProfile("device index { a = note 0; b = note 4; };", rightP,
+                       err, line);
+    thcHidParseProfile("device index { a = note -12; "
+                       "turn = bend { range = 2; of = both; }; };", leftP,
+                       err, line);
+    right.configure(rightP, c, acts, err, line);
+    left.configure(leftP, c, acts, err, line);
+    left.shareWith(&right);
+
+    thhState r, l;
+    string got;
+    const auto step = [&](thhMapper &m, thhState &s) {
+        acts.clear();
+        s.time += 0.01;
+        m.update(s, 0, acts);
+        got += (got.empty() ? "" : " | ") + describe(acts);
+    };
+
+    r.connected = l.connected = true;
+    r.buttons = 1u << c.button("a");
+    step(right, r);                             /* right plays 60 */
+    l.axis[c.axis("turn")] = 0.5f;
+    step(left, l);                              /* left bends it */
+    l.buttons = 1u << c.button("a");
+    step(left, l);                              /* left plays 48, bent */
+    r.buttons |= 1u << c.button("b");
+    step(right, r);                             /* right plays 64 */
+    step(left, l);                              /* left's bend reaches it */
+
+    const string want = "on 1 60 100 | bend 1 60 +1.00 | "
+                        "on 1 48 100, bend 1 48 +1.00 | on 1 64 100 | "
+                        "bend 1 64 +1.00";
+
+    report("a bend of both hands' notes reaches the other hand's",
+           got == want ? "" : "asked for\n    " + got + "\n  wanted\n    " +
+           want);
+}
+
 static void
 checkValues (void)
 {
@@ -619,6 +669,7 @@ main (void)
 {
     checkRows();
     checkReconfigure();
+    checkBoth();
     checkValues();
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");

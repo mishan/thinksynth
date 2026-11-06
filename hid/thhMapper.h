@@ -66,6 +66,17 @@ public:
     void update (const thhState &s, int curChannel,
                  std::vector<thhAction> &out);
 
+    /* A bend or an aux `of = both' reaches the notes other holds too: the
+       other hand's mapper, or NULL. */
+    void shareWith (const thhMapper *other) { other_ = other; }
+
+    /* Whether this mapper is holding a note there. */
+    bool sounding (int channel, int note) const
+    {
+        return channel >= 0 && channel < 16 && note >= 0 && note < 128 &&
+               sounding_[channel][note] > 0;
+    }
+
     /* Ends every note this mapper is holding and lets go of every hold: an
        unplug, an edit, a handover. Toggles stay on. Buttons still down don't
        sound again until pressed again. */
@@ -152,6 +163,12 @@ private:
        notes held, which a note starting is sent too, and each binding's
        smoothing, by axis and place among the axis's bindings. */
     double bend_, aux_[4];
+    const thhMapper *other_ = NULL;
+
+    /* What this mapper last sent to the other hand's notes, the shares of
+       its bend and aux `of = both', and which of them it has sent to. */
+    double sharedBend_ = 0, sharedAux_[4] = { 0, 0, 0, 0 };
+    bool   reached_[16][128] = {};
     std::map<int, std::pair<double, double> > smoothing_;  /* value, time */
 
     void expression (const thhState &s, std::vector<thhAction> &out);
