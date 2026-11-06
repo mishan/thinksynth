@@ -99,7 +99,10 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | `stick_y = pitch { step = octave; range = 2; };` | an axis | moves the base note when a note starts (`step = semitone` too) |
 | `trigger = velocity { min = 30; max = 127; };` | an axis | sets how hard buttons play |
 
-A note, or a knob, can name its own `{ channel = 3; }`.
+A note, or a knob, can name its own `{ channel = 3; }`. A note can
+`{ latch; }`: one press starts it and the next ends it, for a drone. A knob
+can be `{ smooth = 0.1; }`, following its axis over that many seconds
+rather than stepping with it.
 
 An axis can ride several knobs and pitch axes at once: bind it again, once
 for each. Every pitch axis adds its steps, so the trackpad can pick a
@@ -122,6 +125,23 @@ layer fist {
 
 It is on while every axis it names is at least its value, and goes off
 once any of them falls 0.15 under it.
+
+### A theremin
+
+A latched note held while the fingers ride its pitch and the squeeze its
+level, on `dsp/index.dsp`:
+
+```
+device index {
+    a = note 0 { latch; };
+    grip_top = "bend" { min = -1; max = 1; smooth = 0.05; };
+    grip_force = "level" { smooth = 0.05; };
+    roll = "wobble";
+};
+```
+
+`bend` is two semitones either way; a patch with a wider pitch knob plays a
+wider theremin.
 
 ### The controls
 

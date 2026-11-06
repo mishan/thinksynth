@@ -63,9 +63,9 @@ struct Row
 
 static const Row ROWS[] = {
     { "notes, on the keyboard's channel and their own",
-      "device index { a = note 0; b = note -12 { channel = 2; }; };",
+      "device index { a = note 0 { latch; }; b = note -12 { channel = 2; }; };",
       "a", NULL, 0, 3,
-      "a | note +0 | the keyboard's channel (4) | down\n"
+      "a | note +0, latched | the keyboard's channel (4) | down\n"
       "b | note -12 | channel 2 | up\n" },
     { "the profile's channel over the keyboard's",
       "device index { channel = 2; a = note 4; };", NULL, NULL, 0, 0,
@@ -78,9 +78,10 @@ static const Row ROWS[] = {
       "b | octave -1 |  | up\n" },
     { "a knob, there and not",
       "device index { trigger = \"cutoff\" { min = 200; max = 8000; "
-      "shape = exp; }; grip_mid = \"wobble\" { channel = 2; }; };",
+      "shape = exp; smooth = 0.05; }; grip_mid = \"wobble\" { channel = 2; }; };",
       NULL, "trigger", 0.5f, 1,
-      "trigger | knob cutoff, 200 to 8000, exp | the keyboard's channel (2) "
+      "trigger | knob cutoff, 200 to 8000, exp, smoothed over 0.05 s | "
+      "the keyboard's channel (2) "
       "| 0.50\n"
       "grip_mid | knob wobble | channel 2 | 0.00 | ! channel 2's patch has "
       "no knob 'wobble'\n" },

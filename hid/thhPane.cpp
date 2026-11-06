@@ -65,7 +65,7 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
     switch (b.kind)
     {
     case thcHidBinding::NOTE:
-        r.action = "note " + signedInt(b.semis);
+        r.action = "note " + signedInt(b.semis) + (b.latch ? ", latched" : "");
         r.target = where;
         break;
     case thcHidBinding::STRIKE:
@@ -83,7 +83,9 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
         break;
     case thcHidBinding::VALUE:
         r.action = "knob " + b.arg + range(b) +
-                   (b.shape == thcHidBinding::EXP ? ", exp" : "");
+                   (b.shape == thcHidBinding::EXP ? ", exp" : "") +
+                   (b.smooth ? ", smoothed over " + number(b.smooth) + " s"
+                             : "");
         r.target = where;
         if (!hasArg(ch ? ch - 1 : curChannel, b.arg))
             r.warning = (ch ? "channel " + std::to_string(ch)

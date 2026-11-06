@@ -336,6 +336,13 @@ void
 thhMapper::press (int button, const thhState &s, int curChannel,
                   std::vector<thhAction> &out)
 {
+    /* A latched note's next press ends it, whatever binds the button now. */
+    if (held_[button].what == Held::NOTE && held_[button].latched)
+    {
+        unsound(held_[button], out);
+        return;
+    }
+
     const Bound *bt = find(false, button);
 
     if (!bt)
@@ -375,7 +382,10 @@ thhMapper::press (int button, const thhState &s, int curChannel,
     }
 
     if (b.kind == thcHidBinding::NOTE)
+    {
         sound(b, held_[button], s, curChannel, -1, out);
+        held_[button].latched = b.latch;
+    }
 }
 
 void
@@ -419,6 +429,7 @@ thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
     h.channel = channel;
     h.note = note;
     h.off = b.off;
+    h.latched = false;
 
     if (sounding_[channel][note]++ == 0)
     {
@@ -498,6 +509,8 @@ thhMapper::lift (int button, std::vector<thhAction> &out)
 {
     Held &h = held_[button];
 
+    if (h.what == Held::NOTE && h.latched)
+        return;
     if (h.what != Held::HOLD)
     {
         unsound(h, out);
@@ -570,6 +583,24 @@ thhMapper::update (const thhState &s, int curChannel,
            move would stop short. */
         const bool fresh = to.to != sent_[ax].to;
 
+        /* A smoothed knob goes a share of the way there, the more the
+           longer since the last state, and starts where the axis is. */
+        to.time = s.time;
+        to.smoothed = to.t;
+        for (size_t i = 0; i < values.size(); i++)
+        {
+            const double k = values[i]->b.smooth;
+
+            if (!fresh && k > 0)
+            {
+                const double prev = sent_[ax].smoothed[i];
+
+                to.smoothed[i] = prev + (1 - std::exp(-(s.time - sent_[ax].time) / k)) *
+                                        (to.t[i] - prev);
+            }
+            to.t[i] = to.smoothed[i];
+        }
+
         for (size_t i = 0; i < values.size(); i++)
         {
             const double t = to.t[i];
@@ -637,7 +668,10 @@ void
 thhMapper::release (std::vector<thhAction> &out)
 {
     for (int b = 0; b < THH_MAX_BUTTONS; b++)
+    {
+        held_[b].latched = false;
         lift(b, out);
+    }
     for (int a = 0; a < THH_MAX_AXES; a++)
         unsound(heldAxis_[a], out);
     for (size_t i = active_.size(); i-- > 0;)

@@ -105,6 +105,7 @@ private:
         enum What { NONE, NOTE, HOLD } what;
         int    channel, note;
         double off;             /* a strike's: where it lets go */
+        bool   latched;         /* a latch's: until the next press */
     };
 
     std::vector<Layer>  layers_;
@@ -122,6 +123,8 @@ private:
     {
         std::vector<std::pair<int, std::string> > to;
         std::vector<double>                       t;
+        std::vector<double>                       smoothed;
+        double                                    time;
     };
     Sent        sent_[THH_MAX_AXES];
 

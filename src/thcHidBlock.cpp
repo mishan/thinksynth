@@ -220,6 +220,18 @@ Parser::options (thcHidBinding &b)
         if (key.kind != Tok::WORD)
             return fail(key, "expected a setting");
         i_++;
+
+        /* The one setting that is a word alone. */
+        if (k == "latch" && b.kind != thcHidBinding::NOTE)
+            return fail(key, "'latch' is a note's setting");
+        if (k == "latch")
+        {
+            b.latch = true;
+            if (!expect(';'))
+                return false;
+            continue;
+        }
+
         if (!expect('='))
             return false;
 
@@ -247,6 +259,13 @@ Parser::options (thcHidBinding &b)
             if (v < 0 || v > 1)
                 return fail(t_[i_ - 1], k + " is 0 to 1");
             (k == "at" ? b.at : b.off) = v;
+        }
+        else if (k == "smooth" && value)
+        {
+            if (!number(b.smooth, k))
+                return false;
+            if (b.smooth < 0)
+                return fail(t_[i_ - 1], "smooth is 0 or more seconds");
         }
         else if (k == "center" && (value || pitch))
         {

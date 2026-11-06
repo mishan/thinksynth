@@ -69,6 +69,10 @@ describe (const thcHidBinding &b)
         s << " exp";
     if (b.center)
         s << " center" << b.center;
+    if (b.smooth)
+        s << " smooth" << b.smooth;
+    if (b.latch)
+        s << " latch";
 
     s << " @" << b.line;
 
@@ -198,6 +202,11 @@ static const Row ROWS[] = {
       "index ch0 base60 vel100 | grip_force:value cutoff @1 | "
       "grip_force:value drive @1 | tilt:pitch octave 1 center0.27 @1 | "
       "tilt:value bright center-0.5 @1", 0, NULL },
+    { "a latched note and a smoothed knob",
+      "device index { a = note 0 { latch; }; grip_top = \"pitch\" { "
+      "smooth = 0.1; }; };",
+      "index ch0 base60 vel100 | a:note 0 latch @1 | "
+      "grip_top:value pitch smooth0.1 @1", 0, NULL },
     { "a layer named before it is declared",
       "device index {\n  grip = hold mod;\n  layer mod { base = \"C3\"; };\n};",
       "index ch0 base60 vel100 | grip:hold mod @2"
@@ -280,6 +289,11 @@ static const Row ROWS[] = {
       NULL, 1, "under" },
     { "a strike past the end of its axis",
       "device index { trigger = strike 0 { at = 1.5; }; };", NULL, 1, "0 to 1" },
+    { "a latch on a knob",
+      "device index { t = \"cutoff\" { latch; }; };", NULL, 1, "latch" },
+    { "a smoothing back in time",
+      "device index { t = \"cutoff\" { smooth = -1; }; };", NULL, 1,
+      "smooth" },
     { "a setting a block doesn't have",
       "device index { a = note 0 { color = 1; }; };", NULL, 1, "color" },
     { "a missing semicolon",
