@@ -13,7 +13,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;ROLLCANVAS;PANEL;STAGEPANEL;PATCH;DSPCATALOG;GENCATALOG" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;HID;NODECANVAS;COMPOSERCANVAS;ROLLCANVAS;PANEL;STAGEPANEL;PATCH;DSPCATALOG;GENCATALOG" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -28,6 +28,12 @@ function(think_harness name)
 
   if(H_COMPOSERHOST)
     list(APPEND sources $<TARGET_OBJECTS:think_composerhost>)
+  endif()
+
+  # The HID controller library (hid/). Wants COMPOSERHOST beside it, for the
+  # profile reader it is built on.
+  if(H_HID)
+    list(APPEND sources $<TARGET_OBJECTS:think_hid>)
   endif()
 
   # What a parameter panel is (src/PanelModel.h) and the providers that build
@@ -99,6 +105,10 @@ function(think_harness name)
 
   if(H_COMPOSERHOST)
     target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
+  endif()
+
+  if(H_HID)
+    target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/hid")
   endif()
 
   if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)
@@ -270,6 +280,9 @@ think_harness(parsecheck COMPOSERHOST)
 
 # What a HID controller's mapping block says (src/thcHidBlock.h).
 think_harness(hidblockcheck COMPOSERHOST)
+
+# What a HID controller's profile does with its controls (hid/thhMapper.h).
+think_harness(hidmapcheck COMPOSERHOST HID)
 
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.
@@ -1056,6 +1069,7 @@ add_test(NAME patchcheck
 add_test(NAME lexcheck COMMAND lexcheck)
 
 add_test(NAME hidblockcheck COMMAND hidblockcheck)
+add_test(NAME hidmapcheck COMMAND hidmapcheck)
 
 # The corpus, because "a row says what loading the file would have said" is a
 # claim about the shipped graphs; the fixtures run either way. The plugins are

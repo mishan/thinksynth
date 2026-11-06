@@ -50,7 +50,8 @@ struct thcHidBinding
     double      min, max;   /* VALUE, VELOCITY */
     Shape       shape;      /* VALUE */
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
-    int         range;      /* PITCH: steps either side of the base note */
+    int         range;      /* PITCH: steps from the base note, either side
+                               of it on a bipolar axis */
 
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
