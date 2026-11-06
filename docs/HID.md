@@ -42,7 +42,10 @@ the on-screen keyboard to that channel. With no profile of your own:
 | Roll your wrist with a full fist | bends the notes you are holding, two semitones either way |
 
 The notes play on any patch; the rest are `index.dsp`'s knobs, and do
-nothing on a patch without them. How closed a fist has to be depends on
+nothing on a patch without them. Each note's own pressure, `aux0`, opens that note's
+filter and lifts its level in `index.dsp`; nothing in the controller's own
+profile sends it, but `grip_force = aux 0;` in yours does, as does an MPE
+controller's key. How closed a fist has to be depends on
 the hand: the Controller pane shows each grip zone as you hold it, and
 your own profile can move the posture's values.
 
