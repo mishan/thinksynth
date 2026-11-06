@@ -82,16 +82,14 @@ describe (const std::vector<thhAction> &acts)
     return s.str();
 }
 
-/* Runs a script; on a step it can't read, says so in place of the result. */
+/* Runs a script from where s and ch stand; on a step it can't read, says so
+   in place of the result. */
 static string
-play (thhMapper &m, const thhControls &c, const string &script)
+play (thhMapper &m, const thhControls &c, const string &script, thhState &s,
+      int &ch)
 {
     std::istringstream steps(script);
     string step, out;
-    thhState s;
-    int ch = 0;
-
-    s.connected = true;
 
     for (int n = 0; std::getline(steps, step, ';'); n++)
     {
@@ -140,6 +138,14 @@ struct Row
 #define NOTES "device index { a = note 0; b = note 2; };"
 #define OCTAVES \
     "device index { a = note 0; system = octave 1; b = octave -1; };"
+#define LAYERS \
+    "device index { a = note 0; b = note 2; middle = \"cutoff\"; " \
+    "thumbstick = hold mod; system = toggle drone; " \
+    "layer mod { a = octave -1; b = note 7; middle = \"resonance\"; }; " \
+    "layer drone { channel = 2; base = \"C3\"; }; };"
+#define BOTH \
+    "device index { b = note 2; thumbstick = hold mod; system = toggle drone; " \
+    "layer mod { b = note 7; }; layer drone { b = note 4; }; };"
 #define STICK \
     "device index { a = note 0; stick_y = pitch { step = octave; range = 2; }; };"
 
@@ -199,6 +205,9 @@ static const Row ROWS[] = {
     { "a value on the current channel",
       "device index { middle = \"cutoff\"; };",
       "ch 2; axis middle 1", "cutoff@2 0.000 | cutoff@2 1.000", 0, NULL },
+    { "a value follows the current channel when it changes",
+      "device index { middle = \"cutoff\"; };",
+      "axis middle 0.5; ch 2", "cutoff@1 0.500 | cutoff@2 0.500", 0, NULL },
     { "an unplug ends held notes", NOTES,
       "down a; unplug; plug; up a",
       "on 1 60 100 | off 1 60 | on 1 60 100 | off 1 60", 0, NULL },
@@ -227,6 +236,84 @@ static const Row ROWS[] = {
       "down system; up system; axis stick_y 1; down a; up a",
       " |  |  |  | ", 0, NULL },
 
+    { "a hold swaps a button's note", LAYERS,
+      "down thumbstick; down b; up b; up thumbstick; down b; up b",
+      "resonance@1 0.000 | on 1 67 100 | off 1 67 | cutoff@1 0.000 | "
+      "on 1 62 100 | off 1 62",
+      0, NULL },
+    { "a layer's octave step", LAYERS,
+      "down thumbstick; down a; up a; up thumbstick; down a; up a",
+      "resonance@1 0.000 |  |  | cutoff@1 0.000 | on 1 48 100 | off 1 48",
+      0, NULL },
+    { "a release undoes its press when a layer comes between", LAYERS,
+      "down b; down thumbstick; up b; up thumbstick",
+      "on 1 62 100, cutoff@1 0.000 | resonance@1 0.000 | off 1 62 | "
+      "cutoff@1 0.000", 0, NULL },
+    { "and when one goes", LAYERS,
+      "down thumbstick; down b; up thumbstick; up b",
+      "resonance@1 0.000 | on 1 67 100 | cutoff@1 0.000 | off 1 67", 0, NULL },
+    { "a toggle latches a layer's channel and base", LAYERS,
+      "down system; up system; down a; up a; down system; up system; "
+      "down a; up a",
+      "cutoff@2 0.000 |  | on 2 48 100 | off 2 48 | cutoff@1 0.000 |  | "
+      "on 1 60 100 | off 1 60", 0, NULL },
+    { "the newest layer wins", BOTH,
+      "down system; up system; down thumbstick; down b; up b; up thumbstick; "
+      "down b; up b",
+      " |  |  | on 1 67 100 | off 1 67 |  | on 1 64 100 | off 1 64",
+      0, NULL },
+    { "the newest layer wins, the other way round", BOTH,
+      "down thumbstick; down system; up system; down b; up b",
+      " |  |  | on 1 64 100 | off 1 64", 0, NULL },
+    { "a value jumps to the layer's binding and back", LAYERS,
+      "axis middle 0.5; down thumbstick; up thumbstick",
+      "cutoff@1 0.500 | resonance@1 0.500 | cutoff@1 0.500", 0, NULL },
+    { "a hold and a toggle of one layer",
+      "device index { b = note 2; thumbstick = hold mod; system = toggle mod; "
+      "layer mod { b = note 7; }; };",
+      "down system; up system; down thumbstick; up thumbstick; down b; up b",
+      " |  |  |  | on 1 67 100 | off 1 67", 0, NULL },
+    { "a release drops a hold", LAYERS,
+      "down thumbstick; release; down b; up b",
+      "resonance@1 0.000 |  | on 1 62 100, cutoff@1 0.000 | off 1 62",
+      0, NULL },
+    { "a release keeps a toggle", LAYERS,
+      "down system; up system; release; down a; up a",
+      "cutoff@2 0.000 |  |  | on 2 48 100 | off 2 48", 0, NULL },
+    { "a hold comes back with the controller", LAYERS,
+      "down thumbstick; unplug; plug; down b; up b",
+      "resonance@1 0.000 |  |  | on 1 67 100 | off 1 67", 0, NULL },
+    { "two holds let go in the order they were pressed",
+      "device index { b = note 2; thumbstick = hold mod; trackpad = hold drone; "
+      "layer mod { b = note 7; }; layer drone { b = note 4; }; };",
+      "down thumbstick; down trackpad; up thumbstick; down b; up b",
+      " |  |  | on 1 64 100 | off 1 64", 0, NULL },
+    { "a toggle stays on through an unplug", LAYERS,
+      "down system; up system; unplug; plug; down a; up a",
+      "cutoff@2 0.000 |  |  |  | on 2 48 100 | off 2 48", 0, NULL },
+    { "a note ends on its own channel when a layer changes it", LAYERS,
+      "down a; down system; up a",
+      "on 1 60 100, cutoff@1 0.000 | cutoff@2 0.000 | off 1 60", 0, NULL },
+    { "a layer's velocity source",
+      "device index { a = note 0; thumbstick = hold soft; "
+      "layer soft { trigger = velocity { min = 10; max = 20; }; }; };",
+      "axis trigger 1; down a; up a; down thumbstick; down a; up a",
+      " | on 1 60 100 | off 1 60 |  | on 1 60 20 | off 1 60", 0, NULL },
+    { "an octave step up never goes down",
+      "device index { a = note 0; system = toggle low; b = octave 1; "
+      "layer low { base = \"C1\"; }; };",
+      "down system; up system; down b; up b; down b; up b; down b; up b; "
+      "down b; up b; down b; up b; down b; up b; down b; up b; down b; up b; "
+      "down system; up system; down b; up b; down a; up a",
+      " |  |  |  |  |  |  |  |  |  |  |  |  |  "
+      "|  |  |  |  |  |  |  |  |  | ", 0, NULL },
+    { "a layer's pitch axis over the base's",
+      "device index { a = note 0; thumbstick = hold mod; "
+      "stick_y = pitch { step = octave; range = 1; }; "
+      "layer mod { pad_y = pitch { step = octave; range = 1; }; }; };",
+      "axis stick_y 1; down a; up a; down thumbstick; down a; up a",
+      " | on 1 72 100 | off 1 72 |  | on 1 60 100 | off 1 60", 0, NULL },
+
     { "a control the device doesn't have",
       "device index {\n  zz = note 0;\n};", "", NULL, 2, "'zz'" },
     { "a button bound to a value",
@@ -236,6 +323,16 @@ static const Row ROWS[] = {
     { "two pitch axes",
       "device index {\n  stick_y = pitch { range = 1; };\n"
       "  pad_y = pitch { range = 1; };\n};", "", NULL, 3, "one pitch axis" },
+    { "a layer's control the device doesn't have",
+      "device index {\n  layer mod {\n    zz = note 0;\n  };\n};",
+      "", NULL, 3, "'zz'" },
+    { "two pitch axes in one layer",
+      "device index {\n  layer mod {\n    stick_y = pitch { range = 1; };\n"
+      "    pad_y = pitch { range = 1; };\n  };\n};", "", NULL, 4,
+      "one pitch axis" },
+    { "a layer rebinding a modifier",
+      "device index {\n  system = toggle drone;\n  layer drone {\n"
+      "    system = note 5;\n  };\n};", "", NULL, 4, "switches a layer" },
     { "a profile for another device",
       "device knuckles { };", "", NULL, 1, "index" },
 };
@@ -265,7 +362,12 @@ checkRows (void)
             why = "refused: " + std::to_string(errLine) + ": " + err;
         else if (r.want)
         {
-            const string got = play(m, thhIndexControls(), r.script);
+            thhState s;
+            int ch = 0;
+
+            s.connected = true;
+
+            const string got = play(m, thhIndexControls(), r.script, s, ch);
 
             if (got != r.want)
                 why = "asked for\n    " + got + "\n  wanted\n    " + r.want;
@@ -281,53 +383,66 @@ checkRows (void)
     }
 }
 
-/* configure() on a mapper already playing: a new profile lets go of what
-   the old one held, and a refused one leaves the old one playing. */
+/* configure() on a mapper already playing: a new profile lets go of the
+   notes the old one held but keeps the layers the hand still holds, and a
+   refused one leaves the old one playing. Each row plays `before', applies
+   `next', then plays `after'; what configure asked for comes between the
+   two, in `||'. */
 static void
 checkReconfigure (void)
 {
-    const thhControls &c = thhIndexControls();
-    const char *profiles[] = {
-        "device index { b = note 0; };",
-        "device index { b = note 0; zz = note 1; };",
-    };
-    const char *want[] = {
-        "off 1 60 | ",
-        " | off 1 60",
-    };
-    const char *names[] = {
-        "a new profile lets go of a held note",
-        "a refused profile leaves the old one playing",
-    };
-
-    for (int i = 0; i < 2; i++)
+    struct R
     {
+        const char *name, *first, *before, *next, *after, *want;
+    };
+    static const R ROWS2[] = {
+        { "a new profile lets go of a held note",
+          NOTES, "down a", "device index { b = note 0; };", "up a",
+          "on 1 60 100 || off 1 60 || " },
+        { "a refused profile leaves the old one playing",
+          NOTES, "down a", "device index { b = note 0; zz = note 1; };",
+          "up a", "on 1 60 100 ||  || off 1 60" },
+        { "a held hold survives an edit",
+          LAYERS, "down thumbstick", LAYERS, "down b; up b",
+          "resonance@1 0.000 ||  || on 1 67 100, resonance@1 0.000 | "
+          "off 1 67" },
+        { "a toggle whose button is gone doesn't survive an edit",
+          LAYERS, "down system; up system",
+          "device index { a = note 0; thumbstick = hold drone; "
+          "layer drone { channel = 2; }; };",
+          "down a; up a", "cutoff@2 0.000 |  ||  || on 1 60 100 | off 1 60" },
+        { "an edit keeps the newest layer newest",
+          BOTH, "down thumbstick; down system; up system", BOTH,
+          "down b; up b", " |  |  ||  || on 1 64 100 | off 1 64" },
+        { "a toggle survives an edit",
+          LAYERS, "down system; up system", LAYERS, "down a; up a",
+          "cutoff@2 0.000 |  ||  || on 2 48 100, cutoff@2 0.000 | off 2 48" },
+    };
+    const thhControls &c = thhIndexControls();
+
+    for (size_t i = 0; i < sizeof(ROWS2) / sizeof(ROWS2[0]); i++)
+    {
+        const R &r = ROWS2[i];
         thcHidBlock blk, next;
         thhMapper m;
         thhState s;
         std::vector<thhAction> acts;
         string err;
-        int errLine;
-
-        thcHidParseProfile(NOTES, blk, err, errLine);
-        thcHidParseProfile(profiles[i], next, err, errLine);
-        m.configure(blk, c, acts, err, errLine);
+        int errLine, ch = 0;
 
         s.connected = true;
-        s.buttons = 1u << c.button("a");
-        m.update(s, 0, acts);
-        acts.clear();
+        thcHidParseProfile(r.first, blk, err, errLine);
+        thcHidParseProfile(r.next, next, err, errLine);
+        m.configure(blk, c, acts, err, errLine);
 
+        string got = play(m, c, r.before, s, ch);
+
+        acts.clear();
         m.configure(next, c, acts, err, errLine);
-        string got = describe(acts) + " | ";
+        got += " || " + describe(acts) + " || " + play(m, c, r.after, s, ch);
 
-        acts.clear();
-        s.buttons = 0;
-        m.update(s, 0, acts);
-        got += describe(acts);
-
-        report(names[i], got == want[i] ? "" :
-               "asked for \"" + got + "\", wanted \"" + want[i] + "\"");
+        report(r.name, got == r.want ? "" :
+               "asked for\n    " + got + "\n  wanted\n    " + r.want);
     }
 }
 
