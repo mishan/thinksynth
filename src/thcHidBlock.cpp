@@ -247,6 +247,13 @@ Parser::options (thcHidBinding &b)
                 return fail(t_[i_ - 1], k + " is 0 to 1");
             (k == "at" ? b.at : b.off) = v;
         }
+        else if (k == "center" && (value || pitch))
+        {
+            if (!number(b.center, k))
+                return false;
+            if (b.center < -1 || b.center > 1)
+                return fail(t_[i_ - 1], "center is -1 to 1");
+        }
         else if (k == "shape" && value)
         {
             const Tok &v = peek();
@@ -411,15 +418,23 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
         return expect(';');
     }
 
-    for (size_t i = 0; i < bindings.size(); i++)
-        if (bindings[i].control == k)
-            return fail(tok, "'" + k + "' is already bound on line " +
-                        std::to_string(bindings[i].line));
-
     thcHidBinding b;
 
     if (!binding(b, inLayer))
         return false;
+
+    /* An axis may ride several knobs and pitch axes at once; anything else
+       is one binding to a control. */
+    const auto repeats = [](const thcHidBinding &x) {
+        return x.kind == thcHidBinding::VALUE || x.kind == thcHidBinding::PITCH;
+    };
+
+    for (size_t i = 0; i < bindings.size(); i++)
+        if (bindings[i].control == b.control &&
+            (!repeats(bindings[i]) || !repeats(b)))
+            return fail(b.line, "'" + b.control + "' is already bound on line " +
+                        std::to_string(bindings[i].line));
+
     bindings.push_back(b);
     return true;
 }

@@ -49,6 +49,7 @@ struct thcHidBinding
     bool        hasMin, hasMax;
     double      min, max;   /* VALUE, VELOCITY, STRIKE's velocity */
     double      at, off;    /* STRIKE: on rising past at, off below off */
+    double      center;     /* VALUE, PITCH: where the axis counts from */
     Shape       shape;      /* VALUE */
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
     int         range;      /* PITCH: steps from the base note, either side
@@ -56,7 +57,8 @@ struct thcHidBinding
 
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
-          hasMax(false), min(0), max(0), at(0.6), off(0.4), shape(LINEAR),
+          hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
+          shape(LINEAR),
           octaves(false), range(0) {}
 };
 

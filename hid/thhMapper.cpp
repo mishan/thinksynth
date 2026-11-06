@@ -45,9 +45,6 @@ thhMapper::thhMapper ()
     memset(armed_, 0, sizeof(armed_));
     memset(below_, 0, sizeof(below_));
     memset(sounding_, 0, sizeof(sounding_));
-    memset(sent_, 0, sizeof(sent_));
-    memset(last_, 0, sizeof(last_));
-    memset(lastChannel_, 0, sizeof(lastChannel_));
 }
 
 /* One layer's bindings onto the device's controls. */
@@ -59,8 +56,8 @@ thhMapper::bindLayer (const std::vector<thcHidBinding> &bindings,
     for (int i = 0; i < THH_MAX_BUTTONS; i++)
         l.button[i] = -1;
     for (int i = 0; i < THH_MAX_AXES; i++)
-        l.axis[i] = -1;
-    l.pitch = l.velocity = -1;
+        l.axis[i].clear();
+    l.velocity = -1;
 
     for (size_t i = 0; i < bindings.size(); i++)
     {
@@ -93,18 +90,14 @@ thhMapper::bindLayer (const std::vector<thcHidBinding> &bindings,
             return false;
         }
 
-        if (b.kind == thcHidBinding::PITCH || b.kind == thcHidBinding::VELOCITY)
+        if (b.kind == thcHidBinding::VELOCITY)
         {
-            int &slot = b.kind == thcHidBinding::PITCH ? l.pitch : l.velocity;
-
-            if (slot >= 0)
+            if (l.velocity >= 0)
             {
-                err = b.kind == thcHidBinding::PITCH
-                      ? "a layer has one pitch axis"
-                      : "a layer has one velocity source";
+                err = "a layer has one velocity source";
                 return false;
             }
-            slot = (int)l.binds.size();
+            l.velocity = (int)l.binds.size();
         }
 
         /* The parser has checked the layer exists. */
@@ -114,7 +107,10 @@ thhMapper::bindLayer (const std::vector<thcHidBinding> &bindings,
 
         if (!wantsButton)
             bound.bipolar = controls.axes[axis].bipolar;
-        (wantsButton ? l.button : l.axis)[bound.index] = (int)l.binds.size();
+        if (wantsButton)
+            l.button[bound.index] = (int)l.binds.size();
+        else
+            l.axis[bound.index].push_back((int)l.binds.size());
         l.binds.push_back(bound);
     }
 
@@ -216,7 +212,8 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     axes_ = (int)controls.axes.size();
     velocity_ = profile.velocity;
     octave_ = 0;
-    memset(sent_, 0, sizeof(sent_));
+    for (int i = 0; i < THH_MAX_AXES; i++)
+        sent_[i] = Sent();
     memset(armed_, 0, sizeof(armed_));
 
     for (size_t i = 0; i < active_.size(); i++)
@@ -226,37 +223,53 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     return true;
 }
 
-/* What a control does now: the newest active layer that binds it, else the
-   profile's own binding, else nothing. */
+/* Which layer an axis answers to now: the newest active one that binds
+   it, else the profile's own, else none. */
+const thhMapper::Layer *
+thhMapper::axisLayer (int axis) const
+{
+    for (size_t i = active_.size(); i-- > 0;)
+        if (!layers_[active_[i].layer].axis[axis].empty())
+            return &layers_[active_[i].layer];
+
+    return layers_[0].axis[axis].empty() ? NULL : &layers_[0];
+}
+
+/* What a control does now, or the first of what an axis does. */
 const thhMapper::Bound *
 thhMapper::find (bool axis, int index) const
 {
+    if (axis)
+    {
+        const Layer *l = axisLayer(index);
+
+        return l ? &l->binds[l->axis[index][0]] : NULL;
+    }
+
     for (size_t i = active_.size(); i-- > 0;)
     {
         const Layer &l = layers_[active_[i].layer];
-        const int at = axis ? l.axis[index] : l.button[index];
 
-        if (at >= 0)
-            return &l.binds[at];
+        if (l.button[index] >= 0)
+            return &l.binds[l.button[index]];
     }
 
-    const int at = axis ? layers_[0].axis[index] : layers_[0].button[index];
+    const int at = layers_[0].button[index];
 
     return at >= 0 ? &layers_[0].binds[at] : NULL;
 }
 
-/* The pitch axis or the velocity source: the newest active layer's that has
-   one, else the profile's. */
+/* The velocity source: the newest active layer's that has one, else the
+   profile's. */
 const thhMapper::Bound *
-thhMapper::source (bool pitch) const
+thhMapper::velocitySource () const
 {
     for (size_t i = active_.size() + 1; i-- > 0;)
     {
         const Layer &l = layers_[i ? active_[i - 1].layer : 0];
-        const int at = pitch ? l.pitch : l.velocity;
 
-        if (at >= 0)
-            return &l.binds[at];
+        if (l.velocity >= 0)
+            return &l.binds[l.velocity];
     }
 
     return NULL;
@@ -286,7 +299,7 @@ thhMapper::base () const
 double
 thhMapper::along (const Bound &ax, const thhState &s) const
 {
-    const double v = s.axis[ax.index];
+    const double v = s.axis[ax.index] - ax.b.center;
     const double t = ax.bipolar ? (v + 1) / 2 : v;
 
     return t < 0 ? 0 : t > 1 ? 1 : t;
@@ -342,13 +355,23 @@ void
 thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
                   int curChannel, int vel, std::vector<thhAction> &out)
 {
-    const Bound *pitch = source(true);
-    const Bound *velocity = source(false);
+    const Bound *velocity = velocitySource();
     int note = base() + 12 * octave_ + b.semis;
 
-    if (pitch)
-        note += (int)std::lround(s.axis[pitch->index] * pitch->b.range) *
-                (pitch->b.octaves ? 12 : 1);
+    /* Every pitch axis in effect adds its steps. */
+    for (int ax = 0; ax < axes_; ax++)
+    {
+        const Layer *l = axisLayer(ax);
+
+        for (size_t i = 0; l && i < l->axis[ax].size(); i++)
+        {
+            const thcHidBinding &p = l->binds[l->axis[ax][i]].b;
+
+            if (p.kind == thcHidBinding::PITCH)
+                note += (int)std::lround((s.axis[ax] - p.center) * p.range) *
+                        (p.octaves ? 12 : 1);
+        }
+    }
 
     if (note < 0 || note > 127)
         return;
@@ -496,41 +519,55 @@ thhMapper::update (const thhState &s, int curChannel,
 
     for (int ax = 0; ax < axes_; ax++)
     {
-        const Bound *bd = find(true, ax);
+        const Layer *l = axisLayer(ax);
+        std::vector<const Bound *> values;
+        Sent to;
 
-        if (!bd || bd->b.kind != thcHidBinding::VALUE)
+        for (size_t i = 0; l && i < l->axis[ax].size(); i++)
         {
-            sent_[ax] = false;
-            continue;
+            const Bound &bd = l->binds[l->axis[ax][i]];
+
+            if (bd.b.kind == thcHidBinding::VALUE)
+            {
+                values.push_back(&bd);
+                to.to.push_back(std::make_pair(channelOf(bd.b, curChannel),
+                                               bd.b.arg));
+                to.t.push_back(along(bd, s));
+            }
         }
 
-        const double t = along(*bd, s);
-        const int channel = channelOf(bd->b, curChannel);
+        /* A new set of targets hears where the axis is at once. Otherwise
+           each is sent past the deadband, and the ends always, or a slow
+           move would stop short. */
+        const bool fresh = to.to != sent_[ax].to;
 
-        /* A new target hears where the control is at once. Otherwise the
-           ends are always sent, or a slow move would stop short. */
-        if (sent_[ax] && lastArg_[ax] == bd->b.arg &&
-            lastChannel_[ax] == channel &&
-            (t == last_[ax] ||
-             (std::fabs(t - last_[ax]) < THH_DEADBAND && t > 0 && t < 1)))
-            continue;
-        sent_[ax] = true;
-        last_[ax] = t;
-        lastArg_[ax] = bd->b.arg;
-        lastChannel_[ax] = channel;
+        for (size_t i = 0; i < values.size(); i++)
+        {
+            const double t = to.t[i];
+            const Bound &bd = *values[i];
 
-        thhAction a = thhAction();
+            if (!fresh && (t == sent_[ax].t[i] ||
+                           (std::fabs(t - sent_[ax].t[i]) < THH_DEADBAND &&
+                            t > 0 && t < 1)))
+            {
+                to.t[i] = sent_[ax].t[i];
+                continue;
+            }
 
-        a.kind = thhAction::VALUE;
-        a.channel = channel;
-        a.arg = bd->b.arg;
-        a.t = t;
-        a.hasMin = bd->b.hasMin;
-        a.hasMax = bd->b.hasMax;
-        a.min = bd->b.min;
-        a.max = bd->b.max;
-        a.exp = bd->b.shape == thcHidBinding::EXP;
-        out.push_back(a);
+            thhAction a = thhAction();
+
+            a.kind = thhAction::VALUE;
+            a.channel = to.to[i].first;
+            a.arg = bd.b.arg;
+            a.t = t;
+            a.hasMin = bd.b.hasMin;
+            a.hasMax = bd.b.hasMax;
+            a.min = bd.b.min;
+            a.max = bd.b.max;
+            a.exp = bd.b.shape == thcHidBinding::EXP;
+            out.push_back(a);
+        }
+        sent_[ax] = to;
     }
 
     prev_ = s;

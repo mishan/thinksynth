@@ -70,6 +70,12 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 
 A note, or a knob, can name its own `{ channel = 3; }`.
 
+An axis can ride several knobs and pitch axes at once: bind it again, once
+for each. Every pitch axis adds its steps, so the trackpad can pick a
+degree while tilt picks the octave. A knob or a pitch axis can count from
+a `center` other than the axis's own (`tilt = pitch { step = octave;
+range = 1; center = 0.25; };` measures from the angle you hold it at).
+
 A layer, `layer mod { ... };`, holds bindings that replace the profile's own
 while it is on, and may set its own `channel` and `base`. The newest layer on
 wins. A layer can't rebind a button that switches layers.

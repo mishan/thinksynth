@@ -67,6 +67,8 @@ describe (const thcHidBinding &b)
         s << " max" << b.max;
     if (b.kind == thcHidBinding::VALUE && b.shape == thcHidBinding::EXP)
         s << " exp";
+    if (b.center)
+        s << " center" << b.center;
 
     s << " @" << b.line;
 
@@ -185,6 +187,13 @@ static const Row ROWS[] = {
     { "a strike's off is under its at by default",
       "device index { trigger = strike -5 { at = 0.9; }; };",
       "index ch0 base60 vel100 | trigger:strike -5 at0.9 off0.7 @1", 0, NULL },
+    { "one axis on several knobs and a pitch axis, from a center",
+      "device index { grip_force = \"cutoff\"; grip_force = \"drive\"; "
+      "tilt = pitch { step = octave; range = 1; center = 0.27; }; "
+      "tilt = \"bright\" { center = -0.5; }; };",
+      "index ch0 base60 vel100 | grip_force:value cutoff @1 | "
+      "grip_force:value drive @1 | tilt:pitch octave 1 center0.27 @1 | "
+      "tilt:value bright center-0.5 @1", 0, NULL },
     { "a layer named before it is declared",
       "device index {\n  grip = hold mod;\n  layer mod { base = \"C3\"; };\n};",
       "index ch0 base60 vel100 | grip:hold mod @2"
@@ -218,6 +227,12 @@ static const Row ROWS[] = {
       "device index { a = octave 0; };", NULL, 1, "not 0" },
     { "a layer nobody declared",
       "device index {\n  grip = hold mod;\n};", NULL, 2, "no layer 'mod'" },
+    { "a knob and a note on one control",
+      "device index {\n  a = \"cutoff\";\n  a = note 2;\n};", NULL, 3,
+      "already" },
+    { "a center past the axis",
+      "device index { tilt = \"bright\" { center = 2; }; };", NULL, 1,
+      "-1 to 1" },
     { "a control bound twice",
       "device index {\n  a = note 0;\n  a = note 2;\n};", NULL, 3, "already" },
     { "a modifier inside a layer",
