@@ -165,6 +165,8 @@ public:
 
     thMidiNote *getNote (int note);
     int setNoteArg (int note, const string &name, float value);
+    /* Audio thread. thMidiNote::express on the held note of that id. */
+    void expressNote (int note, int what, float value);
     int setNoteArg (int note, const string &name, const float *value, int len);
 
     /* GUI thread, like everything else that reads args_: the audio thread

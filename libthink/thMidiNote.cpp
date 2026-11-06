@@ -53,6 +53,7 @@ void thMidiNote::start (float note, float velocity, float level,
 {
     thNode *ionode = synthTree_.IONode();
 
+    bend_ = 0;
     ionode->setArg("note", note);
     ionode->setArg("velocity", velocity);
     ionode->setArg("trigger", 1);
@@ -138,10 +139,28 @@ void thMidiNote::retune (float note)
     if (ionode == NULL)
         return;
 
-    ionode->setArg("note", note);
+    ionode->setArg("note", note + bend_);
 
     note_ = note;
     noteid_ = (int)note;
+}
+
+void thMidiNote::express (int what, float value)
+{
+    static const char *const AUX[TH_NOTE_AUX] = { "aux0", "aux1", "aux2",
+                                                  "aux3" };
+    thNode *ionode = synthTree_.IONode();
+
+    if (ionode == NULL || what >= TH_NOTE_AUX)
+        return;
+
+    if (what < 0)
+    {
+        bend_ = value;
+        ionode->setArg("note", note_ + bend_);
+    }
+    else if (ionode->getArg(AUX[what]) != NULL)
+        ionode->setArg(AUX[what], value);
 }
 
 /* Audio thread. See the header. */

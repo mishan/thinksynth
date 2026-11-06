@@ -42,9 +42,13 @@ include(TestBigEndian)
 # 8: thMidiChan gained choke state and an inline choke() accessor. A client
 # built with that header must not silently use an older constructor that never
 # initializes the new state, even on targets where it fits in existing padding.
+#
+# 9: thSynthCommand gained a value for per-note expression, and thSynth holds
+# a ring of them inline, so thSynth is a different size; thMidiNote gained the
+# bend it keeps across a retune.
 # ---------------------------------------------------------------------------
 
-set(THINK_LIB_MAJOR 8)
+set(THINK_LIB_MAJOR 9)
 set(THINK_LIB_MINOR 0)
 
 # ---------------------------------------------------------------------------

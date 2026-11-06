@@ -284,6 +284,10 @@ think_harness(hidblockcheck COMPOSERHOST)
 # What a HID controller's profile does with its controls (hid/thhMapper.h).
 think_harness(hidmapcheck COMPOSERHOST HID)
 
+# One held note's pitch and aux values moved while it sounds
+# (thSynth::bendNote, setNoteAux).
+think_harness(notebendcheck)
+
 # What the controller pane says about a profile (hid/thhPane.h).
 think_harness(hidpanecheck COMPOSERHOST HID)
 
@@ -1096,6 +1100,8 @@ add_test(NAME lexcheck COMMAND lexcheck)
 
 add_test(NAME hidblockcheck COMMAND hidblockcheck)
 add_test(NAME hidmapcheck COMMAND hidmapcheck)
+add_test(NAME notebendcheck
+         COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"

@@ -44,13 +44,16 @@ struct thSynthCommand {
         SET_CHAN_ARG,   /* install `arg' on `chan', replacing by name      */
         SET_EFFECT,     /* install `effect' (may be NULL) on `chan'        */
         SET_MASTER_EFFECT, /* install `effect' (may be NULL) on the mix     */
-        SET_PROBE       /* install `probe' (may be NULL) in `probeSlot'    */
+        SET_PROBE,      /* install `probe' (may be NULL) in `probeSlot'    */
+        NOTE_EXPRESSION /* `what' of `noteId' on `chan' is now `value'     */
     };
 
     Type type;
     int chan;
     int noteId;
     int probeSlot;
+    int what;           /* NOTE_EXPRESSION: thMidiNote::express's */
+    float value;
 
     thMidiNote *note;
     thMidiChan *channel;
@@ -67,7 +70,7 @@ struct thSynthCommand {
     thArg *replaced;
 
     thSynthCommand (void)
-        : type(NOTE_OFF), chan(0), noteId(0), probeSlot(-1),
+        : type(NOTE_OFF), chan(0), noteId(0), probeSlot(-1), what(0), value(0),
           note(NULL), channel(NULL), effect(NULL), arg(NULL), probe(NULL),
           replaced(NULL) { }
 };
