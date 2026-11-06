@@ -24,8 +24,9 @@ const uint8_t THH_INDEX_INIT[2][5] = {
 };
 
 /* A first instrument: a chord's three notes under the thumb and finger, an
-   octave either way on the stick, and the harder the grip the louder. Not
-   the stick's click, which would move the stick it presses. */
+   octave either way on the stick, and the further the trigger is pulled the
+   louder, so its own note, at the end of the pull, is the loudest. Not the
+   stick's click, which would move the stick it presses. */
 const char *const THH_INDEX_PROFILE =
     "device index {\n"
     "    base = \"C4\";\n"
@@ -33,7 +34,7 @@ const char *const THH_INDEX_PROFILE =
     "    b = note 4;\n"
     "    trigger_click = note 7;\n"
     "    stick_y = pitch { step = octave; range = 1; };\n"
-    "    grip_force = velocity { min = 40; max = 127; };\n"
+    "    trigger = velocity { min = 40; max = 127; };\n"
     "};\n";
 
 /* In enum order, so a button's or an axis's index is its slot. */

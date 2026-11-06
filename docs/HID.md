@@ -34,7 +34,7 @@ device index {
     b = note 4;
     trigger_click = note 7;
     stick_y = pitch { step = octave; range = 1; };
-    grip_force = velocity { min = 40; max = 127; };
+    trigger = velocity { min = 40; max = 127; };
 };
 ```
 
