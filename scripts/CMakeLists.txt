@@ -268,6 +268,9 @@ think_harness(wavcheck)
 # changed copies of every shipped file.
 think_harness(parsecheck COMPOSERHOST)
 
+# What a HID controller's mapping block says (src/thcHidBlock.h).
+think_harness(hidblockcheck COMPOSERHOST)
+
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.
 # See the header of dspsweep.cpp for why the corners are swept one control at
@@ -1051,6 +1054,8 @@ add_test(NAME patchcheck
 
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)
+
+add_test(NAME hidblockcheck COMMAND hidblockcheck)
 
 # The corpus, because "a row says what loading the file would have said" is a
 # claim about the shipped graphs; the fixtures run either way. The plugins are

@@ -61,6 +61,7 @@ add_library(think_composerhost OBJECT
     thcGenFile.cpp
     thcGenEdit.cpp
     thcGenDiff.cpp
+    thcHidBlock.cpp
     thcFreeze.cpp
     thcAudition.cpp
     thcMidiFile.cpp

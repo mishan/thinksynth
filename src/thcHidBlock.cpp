@@ -1,0 +1,489 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include "config.h"
+
+#include <cmath>
+
+#include "think.h"
+#include "thcHidBlock.h"
+
+typedef thcGenToken Tok;
+
+namespace {
+
+class Parser
+{
+public:
+    Parser (const std::vector<Tok> &t, size_t &i, std::string &err,
+            int &errLine)
+        : t_(t), i_(i), err_(err), errLine_(errLine) {}
+
+    bool block (thcHidBlock &out);
+    bool profile (thcHidBlock &out);
+
+private:
+    const std::vector<Tok> &t_;
+    size_t &i_;
+    std::string &err_;
+    int &errLine_;
+
+    const Tok &peek () const { return t_[i_]; }
+
+    bool fail (int line, const std::string &msg)
+    {
+        err_ = msg;
+        errLine_ = line;
+        return false;
+    }
+
+    bool fail (const Tok &at, const std::string &msg)
+    {
+        /* END has no line of its own worth naming; the token before it does. */
+        return fail((at.kind == Tok::END && i_ > 0) ? t_[i_ - 1].line : at.line,
+                    msg);
+    }
+
+    bool isPunct (const Tok &tok, char c) const
+    {
+        return tok.kind == Tok::PUNCT && tok.text.size() == 1 &&
+               tok.text[0] == c;
+    }
+
+    bool isWord (const Tok &tok, const char *w) const
+    {
+        return tok.kind == Tok::WORD && tok.text == w;
+    }
+
+    bool expect (char c)
+    {
+        if (!isPunct(peek(), c))
+            return fail(peek(), std::string("expected '") + c + "'");
+        i_++;
+        return true;
+    }
+
+    /* True at the `}' that ends a body, having stepped past it, and at the
+       end of the file, having refused it: callers then check err_. */
+    bool closes ()
+    {
+        if (peek().kind == Tok::END)
+            return !fail(peek(), "expected '}'");
+        if (!isPunct(peek(), '}'))
+            return false;
+        i_++;
+        return true;
+    }
+
+    bool word (std::string &out, const std::string &what);
+    bool number (double &out, const std::string &what);
+    bool integer (int &out, int lo, int hi, const std::string &what);
+    bool baseNote (int &out);
+    bool statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
+                    int &channel, int &base, bool inLayer);
+    bool layer (thcHidBlock &blk);
+    bool binding (thcHidBinding &out, bool inLayer);
+    bool options (thcHidBinding &b);
+};
+
+bool
+Parser::word (std::string &out, const std::string &what)
+{
+    if (peek().kind != Tok::WORD)
+        return fail(peek(), what + " wants a name");
+    out = peek().text;
+    i_++;
+    return true;
+}
+
+/* A `-' right against a number after a word reaches here as two tokens (the
+   tokenizer's endsAValue), so it is rejoined here. With a space between, it
+   is not a sign, and nor is a second one. */
+bool
+Parser::number (double &out, const std::string &what)
+{
+    double sign = 1;
+
+    if (isPunct(peek(), '-') && t_[i_ + 1].kind == Tok::NUMBER &&
+        t_[i_ + 1].off == peek().end && t_[i_ + 1].text[0] != '-')
+    {
+        sign = -1;
+        i_++;
+    }
+
+    if (peek().kind != Tok::NUMBER)
+        return fail(peek(), what + " wants a number");
+    if (!std::isfinite(peek().num))
+        return fail(peek(), what + " is out of range");
+
+    out = sign * peek().num;
+    i_++;
+    return true;
+}
+
+bool
+Parser::integer (int &out, int lo, int hi, const std::string &what)
+{
+    const Tok &at = peek();
+    double v;
+
+    if (!number(v, what) || v != std::floor(v))
+        return fail(at, what + " wants a whole number");
+    if (v < lo || v > hi)
+        return fail(at, what + " is " + std::to_string(lo) + " to " +
+                    std::to_string(hi));
+
+    out = (int)v;
+    return true;
+}
+
+bool
+Parser::baseNote (int &out)
+{
+    const Tok &at = peek();
+
+    if (at.kind != Tok::STRING)
+        return fail(at, "write the base note in quotes, as \"C4\": unquoted, "
+                    "a # would start a comment");
+
+    std::vector<int> notes;
+    std::string bad;
+
+    if (!thcGenLoader::parseNoteList(at.text, notes, bad))
+        return fail(at, "'" + bad + "' is not a note");
+    if (notes.size() != 1 || notes[0] < 0)
+        return fail(at, "the base is one note");
+
+    out = notes[0];
+    i_++;
+    return true;
+}
+
+/* The rule .gen applies to a sink's chanarg (thcGenFile.cpp): a letter, then
+   letters, digits and underscores, optionally behind the effect's prefix.
+   ASCII by hand, as there, since <cctype> answers by locale. */
+bool
+chanargName (const std::string &name)
+{
+    const std::string prefix = TH_EFFECT_PREFIX;
+    const size_t from = name.compare(0, prefix.size(), prefix) == 0
+                        ? prefix.size() : 0;
+
+    for (size_t i = from; i < name.size(); i++)
+    {
+        const char c = name[i];
+        const bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+
+        if (!letter && (i == from || !((c >= '0' && c <= '9') || c == '_')))
+            return false;
+    }
+
+    return name.size() > from;
+}
+
+/* `{ key = value; ... }' after an action. Which keys an action takes is
+   decided here, so a key it doesn't take is refused by name. */
+bool
+Parser::options (thcHidBinding &b)
+{
+    const bool value = b.kind == thcHidBinding::VALUE;
+    const bool vel = b.kind == thcHidBinding::VELOCITY;
+    const bool pitch = b.kind == thcHidBinding::PITCH;
+
+    if (!isPunct(peek(), '{'))
+        return true;
+    i_++;
+
+    while (!closes())
+    {
+        const Tok &key = peek();
+        const std::string &k = key.text;
+
+        if (key.kind != Tok::WORD)
+            return fail(key, "expected a setting");
+        i_++;
+        if (!expect('='))
+            return false;
+
+        if (k == "channel" && (b.kind == thcHidBinding::NOTE || value))
+        {
+            if (!integer(b.channel, 1, 16, "channel"))
+                return false;
+        }
+        else if ((k == "min" || k == "max") && (value || vel))
+        {
+            double v;
+            int iv;
+
+            if (value ? !number(v, k) : !integer(iv, 1, 127, "velocity"))
+                return false;
+            (k == "min" ? b.min : b.max) = value ? v : iv;
+            (k == "min" ? b.hasMin : b.hasMax) = true;
+        }
+        else if (k == "shape" && value)
+        {
+            const Tok &v = peek();
+
+            if (isWord(v, "linear"))
+                b.shape = thcHidBinding::LINEAR;
+            else if (isWord(v, "exp"))
+                b.shape = thcHidBinding::EXP;
+            else
+                return fail(v, "'" + v.text + "' is not a shape; write "
+                            "linear or exp");
+            i_++;
+        }
+        else if (k == "step" && pitch)
+        {
+            const Tok &v = peek();
+
+            if (isWord(v, "octave"))
+                b.octaves = true;
+            else if (isWord(v, "semitone"))
+                b.octaves = false;
+            else
+                return fail(v, "'" + v.text + "' is not a step; write "
+                            "octave or semitone");
+            i_++;
+        }
+        else if (k == "range" && pitch)
+        {
+            if (!integer(b.range, 1, 127, "range"))
+                return false;
+        }
+        else
+            return fail(key, "'" + k + "' is not a setting here");
+
+        if (!expect(';'))
+            return false;
+    }
+    if (!err_.empty())
+        return false;
+
+    if (vel && b.hasMin && b.hasMax && b.min > b.max)
+        return fail(b.line, "the velocity's min is above its max");
+    if (b.shape == thcHidBinding::EXP &&
+        ((b.hasMin && b.min <= 0) || (b.hasMax && b.max <= 0)))
+        return fail(b.line, "an exp shape needs a range above 0");
+    if (pitch && b.range == 0)
+        return fail(b.line, "a pitch axis needs a range");
+
+    return true;
+}
+
+bool
+Parser::binding (thcHidBinding &b, bool inLayer)
+{
+    b.control = peek().text;
+    b.line = peek().line;
+    i_++;
+    if (!expect('='))
+        return false;
+
+    const Tok &act = peek();
+
+    if (act.kind == Tok::STRING)
+    {
+        if (!chanargName(act.text))
+            return fail(act, "'" + act.text + "' is not a chanarg name");
+        b.kind = thcHidBinding::VALUE;
+        b.arg = act.text;
+        i_++;
+    }
+    else if (isWord(act, "note"))
+    {
+        b.kind = thcHidBinding::NOTE;
+        i_++;
+        if (!integer(b.semis, -127, 127, "note"))
+            return false;
+    }
+    else if (isWord(act, "octave"))
+    {
+        b.kind = thcHidBinding::OCTAVE;
+        i_++;
+        if (!integer(b.semis, -10, 10, "octave"))
+            return false;
+        if (b.semis == 0)
+            return fail(t_[i_ - 1], "an octave step is not 0");
+    }
+    else if (isWord(act, "hold") || isWord(act, "toggle"))
+    {
+        if (inLayer)
+            return fail(act, "a modifier can't sit inside a layer");
+        b.kind = act.text == "hold" ? thcHidBinding::HOLD
+                                    : thcHidBinding::TOGGLE;
+        i_++;
+        if (!word(b.layer, act.text))
+            return false;
+    }
+    else if (isWord(act, "pitch"))
+    {
+        b.kind = thcHidBinding::PITCH;
+        i_++;
+        if (!isPunct(peek(), '{'))
+            return fail(peek(), "a pitch axis needs a range");
+    }
+    else if (isWord(act, "velocity"))
+    {
+        b.kind = thcHidBinding::VELOCITY;
+        i_++;
+    }
+    else
+        return fail(act, "'" + act.text + "' is not an action; write note, "
+                    "hold, toggle, octave, pitch, velocity or a quoted arg "
+                    "name");
+
+    return options(b) && expect(';');
+}
+
+/* One statement of a device's body or a layer's: a setting, a layer (in a
+   device only) or a binding. */
+bool
+Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
+                   int &channel, int &base, bool inLayer)
+{
+    const Tok &tok = peek();
+    const std::string &k = tok.text;
+
+    if (tok.kind != Tok::WORD)
+        return fail(tok, "expected a control or a setting");
+
+    if (inLayer && (k == "layer" || k == "velocity"))
+        return fail(tok, k + " can't be set inside a layer");
+    if (k == "layer")
+        return layer(blk);
+
+    if (k == "channel" || k == "base" || k == "velocity")
+    {
+        i_++;
+        if (!expect('='))
+            return false;
+        if (k == "channel" ? !integer(channel, 1, 16, "channel")
+            : k == "base"  ? !baseNote(base)
+            : !integer(blk.velocity, 1, 127, "velocity"))
+            return false;
+        return expect(';');
+    }
+
+    for (size_t i = 0; i < bindings.size(); i++)
+        if (bindings[i].control == k)
+            return fail(tok, "'" + k + "' is already bound on line " +
+                        std::to_string(bindings[i].line));
+
+    thcHidBinding b;
+
+    if (!binding(b, inLayer))
+        return false;
+    bindings.push_back(b);
+    return true;
+}
+
+bool
+Parser::layer (thcHidBlock &blk)
+{
+    thcHidLayer l;
+
+    l.line = peek().line;
+    i_++;
+    if (!word(l.name, "layer"))
+        return false;
+
+    for (size_t i = 0; i < blk.layers.size(); i++)
+        if (blk.layers[i].name == l.name)
+            return fail(t_[i_ - 1], "layer '" + l.name + "' is already "
+                        "declared on line " +
+                        std::to_string(blk.layers[i].line));
+
+    if (!expect('{'))
+        return false;
+    while (!closes())
+        if (!statement(blk, l.bindings, l.channel, l.base, true))
+            return false;
+    if (!err_.empty() || !expect(';'))
+        return false;
+
+    blk.layers.push_back(l);
+    return true;
+}
+
+bool
+Parser::block (thcHidBlock &out)
+{
+    if (!expect('{'))
+        return false;
+    while (!closes())
+        if (!statement(out, out.bindings, out.channel, out.base, false))
+            return false;
+    if (!err_.empty())
+        return false;
+
+    /* Layers may be named before they are declared, so this waits until
+       the whole block is read. */
+    for (size_t i = 0; i < out.bindings.size(); i++)
+    {
+        const thcHidBinding &b = out.bindings[i];
+        bool found = false;
+
+        if (b.kind != thcHidBinding::HOLD && b.kind != thcHidBinding::TOGGLE)
+            continue;
+
+        for (size_t j = 0; j < out.layers.size(); j++)
+            found = found || out.layers[j].name == b.layer;
+
+        if (!found)
+            return fail(b.line, "there is no layer '" + b.layer + "'");
+    }
+
+    return true;
+}
+
+bool
+Parser::profile (thcHidBlock &out)
+{
+    if (!isWord(peek(), "device"))
+        return fail(peek(), "a profile starts with 'device'");
+    i_++;
+    if (!word(out.device, "device") || !block(out) || !expect(';'))
+        return false;
+    if (peek().kind != Tok::END)
+        return fail(peek(), "a profile holds one device");
+    return true;
+}
+
+} /* namespace */
+
+bool
+thcHidParseBlock (const std::vector<Tok> &toks, size_t &pos, thcHidBlock &out,
+                  std::string &err, int &errLine)
+{
+    err.clear();
+    return Parser(toks, pos, err, errLine).block(out);
+}
+
+bool
+thcHidParseProfile (const std::string &text, thcHidBlock &out,
+                    std::string &err, int &errLine)
+{
+    std::vector<Tok> toks;
+    size_t pos = 0;
+
+    if (!thcGenLoader::tokenize(text, toks, err, errLine))
+        return false;
+
+    return Parser(toks, pos, err, errLine).profile(out);
+}
