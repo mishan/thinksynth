@@ -54,6 +54,8 @@ describe (const thcHidBinding &b)
         s << "pitch " << (b.octaves ? "octave" : "semitone") << " " << b.range;
         break;
     case thcHidBinding::VELOCITY: s << "velocity"; break;
+    case thcHidBinding::BEND:     s << "bend " << b.range; break;
+    case thcHidBinding::AUX:      s << "aux" << b.semis; break;
     case thcHidBinding::STRIKE:
         s << "strike " << b.semis << " at" << b.at << " off" << b.off;
         break;
@@ -218,6 +220,11 @@ static const Row ROWS[] = {
       "smooth = 0.1; }; };",
       "index ch0 base60 vel100 | a:note 0 latch @1 | "
       "grip_top:value pitch smooth0.1 @1", 0, NULL },
+    { "a note's own bend and aux",
+      "device index { stick_x = bend { range = 2; smooth = 0.02; }; "
+      "grip_force = aux 1 { min = 0.2; max = 0.9; }; };",
+      "index ch0 base60 vel100 | stick_x:bend 2 smooth0.02 @1 | "
+      "grip_force:aux1 min0.2 max0.9 @1", 0, NULL },
     { "a layer named before it is declared",
       "device index {\n  grip = hold mod;\n  layer mod { base = \"C3\"; };\n};",
       "index ch0 base60 vel100 | grip:hold mod @2"
@@ -305,6 +312,10 @@ static const Row ROWS[] = {
     { "a smoothing back in time",
       "device index { t = \"cutoff\" { smooth = -1; }; };", NULL, 1,
       "smooth" },
+    { "a bend with no range",
+      "device index { stick_x = bend; };", NULL, 1, "range" },
+    { "an aux past the four",
+      "device index { grip_force = aux 4; };", NULL, 1, "0 to 3" },
     { "a setting a block doesn't have",
       "device index { a = note 0 { color = 1; }; };", NULL, 1, "color" },
     { "a missing semicolon",

@@ -73,6 +73,14 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
         r.action = "strike " + signedInt(b.semis) + " at " + number(b.at);
         r.target = where;
         break;
+    case thcHidBinding::BEND:
+        r.action = "bend held notes, " + std::to_string(b.range) +
+                   " semitones" + (axis >= 0 && controls.axes[axis].bipolar
+                                   ? " either way" : " up");
+        break;
+    case thcHidBinding::AUX:
+        r.action = "aux" + std::to_string(b.semis) + " of held notes" + range(b);
+        break;
     case thcHidBinding::OCTAVE:
         r.action = "octave " + signedInt(b.semis);
         break;

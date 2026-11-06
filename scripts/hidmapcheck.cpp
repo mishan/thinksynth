@@ -74,6 +74,13 @@ describe (const std::vector<thhAction> &acts)
             s << "on " << a.channel + 1 << " " << a.note << " " << a.vel;
         else if (a.kind == thhAction::NOTE_OFF)
             s << "off " << a.channel + 1 << " " << a.note;
+        else if (a.kind == thhAction::NOTE_BEND || a.kind == thhAction::NOTE_AUX)
+        {
+            snprintf(t, sizeof(t), "%+.2f", a.t);
+            s << (a.kind == thhAction::NOTE_BEND ? "bend "
+                  : "aux" + std::to_string(a.aux) + " ")
+              << a.channel + 1 << " " << a.note << " " << t;
+        }
         else
         {
             snprintf(t, sizeof(t), "%.3f", a.t);
@@ -413,6 +420,26 @@ static const Row ROWS[] = {
       "device index { grip_top = \"pitch\" { smooth = 0.1; }; };",
       "axis grip_top 0; axis grip_top 1; wait 1000",
       "pitch@1 0.000 | pitch@1 0.095 | pitch@1 1.000", 0, NULL },
+    { "a bend moves every note held, and only them",
+      "device index { a = note 0; b = note 4; stick_x = bend { range = 2; }; };",
+      "down a; down b; axis stick_x 0.5; up a; axis stick_x -1; up b; "
+      "axis stick_x 0",
+      "on 1 60 100 | on 1 64 100 | bend 1 60 +1.00, bend 1 64 +1.00 | "
+      "off 1 60 | bend 1 64 -2.00 | off 1 64 | ", 0, NULL },
+    { "a note played while bent starts bent",
+      "device index { a = note 0; stick_x = bend { range = 2; }; };",
+      "axis stick_x 0.5; down a; up a",
+      " | on 1 60 100, bend 1 60 +1.00 | off 1 60", 0, NULL },
+    { "bends add, and an aux is each note's own",
+      "device index { a = note 0; stick_x = bend { range = 2; }; "
+      "tilt = bend { range = 1; }; grip_force = aux 0; };",
+      "down a; axis stick_x 1; axis tilt -0.5; axis grip_force 0.25",
+      "on 1 60 100 | bend 1 60 +2.00 | bend 1 60 +1.50 | aux0 1 60 +0.25",
+      0, NULL },
+    { "a strike's note is bent too",
+      "device index { grip_top = strike 0; stick_x = bend { range = 2; }; };",
+      "axis grip_top 0; axis grip_top 0.9; axis stick_x 1",
+      " | on 1 60 127 | bend 1 60 +2.00", 0, NULL },
     { "a control the device doesn't have",
       "device index {\n  zz = note 0;\n};", "", NULL, 2, "'zz'" },
     { "a button bound to a value",

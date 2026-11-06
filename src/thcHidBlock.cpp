@@ -207,6 +207,8 @@ Parser::options (thcHidBinding &b)
     const bool strike = b.kind == thcHidBinding::STRIKE;
     const bool vel = b.kind == thcHidBinding::VELOCITY || strike;
     const bool pitch = b.kind == thcHidBinding::PITCH;
+    const bool bend = b.kind == thcHidBinding::BEND;
+    const bool aux = b.kind == thcHidBinding::AUX;
 
     if (!isPunct(peek(), '{'))
         return true;
@@ -240,14 +242,14 @@ Parser::options (thcHidBinding &b)
             if (!integer(b.channel, 1, 16, "channel"))
                 return false;
         }
-        else if ((k == "min" || k == "max") && (value || vel))
+        else if ((k == "min" || k == "max") && (value || vel || aux))
         {
             double v;
             int iv;
 
-            if (value ? !number(v, k) : !integer(iv, 1, 127, "velocity"))
+            if (value || aux ? !number(v, k) : !integer(iv, 1, 127, "velocity"))
                 return false;
-            (k == "min" ? b.min : b.max) = value ? v : iv;
+            (k == "min" ? b.min : b.max) = value || aux ? v : iv;
             (k == "min" ? b.hasMin : b.hasMax) = true;
         }
         else if ((k == "at" || k == "off") && strike)
@@ -260,14 +262,14 @@ Parser::options (thcHidBinding &b)
                 return fail(t_[i_ - 1], k + " is 0 to 1");
             (k == "at" ? b.at : b.off) = v;
         }
-        else if (k == "smooth" && value)
+        else if (k == "smooth" && (value || bend || aux))
         {
             if (!number(b.smooth, k))
                 return false;
             if (b.smooth < 0)
                 return fail(t_[i_ - 1], "smooth is 0 or more seconds");
         }
-        else if (k == "center" && (value || pitch))
+        else if (k == "center" && (value || pitch || bend || aux))
         {
             if (!number(b.center, k))
                 return false;
@@ -300,7 +302,7 @@ Parser::options (thcHidBinding &b)
                             "octave or semitone");
             i_++;
         }
-        else if (k == "range" && pitch)
+        else if (k == "range" && (pitch || bend))
         {
             if (!integer(b.range, 1, 127, "range"))
                 return false;
@@ -319,8 +321,9 @@ Parser::options (thcHidBinding &b)
     if (b.shape == thcHidBinding::EXP &&
         ((b.hasMin && b.min <= 0) || (b.hasMax && b.max <= 0)))
         return fail(b.line, "an exp shape needs a range above 0");
-    if (pitch && b.range == 0)
-        return fail(b.line, "a pitch axis needs a range");
+    if ((pitch || bend) && b.range == 0)
+        return fail(b.line, std::string(pitch ? "a pitch axis" : "a bend") +
+                    " needs a range");
 
     return true;
 }
@@ -382,6 +385,20 @@ Parser::binding (thcHidBinding &b, bool inLayer)
         b.kind = thcHidBinding::VELOCITY;
         i_++;
     }
+    else if (isWord(act, "bend"))
+    {
+        b.kind = thcHidBinding::BEND;
+        i_++;
+        if (!isPunct(peek(), '{'))
+            return fail(peek(), "a bend needs a range");
+    }
+    else if (isWord(act, "aux"))
+    {
+        b.kind = thcHidBinding::AUX;
+        i_++;
+        if (!integer(b.semis, 0, TH_NOTE_AUX - 1, "aux"))
+            return false;
+    }
     else if (isWord(act, "strike"))
     {
         b.kind = thcHidBinding::STRIKE;
@@ -392,8 +409,8 @@ Parser::binding (thcHidBinding &b, bool inLayer)
     }
     else
         return fail(act, "'" + act.text + "' is not an action; write note, "
-                    "strike, hold, toggle, octave, pitch, velocity or a "
-                    "quoted arg name");
+                    "strike, hold, toggle, octave, pitch, velocity, bend, aux "
+                    "or a quoted arg name");
 
     if (!options(b))
         return false;
@@ -461,7 +478,8 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
     /* An axis may ride several knobs and pitch axes at once; anything else
        is one binding to a control. */
     const auto repeats = [](const thcHidBinding &x) {
-        return x.kind == thcHidBinding::VALUE || x.kind == thcHidBinding::PITCH;
+        return x.kind == thcHidBinding::VALUE || x.kind == thcHidBinding::PITCH ||
+               x.kind == thcHidBinding::BEND || x.kind == thcHidBinding::AUX;
     };
 
     for (size_t i = 0; i < bindings.size(); i++)

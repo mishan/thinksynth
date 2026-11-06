@@ -257,6 +257,21 @@ checkPlay (const string &plugins, const string &dsp)
     report("a note off ends it", windows < 20000 && heard == 2 ? "" :
            "still sounding after " + std::to_string(windows) + " windows");
 
+    /* A held note's bend reaches its voice. */
+    thhPlay(synth, { action(thhAction::NOTE_ON, 1, 62, NULL, 0) }, hear);
+    thhAction bend = action(thhAction::NOTE_BEND, 1, 62, NULL, 1.5);
+
+    thhPlay(synth, { bend }, hear);
+    run(2);
+
+    thMidiNote *bent = synth.getChannel(1)->getNote(62);
+    thArg *bentTo = bent ? bent->synthTree()->IONode()->getArg("note") : NULL;
+
+    report("a bend reaches the note's voice",
+           bentTo && (*bentTo)[0] == 63.5f ? "" : "it doesn't");
+    thhPlay(synth, { action(thhAction::NOTE_OFF, 1, 62, NULL, 0) }, hear);
+    heard -= 2;
+
     thArg *from = synth.getChanArg(1, "from");
     thhAction v = action(thhAction::VALUE, 1, 0, "from", 0.5);
 
