@@ -164,6 +164,11 @@ void KeyboardPanel::setChannel (int chan)
         chanVal_->set_value(chan + 1);
 }
 
+int KeyboardPanel::channel (void) const
+{
+    return keyboard_->GetChannel();
+}
+
 KeyboardPanel::~KeyboardPanel (void)
 {
     /* Nothing to free here: chanVal_ and transVal_ are refcounted and held

@@ -280,6 +280,23 @@ main (void)
         }
     }
 
+    /* A block read into twice holds the second profile, not both. */
+    thcHidBlock twice;
+    string err;
+    int errLine;
+
+    thcHidParseProfile("device index { a = note 1; };", twice, err, errLine);
+    if (!thcHidParseProfile("device index { a = note 2; };", twice, err,
+                            errLine) || describe(twice) !=
+        "index ch0 base60 vel100 | a:note 2 @1")
+    {
+        printf("FAIL  a block read into twice\n  read as %s\n",
+               describe(twice).c_str());
+        failed++;
+    }
+    else
+        printf("ok    a block read into twice\n");
+
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
 
     return failed;

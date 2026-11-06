@@ -287,6 +287,10 @@ think_harness(hidmapcheck COMPOSERHOST HID)
 # What the Index controller's reports mean, against a capture (hid/thhIndex.h).
 think_harness(hidcheck COMPOSERHOST HID)
 
+# A profile found or not, and a controller's actions on a real synth
+# (hid/thhPlay.h).
+think_harness(hidplaycheck COMPOSERHOST HID)
+
 # Finding a controller and reading it on a thread (hid/thhReader.h), which
 # is Linux's.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -297,6 +301,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # A reader that doesn't stop hangs rather than fails.
   set_tests_properties(hidreadcheck PROPERTIES TIMEOUT 60)
 endif()
+
+add_test(NAME hidplaycheck
+         COMMAND hidplaycheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp")
 
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.

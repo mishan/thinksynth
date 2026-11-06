@@ -121,9 +121,9 @@ thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
         if (!woke)
         {
             status = fd < 0 && errno == EACCES
-                ? "no permission to open " + n.all[i] + "; install "
-                  "hid/70-thinksynth-index.rules in /etc/udev/rules.d and "
-                  "plug the controller in again"
+                ? "no permission to open " + n.all[i] + "; run "
+                  "hid/install-udev-rule.sh to install the udev rule that "
+                  "allows it"
                 : (fd < 0 ? "can't open " : "can't wake ") + n.all[i] + ": " +
                   strerror(errno);
             if (fd >= 0)

@@ -47,6 +47,9 @@ public:
     MainSynthWindow (gthAudio *);
     ~MainSynthWindow (void);
 
+    /* The channel the keyboard plays, 0-based. */
+    int keyboardChannel (void) const;
+
     /* Takes what the preferences say about the window itself.
      *
      * Separate from the constructor because the file has not been read when

@@ -55,6 +55,9 @@ enum thhIndexAxis
 
 const thhControls &thhIndexControls ();
 
+/* What the controller plays with no profile of the player's own. */
+extern const char *const THH_INDEX_PROFILE;
+
 /* The two feature reports that wake every interface; until they are sent
    the controller says nothing. */
 extern const uint8_t THH_INDEX_INIT[2][5];

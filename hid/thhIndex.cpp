@@ -23,6 +23,19 @@ const uint8_t THH_INDEX_INIT[2][5] = {
     { 0x07, 0x03, 0x00, 0x00, 0x00 },   /* light-sensor verbosity */
 };
 
+/* A first instrument: a chord's three notes under the thumb and finger, an
+   octave either way on the stick, and the harder the grip the louder. Not
+   the stick's click, which would move the stick it presses. */
+const char *const THH_INDEX_PROFILE =
+    "device index {\n"
+    "    base = \"C4\";\n"
+    "    a = note 0;\n"
+    "    b = note 4;\n"
+    "    trigger_click = note 7;\n"
+    "    stick_y = pitch { step = octave; range = 1; };\n"
+    "    grip_force = velocity { min = 40; max = 127; };\n"
+    "};\n";
+
 /* In enum order, so a button's or an axis's index is its slot. */
 const thhControls &
 thhIndexControls ()

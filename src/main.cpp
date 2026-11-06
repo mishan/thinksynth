@@ -60,6 +60,10 @@ typedef void (*sighandler_t)(int);
 #include "gui/PatchSelPanel.h"
 #include "gui/MainSynthWindow.h"
 
+#ifdef __linux__
+#include "gthHid.h"
+#endif
+
 /* XXX: globals */
 thSynth *Synth = NULL;
 gthAudio *aout = NULL;
@@ -573,7 +577,19 @@ int main (int argc, char *argv[])
     gtkApp->signal_activate().connect(
         sigc::bind(sigc::ptr_fun(&presentWindow), synthWindow));
 
+#ifdef __linux__
+    gthHid *hid = new gthHid(Synth, [synthWindow]() {
+        return synthWindow->keyboardChannel();
+    });
+#endif
+
     gtkApp->run();
+
+    /* While the main loop's context, which its dispatcher is on, is still
+       here. */
+#ifdef __linux__
+    delete hid;
+#endif
 
     /* Silence the device first. Everything below this touches state the
        audio callback reads -- saving preferences walks the patch manager,

@@ -6,7 +6,8 @@
 add_library(think_hid OBJECT
     thhControls.cpp
     thhIndex.cpp
-    thhMapper.cpp)
+    thhMapper.cpp
+    thhPlay.cpp)
 
 target_include_directories(think_hid PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"

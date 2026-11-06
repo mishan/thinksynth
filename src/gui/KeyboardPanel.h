@@ -36,6 +36,9 @@ public:
        Channels. */
     void setChannel (int chan);
 
+    /* The channel the keys play, 0-based. */
+    int channel (void) const;
+
 protected:
     void eventNoteOn (int chan, int note, float veloc);
     void eventNoteOff (int chan, int note);

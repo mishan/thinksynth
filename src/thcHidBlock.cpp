@@ -482,6 +482,7 @@ thcHidParseProfile (const std::string &text, thcHidBlock &out,
     std::vector<Tok> toks;
     size_t pos = 0;
 
+    out = thcHidBlock();
     if (!thcGenLoader::tokenize(text, toks, err, errLine))
         return false;
 
