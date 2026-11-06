@@ -423,7 +423,14 @@ void MainSynthWindow::buildPanes (void)
     panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 400);
     panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 400);
     panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 400);
-    panes_->add("controller", "Controller", scrolled(*controller_, true), 400);
+    /* Down only: its text wraps to whatever width the pane is given. */
+    {
+        Gtk::ScrolledWindow *sw = manage(new Gtk::ScrolledWindow);
+
+        sw->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+        sw->set_child(*controller_);
+        panes_->add("controller", "Controller", *sw, 280);
+    }
     panes_->add("composerview", "Piece", composer_->canvasView(), 360);
     panes_->add("seqview", "Sequencer", composer_->sequencerView(), 360);
     panes_->add("roll", "Piano roll", composer_->rollView(), 320);

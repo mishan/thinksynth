@@ -24,9 +24,6 @@
 
 namespace fs = std::filesystem;
 
-static const char *HEADINGS[7] = { "Layer", "Control", "Does", "Where", "Now",
-                                   "", "" };
-
 /* What Open file writes where there is no profile yet: changes, not a copy,
    so the controller's own profile still reaches its player as it grows. */
 static const char TEMPLATE[] =
@@ -46,10 +43,9 @@ ControllerPane::ControllerPane (void)
 
     status_.set_xalign(0);
     status_.set_wrap(true);
-    status_.set_selectable(true);
+    status_.set_wrap_mode(Pango::WrapMode::WORD_CHAR);
 
     grid_.set_column_spacing(12);
-    grid_.set_row_spacing(2);
 
     reload_.signal_clicked().connect(
         sigc::mem_fun(*this, &ControllerPane::onReload));
@@ -81,34 +77,45 @@ void ControllerPane::setSource (thhPaneSource *source)
     onTick();
 }
 
+/* A binding a block of its own, one above the other, so the pane fits its
+   width and only ever scrolls down. */
 void ControllerPane::rebuild (size_t rows)
 {
     while (Gtk::Widget *w = grid_.get_first_child())
         grid_.remove(*w);
     cells_.clear();
 
-    for (int c = 0; c < 7; c++)
-    {
-        Gtk::Label *h = Gtk::make_managed<Gtk::Label>(HEADINGS[c]);
-
-        h->set_xalign(0);
-        h->add_css_class("heading");
-        grid_.attach(*h, c, 0);
-    }
-
     for (size_t r = 0; r < rows; r++)
     {
-        std::array<Gtk::Label *, 7> row;
+        const int y = (int)r * 3;
+        Cells c;
 
-        for (int c = 0; c < 7; c++)
+        c.head = Gtk::make_managed<Gtk::Label>();
+        c.now = Gtk::make_managed<Gtk::Label>();
+        c.does = Gtk::make_managed<Gtk::Label>();
+        c.warning = Gtk::make_managed<Gtk::Label>();
+
+        c.head->set_xalign(0);
+        c.head->set_hexpand(true);
+        c.head->set_margin_top(r ? 6 : 0);
+        c.head->add_css_class("heading");
+        c.now->set_xalign(1);
+        c.now->set_width_chars(5);
+        c.now->set_margin_top(r ? 6 : 0);
+        for (Gtk::Label *l : { c.does, c.warning })
         {
-            row[c] = Gtk::make_managed<Gtk::Label>();
-            row[c]->set_xalign(0);
-            grid_.attach(*row[c], c, (int)r + 1);
+            l->set_xalign(0);
+            l->set_wrap(true);
+            l->set_wrap_mode(Pango::WrapMode::WORD_CHAR);
         }
-        row[5]->add_css_class("dim-label");
-        row[6]->add_css_class("error");
-        cells_.push_back(row);
+        c.does->add_css_class("dim-label");
+        c.warning->add_css_class("error");
+
+        grid_.attach(*c.head, 0, y);
+        grid_.attach(*c.now, 1, y);
+        grid_.attach(*c.does, 0, y + 1, 2, 1);
+        grid_.attach(*c.warning, 0, y + 2, 2, 1);
+        cells_.push_back(c);
     }
 }
 
@@ -140,14 +147,24 @@ bool ControllerPane::onTick (void)
     for (size_t r = 0; r < rows.size(); r++)
     {
         const thhPaneRow &row = rows[r];
-        const std::string yours = row.yours ? "yours" : "";
-        const std::string *text[7] = { &row.layer, &row.control, &row.action,
-                                       &row.target, &row.value, &yours,
-                                       &row.warning };
+        const Cells &c = cells_[r];
+        const std::string head = (row.layer.empty() ? "" : row.layer + ": ") +
+                                 row.control;
+        /* The keyboard's channel is where nearly everything plays, so only
+           another one is worth a word. */
+        const bool keys = row.target.compare(0, 14, "the keyboard's") == 0;
+        const std::string does = row.action +
+                                 (row.target.empty() || keys ? ""
+                                                             : ", on " + row.target) +
+                                 (row.yours ? " (yours)" : "");
+        const std::pair<Gtk::Label *, const std::string *> text[4] = {
+            { c.head, &head }, { c.now, &row.value }, { c.does, &does },
+            { c.warning, &row.warning } };
 
-        for (int c = 0; c < 7; c++)
-            if (cells_[r][c]->get_text().raw() != *text[c])
-                cells_[r][c]->set_text(*text[c]);
+        for (const auto &t : text)
+            if (t.first->get_text().raw() != *t.second)
+                t.first->set_text(*t.second);
+        c.warning->set_visible(!row.warning.empty());
     }
 
     const std::string why = source_->status();
