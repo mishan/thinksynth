@@ -197,6 +197,7 @@ set(THINKSYNTH_SOURCES
     gthRtMidi.cpp
     gthMidiOut.cpp
     gthMidiQueue.cpp
+    gthMidiPlay.cpp
     gui/AboutBox.cpp
     gthConsole.cpp
     gui/ArgPanelView.cpp

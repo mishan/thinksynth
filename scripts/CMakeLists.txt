@@ -288,6 +288,10 @@ think_harness(hidmapcheck COMPOSERHOST HID)
 # (thSynth::bendNote, setNoteAux).
 think_harness(notebendcheck)
 
+# MIDI's pitch bend and an MPE controller's per-note expression
+# (src/gthMidiPlay.h).
+think_harness(mpecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiPlay.cpp")
+
 # What the controller pane says about a profile (hid/thhPane.h).
 think_harness(hidpanecheck COMPOSERHOST HID)
 
@@ -1102,6 +1106,8 @@ add_test(NAME hidblockcheck COMMAND hidblockcheck)
 add_test(NAME hidmapcheck COMMAND hidmapcheck)
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME mpecheck
+         COMMAND mpecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"

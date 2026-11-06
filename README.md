@@ -174,6 +174,15 @@ using whatever your platform uses for that (`aconnect` or a patchbay on Linux,
 Audio MIDI Setup on macOS). Assign a DSP to each channel the MIDI uses and turn
 up the amplitudes. The on-screen keyboard works without any of this.
 
+A channel's pitch bend bends the notes it is holding, two semitones either
+way. An MPE controller (a Seaboard, a LinnStrument, an Osmose) plays one
+patch with each note's own bend, pressure and timbre: add `mpe 1` to
+`~/.config/thinksynth/thinkrc`, with the channel its notes should play on in
+place of 1. Its lower zone is folded onto that channel, each note's bend is
+48 semitones either way unless the controller sets its own range, channel
+1's bend bends every note, and pressure and CC 74 reach a patch as each
+note's `aux0` and `aux1` (`ionode->aux0`).
+
 A piece can be taken into a DAW as a MIDI file: **Export MIDI** in the
 Composer's menu or under the page's piece source, or `genwav --midi`. Each
 chain is a track, sections are markers, and chanargs are labeled
