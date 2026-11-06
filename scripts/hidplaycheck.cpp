@@ -152,7 +152,7 @@ checkProfiles (const string &scratch)
         if (r.file)
             std::ofstream(path) << r.file;
 
-        const bool ok = thhLoadProfile(path, c, own, "right", blk, err);
+        const bool ok = thhLoadProfile(path, c, own, "", blk, err);
         const string want = r.want ? r.want : asIs;
 
         if (r.ok)
@@ -219,9 +219,12 @@ checkProfiles (const string &scratch)
     string err;
     int line;
 
-    report("the Index's own profile fits it",
-           thcHidParseProfile(THH_INDEX_PROFILE, blk, err, line) &&
-           m.configure(blk, c, none, err, line) ? "" : err);
+    for (const char *hand : { "", "left", "right" })
+        report(string("the Index's own profile fits it, ") +
+               (*hand ? hand : "alone"),
+               thhLoadProfile(scratch + "/nothing-here", c, THH_INDEX_PROFILE,
+                              hand, blk, err) &&
+               m.configure(blk, c, none, err, line) ? "" : err);
 
     /* docs/HID.md's example of a profile of changes, as written there. */
     std::ofstream(scratch + "/example") <<
@@ -233,15 +236,17 @@ checkProfiles (const string &scratch)
         "        roll = \"bend\" { min = -1; max = 1; smooth = 0.05; };\n"
         "    };\n"
         "};\n";
-    report("docs/HID.md's example fits the Index's own profile",
-           thhLoadProfile(scratch + "/example", c, THH_INDEX_PROFILE, "right", blk,
-                          err) ? "" : err);
+    for (const char *hand : { "", "left", "right" })
+        report(string("docs/HID.md's example fits the Index's own profile, ") +
+               (*hand ? hand : "alone"),
+               thhLoadProfile(scratch + "/example", c, THH_INDEX_PROFILE, hand,
+                              blk, err) ? "" : err);
 
     std::ofstream(scratch + "/unreadable") << "device index { };\n";
     fs::permissions(scratch + "/unreadable", fs::perms::none);
     if (!std::ifstream(scratch + "/unreadable"))
         report("a file it may not read says so",
-               !thhLoadProfile(scratch + "/unreadable", c, own, "right", blk, err) &&
+               !thhLoadProfile(scratch + "/unreadable", c, own, "", blk, err) &&
                err.find(scratch + "/unreadable") == 0 ? "" :
                "said \"" + err + "\"");
     else

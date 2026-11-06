@@ -131,12 +131,32 @@ bool ControllerPane::onTick (void)
         return true;
     }
 
-    const thhState now = source_->state();
-    const std::vector<thhPaneRow> rows = thhPaneRows(
-        source_->profile(), thhIndexControls(), now, source_->channel(),
-        [this](int ch, const std::string &arg) {
-            return source_->hasArg(ch, arg);
-        });
+    /* Each controller's rows, under its hand where there are two. */
+    std::vector<thhPaneRow> rows;
+    std::vector<std::string> hands;
+    int connected = 0;
+
+    for (int i = 0; i < source_->controllers(); i++)
+    {
+        const thhState now = source_->stateOf(i);
+        const std::string hand = source_->handOf(i);
+        std::vector<thhPaneRow> mine = thhPaneRows(
+            source_->profileOf(i), thhIndexControls(), now, source_->channel(),
+            [this](int ch, const std::string &arg) {
+                return source_->hasArg(ch, arg);
+            });
+
+        if (!now.connected)
+            continue;
+        connected++;
+        if (!hand.empty())
+        {
+            hands.push_back(hand);
+            for (thhPaneRow &r : mine)
+                r.layer = hand + (r.layer.empty() ? "" : " " + r.layer);
+        }
+        rows.insert(rows.end(), mine.begin(), mine.end());
+    }
 
     if (source_->generation() != generation_ || rows.size() != cells_.size())
     {
@@ -169,7 +189,9 @@ bool ControllerPane::onTick (void)
 
     const std::string why = source_->status();
     std::string line = !problem_.empty() ? problem_
-        : now.connected ? "Valve Index controller connected."
+        : connected > 1 ? "Two Valve Index controllers connected, " +
+                              hands[0] + " and " + hands[1] + "."
+        : connected ? "Valve Index controller connected."
         : why.empty() ? "Looking for a Valve Index controller..."
         : why + ".";
 

@@ -80,11 +80,13 @@ owned (thcHidBlock &b)
 
 /* over on top of into: a control bound in over replaces every binding of
    it in into, a layer replaces the one of its name, an ignore drops
-   either, and a setting over sets is over's. False if over ignores what
-   isn't there. */
+   either, and a setting over sets is over's. False if strict and over
+   ignores what isn't there: a hand's own block may have dropped it
+   already, so only what one controller alone plays, which has every
+   control the player's file could name, says so. */
 static bool
-overlay (thcHidBlock &into, const thcHidBlock &over, std::string &err,
-         int &line)
+overlay (thcHidBlock &into, const thcHidBlock &over, bool strict,
+         std::string &err, int &line)
 {
     if (over.hasChannel)
         into.channel = over.channel;
@@ -106,7 +108,7 @@ overlay (thcHidBlock &into, const thcHidBlock &over, std::string &err,
     };
 
     for (size_t i = 0; i < over.ignore.size(); i++)
-        if (!drop(over.ignore[i].first))
+        if (!drop(over.ignore[i].first) && strict)
         {
             err = "there is no '" + over.ignore[i].first + "' to ignore";
             line = over.ignore[i].second;
@@ -140,7 +142,7 @@ static bool
 forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
          bool own, thcHidBlock &into, std::string &err, int &line)
 {
-    for (int pass = 0; pass < 2; pass++)
+    for (int pass = 0; pass < (hand.empty() ? 1 : 2); pass++)
         for (size_t i = 0; i < blocks.size(); i++)
             if (blocks[i].hand == (pass ? hand : std::string()))
             {
@@ -149,7 +151,7 @@ forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
                 if (own)
                     owned(b);
                 into.device = b.device;
-                if (!overlay(into, b, err, line))
+                if (!overlay(into, b, hand.empty(), err, line))
                     return false;
             }
     return true;

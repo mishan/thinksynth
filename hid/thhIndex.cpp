@@ -30,9 +30,11 @@ const uint8_t THH_INDEX_INIT[2][5] = {
    louder the faster it is pulled; tilt picks the octave, from the angle a
    controller is held at; the grip's squeeze is loudness and brightness at
    once, and the fingers' zones and the wrist's turn shape the sound as it
-   plays.
-   Its knobs are dsp/index.dsp's, and are dropped on a patch without them,
-   so the notes play anything. */
+   plays. That is one controller alone, the first block. A pair split it:
+   the right hand chooses the notes, and the left shapes them, its squeeze
+   and fingers on the knobs, its turn bending both hands' notes, and its
+   own notes an octave down. The knobs are dsp/index.dsp's, and are
+   dropped on a patch without them, so the notes play anything. */
 const char *const THH_INDEX_PROFILE =
     "device index {\n"
     "    base = \"C4\";\n"
@@ -54,6 +56,21 @@ const char *const THH_INDEX_PROFILE =
     "        when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };\n"
     "        turn = bend { range = 2; smooth = 0.05; };\n"
     "    };\n"
+    "};\n"
+    "\n"
+    "device index right {\n"
+    "    ignore grip_force;\n"
+    "    ignore grip_mid;\n"
+    "    ignore grip_low;\n"
+    "    ignore stick_y;\n"
+    "};\n"
+    "\n"
+    "device index left {\n"
+    "    trigger = strike -12 { at = 0.5; };\n"
+    "    a = note -12;\n"
+    "    b = note -5;\n"
+    "    turn = bend { range = 2; of = both; smooth = 0.05; };\n"
+    "    ignore fist;\n"
     "};\n";
 
 /* In enum order, so a button's or an axis's index is its slot. */

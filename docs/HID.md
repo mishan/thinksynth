@@ -73,11 +73,46 @@ device index {
         turn = bend { range = 2; smooth = 0.05; };
     };
 };
+
+device index right {
+    ignore grip_force;
+    ignore grip_mid;
+    ignore grip_low;
+    ignore stick_y;
+};
+
+device index left {
+    trigger = strike -12 { at = 0.5; };
+    a = note -12;
+    b = note -5;
+    turn = bend { range = 2; of = both; smooth = 0.05; };
+    ignore fist;
+};
 ```
+
+## Two controllers
+
+Plug in a pair and each plays its own hand, which each controller says it
+is. Alone, either controller plays the first block of the profile below,
+whichever hand it is; as a pair, each plays that with its own hand's block
+on top:
+
+| Hand | Plays |
+|---|---|
+| Right | the notes: the trigger strikes, A and B, the trackpad's degree, tilt's octave, turn for pan, and a fist's bend |
+| Left | the shape of them: squeeze for level and brightness, the middle fingers for growl, the ring and little fingers for breath, the stick for vibrato, and turn to bend both hands' notes; and notes of its own an octave down |
+
+A bend or an aux `{ of = both; }` reaches the notes the other hand holds
+as well as this hand's own, and where both hands bend a note the bends
+add. Both hands play the keyboard's channel unless a block says otherwise,
+so the same note from both cuts itself off, as it would from two MIDI
+keyboards. The Controller pane shows each hand's bindings under its name.
 
 ## Your own profile
 
-Your profile is changes to the controller's own: write them to `hid/index`
+Your profile is changes to the controller's own, with a block for either
+hand and, if you like, `device index left { ... };` and `device index right
+{ ... };` for each: write them to `hid/index`
 in thinksynth's configuration directory, normally
 `~/.config/thinksynth/hid/index` (the Controller pane's Open file starts
 one). A control you bind replaces every binding of it in the controller's

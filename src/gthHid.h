@@ -20,8 +20,10 @@
 #define GTH_HID_H
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <glibmm/dispatcher.h>
 
@@ -31,10 +33,15 @@
 
 class thSynth;
 
-/* A wired Index controller, played in patch mode: read on its own thread,
-   mapped by the player's profile (~/.config/thinksynth/hid/index, or the
-   controller's own), and played on the GUI thread the way the on-screen
-   keyboard plays, so the roll and a piece's Kbd input hear it too.
+/* Wired Index controllers, one or a pair, played in patch mode: each read
+   on its own thread, mapped by the player's profile (hid/index in the
+   configuration directory, on the controllers' own), and played on the GUI
+   thread the way the on-screen keyboard plays, so the roll and a piece's
+   Kbd input hear them too.
+
+   One controller alone plays the profile's either-hand block, whichever
+   hand it is; a pair play it each with its own hand's block on top, and
+   what one bends `of = both' reaches the other's notes.
 
    Linux only. Made after the main window and gone before it. */
 class gthHid : public thhPaneSource
@@ -44,30 +51,53 @@ public:
     gthHid (thSynth *synth, const std::function<int ()> &channel);
     ~gthHid ();
 
-    const thcHidBlock &profile () const { return profile_; }
+    int controllers () const { return (int)slots_.size(); }
+    std::string handOf (int i) const;
+    const thcHidBlock &profileOf (int i) const;
+    thhState stateOf (int i) const { return slots_[i]->latest; }
     unsigned generation () const { return generation_; }
-    thhState state () const { return latest_; }
-    std::string status () const { return reader_->status(); }
+    std::string status () const;
     std::string path () const { return path_; }
     int channel () const { return channel_(); }
     bool hasArg (int channel, const std::string &arg) const;
     bool reload (std::string &err);
 
 private:
+    /* A controller: the USB device it is at, its reader, and the hand it
+       plays as once it has said or been given one. */
+    struct Slot
+    {
+        std::string                usb, hand;
+        std::unique_ptr<thhReader> reader;
+        thhState                   latest;
+    };
+
     thSynth              *synth_;
     std::function<int ()> channel_;
     std::string           path_;
-    thcHidBlock           profile_;
     unsigned              generation_;
-    thhMapper             mapper_;
-    thhState              latest_;
     std::string           said_;
+    bool                  pair_;
 
-    /* Before the reader, so it outlives the reader's thread, which emits
-       it until it is joined. */
-    Glib::Dispatcher           dispatcher_;
-    std::unique_ptr<thhReader> reader_;
+    /* What either hand plays alone, and each in a pair; and a mapper for
+       each hand. */
+    thcHidBlock profiles_[3];
+    thhMapper   mappers_[2];
 
+    /* Each hand's bend of each note, which add. */
+    std::map<std::pair<int, int>, double> bends_[2];
+
+    /* Before the readers, so it outlives their threads, which emit it
+       until they are joined. */
+    Glib::Dispatcher                    dispatcher_;
+    std::vector<std::unique_ptr<Slot> > slots_;
+    sigc::connection                    scan_;
+
+    static int side (const std::string &hand) { return hand == "left" ? 0 : 1; }
+    bool scan ();
+    void hands ();
+    void configure (bool pair);
+    void play (int hand, const std::vector<thhAction> &acts);
     void drained ();
 };
 
