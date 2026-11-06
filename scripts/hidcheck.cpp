@@ -31,8 +31,9 @@
  *   reach   axis>=v, axis<=v: the axis gets that far; axis=v: it never
  *           leaves v.
  *
- * Then what isn't an input report, and one report built by hand whose every
- * field is known.
+ * Then what isn't an input report, one report built by hand whose every
+ * field is known, and which of the controller's report descriptors
+ * (scripts/hid/index-descriptors.txt) is the input interface's.
  */
 
 #include <algorithm>
@@ -312,12 +313,55 @@ checkByHand (void)
     }
 }
 
+static void
+checkDescriptors (const string &path)
+{
+    std::ifstream in(path.c_str());
+    string line;
+    int n = 0;
+
+    while (std::getline(in, line))
+    {
+        const size_t tab = line.find('\t');
+        const string name = line.substr(0, tab);
+        const std::vector<uint8_t> d = unhex(line.substr(tab + 1));
+        const bool input = thhIndexIsInput(d.data(), d.size());
+
+        n++;
+        report("the " + name + " interface's descriptor",
+               input == (name == "input") ? "" :
+               input ? "taken for the input's" : "not taken for the input's");
+
+        /* Cut short anywhere, it is read no further than it goes; and cut
+           before its Input item (0x81), not even the input's is. */
+        const size_t input81 = std::find(d.begin(), d.end(), 0x81) - d.begin();
+
+        for (size_t cut = 0; cut < d.size(); cut++)
+            if ((name != "input" || cut <= input81 + 1) &&
+                thhIndexIsInput(d.data(), cut))
+                report("the " + name + " interface's descriptor cut at " +
+                       std::to_string(cut), "taken for the input's");
+    }
+
+    report("the descriptors", n == 3 ? "" : "read " + std::to_string(n));
+
+    /* The input's own shape with a byte less in its report is not it. */
+    const uint8_t short63[] = { 0x06, 0x00, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x15,
+                                0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x3f,
+                                0x09, 0x01, 0x81, 0x02, 0xc0 };
+
+    report("a 63-byte input report with no IDs",
+           thhIndexIsInput(short63, sizeof(short63)) ? "taken for the input's"
+                                                     : "");
+}
+
 int
 main (int argc, char *argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
-        fprintf(stderr, "usage: hidcheck <scripts/hid/index-input.txt>\n");
+        fprintf(stderr, "usage: hidcheck <scripts/hid/index-input.txt> "
+                "<scripts/hid/index-descriptors.txt>\n");
         return 2;
     }
 
@@ -329,6 +373,7 @@ main (int argc, char *argv[])
 
     checkCapture(argv[1]);
     checkByHand();
+    checkDescriptors(argv[2]);
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
 

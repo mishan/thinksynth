@@ -59,6 +59,11 @@ const thhControls &thhIndexControls ();
    the controller says nothing. */
 extern const uint8_t THH_INDEX_INIT[2][5];
 
+/* Whether a report descriptor is the input interface's: one 64-byte input
+   report and no report IDs, where the IMU's and the light sensors' number
+   theirs. */
+bool thhIndexIsInput (const uint8_t *desc, size_t len);
+
 /* An input report into s. False, leaving s as it was, for anything that
    isn't one: a ping, another report, too few bytes. */
 bool thhIndexFeed (const uint8_t *data, size_t len, thhState &s);

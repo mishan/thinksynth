@@ -104,3 +104,41 @@ thhIndexFeed (const uint8_t *data, size_t len, thhState &s)
 
     return true;
 }
+
+/* Walks the descriptor's short items (HID 1.11, 6.2.2.2) for the globals
+   that size a report and the Input items that declare one. */
+bool
+thhIndexIsInput (const uint8_t *desc, size_t len)
+{
+    unsigned size = 0, count = 0, bits = 0;
+
+    for (size_t i = 0; i < len;)
+    {
+        const uint8_t prefix = desc[i];
+        const size_t n = (prefix & 3) == 3 ? 4 : prefix & 3;
+        unsigned v = 0;
+
+        if (prefix == 0xfe)             /* a long item: skip it whole */
+        {
+            if (i + 1 >= len)
+                return false;
+            i += 3 + desc[i + 1];
+            continue;
+        }
+        if (i + 1 + n > len)
+            return false;
+        for (size_t k = 0; k < n; k++)
+            v |= (unsigned)desc[i + 1 + k] << (8 * k);
+        i += 1 + n;
+
+        switch (prefix & 0xfc)
+        {
+        case 0x84: return false;        /* Report ID */
+        case 0x74: size = v; break;     /* Report Size */
+        case 0x94: count = v; break;    /* Report Count */
+        case 0x80: bits += size * count; break;     /* Input */
+        }
+    }
+
+    return bits == 64 * 8;
+}

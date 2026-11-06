@@ -12,4 +12,10 @@ target_include_directories(think_hid PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src")
 
-target_link_libraries(think_hid PUBLIC think)
+# Reading a controller from hidraw is Linux's; the rest builds anywhere.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_sources(think_hid PRIVATE thhReader.cpp)
+endif()
+
+find_package(Threads REQUIRED)
+target_link_libraries(think_hid PUBLIC think Threads::Threads)
