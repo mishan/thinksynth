@@ -342,13 +342,15 @@ run (const std::string &pluginPath, const std::string &dsp)
     {
         const std::vector<std::string> closed = win->panes_->closed();
 
-        check(closed.size() == 2 &&
+        check(closed.size() == 3 &&
               std::find(closed.begin(), closed.end(), "patches") !=
                   closed.end() &&
               std::find(closed.begin(), closed.end(), "midimap") !=
+                  closed.end() &&
+              std::find(closed.begin(), closed.end(), "controller") !=
                   closed.end(),
-              "the first layout has every pane up but the patch list and "
-              "the MIDI routing");
+              "the first layout has every pane up but the patch list, the "
+              "MIDI routing and the controller");
     }
 
     check(win->panes_->isVisible("channelbox") &&
@@ -527,7 +529,8 @@ run (const std::string &pluginPath, const std::string &dsp)
               win->panes_->isVisible("roll") &&
               isClosed(win, "channelbox") && isClosed(win, "nodeview") &&
               isClosed(win, "paramview") && isClosed(win, "patches") &&
-              isClosed(win, "midimap") && closed.size() == 5,
+              isClosed(win, "midimap") && isClosed(win, "controller") &&
+              closed.size() == 6,
               "piece mode's first layout has the canvas, the settings and "
               "the roll up, and the patch's panes in the drawer");
     }
@@ -588,7 +591,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     activate(win, "reset-layout");
 
     check(win->mode_ == "piece" && win->panes_->isVisible("roll") &&
-          win->panes_->closed().size() == 5,
+          win->panes_->closed().size() == 6,
           "Reset Layout in piece mode puts piece mode's first layout back");
 
     pickMode(win, "patch");
@@ -621,8 +624,9 @@ run (const std::string &pluginPath, const std::string &dsp)
     {
         const std::vector<std::string> closed = win->panes_->closed();
 
-        check(win->mode_ == "patch" && closed.size() == 2 &&
+        check(win->mode_ == "patch" && closed.size() == 3 &&
               isClosed(win, "patches") && isClosed(win, "midimap") &&
+              isClosed(win, "controller") &&
               !ticked(win, "patches"),
               "Reset Layout puts the first layout back, and the ticks with "
               "it");
@@ -943,8 +947,8 @@ run (const std::string &pluginPath, const std::string &dsp)
     {
         const std::vector<std::string> closed = win->panes_->closed();
 
-        check(closed.size() == 2 && isClosed(win, "patches") &&
-              isClosed(win, "midimap"),
+        check(closed.size() == 3 && isClosed(win, "patches") &&
+              isClosed(win, "midimap") && isClosed(win, "controller"),
               "a kept layout that does not parse gives the first layout");
     }
 

@@ -284,6 +284,9 @@ think_harness(hidblockcheck COMPOSERHOST)
 # What a HID controller's profile does with its controls (hid/thhMapper.h).
 think_harness(hidmapcheck COMPOSERHOST HID)
 
+# What the controller pane says about a profile (hid/thhPane.h).
+think_harness(hidpanecheck COMPOSERHOST HID)
+
 # What the Index controller's reports mean, against a capture (hid/thhIndex.h).
 think_harness(hidcheck COMPOSERHOST HID)
 
@@ -436,7 +439,7 @@ if(THINK_GUI)
   # made of all of it. Its own harness for composercheck's reason -- a failure
   # here is about how the window puts its panes together, and one binary for
   # everything would make that harder to see.
-  think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST NODECANVAS
+  think_harness(windowcheck NODEMODEL VISUALHOST COMPOSERHOST HID NODECANVAS
                 COMPOSERCANVAS ROLLCANVAS PANEL STAGEPANEL PATCH DSPCATALOG
                 GENCATALOG
                 EXTRA "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp"
@@ -456,6 +459,7 @@ if(THINK_GUI)
                       "${PROJECT_SOURCE_DIR}/src/gui/KeyboardPanel.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/MainSynthWindow.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/MidiMap.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ControllerPane.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
@@ -1092,6 +1096,7 @@ add_test(NAME lexcheck COMMAND lexcheck)
 
 add_test(NAME hidblockcheck COMMAND hidblockcheck)
 add_test(NAME hidmapcheck COMMAND hidmapcheck)
+add_test(NAME hidpanecheck COMMAND hidpanecheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"
                           "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt")

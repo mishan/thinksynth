@@ -41,6 +41,9 @@ using namespace std;
 
 class gthMidiOut;
 
+class ControllerPane;
+class thhPaneSource;
+
 class MainSynthWindow : public Gtk::Window
 {
 public:
@@ -49,6 +52,9 @@ public:
 
     /* The channel the keyboard plays, 0-based. */
     int keyboardChannel (void) const;
+
+    /* What the Controller pane reads; NULL to stop it reading. */
+    void setController (thhPaneSource *source);
 
     /* Takes what the preferences say about the window itself.
      *
@@ -321,6 +327,7 @@ protected:
     KeyboardPanel *kbPanel_;
     AboutBox *aboutBox_;
     MidiMap *midiMap_;
+    ControllerPane *controller_;
     /* The piece: its canvas, roll, settings and selection are panes, and
        its transport is in the title bar. */
     Composer *composer_;

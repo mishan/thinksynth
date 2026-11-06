@@ -27,21 +27,16 @@
 #include "thhPlay.h"
 
 gthHid::gthHid (thSynth *synth, const std::function<int ()> &channel)
-    : synth_(synth), channel_(channel)
+    : synth_(synth), channel_(channel),
+      path_((std::filesystem::path(gthPrefs::prefsPath()).parent_path() /
+             "hid" / "index").string()),
+      generation_(0)
 {
-    const std::string path =
-        (std::filesystem::path(gthPrefs::prefsPath()).parent_path() / "hid" /
-         "index").string();
-    thcHidBlock profile;
-    std::vector<thhAction> none;
     std::string err;
-    int line;
 
-    if (!thhLoadProfile(path, thhIndexControls(), THH_INDEX_PROFILE, profile,
-                        err))
+    if (!reload(err))
         fprintf(stderr, "%s; playing the controller's own profile\n",
                 err.c_str());
-    mapper_.configure(profile, thhIndexControls(), none, err, line);
 
     dispatcher_.connect(sigc::mem_fun(*this, &gthHid::drained));
     reader_.reset(new thhReader(
@@ -49,6 +44,28 @@ gthHid::gthHid (thSynth *synth, const std::function<int ()> &channel)
             return thhConnectIndex("/sys", "/dev", input, fds, status);
         },
         [this]() { dispatcher_.emit(); }));
+}
+
+bool
+gthHid::hasArg (int channel, const std::string &arg) const
+{
+    return synth_->getChanArg(channel, arg) != NULL;
+}
+
+/* A profile that is wrong still plays the controller's own, as at start. */
+bool
+gthHid::reload (std::string &err)
+{
+    std::vector<thhAction> offs;
+    std::string ignored;
+    int line;
+    const bool ok = thhLoadProfile(path_, thhIndexControls(), THH_INDEX_PROFILE,
+                                   profile_, err);
+
+    mapper_.configure(profile_, thhIndexControls(), offs, ignored, line);
+    thhPlay(*synth_, offs, NULL);
+    generation_++;
+    return ok;
 }
 
 gthHid::~gthHid ()
@@ -74,6 +91,7 @@ gthHid::drained ()
         for (size_t i = 0; i < edges.size(); i++)
             mapper_.update(edges[i], ch, acts);
         mapper_.update(latest, ch, acts);
+        latest_ = latest;
     }
 
     thhPlay(*synth_, acts, [](const thhAction &a) {

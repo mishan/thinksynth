@@ -26,6 +26,7 @@
 #include <glibmm/dispatcher.h>
 
 #include "thhMapper.h"
+#include "thhPane.h"
 #include "thhReader.h"
 
 class thSynth;
@@ -36,17 +37,30 @@ class thSynth;
    keyboard plays, so the roll and a piece's Kbd input hear it too.
 
    Linux only. Made after the main window and gone before it. */
-class gthHid
+class gthHid : public thhPaneSource
 {
 public:
     /* channel is the keyboard's, 0-based, for bindings that name none. */
     gthHid (thSynth *synth, const std::function<int ()> &channel);
     ~gthHid ();
 
+    const thcHidBlock &profile () const { return profile_; }
+    unsigned generation () const { return generation_; }
+    thhState state () const { return latest_; }
+    std::string status () const { return reader_->status(); }
+    std::string path () const { return path_; }
+    int channel () const { return channel_(); }
+    bool hasArg (int channel, const std::string &arg) const;
+    bool reload (std::string &err);
+
 private:
     thSynth              *synth_;
     std::function<int ()> channel_;
+    std::string           path_;
+    thcHidBlock           profile_;
+    unsigned              generation_;
     thhMapper             mapper_;
+    thhState              latest_;
     std::string           said_;
 
     /* Before the reader, so it outlives the reader's thread, which emits

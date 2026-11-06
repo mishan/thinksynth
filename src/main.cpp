@@ -581,6 +581,8 @@ int main (int argc, char *argv[])
     gthHid *hid = new gthHid(Synth, [synthWindow]() {
         return synthWindow->keyboardChannel();
     });
+
+    synthWindow->setController(hid);
 #endif
 
     gtkApp->run();
@@ -588,6 +590,7 @@ int main (int argc, char *argv[])
     /* While the main loop's context, which its dispatcher is on, is still
        here. */
 #ifdef __linux__
+    synthWindow->setController(NULL);
     delete hid;
 #endif
 

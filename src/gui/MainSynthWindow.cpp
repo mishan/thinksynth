@@ -46,6 +46,7 @@
 
 #include "../gthTheme.h"
 #include "AboutBox.h"
+#include "ControllerPane.h"
 #include "MidiMap.h"
 #include "ArgPanelView.h"
 #include "NodeEditor.h"
@@ -104,6 +105,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
         sigc::mem_fun(*this, &MainSynthWindow::onCloseRequest), false);
 
     midiMap_ = NULL;
+    controller_ = NULL;
     patchSel_ = NULL;
     aboutBox_ = NULL;
     kbPanel_ = NULL;
@@ -277,6 +279,7 @@ MainSynthWindow::~MainSynthWindow (void)
     panes_ = NULL;
     patchSel_ = NULL;
     midiMap_ = NULL;
+    controller_ = NULL;
     kbPanel_ = NULL;
 
     /* About is kept rather than destroyed when it closes, so this is where
@@ -407,6 +410,7 @@ void MainSynthWindow::buildPanes (void)
     kbPanel_ = manage(new KeyboardPanel(thSynth::instance()));
     patchSel_ = manage(new PatchSelPanel(thSynth::instance()));
     midiMap_ = manage(new MidiMap(thSynth::instance()));
+    controller_ = manage(new ControllerPane());
 
     /* Minimum widths: what each can be read at, which is what the layout
        gives up before it gives up a pane -- and, added across a row, the
@@ -419,6 +423,7 @@ void MainSynthWindow::buildPanes (void)
     panes_->add("keyboard", "Keys", scrolled(*kbPanel_, false), 400);
     panes_->add("patches", "Patch Selector", scrolled(*patchSel_, true), 400);
     panes_->add("midimap", "MIDI routing", scrolled(*midiMap_, true), 400);
+    panes_->add("controller", "Controller", scrolled(*controller_, true), 400);
     panes_->add("composerview", "Piece", composer_->canvasView(), 360);
     panes_->add("seqview", "Sequencer", composer_->sequencerView(), 360);
     panes_->add("roll", "Piano roll", composer_->rollView(), 320);
@@ -1183,6 +1188,7 @@ void MainSynthWindow::populateMenu (void)
         { "keyboard",   "_Keys",           "<Control>k" },
         { "patches",    "Patch _Selector", "<Control>p" },
         { "midimap",    "_MIDI Routing",   "<Control>m" },
+        { "controller", "C_ontroller",     NULL },
         { "composerview", "P_iece",        "<Control>g" },
         { "seqview",    "Seq_uencer",      NULL },
         { "roll",       "Piano _Roll",     NULL },
@@ -2350,6 +2356,12 @@ void MainSynthWindow::onMasterGain (void)
  *
  * Channels picks it, and a reload, a load or an effect keeps it; Patch
  * params and Patch graph show its pages, and the keys play it. */
+void MainSynthWindow::setController (thhPaneSource *source)
+{
+    if (controller_ != NULL)
+        controller_->setSource(source);
+}
+
 int MainSynthWindow::keyboardChannel (void) const
 {
     return kbPanel_ ? kbPanel_->channel() : 0;
