@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -299,6 +300,9 @@ thhReader::run ()
             continue;
         }
 
+        s.time = std::chrono::duration<double>(
+                     std::chrono::steady_clock::now().time_since_epoch())
+                     .count();
         if (from == in ? thhIndexFeed(buf, n, s)
                        : thhIndexFeedImu(buf, n, imu, s))
             publish(s);

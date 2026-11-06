@@ -60,6 +60,7 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | Binding | On | Does |
 |---|---|---|
 | `a = note 7;` | a button | plays a note this many semitones above the base |
+| `grip_top = strike 7 { at = 0.6; };` | an axis | plays a note as it rises past `at`, louder the faster it got there, and ends it when it falls back under `off` (`at` less 0.2 unless given). `min` and `max` bound its velocity |
 | `a = octave 1;` | a button | moves every later note up or down an octave |
 | `a = hold mod;` | a button | switches layer `mod` on while held |
 | `a = toggle mod;` | a button | switches layer `mod` on and off |

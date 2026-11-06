@@ -18,6 +18,7 @@
 
 #include "config.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "think.h"
@@ -202,7 +203,8 @@ bool
 Parser::options (thcHidBinding &b)
 {
     const bool value = b.kind == thcHidBinding::VALUE;
-    const bool vel = b.kind == thcHidBinding::VELOCITY;
+    const bool strike = b.kind == thcHidBinding::STRIKE;
+    const bool vel = b.kind == thcHidBinding::VELOCITY || strike;
     const bool pitch = b.kind == thcHidBinding::PITCH;
 
     if (!isPunct(peek(), '{'))
@@ -220,7 +222,7 @@ Parser::options (thcHidBinding &b)
         if (!expect('='))
             return false;
 
-        if (k == "channel" && (b.kind == thcHidBinding::NOTE || value))
+        if (k == "channel" && (b.kind == thcHidBinding::NOTE || value || strike))
         {
             if (!integer(b.channel, 1, 16, "channel"))
                 return false;
@@ -234,6 +236,16 @@ Parser::options (thcHidBinding &b)
                 return false;
             (k == "min" ? b.min : b.max) = value ? v : iv;
             (k == "min" ? b.hasMin : b.hasMax) = true;
+        }
+        else if ((k == "at" || k == "off") && strike)
+        {
+            double v;
+
+            if (!number(v, k))
+                return false;
+            if (v < 0 || v > 1)
+                return fail(t_[i_ - 1], k + " is 0 to 1");
+            (k == "at" ? b.at : b.off) = v;
         }
         else if (k == "shape" && value)
         {
@@ -343,12 +355,31 @@ Parser::binding (thcHidBinding &b, bool inLayer)
         b.kind = thcHidBinding::VELOCITY;
         i_++;
     }
+    else if (isWord(act, "strike"))
+    {
+        b.kind = thcHidBinding::STRIKE;
+        b.off = -1;     /* until it is given, or follows at */
+        i_++;
+        if (!integer(b.semis, -127, 127, "strike"))
+            return false;
+    }
     else
         return fail(act, "'" + act.text + "' is not an action; write note, "
-                    "hold, toggle, octave, pitch, velocity or a quoted arg "
-                    "name");
+                    "strike, hold, toggle, octave, pitch, velocity or a "
+                    "quoted arg name");
 
-    return options(b) && expect(';');
+    if (!options(b))
+        return false;
+
+    if (b.kind == thcHidBinding::STRIKE)
+    {
+        if (b.off < 0)
+            b.off = std::max(0.0, b.at - 0.2);
+        if (b.off >= b.at)
+            return fail(b.line, "a strike turns off under where it turns on");
+    }
+
+    return expect(';');
 }
 
 /* One statement of a device's body or a layer's: a setting, a layer (in a

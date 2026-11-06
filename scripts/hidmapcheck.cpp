@@ -27,6 +27,7 @@
  *   axis A V        an axis moves to V
  *   unplug, plug    the controller goes and comes back
  *   release         the host asks the mapper to let go
+ *   wait N          N ms pass; every step is another 10
  *
  * Every step but `release' is one update(). What each step asked for is
  * written out by describe() and the steps are joined with " | ", so a row
@@ -112,9 +113,12 @@ play (thhMapper &m, const thhControls &c, const string &script, thhState &s,
             w >> s.axis[c.axis(name)];
         else if (verb == "unplug" || verb == "plug")
             s.connected = verb == "plug";
+        else if (verb == "wait")
+            s.time += atoi(name.c_str()) / 1000.0;
         else if (verb != "release")
             return "a step this harness can't read: '" + step + "'";
 
+        s.time += 0.01;
         if (verb == "release")
             m.release(acts);
         else
@@ -147,6 +151,9 @@ struct Row
 #define BOTH \
     "device index { b = note 2; thumbstick = hold mod; system = toggle drone; " \
     "layer mod { b = note 7; }; layer drone { b = note 4; }; };"
+#define STRIKE \
+    "device index { grip_top = strike 7; thumbstick = hold mod; " \
+    "layer mod { grip_top = strike 12; }; };"
 #define STICK \
     "device index { a = note 0; stick_y = pitch { step = octave; range = 2; }; };"
 
@@ -315,6 +322,34 @@ static const Row ROWS[] = {
       "axis stick_y 1; down a; up a; down thumbstick; down a; up a",
       " | on 1 72 100 | off 1 72 |  | on 1 60 100 | off 1 60", 0, NULL },
 
+    { "a fast strike is loud", STRIKE,
+      "axis grip_top 0.1; axis grip_top 0.8; axis grip_top 0.1",
+      " | on 1 67 127 | off 1 67", 0, NULL },
+    { "a slow one is soft", STRIKE,
+      "axis grip_top 0.3; axis grip_top 0.5; wait 300; axis grip_top 0.7; "
+      "axis grip_top 0",
+      " |  |  | on 1 67 20 | off 1 67", 0, NULL },
+    { "a strike holds between its off and its at", STRIKE,
+      "axis grip_top 0.1; axis grip_top 0.8; axis grip_top 0.55; "
+      "axis grip_top 0.7; axis grip_top 0.3",
+      " | on 1 67 127 |  |  | off 1 67", 0, NULL },
+    { "a hand already closed when it starts strikes nothing", STRIKE,
+      "axis grip_top 0.9; axis grip_top 0.9",
+      " | ", 0, NULL },
+    { "a layer's strike ends as it began, the layer gone", STRIKE,
+      "down thumbstick; axis grip_top 0.9; up thumbstick; axis grip_top 0.1; "
+      "axis grip_top 0.9; axis grip_top 0",
+      " | on 1 72 127 |  | off 1 72 | on 1 67 127 | off 1 67", 0, NULL },
+    { "a strike lets go when a layer makes its axis a knob",
+      "device index { grip_top = strike 7; thumbstick = hold mod; "
+      "layer mod { grip_top = \"cutoff\"; }; };",
+      "axis grip_top 0.1; axis grip_top 0.9; down thumbstick; axis grip_top 0.1",
+      " | on 1 67 127 | cutoff@1 0.900 | off 1 67, cutoff@1 0.100", 0, NULL },
+    { "a release ends a strike", STRIKE,
+      "axis grip_top 0; axis grip_top 0.9; release; axis grip_top 0",
+      " | on 1 67 127 | off 1 67 | ", 0, NULL },
+    { "a button bound to strike",
+      "device index { a = strike 0; };", "", NULL, 1, "is a button" },
     { "a control the device doesn't have",
       "device index {\n  zz = note 0;\n};", "", NULL, 2, "'zz'" },
     { "a button bound to a value",

@@ -100,7 +100,8 @@ private:
     struct Held
     {
         enum What { NONE, NOTE, HOLD } what;
-        int channel, note;
+        int    channel, note;
+        double off;             /* a strike's: where it lets go */
     };
 
     std::vector<Layer>  layers_;
@@ -124,9 +125,21 @@ private:
     const Bound *source (bool pitch) const;
     int channelOf (const thcHidBinding &b, int curChannel) const;
     int base () const;
+    /* Strikes, by axis: the note each holds, and whether the axis has been
+       under its off since, and when it last was. */
+    Held   heldAxis_[THH_MAX_AXES];
+    bool   armed_[THH_MAX_AXES];
+    double below_[THH_MAX_AXES];
+
     void press (int button, const thhState &s, int curChannel,
                 std::vector<thhAction> &out);
     void lift (int button, std::vector<thhAction> &out);
+    void strike (int axis, const thhState &s, int curChannel,
+                 std::vector<thhAction> &out);
+    /* vel < 0 plays at the velocity source's, or the profile's. */
+    void sound (const thcHidBinding &b, Held &h, const thhState &s,
+                int curChannel, int vel, std::vector<thhAction> &out);
+    void unsound (Held &h, std::vector<thhAction> &out);
     double along (const Bound &ax, const thhState &s) const;
 };
 

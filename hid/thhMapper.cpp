@@ -41,6 +41,9 @@ thhMapper::thhMapper ()
     : buttons_(0), axes_(0), velocity_(100), octave_(0)
 {
     memset(held_, 0, sizeof(held_));
+    memset(heldAxis_, 0, sizeof(heldAxis_));
+    memset(armed_, 0, sizeof(armed_));
+    memset(below_, 0, sizeof(below_));
     memset(sounding_, 0, sizeof(sounding_));
     memset(sent_, 0, sizeof(sent_));
     memset(last_, 0, sizeof(last_));
@@ -214,6 +217,7 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     velocity_ = profile.velocity;
     octave_ = 0;
     memset(sent_, 0, sizeof(sent_));
+    memset(armed_, 0, sizeof(armed_));
 
     for (size_t i = 0; i < active_.size(); i++)
         if (!active_[i].toggle)
@@ -330,9 +334,14 @@ thhMapper::press (int button, const thhState &s, int curChannel,
         return;
     }
 
-    if (b.kind != thcHidBinding::NOTE)
-        return;
+    if (b.kind == thcHidBinding::NOTE)
+        sound(b, held_[button], s, curChannel, -1, out);
+}
 
+void
+thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
+                  int curChannel, int vel, std::vector<thhAction> &out)
+{
     const Bound *pitch = source(true);
     const Bound *velocity = source(false);
     int note = base() + 12 * octave_ + b.semis;
@@ -344,22 +353,22 @@ thhMapper::press (int button, const thhState &s, int curChannel,
     if (note < 0 || note > 127)
         return;
 
-    int vel = velocity_;
-
-    if (velocity)
+    if (vel < 0 && velocity)
     {
         const double lo = velocity->b.hasMin ? velocity->b.min : 1;
         const double hi = velocity->b.hasMax ? velocity->b.max : 127;
 
         vel = (int)std::lround(lo + along(*velocity, s) * (hi - lo));
     }
+    else if (vel < 0)
+        vel = velocity_;
 
     const int channel = channelOf(b, curChannel);
-    Held &h = held_[button];
 
     h.what = Held::NOTE;
     h.channel = channel;
     h.note = note;
+    h.off = b.off;
 
     if (sounding_[channel][note]++ == 0)
     {
@@ -374,23 +383,13 @@ thhMapper::press (int button, const thhState &s, int curChannel,
 }
 
 void
-thhMapper::lift (int button, std::vector<thhAction> &out)
+thhMapper::unsound (Held &h, std::vector<thhAction> &out)
 {
-    Held &h = held_[button];
-    const Held::What what = h.what;
-
+    if (h.what != Held::NOTE)
+        return;
     h.what = Held::NONE;
 
-    if (what == Held::HOLD)
-    {
-        for (size_t i = 0; i < active_.size(); i++)
-            if (!active_[i].toggle && active_[i].button == button)
-            {
-                active_.erase(active_.begin() + i);
-                break;
-            }
-    }
-    else if (what == Held::NOTE && --sounding_[h.channel][h.note] == 0)
+    if (--sounding_[h.channel][h.note] == 0)
     {
         thhAction a = thhAction();
 
@@ -399,6 +398,69 @@ thhMapper::lift (int button, std::vector<thhAction> &out)
         a.note = h.note;
         out.push_back(a);
     }
+}
+
+/* A strike's speed is how long the axis took from its off to its at: this
+   quick or quicker is its loudest, this slow or slower its softest. */
+#define THH_STRIKE_FAST 0.01
+#define THH_STRIKE_SLOW 0.25
+
+void
+thhMapper::strike (int axis, const thhState &s, int curChannel,
+                   std::vector<thhAction> &out)
+{
+    Held &h = heldAxis_[axis];
+    const float v = s.axis[axis];
+
+    /* Let go where it began, whatever binds the axis now. */
+    if (h.what == Held::NOTE && v < h.off)
+        unsound(h, out);
+
+    const Bound *bd = find(true, axis);
+
+    if (!bd || bd->b.kind != thcHidBinding::STRIKE)
+    {
+        armed_[axis] = false;
+        return;
+    }
+
+    if (v < bd->b.off)
+    {
+        armed_[axis] = true;
+        below_[axis] = s.time;
+    }
+    else if (v >= bd->b.at && armed_[axis] && h.what != Held::NOTE)
+    {
+        const double lo = bd->b.hasMin ? bd->b.min : 20;
+        const double hi = bd->b.hasMax ? bd->b.max : 127;
+        const double t = std::max(0.0, std::min(1.0,
+            (s.time - below_[axis] - THH_STRIKE_FAST) /
+            (THH_STRIKE_SLOW - THH_STRIKE_FAST)));
+
+        armed_[axis] = false;
+        sound(bd->b, h, s, curChannel, (int)std::lround(hi - t * (hi - lo)),
+              out);
+    }
+}
+
+void
+thhMapper::lift (int button, std::vector<thhAction> &out)
+{
+    Held &h = held_[button];
+
+    if (h.what != Held::HOLD)
+    {
+        unsound(h, out);
+        return;
+    }
+
+    h.what = Held::NONE;
+    for (size_t i = 0; i < active_.size(); i++)
+        if (!active_[i].toggle && active_[i].button == button)
+        {
+            active_.erase(active_.begin() + i);
+            break;
+        }
 }
 
 void
@@ -428,6 +490,9 @@ thhMapper::update (const thhState &s, int curChannel,
         else if (!(s.buttons & bit) && (was & bit))
             lift(b, out);
     }
+
+    for (int ax = 0; ax < axes_; ax++)
+        strike(ax, s, curChannel, out);
 
     for (int ax = 0; ax < axes_; ax++)
     {
@@ -477,4 +542,6 @@ thhMapper::release (std::vector<thhAction> &out)
 {
     for (int b = 0; b < THH_MAX_BUTTONS; b++)
         lift(b, out);
+    for (int a = 0; a < THH_MAX_AXES; a++)
+        unsound(heldAxis_[a], out);
 }

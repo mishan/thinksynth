@@ -54,6 +54,9 @@ describe (const thcHidBinding &b)
         s << "pitch " << (b.octaves ? "octave" : "semitone") << " " << b.range;
         break;
     case thcHidBinding::VELOCITY: s << "velocity"; break;
+    case thcHidBinding::STRIKE:
+        s << "strike " << b.semis << " at" << b.at << " off" << b.off;
+        break;
     }
 
     if (b.channel)
@@ -174,6 +177,14 @@ static const Row ROWS[] = {
       "device index { index = velocity; };",
       "index ch0 base60 vel100 | index:velocity @1", 0, NULL },
 
+    { "a strike, with its own thresholds and velocity",
+      "device index { grip_top = strike 7 { at = 0.7; off = 0.5; min = 20; "
+      "max = 110; channel = 2; }; };",
+      "index ch0 base60 vel100 | grip_top:strike 7 at0.7 off0.5 ch2 min20 "
+      "max110 @1", 0, NULL },
+    { "a strike's off is under its at by default",
+      "device index { trigger = strike -5 { at = 0.9; }; };",
+      "index ch0 base60 vel100 | trigger:strike -5 at0.9 off0.7 @1", 0, NULL },
     { "a layer named before it is declared",
       "device index {\n  grip = hold mod;\n  layer mod { base = \"C3\"; };\n};",
       "index ch0 base60 vel100 | grip:hold mod @2"
@@ -235,6 +246,11 @@ static const Row ROWS[] = {
       NULL, 2, "min" },
     { "a velocity past 127",
       "device index { t = velocity { max = 200; }; };", NULL, 1, "1 to 127" },
+    { "a strike that turns off above where it turns on",
+      "device index { trigger = strike 0 { at = 0.5; off = 0.6; }; };",
+      NULL, 1, "under" },
+    { "a strike past the end of its axis",
+      "device index { trigger = strike 0 { at = 1.5; }; };", NULL, 1, "0 to 1" },
     { "a setting a block doesn't have",
       "device index { a = note 0 { color = 1; }; };", NULL, 1, "color" },
     { "a missing semicolon",

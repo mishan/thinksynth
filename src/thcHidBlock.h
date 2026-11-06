@@ -35,19 +35,20 @@
 
 struct thcHidBinding
 {
-    enum Kind { NOTE, HOLD, TOGGLE, OCTAVE, VALUE, PITCH, VELOCITY };
+    enum Kind { NOTE, HOLD, TOGGLE, OCTAVE, VALUE, PITCH, VELOCITY, STRIKE };
     enum Shape { LINEAR, EXP };
 
     Kind        kind;
     std::string control;
     int         line;
 
-    int         semis;      /* NOTE: above the base note; OCTAVE: the step */
+    int         semis;      /* NOTE, STRIKE: above the base; OCTAVE: the step */
     std::string layer;      /* HOLD, TOGGLE */
     std::string arg;        /* VALUE */
-    int         channel;    /* NOTE, VALUE: 1-16; 0 inherits */
+    int         channel;    /* NOTE, VALUE, STRIKE: 1-16; 0 inherits */
     bool        hasMin, hasMax;
-    double      min, max;   /* VALUE, VELOCITY */
+    double      min, max;   /* VALUE, VELOCITY, STRIKE's velocity */
+    double      at, off;    /* STRIKE: on rising past at, off below off */
     Shape       shape;      /* VALUE */
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
     int         range;      /* PITCH: steps from the base note, either side
@@ -55,8 +56,8 @@ struct thcHidBinding
 
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
-          hasMax(false), min(0), max(0), shape(LINEAR), octaves(false),
-          range(0) {}
+          hasMax(false), min(0), max(0), at(0.6), off(0.4), shape(LINEAR),
+          octaves(false), range(0) {}
 };
 
 struct thcHidLayer

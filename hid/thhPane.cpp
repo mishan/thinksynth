@@ -68,6 +68,10 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
         r.action = "note " + signedInt(b.semis);
         r.target = where;
         break;
+    case thcHidBinding::STRIKE:
+        r.action = "strike " + signedInt(b.semis) + " at " + number(b.at);
+        r.target = where;
+        break;
     case thcHidBinding::OCTAVE:
         r.action = "octave " + signedInt(b.semis);
         break;
