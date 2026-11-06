@@ -91,7 +91,11 @@ describe (const thcHidBlock &blk)
         const thcHidLayer &l = blk.layers[i];
 
         s << " | layer " << l.name << " ch" << l.channel << " base" << l.base
-          << " @" << l.line << " [";
+          << " @" << l.line;
+        for (size_t j = 0; j < l.when.size(); j++)
+            s << (j ? "," : " when ") << l.when[j].first << ">="
+              << l.when[j].second;
+        s << " [";
 
         for (size_t j = 0; j < l.bindings.size(); j++)
             s << (j ? " | " : "") << describe(l.bindings[j]);
@@ -199,6 +203,16 @@ static const Row ROWS[] = {
       "index ch0 base60 vel100 | grip:hold mod @2"
       " | layer mod ch0 base48 @3 []", 0, NULL },
 
+    { "a posture",
+      "device index {\n  layer fist {\n    when { grip_top = 0.7; "
+      "grip_low = 0.6; };\n    roll = \"bend\";\n  };\n};",
+      "index ch0 base60 vel100 | layer fist ch0 base-1 @2 when "
+      "grip_top>=0.7,grip_low>=0.6 [roll:value bend @4]", 0, NULL },
+    { "a posture outside a layer",
+      "device index {\n  when { grip_top = 0.7; };\n};", NULL, 2, "layer" },
+    { "a posture past the axis",
+      "device index { layer f { when { tilt = 2; }; }; };", NULL, 1,
+      "-1 to 1" },
     { "an unquoted note",
       "device index {\n  base = C4;\n};", NULL, 2, "quote" },
     { "two notes for a base",

@@ -154,6 +154,10 @@ struct Row
 #define STRIKE \
     "device index { grip_top = strike 7; thumbstick = hold mod; " \
     "layer mod { grip_top = strike 12; }; };"
+#define FIST \
+    "device index { a = note 0; system = toggle up; " \
+    "layer fist { when { grip_top = 0.7; grip_low = 0.7; }; a = note 7; }; " \
+    "layer up { a = note 12; }; };"
 #define STICK \
     "device index { a = note 0; stick_y = pitch { step = octave; range = 2; }; };"
 
@@ -374,6 +378,29 @@ static const Row ROWS[] = {
       " | on 1 67 127 | off 1 67 | ", 0, NULL },
     { "a button bound to strike",
       "device index { a = strike 0; };", "", NULL, 1, "is a button" },
+    { "a fist switches its layer on, and opening it off", FIST,
+      "axis grip_top 0.8; axis grip_low 0.8; down a; up a; axis grip_low 0.6; "
+      "down a; up a; axis grip_low 0.5; down a; up a",
+      " |  | on 1 67 100 | off 1 67 |  | on 1 67 100 | off 1 67 |  | "
+      "on 1 60 100 | off 1 60", 0, NULL },
+    { "a posture low on its axis still lets go, at the axis's bottom",
+      "device index { a = note 0; layer near { when { grip_top = 0.1; }; a = note 7; }; };",
+      "axis grip_top 0.2; down a; up a; axis grip_top 0; down a; up a",
+      " | on 1 67 100 | off 1 67 |  | on 1 60 100 | off 1 60", 0, NULL },
+    { "half a fist is no fist", FIST,
+      "axis grip_low 0.9; down a; up a",
+      " | on 1 60 100 | off 1 60", 0, NULL },
+    { "the newest of a toggle and a posture wins", FIST,
+      "axis grip_top 0.8; axis grip_low 0.8; down system; up system; "
+      "down a; up a; axis grip_low 0; axis grip_low 0.8; down a; up a",
+      " |  |  |  | on 1 72 100 | off 1 72 |  |  | on 1 67 100 | off 1 67",
+      0, NULL },
+    { "a note held as the fist opens ends where it began", FIST,
+      "axis grip_top 0.8; axis grip_low 0.8; down a; axis grip_low 0; up a",
+      " |  | on 1 67 100 |  | off 1 67", 0, NULL },
+    { "a posture on a button",
+      "device index {\n  layer f {\n    when { a = 0.5; };\n  };\n};", "",
+      NULL, 3, "is a button" },
     { "a control the device doesn't have",
       "device index {\n  zz = note 0;\n};", "", NULL, 2, "'zz'" },
     { "a button bound to a value",

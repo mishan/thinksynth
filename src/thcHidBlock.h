@@ -69,9 +69,13 @@ struct thcHidLayer
     int         channel;    /* 1-16; 0 inherits the device's */
     int         base;       /* MIDI note; -1 inherits the device's */
 
+    /* A posture: on while each of these axes is at least its value. */
+    std::vector<std::pair<std::string, double> > when;
+    int         whenLine;
+
     std::vector<thcHidBinding> bindings;
 
-    thcHidLayer () : line(0), channel(0), base(-1) {}
+    thcHidLayer () : line(0), channel(0), base(-1), whenLine(0) {}
 };
 
 struct thcHidBlock

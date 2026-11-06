@@ -80,6 +80,18 @@ A layer, `layer mod { ... };`, holds bindings that replace the profile's own
 while it is on, and may set its own `channel` and `base`. The newest layer on
 wins. A layer can't rebind a button that switches layers.
 
+A layer can also be a posture, on whenever the hand takes a shape:
+
+```
+layer fist {
+    when { grip_top = 0.7; grip_mid = 0.7; grip_low = 0.7; };
+    roll = "bend";
+};
+```
+
+It is on while every axis it names is at least its value, and goes off
+once any of them falls 0.15 under it.
+
 ### The controls
 
 Buttons: `a`, `b`, `system`, `trigger_click`, `thumbstick` (pressing it in),

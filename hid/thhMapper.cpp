@@ -22,6 +22,12 @@
 
 #include "thhMapper.h"
 
+/* How far under its values a posture's axes go before it lets go, so a
+   hand at the edge of one doesn't flicker in and out of it: this, or half
+   the way to the axis's bottom where that's nearer, or a posture low on
+   its axis could never let go at all. */
+#define THH_POSTURE_GIVE 0.15
+
 /* Values closer than this to the last one sent aren't sent: below what an
    8-bit control can resolve, so only noise is lost. */
 #define THH_DEADBAND (1.0 / 256)
@@ -153,6 +159,27 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
         l.name = pl.name;
         l.channel = pl.channel;
         l.base = pl.base;
+
+        for (size_t j = 0; j < pl.when.size(); j++)
+        {
+            const std::string &w = pl.when[j].first;
+            const int axis = controls.axis(w);
+
+            errLine = pl.whenLine;
+            if (axis < 0)
+            {
+                err = controls.button(w) >= 0
+                      ? "'" + w + "' is a button; a posture wants axes"
+                      : "'" + w + "' is not a control the " + controls.device +
+                        " has";
+                return false;
+            }
+            const double at = pl.when[j].second;
+            const double floor = controls.axes[axis].bipolar ? -1 : 0;
+
+            l.when.push_back(std::make_pair(axis, at));
+            l.off.push_back(at - std::min(THH_POSTURE_GIVE, (at - floor) / 2));
+        }
         if (!bindLayer(pl.bindings, profile, controls, l, err, errLine))
             return false;
 
@@ -501,6 +528,8 @@ thhMapper::update (const thhState &s, int curChannel,
         return;
     }
 
+    postures(s);
+
     /* Coming back, every button that is down is a press. */
     const uint32_t was = prev_.connected ? prev_.buttons : 0;
 
@@ -573,7 +602,37 @@ thhMapper::update (const thhState &s, int curChannel,
     prev_ = s;
 }
 
-/* Holds let go with the notes; toggles stay as they are. */
+
+void
+thhMapper::postures (const thhState &s)
+{
+    for (size_t j = 1; j < layers_.size(); j++)
+    {
+        const Layer &l = layers_[j];
+        bool all = !l.when.empty(), gone = false;
+        size_t at = active_.size();
+
+        for (size_t i = 0; i < active_.size(); i++)
+            if (active_[i].posture && active_[i].layer == (int)j)
+                at = i;
+
+        for (size_t i = 0; i < l.when.size(); i++)
+        {
+            const float v = s.axis[l.when[i].first];
+
+            all = all && v >= l.when[i].second;
+            gone = gone || v < l.off[i];
+        }
+
+        if (at == active_.size() && all)
+            active_.push_back({ (int)j, -1, false, true });
+        else if (at < active_.size() && gone)
+            active_.erase(active_.begin() + at);
+    }
+}
+
+/* Holds and postures let go with the notes, the postures to be taken up
+   again from the next state; toggles stay as they are. */
 void
 thhMapper::release (std::vector<thhAction> &out)
 {
@@ -581,4 +640,7 @@ thhMapper::release (std::vector<thhAction> &out)
         lift(b, out);
     for (int a = 0; a < THH_MAX_AXES; a++)
         unsound(heldAxis_[a], out);
+    for (size_t i = active_.size(); i-- > 0;)
+        if (active_[i].posture)
+            active_.erase(active_.begin() + i);
 }

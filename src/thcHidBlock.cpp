@@ -98,6 +98,7 @@ private:
     bool statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
                     int &channel, int &base, bool inLayer);
     bool layer (thcHidBlock &blk);
+    bool when (thcHidLayer &l);
     bool binding (thcHidBinding &out, bool inLayer);
     bool options (thcHidBinding &b);
 };
@@ -403,6 +404,8 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
 
     if (inLayer && (k == "layer" || k == "velocity"))
         return fail(tok, k + " can't be set inside a layer");
+    if (k == "when")
+        return fail(tok, "a posture's when belongs in a layer");
     if (k == "layer")
         return layer(blk);
 
@@ -439,6 +442,30 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
     return true;
 }
 
+/* `when { axis = at-least; ... };' */
+bool
+Parser::when (thcHidLayer &l)
+{
+    l.whenLine = peek().line;
+    i_++;
+    if (!expect('{'))
+        return false;
+    while (!closes())
+    {
+        std::string name;
+        double v;
+
+        if (!word(name, "when") || !expect('=') || !number(v, name))
+            return false;
+        if (v < -1 || v > 1)
+            return fail(t_[i_ - 1], name + " is -1 to 1");
+        l.when.push_back(std::make_pair(name, v));
+        if (!expect(';'))
+            return false;
+    }
+    return err_.empty() && expect(';');
+}
+
 bool
 Parser::layer (thcHidBlock &blk)
 {
@@ -458,7 +485,8 @@ Parser::layer (thcHidBlock &blk)
     if (!expect('{'))
         return false;
     while (!closes())
-        if (!statement(blk, l.bindings, l.channel, l.base, true))
+        if (isWord(peek(), "when") ? !when(l)
+            : !statement(blk, l.bindings, l.channel, l.base, true))
             return false;
     if (!err_.empty() || !expect(';'))
         return false;

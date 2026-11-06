@@ -87,14 +87,16 @@ private:
         int                button[THH_MAX_BUTTONS];   /* into binds, or -1 */
         std::vector<int>   axis[THH_MAX_AXES];        /* into binds */
         int                velocity;                  /* into binds, or -1 */
+        std::vector<std::pair<int, double> > when;    /* a posture's */
+        std::vector<double> off;                      /* where each lets go */
     };
 
-    /* A layer switched on, by the button holding it or by a toggle; the
-       newest is last and wins. */
+    /* A layer switched on, by the button holding it, a toggle or the
+       posture it waits for; the newest is last and wins. */
     struct Active
     {
         int  layer, button;
-        bool toggle;
+        bool toggle, posture;
     };
 
     /* What a button's press did, so its release can undo exactly that. */
@@ -138,6 +140,7 @@ private:
     bool   armed_[THH_MAX_AXES];
     double below_[THH_MAX_AXES];
 
+    void postures (const thhState &s);
     void press (int button, const thhState &s, int curChannel,
                 std::vector<thhAction> &out);
     void lift (int button, std::vector<thhAction> &out);
