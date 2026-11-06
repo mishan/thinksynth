@@ -35,20 +35,3 @@ thhControls::axis (const std::string &name) const
             return (int)i;
     return -1;
 }
-
-const thhControls &
-thhIndexControls ()
-{
-    static const thhControls c = {
-        "index",
-        { "a", "b", "system", "trigger_click", "thumbstick", "trackpad" },
-        {
-            { "index", false }, { "middle", false }, { "ring", false },
-            { "pinky", false }, { "grip", false }, { "trigger", false },
-            { "pad_x", true }, { "pad_y", true }, { "pad_force", false },
-            { "stick_x", true }, { "stick_y", true },
-        },
-    };
-
-    return c;
-}

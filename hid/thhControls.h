@@ -60,6 +60,4 @@ struct thhControls
     int axis (const std::string &name) const;
 };
 
-const thhControls &thhIndexControls ();
-
 #endif /* THH_CONTROLS_H */

@@ -284,6 +284,9 @@ think_harness(hidblockcheck COMPOSERHOST)
 # What a HID controller's profile does with its controls (hid/thhMapper.h).
 think_harness(hidmapcheck COMPOSERHOST HID)
 
+# What the Index controller's reports mean, against a capture (hid/thhIndex.h).
+think_harness(hidcheck COMPOSERHOST HID)
+
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.
 # See the header of dspsweep.cpp for why the corners are swept one control at
@@ -1070,6 +1073,8 @@ add_test(NAME lexcheck COMMAND lexcheck)
 
 add_test(NAME hidblockcheck COMMAND hidblockcheck)
 add_test(NAME hidmapcheck COMMAND hidmapcheck)
+add_test(NAME hidcheck
+         COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt")
 
 # The corpus, because "a row says what loading the file would have said" is a
 # claim about the shipped graphs; the fixtures run either way. The plugins are

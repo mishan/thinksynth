@@ -39,6 +39,7 @@
 #include <sstream>
 #include <string>
 
+#include "thhIndex.h"
 #include "thhMapper.h"
 
 using std::string;
@@ -139,9 +140,9 @@ struct Row
 #define OCTAVES \
     "device index { a = note 0; system = octave 1; b = octave -1; };"
 #define LAYERS \
-    "device index { a = note 0; b = note 2; middle = \"cutoff\"; " \
+    "device index { a = note 0; b = note 2; grip_mid = \"cutoff\"; " \
     "thumbstick = hold mod; system = toggle drone; " \
-    "layer mod { a = octave -1; b = note 7; middle = \"resonance\"; }; " \
+    "layer mod { a = octave -1; b = note 7; grip_mid = \"resonance\"; }; " \
     "layer drone { channel = 2; base = \"C3\"; }; };"
 #define BOTH \
     "device index { b = note 2; thumbstick = hold mod; system = toggle drone; " \
@@ -173,9 +174,9 @@ static const Row ROWS[] = {
       "axis stick_y -1; down a; up a",
       " | on 1 84 100 | off 1 84 |  | on 1 72 100 | off 1 72 |  | "
       "on 1 36 100 | off 1 36", 0, NULL },
-    { "the pitch axis in semitones, on a finger",
-      "device index { a = note 0; middle = pitch { range = 12; }; };",
-      "axis middle 0.5; down a; up a", " | on 1 66 100 | off 1 66", 0, NULL },
+    { "the pitch axis in semitones, on a grip zone",
+      "device index { a = note 0; grip_mid = pitch { range = 12; }; };",
+      "axis grip_mid 0.5; down a; up a", " | on 1 66 100 | off 1 66", 0, NULL },
     { "a held note ignores the pitch axis moving", STICK,
       "down a; axis stick_y 1; up a", "on 1 60 100 |  | off 1 60", 0, NULL },
     { "a velocity source",
@@ -195,19 +196,19 @@ static const Row ROWS[] = {
       "down a; up a", " | ", 0, NULL },
     { "a release on the channel the note started on", NOTES,
       "down a; ch 4; up a", "on 1 60 100 |  | off 1 60", 0, NULL },
-    { "a value along a finger, past a deadband",
-      "device index { middle = \"cutoff\" { min = 200; max = 8000; }; };",
-      "axis middle 0.5; axis middle 0.5; axis middle 0.501; axis middle 1",
+    { "a value along a grip zone, past a deadband",
+      "device index { grip_mid = \"cutoff\" { min = 200; max = 8000; }; };",
+      "axis grip_mid 0.5; axis grip_mid 0.5; axis grip_mid 0.501; axis grip_mid 1",
       "cutoff@1 0.500 |  |  | cutoff@1 1.000", 0, NULL },
     { "a bipolar value from the middle",
       "device index { stick_x = \"pan\"; };",
       "axis stick_x 0; axis stick_x -1", "pan@1 0.500 | pan@1 0.000", 0, NULL },
     { "a value on the current channel",
-      "device index { middle = \"cutoff\"; };",
-      "ch 2; axis middle 1", "cutoff@2 0.000 | cutoff@2 1.000", 0, NULL },
+      "device index { grip_mid = \"cutoff\"; };",
+      "ch 2; axis grip_mid 1", "cutoff@2 0.000 | cutoff@2 1.000", 0, NULL },
     { "a value follows the current channel when it changes",
-      "device index { middle = \"cutoff\"; };",
-      "axis middle 0.5; ch 2", "cutoff@1 0.500 | cutoff@2 0.500", 0, NULL },
+      "device index { grip_mid = \"cutoff\"; };",
+      "axis grip_mid 0.5; ch 2", "cutoff@1 0.500 | cutoff@2 0.500", 0, NULL },
     { "an unplug ends held notes", NOTES,
       "down a; unplug; plug; up a",
       "on 1 60 100 | off 1 60 | on 1 60 100 | off 1 60", 0, NULL },
@@ -218,8 +219,8 @@ static const Row ROWS[] = {
     { "a channel past 16 is channel 1", NOTES,
       "ch 17; down a; up a", " | on 1 60 100 | off 1 60", 0, NULL },
     { "a slow creep reaches the end",
-      "device index { middle = \"cutoff\"; };",
-      "axis middle 0.997; axis middle 0.999; axis middle 1",
+      "device index { grip_mid = \"cutoff\"; };",
+      "axis grip_mid 0.997; axis grip_mid 0.999; axis grip_mid 1",
       "cutoff@1 0.997 |  | cutoff@1 1.000", 0, NULL },
     { "a note past the bottom sounds nothing",
       "device index { base = \"C-1\"; a = note -1; };",
@@ -266,7 +267,7 @@ static const Row ROWS[] = {
       "down thumbstick; down system; up system; down b; up b",
       " |  |  | on 1 64 100 | off 1 64", 0, NULL },
     { "a value jumps to the layer's binding and back", LAYERS,
-      "axis middle 0.5; down thumbstick; up thumbstick",
+      "axis grip_mid 0.5; down thumbstick; up thumbstick",
       "cutoff@1 0.500 | resonance@1 0.500 | cutoff@1 0.500", 0, NULL },
     { "a hold and a toggle of one layer",
       "device index { b = note 2; thumbstick = hold mod; system = toggle mod; "
@@ -284,9 +285,9 @@ static const Row ROWS[] = {
       "down thumbstick; unplug; plug; down b; up b",
       "resonance@1 0.000 |  |  | on 1 67 100 | off 1 67", 0, NULL },
     { "two holds let go in the order they were pressed",
-      "device index { b = note 2; thumbstick = hold mod; trackpad = hold drone; "
+      "device index { b = note 2; thumbstick = hold mod; trackpad_touch = hold drone; "
       "layer mod { b = note 7; }; layer drone { b = note 4; }; };",
-      "down thumbstick; down trackpad; up thumbstick; down b; up b",
+      "down thumbstick; down trackpad_touch; up thumbstick; down b; up b",
       " |  |  | on 1 64 100 | off 1 64", 0, NULL },
     { "a toggle stays on through an unplug", LAYERS,
       "down system; up system; unplug; plug; down a; up a",
@@ -319,7 +320,7 @@ static const Row ROWS[] = {
     { "a button bound to a value",
       "device index { a = \"cutoff\"; };", "", NULL, 1, "is a button" },
     { "an axis bound to a note",
-      "device index { middle = note 0; };", "", NULL, 1, "is an axis" },
+      "device index { grip_mid = note 0; };", "", NULL, 1, "is an axis" },
     { "two pitch axes",
       "device index {\n  stick_y = pitch { range = 1; };\n"
       "  pad_y = pitch { range = 1; };\n};", "", NULL, 3, "one pitch axis" },
