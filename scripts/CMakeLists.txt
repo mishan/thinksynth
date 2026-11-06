@@ -109,6 +109,9 @@ function(think_harness name)
 
   if(H_HID)
     target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/hid")
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      target_link_libraries(${name} PRIVATE ZLIB::ZLIB)
+    endif()
   endif()
 
   if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)

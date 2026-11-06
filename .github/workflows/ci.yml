@@ -245,7 +245,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
-            libsigc++-3.0-dev
+            libsigc++-3.0-dev zlib1g-dev
 
       - uses: actions/checkout@v4
 

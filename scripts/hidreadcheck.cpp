@@ -47,6 +47,8 @@
 #include <thread>
 #include <vector>
 
+#include <zlib.h>
+
 #include "thhIndex.h"
 #include "thhReader.h"
 
@@ -180,6 +182,66 @@ checkFind (const string &scratch)
     }
 }
 
+static void
+checkFindAll (const string &scratch)
+{
+    const std::vector<thhIndexNodes> all = thhFindIndexes(sysTree(
+        scratch + "/sys",
+        { { "1-4", 0, INDEX, VALVE, "input", 20 },
+          { "1-4", 1, INDEX, VALVE, "imu", 21 },
+          { "1-1", 0, "HTC Vive Tracker", VALVE, "input", 3 },
+          { "1-3", 0, INDEX, VALVE, "imu", 30 },
+          { "1-3", 1, INDEX, VALVE, "input", 31 } }), "/dev");
+    string got;
+
+    for (size_t i = 0; i < all.size(); i++)
+        got += (i ? "; " : "") + describe(all[i]);
+    report("both controllers, each with its own nodes, in order",
+           got == "input /dev/hidraw31, imu /dev/hidraw30, all /dev/hidraw30 "
+                  "/dev/hidraw31; input /dev/hidraw20, imu /dev/hidraw21, all "
+                  "/dev/hidraw20 /dev/hidraw21" ? "" : "found \"" + got + "\"");
+}
+
+static string
+deflate (const string &text)
+{
+    uLongf len = compressBound(text.size());
+    string out(len, '\0');
+
+    compress((Bytef *)&out[0], &len, (const Bytef *)text.data(), text.size());
+    out.resize(len);
+    return out;
+}
+
+static void
+checkHand (void)
+{
+    struct Row
+    {
+        const char *name;
+        string      config;
+        const char *want;
+    };
+    const Row rows[] = {
+        { "a left controller's configuration",
+          deflate("{\"device_serial_number\":\"LHR-1\",\"model_number\":"
+                  "\"Knuckles Left\",\"lighthouse_config\":{}}"), "left" },
+        { "a right one's, a revision on",
+          deflate("{ \"model_number\" : \"Knuckles EV3.0 Right\" }"), "right" },
+        { "another device's", deflate("{\"model_number\":\"Vive Tracker\"}"),
+          "" },
+        { "a configuration cut short", deflate("{\"model_number\":\"Kn"), "" },
+        { "bytes that aren't one", "not zlib at all", "" },
+    };
+
+    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++)
+    {
+        const string got = thhIndexHand(rows[i].config);
+
+        report(rows[i].name, got == rows[i].want ? "" : "said \"" + got + "\"");
+    }
+}
+
 static std::vector<uint8_t>
 input (uint32_t a, uint8_t trigger)
 {
@@ -237,12 +299,13 @@ struct Rig
         farImu = mv[1];
         reader.reset(new thhReader(
             [this, sv, mv](int &in, int &imu, std::vector<int> &fds,
-                           string &) {
+                           string &hand, string &) {
                 if (connects++ > 0)
                     return false;
                 in = sv[0];
                 imu = mv[0];
                 fds.assign({ sv[0], mv[0] });
+                hand = "left";
                 return true;
             },
             [this]() { wakes++; }, silenceMs));
@@ -297,6 +360,8 @@ checkReader (void)
         r.send(input(1, 0));
         report("a press is an edge", r.settle(1) == "a" ? "" :
                "edges: " + describe(r.edges));
+        report("the hand connect said", r.reader->hand() == "left" ? "" :
+               "said \"" + r.reader->hand() + "\"");
 
         r.send(input(1, 0x10));
         r.send(input(1, 0x20));
@@ -384,8 +449,8 @@ checkPermission (const string &scratch)
 
     int in = -1, imu = -1;
     std::vector<int> fds;
-    string status;
-    const bool ok = thhConnectIndex(sys, dev, in, imu, fds, status);
+    string hand, status;
+    const bool ok = thhConnectIndex(sys, dev, "", in, imu, fds, hand, status);
 
     report("a node it may not open says how to allow it",
            !ok && status.find("udev") != string::npos ? "" :
@@ -415,6 +480,8 @@ main (int argc, char *argv[])
 
     readDescriptors(argv[1]);
     checkFind(scratch);
+    checkFindAll(scratch);
+    checkHand();
     checkReader();
     checkSilence();
     checkPermission(scratch);

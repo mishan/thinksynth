@@ -34,6 +34,7 @@
    IMU's if it has one, and all of them, every one of which is woken. */
 struct thhIndexNodes
 {
+    std::string              usb;       /* the USB device's sysfs path */
     std::string              input, imu;
     std::vector<std::string> all;
 };
@@ -44,19 +45,29 @@ struct thhIndexNodes
 bool thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
                    thhIndexNodes &out);
 
+/* Every wired Index controller, in the same order every time. */
+std::vector<thhIndexNodes> thhFindIndexes (const std::string &sysRoot,
+                                           const std::string &devRoot);
+
+/* Which hand a controller is shaped for, from the configuration it keeps
+   (zlib-compressed JSON, whose model_number is "Knuckles Left" or
+   "Knuckles Right"): "left", "right", or empty if it doesn't say. */
+std::string thhIndexHand (const std::string &compressedConfig);
+
 /* Reads a controller on a thread of its own and hands what it reads to
    another thread, which drains it.
 
-   connect opens a controller, giving its input fd, its IMU's (or -1), and
-   every fd to close with it, or says why it can't (status); it is asked
-   again a second later.
+   connect opens a controller, giving its input fd, its IMU's (or -1),
+   every fd to close with it, and its hand if it says, or says why it
+   can't (status); it is asked again a second later.
    wake is called on the reader's thread when there is something to drain,
    once until the next drain. */
 class thhReader
 {
 public:
     typedef std::function<bool (int &input, int &imu, std::vector<int> &fds,
-                                std::string &status)> Connect;
+                                std::string &hand, std::string &status)>
+        Connect;
 
     /* A controller silent for silenceMs is taken as gone: it pings about
        once a second while it is awake. */
@@ -74,6 +85,9 @@ public:
     /* Why there is no controller, or empty; a change wakes the drainer. */
     std::string status () const;
 
+    /* The hand the controller last connected said it is, or empty. */
+    std::string hand () const;
+
 private:
     Connect               connect_;
     std::function<void ()> wake_;
@@ -86,17 +100,20 @@ private:
     std::vector<thhState> edges_;
     thhState              latest_, published_;
     bool                  fresh_;
-    std::string           status_;
+    std::string           status_, hand_;
 
     void run ();
     void publish (const thhState &s);
     void notify ();
 };
 
-/* The connect for a real controller: thhFindIndex under /sys and /dev,
-   each node opened and sent the controller's wake-up. */
+/* The connect for a real controller, the one at usb (a path
+   thhFindIndexes gave) or, if usb is empty, the first: each node opened
+   and sent the controller's wake-up, and its hand read from its
+   configuration. */
 bool thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
-                      int &input, int &imu, std::vector<int> &fds,
+                      const std::string &usb, int &input, int &imu,
+                      std::vector<int> &fds, std::string &hand,
                       std::string &status);
 
 #endif /* THH_READER_H */

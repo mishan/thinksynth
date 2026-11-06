@@ -30,6 +30,8 @@
 #include <fstream>
 #include <map>
 
+#include <zlib.h>
+
 #include "thhIndex.h"
 #include "thhReader.h"
 
@@ -53,14 +55,14 @@ isIndex (const std::string &uevent)
                std::string::npos;
 }
 
-bool
-thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
-              thhIndexNodes &out)
+std::vector<thhIndexNodes>
+thhFindIndexes (const std::string &sysRoot, const std::string &devRoot)
 {
     /* Each interface's HID device sits in an interface directory under its
        USB device's, which is what ties a controller's nodes together. Keyed
-       by that path, the first is the same one every time. */
+       by that path, they come in the same order every time. */
     std::map<fs::path, thhIndexNodes> byUsb;
+    std::vector<thhIndexNodes> out;
     std::error_code ec;
 
     for (fs::directory_iterator it(fs::path(sysRoot) / "class/hidraw", ec), end;
@@ -86,22 +88,122 @@ thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
     for (auto &u : byUsb)
         if (!u.second.input.empty())
         {
-            out = u.second;
-            std::sort(out.all.begin(), out.all.end());
-            return true;
+            u.second.usb = u.first.string();
+            std::sort(u.second.all.begin(), u.second.all.end());
+            out.push_back(u.second);
         }
 
-    return false;
+    return out;
+}
+
+bool
+thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
+              thhIndexNodes &out)
+{
+    const std::vector<thhIndexNodes> all = thhFindIndexes(sysRoot, devRoot);
+
+    if (all.empty())
+        return false;
+    out = all[0];
+    return true;
+}
+
+std::string
+thhIndexHand (const std::string &compressed)
+{
+    std::string json(1 << 16, '\0');
+    z_stream z = z_stream();
+
+    if (inflateInit(&z) != Z_OK)
+        return "";
+    z.next_in = (Bytef *)compressed.data();
+    z.avail_in = compressed.size();
+    z.next_out = (Bytef *)&json[0];
+    z.avail_out = json.size();
+
+    const int ret = inflate(&z, Z_FINISH);
+
+    json.resize(z.total_out);
+    inflateEnd(&z);
+    if (ret != Z_STREAM_END)
+        return "";
+
+    /* "model_number" : "Knuckles Left", or a revision of one, as JSON
+       spells it; a scan rather than a parser, which is all one string
+       needs. */
+    const size_t key = json.find("\"model_number\"");
+    const size_t open = key == std::string::npos ? key
+                        : json.find('"', json.find(':', key + 14));
+    const size_t close = open == std::string::npos ? open
+                         : json.find('"', open + 1);
+
+    if (close == std::string::npos)
+        return "";
+
+    const std::string model = json.substr(open + 1, close - open - 1);
+    const auto ends = [&model](const char *with) {
+        const std::string w = with;
+
+        return model.size() >= w.size() &&
+               model.compare(model.size() - w.size(), w.size(), w) == 0;
+    };
+
+    if (model.compare(0, 8, "Knuckles") != 0)
+        return "";
+    return ends(" Left") ? "left" : ends(" Right") ? "right" : "";
+}
+
+/* The configuration a controller keeps, read a feature report at a time
+   (0x10 starts it; each 0x11 is a length and that many bytes, until a
+   length of 0) from whichever of its interfaces answers, and the hand it
+   names. Empty if none does. */
+static std::string
+readHand (const std::vector<int> &fds)
+{
+    for (size_t i = 0; i < fds.size(); i++)
+    {
+        uint8_t buf[64] = { 0x10 };
+        std::string config;
+
+        if (ioctl(fds[i], HIDIOCGFEATURE(sizeof(buf)), buf) < 0)
+            continue;
+
+        for (int k = 0; k < 4096; k++)
+        {
+            memset(buf, 0, sizeof(buf));
+            buf[0] = 0x11;
+            if (ioctl(fds[i], HIDIOCGFEATURE(sizeof(buf)), buf) < 0 ||
+                buf[1] == 0 || buf[1] > sizeof(buf) - 2)
+                break;
+            config.append((const char *)buf + 2, buf[1]);
+        }
+
+        const std::string hand = thhIndexHand(config);
+
+        if (!hand.empty())
+            return hand;
+    }
+    return "";
 }
 
 bool
 thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
-                 int &input, int &imu, std::vector<int> &fds,
+                 const std::string &usb, int &input, int &imu,
+                 std::vector<int> &fds, std::string &hand,
                  std::string &status)
 {
+    const std::vector<thhIndexNodes> all = thhFindIndexes(sysRoot, devRoot);
     thhIndexNodes n;
+    bool found = false;
 
-    if (!thhFindIndex(sysRoot, devRoot, n))
+    for (size_t i = 0; i < all.size() && !found; i++)
+        if (usb.empty() || all[i].usb == usb)
+        {
+            n = all[i];
+            found = true;
+        }
+
+    if (!found)
     {
         status = "no Valve Index controller is plugged in";
         return false;
@@ -148,6 +250,7 @@ thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
         if (n.all[i] == n.imu)
             imu = opened[i];
     }
+    hand = readHand(opened);
     fds.swap(opened);
     status.clear();
     return true;
@@ -229,6 +332,14 @@ thhReader::status () const
     return status_;
 }
 
+std::string
+thhReader::hand () const
+{
+    std::lock_guard<std::mutex> l(lock_);
+
+    return hand_;
+}
+
 void
 thhReader::run ()
 {
@@ -241,15 +352,17 @@ thhReader::run ()
     {
         if (in < 0)
         {
-            std::string why;
-            const bool ok = connect_(in, motion, fds, why);
+            std::string why, hand;
+            const bool ok = connect_(in, motion, fds, hand, why);
             bool changed;
 
             {
                 std::lock_guard<std::mutex> l(lock_);
 
-                changed = status_ != why;
+                changed = status_ != why || (ok && hand_ != hand);
                 status_ = why;
+                if (ok)
+                    hand_ = hand;
             }
             if (changed)
                 notify();
