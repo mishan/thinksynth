@@ -58,16 +58,16 @@ device index {
     pad_y = pitch { range = 7; };
     tilt = pitch { step = octave; range = 1; center = 0.25; };
 
-    grip_force = "level" { min = 0.6; max = 1; };
-    grip_force = "bright" { min = 0.3; max = 0.9; };
-    grip_mid = "growl";
-    grip_low = "air" { max = 0.5; };
+    grip_force = "level" { min = 0.6; max = 1; smooth = 0.03; };
+    grip_force = "bright" { min = 0.3; max = 0.9; smooth = 0.03; };
+    grip_mid = "growl" { smooth = 0.05; };
+    grip_low = "air" { max = 0.5; smooth = 0.05; };
     stick_y = "wobble" { min = -1; max = 1; };
-    roll = "pan" { min = -1; max = 1; };
+    roll = "pan" { min = -1; max = 1; smooth = 0.05; };
 
     layer fist {
         when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };
-        roll = "bend" { min = -1; max = 1; };
+        roll = "bend" { min = -1; max = 1; smooth = 0.05; };
     };
 };
 ```
@@ -161,5 +161,5 @@ Axes, 0 to 1 unless they center:
 | `pad_x`, `pad_y` | the trackpad where it is touched, -1 to 1, centered when it isn't |
 | `pad_force` | how hard the trackpad is pressed |
 | `tilt` | the front's angle above level, -1 (straight down) to 1 (straight up); held as you play it, about 0.25 |
-| `roll` | turning around the front, -1 to 1 over a quarter turn either way, + as the buttons turn left |
+| `roll` | how far the buttons face left (+) or right (-), 1 at a quarter turn; it eases back toward 0 past that, and as the front tips toward straight up or down, but never jumps |
 | `twist` | how fast it is turning around the front, -1 to 1 |

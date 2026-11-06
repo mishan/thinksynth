@@ -422,6 +422,44 @@ checkImu (const char *path)
                            : std::max(hi, -lo) < 0.05f) ? "" : got);
     }
 
+    /* Rolled on past a quarter turn, and with the front straight up, roll
+       moves smoothly: no wrap at the far side, no swing when gravity
+       hardly crosses it. Gravity here is a unit vector in the IMU's axes. */
+    struct Turn
+    {
+        const char *name;
+        float       g[3];
+        float       lo, hi;     /* where roll must be */
+    };
+    static const Turn TURNS[] = {
+        { "rolled a quarter turn left",   { 0, 0, 1 },          0.95f, 1 },
+        { "rolled on past it",            { 0, 0.5f, 0.866f },  0.8f, 0.9f },
+        { "rolled most of the way over",  { 0, 0.98f, 0.17f },  0.1f, 0.25f },
+        { "the front straight up, a hair left", { -1, 0, 0.02f }, -0.05f, 0.05f },
+        { "the front straight up, a hair right", { -1, 0, -0.02f }, -0.05f, 0.05f },
+    };
+
+    for (size_t i = 0; i < sizeof(TURNS) / sizeof(TURNS[0]); i++)
+    {
+        uint8_t r[52] = { 0x20 };
+        thhIndexImu imu;
+        thhState s;
+        char got[64];
+
+        for (int k = 0; k < 3; k++)
+            for (int a = 0; a < 3; a++)
+            {
+                const int16_t v = (int16_t)(TURNS[i].g[a] * 4096);
+
+                r[1 + 17 * k + 2 * a] = v & 0xff;
+                r[2 + 17 * k + 2 * a] = (v >> 8) & 0xff;
+            }
+        thhIndexFeedImu(r, sizeof(r), imu, s);
+        snprintf(got, sizeof(got), "roll %.3f", s.axis[THH_INDEX_ROLL]);
+        report(TURNS[i].name, s.axis[THH_INDEX_ROLL] >= TURNS[i].lo &&
+               s.axis[THH_INDEX_ROLL] <= TURNS[i].hi ? "" : got);
+    }
+
     /* A short report, or the input's, is refused without moving anything. */
     uint8_t r[64] = { 0x20 };
     thhIndexImu imu;

@@ -42,16 +42,16 @@ const char *const THH_INDEX_PROFILE =
     "    pad_y = pitch { range = 7; };\n"
     "    tilt = pitch { step = octave; range = 1; center = 0.25; };\n"
     "\n"
-    "    grip_force = \"level\" { min = 0.6; max = 1; };\n"
-    "    grip_force = \"bright\" { min = 0.3; max = 0.9; };\n"
-    "    grip_mid = \"growl\";\n"
-    "    grip_low = \"air\" { max = 0.5; };\n"
+    "    grip_force = \"level\" { min = 0.6; max = 1; smooth = 0.03; };\n"
+    "    grip_force = \"bright\" { min = 0.3; max = 0.9; smooth = 0.03; };\n"
+    "    grip_mid = \"growl\" { smooth = 0.05; };\n"
+    "    grip_low = \"air\" { max = 0.5; smooth = 0.05; };\n"
     "    stick_y = \"wobble\" { min = -1; max = 1; };\n"
-    "    roll = \"pan\" { min = -1; max = 1; };\n"
+    "    roll = \"pan\" { min = -1; max = 1; smooth = 0.05; };\n"
     "\n"
     "    layer fist {\n"
     "        when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };\n"
-    "        roll = \"bend\" { min = -1; max = 1; };\n"
+    "        roll = \"bend\" { min = -1; max = 1; smooth = 0.05; };\n"
     "    };\n"
     "};\n";
 
@@ -252,8 +252,11 @@ thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
     {
         s.axis[THH_INDEX_TILT] = clamp1(std::asin(clamp1(-imu.g[0] / g)) /
                                         (float)(M_PI / 2));
-        s.axis[THH_INDEX_ROLL] = clamp1(std::atan2(imu.g[2], -imu.g[1]) /
-                                        (float)(M_PI / 2));
+        /* Roll is how much of gravity crosses the controller rather than
+           an angle around its front: an angle wraps past a half turn, and
+           swings from end to end when the front points near straight up
+           or down, where gravity hardly crosses it at all. */
+        s.axis[THH_INDEX_ROLL] = clamp1(imu.g[2] / g);
     }
     s.axis[THH_INDEX_TWIST] = clamp1(imu.twist);
 

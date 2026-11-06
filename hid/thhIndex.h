@@ -76,10 +76,11 @@ bool thhIndexIsImu (const uint8_t *desc, size_t len);
 bool thhIndexFeed (const uint8_t *data, size_t len, thhState &s);
 
 /* The IMU's report 0x20 carries three samples of the accelerometer and the
-   gyro. Gravity, smoothed, gives tilt (the front's angle above level) and
-   roll (around the front, + as the buttons turn left), each -1..1 over a
-   quarter turn; the gyro gives twist, how fast it is rolling. The
-   smoothing lives here, between reports. */
+   gyro. Gravity, smoothed, gives tilt (the front's angle above level,
+   -1..1 over a quarter turn) and roll (how far the buttons face left, +,
+   or right, -, 1 at a quarter turn and less as the front tips toward up
+   or down); the gyro gives twist, how fast it is rolling. The smoothing
+   lives here, between reports. */
 struct thhIndexImu
 {
     float g[3];         /* gravity, smoothed, in the IMU's own axes */

@@ -189,6 +189,57 @@ checkPlay (const string &plugins, const string &dsp)
            "heard " + std::to_string(heard));
 }
 
+/* index.dsp panned all the way by its knob, as a controller's roll pans it:
+   the side it is panned to sounds and the other doesn't. */
+static void
+checkPan (const string &plugins, const string &dsp)
+{
+    const double ends[2] = { 0, 1 };    /* t: pan -1 and pan 1 */
+
+    for (int e = 0; e < 2; e++)
+    {
+        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(dsp + "/index.dsp", 0, 100) == NULL)
+        {
+            report("index.dsp loads", "it doesn't");
+            return;
+        }
+
+        thhAction pan = action(thhAction::VALUE, 0, 0, "pan", ends[e]);
+
+        thhPlay(synth, { pan, action(thhAction::NOTE_ON, 0, 60, NULL, 0) },
+                NULL);
+
+        double side[2] = { 0, 0 };
+
+        for (int w = 0; w < 40; w++)
+        {
+            synth.process();
+
+            const thMidiChan *c = synth.getChannel(0);
+            const int len = synth.getWindowlen();
+
+            /* Interleaved: sample i of side ch at i * channels + ch. */
+            for (int ch = 0; ch < 2 && ch < c->numChannels(); ch++)
+                for (int i = 0; i < len; i++)
+                {
+                    const float x = c->output()[i * c->numChannels() + ch];
+
+                    side[ch] += (double)x * x;
+                }
+        }
+
+        const int loud = e ? 1 : 0;
+        char got[96];
+
+        snprintf(got, sizeof(got), "left %.3g, right %.3g", side[0], side[1]);
+        report(e ? "index.dsp panned right is on the right"
+                 : "index.dsp panned left is on the left",
+               side[loud] > 1 && side[1 - loud] < side[loud] * 1e-3 ? "" : got);
+    }
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -221,6 +272,7 @@ main (int argc, char *argv[])
 
     checkProfiles(scratch.string());
     checkPlay(plugins, dsp);
+    checkPan(plugins, dsp);
     fs::remove_all(scratch);
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
