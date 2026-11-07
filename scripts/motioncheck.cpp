@@ -19,8 +19,9 @@
 /*
  * motioncheck -- what thMotion makes of a picture, drawn rather than filmed.
  *
- * Every frame here is a flat background with bright squares on it, so where
- * a gesture is and how fast it moves are known exactly.
+ * Every frame here is drawn -- squares on a background, a gradient, noise
+ * from a known seed -- so where a gesture is and how fast it moves are
+ * known exactly.
  */
 
 #include <math.h>
@@ -142,7 +143,7 @@ static void stillIsStill (void)
         for (int a = thMotion::ZONE1; a <= thMotion::ZONE9; a++)
             peak = fmax(peak, m.axis((thMotion::Axis)a));
 
-        check(noise ? "sensor noise is not motion" : "a still picture is not motion",
+        check(noise ? "noise under the fixed floor is not motion" : "a still picture is not motion",
               peak == 0, fmt("motion or a zone at %.3f", peak));
     }
 }
@@ -414,22 +415,42 @@ static void slowSoftHand (void)
 
 static void lightIsNotMotion (void)
 {
-    /* Exposure stepping up and down on a picture with every level in it. */
-    for (double gain : { 1.1, 1.25 })
+    /* Exposure stepping up and down: over a gradient, over a window
+       clipped white, over a backlit wall clipped across most of the
+       picture, and over a room mostly too dark for a ratio. */
+    struct Scene {
+        const char *name;
+        double gain;
+        std::function<double (int, int)> level;
+    };
+    const Scene scenes[] = {
+        { "exposure stepping a little is not motion", 1.1,
+          [] (int x, int) { return 16 + x * 200.0 / W; } },
+        { "exposure stepping a lot is not motion", 1.25,
+          [] (int x, int) { return 16 + x * 200.0 / W; } },
+        { "exposure stepping up under a clipped window is not motion", 1.15,
+          [] (int x, int y) { return x < 50 && y < 70 ? 400 : 60 + x * 100.0 / W; } },
+        { "exposure stepping down under a clipped window is not motion", 0.87,
+          [] (int x, int y) { return x < 50 && y < 70 ? 400 : 60 + x * 100.0 / W; } },
+        { "exposure stepping on a backlit player is not motion", 1.15,
+          [] (int x, int) { return x > 50 && x < 110 ? 120 : 400; } },
+        { "exposure stepping in a dark room is not motion", 1.25,
+          [] (int x, int y) { return x < 64 && y < 120 ? 80 + y * 0.5 : 8; } },
+    };
+
+    for (const auto &sc : scenes)
     {
         thMotion m(W, H);
         int frame = 0;
         const double motion = play(m, 30, 1, [&] (Frame &f, double) {
-            const double g = frame++ % 4 < 2 ? 1 : gain;
+            const double g = frame++ % 4 < 2 ? 1 : sc.gain;
 
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < W; x++)
-                    f.px[(size_t)y * W + x] = (uint8_t)fmin(255, g * (16 + x * 200 / W));
+                    f.px[(size_t)y * W + x] = (uint8_t)fmin(255, g * sc.level(x, y));
         });
 
-        check(gain < 1.2 ? "exposure stepping a little is not motion"
-                         : "exposure stepping a lot is not motion",
-              motion == 0, fmt("motion %.3f", motion));
+        check(sc.name, motion == 0, fmt("motion %.3f", motion));
     }
 
     /* A hand crossing while exposure steps under it: seen on every frame,
@@ -498,6 +519,36 @@ static void repeatedFrames (void)
 
         check(r.name, least > 0, fmt("motion fell to %.3f", least));
     }
+
+    /* A camera at 30 fps give or take 3 ms, drawn at 60 Hz: frames come
+       twice or once or three times, unevenly. A steady hand reads steady. */
+    thMotion m(W, H);
+    Frame f;
+    unsigned seed = 3;
+    double captured = 0, next = 1 / 30.0, least = 1, most = 0;
+
+    for (int i = 0; i < 40; i++)
+    {
+        const double drawn = i / 60.0;
+
+        while (next <= drawn)
+        {
+            captured = next;
+            seed = seed * 1103515245 + 12345;
+            next += 1 / 30.0 + ((int)((seed >> 16) % 7) - 3) / 1000.0;
+        }
+        sweep(200)(f, captured);
+        m.feed(f.px.data(), f.stride, drawn);
+        if (i >= 6)
+        {
+            least = fmin(least, m.axis(thMotion::MOTION));
+            most = fmax(most, m.axis(thMotion::MOTION));
+        }
+    }
+
+    check("an uneven cadence of repeated frames reads a steady hand steadily",
+          least > 0 && most < 2.5 * least,
+          fmt("motion between %.3f and %.3f", least, most));
 }
 
 static void burst (void)

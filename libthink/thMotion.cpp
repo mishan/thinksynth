@@ -46,18 +46,58 @@ static int median (const int *bins, int n, long count)
     return n - 1;
 }
 
+/* A frame's white: where it clips, if enough of it sits within a couple of
+   levels of its brightest -- JPEG blurs a clipped patch by a level or two
+   -- and that is near the top, as a limited range's 235 or a full range's
+   255 is; past any level otherwise. */
+static int whiteOf (const int *levels, size_t area)
+{
+    int top = 255;
+
+    while (top > 0 && levels[top] == 0)
+        top--;
+
+    if (top < 224)
+        return 256;
+
+    const size_t near = levels[top] + levels[top - 1] + levels[top - 2];
+
+    return near * 100 >= area ? top - 2 : 256;
+}
+
 void thMotion::feed (const uint8_t *luma, int stride, double seconds)
 {
     if (width_ < 3 || height_ < 3)
         return;
 
-    /* The same frame again: nothing to say about it. */
+    /* The same stamp again: nothing to say about it. */
     if (kept_ > 0 && seconds == seconds_[newest_])
         return;
 
+    const size_t area = (size_t)width_ * height_;
+    int levels[256] = { 0 };
+    double total = 0;
+    bool repeat = kept_ > 0;
+
+    for (int y = 0; y < height_; y++)
+    {
+        const uint8_t *row = luma + (size_t)y * stride;
+
+        for (int x = 0; x < width_; x++)
+        {
+            levels[row[x]]++;
+            total += row[x];
+        }
+        repeat = repeat && !memcmp(row, &frames_[newest_ * area + (size_t)y * width_], width_);
+    }
+
+    axes_[BRIGHT] = (float)(total / area / 255);
+
+    const int white = whiteOf(levels, area);
     int ref = -1;
 
-    for (int k = 0; k < kept_ && ref < 0; k++)
+    /* A repeat is not compared with the frame it repeats. */
+    for (int k = repeat ? 1 : 0; k < kept_ && ref < 0; k++)
     {
         const int i = (newest_ - k + HISTORY) % HISTORY;
 
@@ -65,21 +105,30 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
             ref = i;
     }
 
-    const size_t area = (size_t)width_ * height_;
     const double dt = ref >= 0 ? seconds - seconds_[ref] : 0;
     const bool compare = ref >= 0 && dt <= MAX_GAP_SECONDS;
     const uint8_t *was = compare ? &frames_[ref * area] : NULL;
-    double total = 0;
+    const int wasWhite = compare ? whites_[ref] : 256;
     double gain = 1;
     int noiseFloor = NOISE_LEVELS;
 
-    /* Medians rather than means, so a hand covering less than half the
-       picture moves neither. */
+    /* What each pixel is predicted to be from the one it is compared with,
+       and how far it is from that. A pixel clipped then may truly have been
+       brighter, so only falling below the prediction says anything about
+       it; and nothing is predicted past this frame's own white. */
+    auto residual = [&] (int now, int then) {
+        const double d = now - std::min(gain * then, (double)white);
+
+        return then >= wasWhite && d > 0 ? 0 : fabs(d);
+    };
+
     if (compare)
     {
         /* Exposure is a gain: the median ratio of each pixel to the one it
-           is compared with, in RATIO_STEPS a unit, from pixels bright
-           enough for a ratio to mean something. */
+           is compared with, in RATIO_STEPS a unit, from pixels neither too
+           dark for a ratio to mean anything nor clipped in either frame. A
+           median, so a hand covering less than half of them does not move
+           it. */
         static const int RATIO_STEPS = 128, RATIO_BINS = 4 * RATIO_STEPS;
         int ratios[RATIO_BINS] = { 0 };
         long counted = 0;
@@ -89,15 +138,14 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
             {
                 const int now = luma[(size_t)y * stride + x], then = was[(size_t)y * width_ + x];
 
-                total += now;
-                if (then >= 16)
+                if (then >= 16 && then < wasWhite && now < white)
                 {
                     ratios[std::min(RATIO_BINS - 1, now * RATIO_STEPS / then)]++;
                     counted++;
                 }
             }
 
-        if (counted * 2 > (long)area)
+        if (counted * 8 >= (long)area)
             gain = (median(ratios, RATIO_BINS, counted) + 0.5) / RATIO_STEPS;
 
         /* The noise: the median residual is 0.6745 of a Gaussian's sigma,
@@ -106,17 +154,11 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
 
         for (int y = 0; y < height_; y++)
             for (int x = 0; x < width_; x++)
-                residuals[std::min(255, (int)fabs(luma[(size_t)y * stride + x]
-                                                  - gain * was[(size_t)y * width_ + x]))]++;
+                residuals[std::min(255, (int)residual(luma[(size_t)y * stride + x],
+                                                      was[(size_t)y * width_ + x]))]++;
 
         noiseFloor = std::max(noiseFloor, (int)(4 / 0.6745 * (median(residuals, 256, area) + 0.5)));
     }
-    else
-        for (int y = 0; y < height_; y++)
-            for (int x = 0; x < width_; x++)
-                total += luma[(size_t)y * stride + x];
-
-    axes_[BRIGHT] = (float)(total / area / 255);
 
     double zone[9] = { 0 };
     double sum = 0, sx = 0, sy = 0, sxx = 0, syy = 0;
@@ -129,7 +171,7 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
 
         for (int x = 0; x < width_; x++)
         {
-            const double d = fabs(row[x] - gain * then[x]);
+            const double d = residual(row[x], then[x]);
 
             if (d <= noiseFloor)
                 continue;
@@ -165,9 +207,17 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
                                        / sqrt(0.5));
     }
 
+    /* A frame seen before -- a browser drawing faster than its camera --
+       is measured but not kept, so every comparison is between two of the
+       camera's own frames, and a feed that freezes reaches MAX_GAP_SECONDS
+       and goes still. */
+    if (repeat)
+        return;
+
     newest_ = (newest_ + 1) % HISTORY;
     kept_ = kept_ < HISTORY ? kept_ + 1 : HISTORY;
     seconds_[newest_] = seconds;
+    whites_[newest_] = white;
 
     for (int y = 0; y < height_; y++)
         memcpy(&frames_[newest_ * area + (size_t)y * width_],

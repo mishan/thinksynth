@@ -53,9 +53,11 @@
  *
  * LIGHT IS NOT MOTION, NOISE IS NOT MOTION. Auto-exposure is a gain, so the
  * earlier frame is scaled by the median ratio between the two before they
- * are compared; and the floor a difference has to clear rises from
- * NOISE_LEVELS with the noise measured in the picture. Both are medians,
- * so a hand covering less than half the picture moves neither.
+ * are compared, leaving out pixels too dark for a ratio and clipped ones;
+ * and the floor a difference has to clear rises from NOISE_LEVELS with the
+ * noise measured in the picture, from the median difference. A hand
+ * filling much of the picture raises that floor, and loses its own
+ * fainter edges to it.
  *
  * STILLNESS. With nothing moving, motion and the zones fall to 0, but x, y
  * and spread move only while motion is above PLACE_MOTION: a theremin whose
@@ -63,8 +65,10 @@
  * would be unplayable. They start in the middle. A frame more than
  * MAX_GAP_SECONDS after the one it would be compared with is compared with
  * nothing, since a difference across a stall is a jump cut and not a
- * gesture. A frame stamped the same as the last is ignored, and one stamped
- * earlier is compared only with frames stamped before it.
+ * gesture. A frame stamped the same as the last is ignored, one stamped
+ * earlier is compared only with frames stamped before it, and one the same
+ * to the byte as the last is measured but never kept to compare with. A
+ * feed that repeats its stamp while stalled is the caller's to notice.
  *
  * One thread; allocates only when made. */
 class THINK_API thMotion {
@@ -107,6 +111,7 @@ private:
     int width_, height_;
     std::vector<uint8_t> frames_;           /* HISTORY frames, a ring */
     double seconds_[HISTORY];
+    int whites_[HISTORY];
     int newest_, kept_;
     float axes_[AXES];
 };
