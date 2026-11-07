@@ -380,6 +380,11 @@ static const Row ROWS[] = {
       "layer mod { grip_top = \"cutoff\"; }; };",
       "axis grip_top 0.1; axis grip_top 0.9; down thumbstick; axis grip_top 0.1",
       " | on 1 67 127 | cutoff@1 0.900 | off 1 67, cutoff@1 0.100", 0, NULL },
+    { "a strike whose off is 0 lets go at rest",
+      "device index { trigger = strike 0 { at = 0.15; }; };",
+      "axis trigger 0; axis trigger 1; axis trigger 0; axis trigger 1; "
+      "axis trigger 0",
+      " | on 1 60 127 | off 1 60 | on 1 60 127 | off 1 60", 0, NULL },
     { "a release ends a strike", STRIKE,
       "axis grip_top 0; axis grip_top 0.9; release; axis grip_top 0",
       " | on 1 67 127 | off 1 67 | ", 0, NULL },
@@ -616,6 +621,51 @@ checkBoth (void)
     report("a bend of both hands' notes reaches the other hand's",
            got == want ? "" : "asked for\n    " + got + "\n  wanted\n    " +
            want);
+
+    /* Let go of, the left hand takes its share of the bend back off the
+       right hand's notes, which play on. */
+    acts.clear();
+    left.release(acts);
+
+    const string off = describe(acts);
+
+    report("a hand let go of takes its bend back off the other's notes",
+           off.find("bend 1 60 +0.00") != string::npos &&
+           off.find("bend 1 64 +0.00") != string::npos &&
+           off.find("off 1 60") == string::npos ? "" : "asked for " + off);
+}
+
+/* A smoothed knob held at its end gets there, rather than stopping a
+   hair short where each step is too small to send. */
+static void
+checkSmoothedEnd (void)
+{
+    const thhControls &c = thhIndexControls();
+    thcHidBlock p;
+    thhMapper m;
+    std::vector<thhAction> acts;
+    thhState s;
+    string err;
+    int line;
+    double last = -1;
+
+    thcHidParseProfile("device index { trigger = \"cutoff\" { smooth = 0.03; }; };",
+                       p, err, line);
+    m.configure(p, c, acts, err, line);
+    s.connected = true;
+    m.update(s, 0, acts);                   /* at rest first, then held */
+    s.axis[c.axis("trigger")] = 1;
+    for (int i = 0; i < 4000; i++)
+    {
+        acts.clear();
+        s.time += 0.001;
+        m.update(s, 0, acts);
+        for (const thhAction &a : acts)
+            last = a.t;
+    }
+
+    report("a smoothed knob held at its end reaches it",
+           last == 1 ? "" : "last sent " + std::to_string(last));
 }
 
 static void
@@ -670,6 +720,7 @@ main (void)
     checkRows();
     checkReconfigure();
     checkBoth();
+    checkSmoothedEnd();
     checkValues();
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");

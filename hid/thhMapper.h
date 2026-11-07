@@ -169,6 +169,10 @@ private:
        its bend and aux `of = both', and which of them it has sent to. */
     double sharedBend_ = 0, sharedAux_[4] = { 0, 0, 0, 0 };
     bool   reached_[16][128] = {};
+
+    /* The notes sounding_ and reached_ hold, as lists, so an update visits
+       a handful rather than every place a note could be. */
+    std::vector<std::pair<int, int> > soundingList_, reachedList_;
     std::map<int, std::pair<double, double> > smoothing_;  /* value, time */
 
     void expression (const thhState &s, std::vector<thhAction> &out);

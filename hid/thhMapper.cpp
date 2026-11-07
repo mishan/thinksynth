@@ -251,6 +251,7 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     sharedBend_ = 0;
     memset(sharedAux_, 0, sizeof(sharedAux_));
     memset(reached_, 0, sizeof(reached_));
+    reachedList_.clear();
     for (int i = 0; i < THH_MAX_AXES; i++)
         sent_[i] = Sent();
     memset(armed_, 0, sizeof(armed_));
@@ -447,6 +448,7 @@ thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
     {
         thhAction a = thhAction();
 
+        soundingList_.push_back(std::make_pair(channel, note));
         a.kind = thhAction::NOTE_ON;
         a.channel = channel;
         a.note = note;
@@ -483,7 +485,10 @@ thhMapper::smoothed (int key, double raw, double k, const thhState &s)
 {
     auto it = smoothing_.find(key);
 
-    if (k > 0 && it != smoothing_.end())
+    /* Close enough is there: a share of what is left, in floating point,
+       comes to nothing just short of it. */
+    if (k > 0 && it != smoothing_.end() &&
+        std::fabs(raw - it->second.first) >= THH_DEADBAND)
         raw = it->second.first + (1 - std::exp(-(s.time - it->second.second) / k)) *
                                  (raw - it->second.first);
     smoothing_[key] = std::make_pair(raw, s.time);
@@ -507,7 +512,10 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
         for (size_t i = 0; l && i < l->axis[ax].size(); i++)
         {
             const Bound &bd = l->binds[l->axis[ax][i]];
-            const int key = ax * 64 + (int)i;
+            /* By layer too: another layer's binding at the same place on
+               the axis is another binding. */
+            const int key = ((int)(l - &layers_[0]) * THH_MAX_AXES + ax) * 64 +
+                            (int)i;
 
             if (bd.b.kind == thcHidBinding::BEND)
             {
@@ -544,17 +552,16 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
     for (int n = 0; n < 4; n++)
         aux_[n] = moved[n] ? aux[n] : aux_[n];
 
-    for (int ch = 0; ch < 16; ch++)
-        for (int note = 0; note < 128; note++)
-        {
-            if (!sounding_[ch][note])
-                continue;
-            if (bent)
-                express(thhAction::NOTE_BEND, 0, bend_, ch, note, out);
-            for (int n = 0; n < 4; n++)
-                if (moved[n])
-                    express(thhAction::NOTE_AUX, n, aux_[n], ch, note, out);
-        }
+    for (const auto &held : soundingList_)
+    {
+        if (bent)
+            express(thhAction::NOTE_BEND, 0, bend_, held.first, held.second,
+                    out);
+        for (int n = 0; n < 4; n++)
+            if (moved[n])
+                express(thhAction::NOTE_AUX, n, aux_[n], held.first,
+                        held.second, out);
+    }
 
     /* The other hand's notes hear only this hand's shares: when a share
        moves, and, a note the other hand has just started, at once. */
@@ -568,23 +575,29 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
     for (int n = 0; n < 4; n++)
         sharedAux_[n] = sharedMoved[n] ? sharedAux[n] : sharedAux_[n];
 
-    for (int ch = 0; ch < 16; ch++)
-        for (int note = 0; note < 128; note++)
-        {
-            const bool theirs = other_ && other_->sounding(ch, note) &&
-                                !sounding_[ch][note];
-            const bool fresh = theirs && !reached_[ch][note];
+    std::vector<std::pair<int, int> > theirs;
 
-            reached_[ch][note] = theirs;
-            if (!theirs)
-                continue;
-            if (sharedBent || (fresh && sharedBend_))
-                express(thhAction::NOTE_BEND, 0, sharedBend_, ch, note, out);
-            for (int n = 0; n < 4; n++)
-                if (shares[n] && (sharedMoved[n] || (fresh && sharedAux_[n])))
-                    express(thhAction::NOTE_AUX, n, sharedAux_[n], ch, note,
-                            out);
-        }
+    for (const auto &held : other_ ? other_->soundingList_
+                                   : std::vector<std::pair<int, int> >())
+        if (!sounding_[held.first][held.second])
+            theirs.push_back(held);
+
+    for (const auto &was : reachedList_)
+        reached_[was.first][was.second] = false;
+    for (const auto &note : theirs)
+    {
+        const int ch = note.first, n0 = note.second;
+        const bool fresh = std::find(reachedList_.begin(), reachedList_.end(),
+                                     note) == reachedList_.end();
+
+        reached_[ch][n0] = true;
+        if (sharedBent || (fresh && sharedBend_))
+            express(thhAction::NOTE_BEND, 0, sharedBend_, ch, n0, out);
+        for (int n = 0; n < 4; n++)
+            if (shares[n] && (sharedMoved[n] || (fresh && sharedAux_[n])))
+                express(thhAction::NOTE_AUX, n, sharedAux_[n], ch, n0, out);
+    }
+    reachedList_.swap(theirs);
 }
 
 void
@@ -598,6 +611,8 @@ thhMapper::unsound (Held &h, std::vector<thhAction> &out)
     {
         thhAction a = thhAction();
 
+        soundingList_.erase(std::find(soundingList_.begin(), soundingList_.end(),
+                                      std::make_pair(h.channel, h.note)));
         a.kind = thhAction::NOTE_OFF;
         a.channel = h.channel;
         a.note = h.note;
@@ -618,7 +633,9 @@ thhMapper::strike (int axis, const thhState &s, int curChannel,
     const float v = s.axis[axis];
 
     /* Let go where it began, whatever binds the axis now. */
-    if (h.what == Held::NOTE && v < h.off)
+    /* At off counts as under it, or a strike whose off is 0, an axis that
+       rests at 0, would never let go. */
+    if (h.what == Held::NOTE && v <= h.off)
         unsound(h, out);
 
     const Bound *bd = find(true, axis);
@@ -629,7 +646,7 @@ thhMapper::strike (int axis, const thhState &s, int curChannel,
         return;
     }
 
-    if (v < bd->b.off)
+    if (v <= bd->b.off)
     {
         armed_[axis] = true;
         below_[axis] = s.time;
@@ -737,7 +754,8 @@ thhMapper::update (const thhState &s, int curChannel,
         {
             const double k = values[i]->b.smooth;
 
-            if (!fresh && k > 0)
+            if (!fresh && k > 0 &&
+                std::fabs(to.t[i] - sent_[ax].smoothed[i]) >= THH_DEADBAND)
             {
                 const double prev = sent_[ax].smoothed[i];
 
@@ -820,6 +838,22 @@ thhMapper::release (std::vector<thhAction> &out)
     }
     for (int a = 0; a < THH_MAX_AXES; a++)
         unsound(heldAxis_[a], out);
+    memset(armed_, 0, sizeof(armed_));
+
+    /* This hand's share of the other hand's notes, which play on, taken
+       back off them. */
+    for (const auto &note : reachedList_)
+    {
+        if (sharedBend_)
+            express(thhAction::NOTE_BEND, 0, 0, note.first, note.second, out);
+        for (int n = 0; n < 4; n++)
+            if (sharedAux_[n])
+                express(thhAction::NOTE_AUX, n, 0, note.first, note.second, out);
+    }
+    sharedBend_ = 0;
+    memset(sharedAux_, 0, sizeof(sharedAux_));
+    memset(reached_, 0, sizeof(reached_));
+    reachedList_.clear();
     for (size_t i = active_.size(); i-- > 0;)
         if (active_[i].posture)
             active_.erase(active_.begin() + i);
