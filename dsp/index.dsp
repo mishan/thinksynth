@@ -1,14 +1,14 @@
 # Index -- a voice for a Valve Index controller to play.
 #
 # A sawtooth through a filter, with a breath of noise under it, made for a
-# hand to keep shaping while the note sounds rather than set once: every
-# knob here is one the controller's own profile rides. `Bright' opens the
-# filter, `Wobble' is vibrato, `Growl' drives it harder into the filter's
-# resonance, `Air' is breath, `Bend' moves the pitch two semitones either
-# way, and `Level' and `Pan' place it. Each note's own pressure (aux0, from
-# an MPE controller's key or a controller's `aux 0') opens its filter and
-# lifts its level on top of the knobs, so one note of a chord can swell
-# alone. See docs/HID.md.
+# hand to keep shaping while the note sounds rather than set once: every knob
+# here is one a controller's profile can ride. `Bright' opens the filter,
+# `Wobble' is vibrato, `Growl' drives it harder into the filter's resonance,
+# `Air' is breath, `Sub' adds a square an octave down, `Bend' moves the pitch
+# two semitones either way, and `Level' and `Pan' place it. Each note's own
+# pressure (aux0, from an MPE controller's key or a controller's `aux 0')
+# opens its filter and lifts its level on top of the knobs, so one note of a
+# chord can swell alone. See docs/HID.md.
 
 name "Index";
 author "Misha Nasledov";
@@ -38,6 +38,12 @@ category "Experiments";
     @air.min = 0;
     @air.max = 1;
     @air.label = "Air";
+
+    @sub = 0;
+    @sub.widget = 1;
+    @sub.min = 0;
+    @sub.max = 1;
+    @sub.label = "Sub";
 
     @bend = 0;
     @bend.widget = 1;
@@ -93,12 +99,17 @@ node saw osc::blep {
     waveform = 0;
 };
 
+node sub osc::blep {
+    freq = freq->out * exp2((@bend * 2 + vibrato->out * @wobble * 0.5) / 12) / 2;
+    waveform = 1;
+};
+
 node breath osc::noise {
     color = 0;
 };
 
 node drive dist::saturate {
-    in = (saw->out + breath->out * @air * 0.6) * 0.6;
+    in = (saw->out + sub->out * @sub * 0.7 + breath->out * @air * 0.6) * 0.6;
     factor = 1 + @growl * 7;
 };
 
