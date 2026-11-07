@@ -158,32 +158,49 @@ thhIndexHand (const std::string &compressed)
     return ends(" Left") ? "left" : ends(" Right") ? "right" : "";
 }
 
+/* One feature report, as the controller gives them: it turns each request
+   away once, then answers the same request a few milliseconds later, as
+   SteamVR's lighthouse_console's own requests show; and it answers only a
+   request of the report's whole size, its id and 64 bytes. */
+static bool
+getFeature (int fd, uint8_t id, uint8_t (&buf)[65])
+{
+    for (int attempt = 0; attempt < 10; attempt++)
+    {
+        memset(buf, 0, sizeof(buf));
+        buf[0] = id;
+        if (ioctl(fd, HIDIOCGFEATURE(sizeof(buf)), buf) >= 0)
+            return true;
+        if (errno != EPIPE)
+            return false;
+        usleep(3000);
+    }
+    return false;
+}
+
 /* The configuration a controller keeps, read a feature report at a time
    (0x10 starts it and says how long it is; each 0x11 is a length and that
    many bytes, until a length of 0 or all of it) from whichever of its
-   interfaces answers, the IMU's first, as libsurvive reads it, and the
-   hand it names. Empty if none does. Each read can wait on the USB, so
-   no more are made than the length it gave needs. */
+   interfaces answers, the IMU's first, and the hand it names. Empty if
+   none does. No more reads are made than the length it gave needs. */
 static std::string
 readHand (const std::vector<int> &fds)
 {
     for (size_t i = 0; i < fds.size(); i++)
     {
-        uint8_t buf[64] = { 0x10 };
+        uint8_t buf[65];
         std::string config;
 
-        if (ioctl(fds[i], HIDIOCGFEATURE(sizeof(buf)), buf) < 0)
+        if (!getFeature(fds[i], 0x10, buf))
             continue;
 
         const size_t expected = (buf[1] << 8) | buf[2];
 
-        for (size_t k = 0; k < expected / (sizeof(buf) - 2) + 4 &&
+        for (size_t k = 0; k < expected / (sizeof(buf) - 3) + 4 &&
                            config.size() < expected; k++)
         {
-            memset(buf, 0, sizeof(buf));
-            buf[0] = 0x11;
-            if (ioctl(fds[i], HIDIOCGFEATURE(sizeof(buf)), buf) < 0 ||
-                buf[1] == 0 || buf[1] > sizeof(buf) - 2)
+            if (!getFeature(fds[i], 0x11, buf) || buf[1] == 0 ||
+                buf[1] > sizeof(buf) - 2)
                 break;
             config.append((const char *)buf + 2, buf[1]);
         }
