@@ -5,6 +5,7 @@
 # other way round, so the composer can carry a mapping without this library.
 add_library(think_hid OBJECT
     thhControls.cpp
+    thhHands.cpp
     thhIndex.cpp
     thhMapper.cpp
     thhPane.cpp

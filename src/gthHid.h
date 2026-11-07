@@ -27,6 +27,7 @@
 
 #include <glibmm/dispatcher.h>
 
+#include "thhHands.h"
 #include "thhMapper.h"
 #include "thhPane.h"
 #include "thhReader.h"
@@ -67,7 +68,7 @@ private:
        plays as once it has said or been given one. */
     struct Slot
     {
-        std::string                usb, hand;
+        std::string                usb, hand, said;
         std::unique_ptr<thhReader> reader;
         thhState                   latest;
     };

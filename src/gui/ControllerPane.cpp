@@ -140,14 +140,15 @@ bool ControllerPane::onTick (void)
     {
         const thhState now = source_->stateOf(i);
         const std::string hand = source_->handOf(i);
+
+        if (!now.connected)
+            continue;
+
         std::vector<thhPaneRow> mine = thhPaneRows(
             source_->profileOf(i), thhIndexControls(), now, source_->channel(),
             [this](int ch, const std::string &arg) {
                 return source_->hasArg(ch, arg);
             });
-
-        if (!now.connected)
-            continue;
         connected++;
         if (!hand.empty())
         {
@@ -189,8 +190,9 @@ bool ControllerPane::onTick (void)
 
     const std::string why = source_->status();
     std::string line = !problem_.empty() ? problem_
-        : connected > 1 ? "Two Valve Index controllers connected, " +
-                              hands[0] + " and " + hands[1] + "."
+        : hands.size() > 1 ? std::to_string(connected) +
+                                 " Valve Index controllers connected, " +
+                                 hands[0] + " and " + hands[1] + " playing."
         : connected ? "Valve Index controller connected."
         : why.empty() ? "Looking for a Valve Index controller..."
         : why + ".";

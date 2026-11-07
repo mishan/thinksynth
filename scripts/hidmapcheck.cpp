@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 
+#include "thhHands.h"
 #include "thhIndex.h"
 #include "thhMapper.h"
 
@@ -668,6 +669,53 @@ checkSmoothedEnd (void)
            last == 1 ? "" : "last sent " + std::to_string(last));
 }
 
+/* Which hand each connected controller plays. Each row: the controllers
+   before, as connected/said/had ("+right/left" is connected, says right,
+   had left; "-" is not connected), and the hands they play after. */
+static void
+checkHands (void)
+{
+    struct Row
+    {
+        const char *name, *before, *want;
+    };
+    static const Row ROWS[] = {
+        { "each the hand it says", "+right/ +left/", "right left" },
+        { "one that doesn't say takes the free hand", "+left/ +/", "left right" },
+        { "...and alone, the right", "+/", "right" },
+        { "one guessed gives way to one that says", "+/right +right/",
+          "left right" },
+        { "two that say one hand: the first has it", "+right/ +right/",
+          "right left" },
+        { "a controller gone holds no hand", "-/right +/", "right right" },
+        { "...and has its hand still when it is back", "+/right -/left",
+          "right left" },
+    };
+
+    for (size_t i = 0; i < sizeof(ROWS) / sizeof(ROWS[0]); i++)
+    {
+        std::vector<thhHandSlot> slots;
+        std::istringstream in(ROWS[i].before);
+        string one, got;
+
+        while (in >> one)
+        {
+            thhHandSlot s;
+            const size_t slash = one.find('/');
+
+            s.connected = one[0] == '+';
+            s.said = one.substr(1, slash - 1);
+            s.hand = one.substr(slash + 1);
+            slots.push_back(s);
+        }
+        thhAssignHands(slots);
+        for (size_t k = 0; k < slots.size(); k++)
+            got += (k ? " " : "") + slots[k].hand;
+        report(ROWS[i].name, got == ROWS[i].want ? "" :
+               "gave \"" + got + "\", wanted \"" + ROWS[i].want + "\"");
+    }
+}
+
 static void
 checkValues (void)
 {
@@ -721,6 +769,7 @@ main (void)
     checkReconfigure();
     checkBoth();
     checkSmoothedEnd();
+    checkHands();
     checkValues();
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");

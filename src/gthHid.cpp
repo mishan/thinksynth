@@ -71,6 +71,22 @@ gthHid::scan ()
 {
     const std::vector<thhIndexNodes> found = thhFindIndexes("/sys", "/dev");
 
+    /* A controller gone that isn't anywhere now, moved to another port or
+       unplugged, has its reader stopped: one that is back where it was is
+       found again below. */
+    for (size_t k = slots_.size(); k-- > 0;)
+    {
+        bool still = slots_[k]->latest.connected;
+
+        for (size_t i = 0; i < found.size() && !still; i++)
+            still = found[i].usb == slots_[k]->usb;
+        if (!still)
+        {
+            slots_.erase(slots_.begin() + k);
+            generation_++;
+        }
+    }
+
     for (size_t i = 0; i < found.size(); i++)
     {
         bool have = false;
@@ -109,13 +125,25 @@ gthHid::profileOf (int i) const
     return pair_ ? profiles_[1 + side(slots_[i]->hand)] : profiles_[0];
 }
 
+/* Nothing while one is connected; else what a reader says other than that
+   there is none (no permission, say), which is what can be done
+   something about. */
 std::string
 gthHid::status () const
 {
+    std::string none = "no Valve Index controller is plugged in";
+
     for (size_t i = 0; i < slots_.size(); i++)
-        if (!slots_[i]->reader->status().empty())
-            return slots_[i]->reader->status();
-    return slots_.empty() ? "no Valve Index controller is plugged in" : "";
+        if (slots_[i]->latest.connected)
+            return "";
+    for (size_t i = 0; i < slots_.size(); i++)
+    {
+        const std::string why = slots_[i]->reader->status();
+
+        if (!why.empty() && why.compare(0, none.size(), none) != 0)
+            return why;
+    }
+    return none;
 }
 
 bool
@@ -163,74 +191,62 @@ gthHid::configure (bool pair)
     }
 }
 
-/* Which hand each connected controller plays: the one it says, or, one
-   that doesn't, whichever is free; and alone or in a pair. */
+/* Which hand each connected controller plays (thhAssignHands), and alone
+   or in a pair. */
 void
 gthHid::hands ()
 {
-    int connected = 0;
+    std::vector<thhHandSlot> give;
+    int playing = 0;
 
     for (size_t i = 0; i < slots_.size(); i++)
+        give.push_back({ slots_[i]->latest.connected, slots_[i]->reader->hand(),
+                         slots_[i]->hand });
+    thhAssignHands(give);
+    for (size_t i = 0; i < slots_.size(); i++)
     {
-        Slot &s = *slots_[i];
-
-        if (!s.latest.connected)
-            continue;
-        connected++;
-
-        const std::string said = s.reader->hand();
-
-        if (!said.empty() && said != s.hand)
-        {
-            s.hand = said;
+        if (give[i].hand != slots_[i]->hand)
             generation_++;
-        }
-        if (s.hand.empty())
-        {
-            bool right = false;
-
-            for (size_t k = 0; k < slots_.size(); k++)
-                right = right || (k != i && slots_[k]->hand == "right");
-            s.hand = right ? "left" : "right";
-            generation_++;
-        }
+        slots_[i]->hand = give[i].hand;
+        playing += give[i].connected && !give[i].hand.empty();
     }
 
-    if ((connected > 1) != pair_)
+    if ((playing > 1) != pair_)
     {
-        configure(connected > 1);
+        configure(playing > 1);
         generation_++;
     }
 }
 
 /* A hand's actions on the synth: notes as the keyboard plays them, each
-   note's bend the sum of the hands', the rest as they are. */
+   note's bend the sum of the hands', in the order they came, so a note's
+   first bend follows it on. */
 void
 gthHid::play (int hand, const std::vector<thhAction> &acts)
 {
-    std::vector<thhAction> rest;
+    std::vector<thhAction> out;
 
     for (size_t i = 0; i < acts.size(); i++)
     {
-        const thhAction &a = acts[i];
+        thhAction a = acts[i];
         const std::pair<int, int> key(a.channel, a.note);
 
         if (a.kind == thhAction::NOTE_BEND)
         {
             bends_[hand][key] = a.t;
-            synth_->bendNote(a.channel, a.note,
-                             (float)(bends_[0][key] + bends_[1][key]));
-            continue;
+            a.t = bends_[0][key] + bends_[1][key];
         }
-        if (a.kind == thhAction::NOTE_ON || a.kind == thhAction::NOTE_OFF)
+        else if (a.kind == thhAction::NOTE_ON || a.kind == thhAction::NOTE_OFF)
         {
+            /* Both hands': the other's share of a note that ended stays
+               where the share last was, and would bend the key's next. */
             bends_[0].erase(key);
             bends_[1].erase(key);
         }
-        rest.push_back(a);
+        out.push_back(a);
     }
 
-    thhPlay(*synth_, rest, [](const thhAction &a) {
+    thhPlay(*synth_, out, [](const thhAction &a) {
         if (a.kind == thhAction::NOTE_ON)
             m_sigKbdNoteOn(a.channel, a.note, a.vel);
         else
@@ -252,18 +268,35 @@ gthHid::drained ()
         if (!s.reader->drain(edges, latest))
             continue;
 
-        /* A controller connecting is given its hand, and a pair made,
-           before its mapper hears it; one going is let go of by the mapper
-           that held its notes, before the pair is undone. */
+        /* A controller connecting, or saying another hand, is given its
+           hand, and a pair made, before its mapper hears it; one going is
+           let go of by the mapper that held its notes, before the pair is
+           undone. A gone and back again in one drain, a controller
+           swapped, is both. */
         const bool was = s.latest.connected;
+        bool went = false;
 
-        if (!was && latest.connected)
+        for (size_t e = 0; e < edges.size(); e++)
+            went = went || !edges[e].connected;
+
+        if ((!was || went || s.reader->hand() != s.said) && latest.connected)
         {
             s.latest = latest;
+            s.said = s.reader->hand();
             hands();
         }
+        /* A third, which plays nothing, but whose going is heard: else it
+           would be connected for ever, and take a hand the next time one
+           is free. */
+        if (s.hand.empty())
+        {
+            s.latest = latest;
+            if ((was || went) && !latest.connected)
+                hands();
+            continue;
+        }
 
-        const int h = pair_ ? side(s.hand) : 0;
+        const int h = side(s.hand);
         std::vector<thhAction> acts;
 
         for (size_t e = 0; e < edges.size(); e++)
@@ -272,7 +305,7 @@ gthHid::drained ()
         s.latest = latest;
         play(h, acts);
 
-        if (was && !latest.connected)
+        if ((was || went) && !latest.connected)
             hands();
     }
 
