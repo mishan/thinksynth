@@ -28,6 +28,7 @@
 #include "thKernel.h"
 #include "../plugins/env/adsr.h"
 #include "../plugins/mixer/pan.h"
+#include "../plugins/osc/simple.h"
 
 static int failed = 0;
 
@@ -68,6 +69,16 @@ main ()
     report("a NaN frequency is the slowest", thkBoundFreq(nan, 32000) == 32000 / 16777216.0f);
 
     report("a NaN pan is the middle", same(thkPan::ctl(nan), thkPan::ctl(zero)));
+    {
+        /* A NaN width is the narrowest, or, where fast math takes it to equal
+           0, the middle: either way neither part of the cycle is empty. */
+        const thkSimple::Ctl c = thkSimple::ctl(nan, 1, 1, nan, nan, 32000);
+
+        report("osc::simple's NaN frequency, width and waveform are the slowest, a "
+               "width and the sine",
+               c.wavelength == thkSimple::ctl(zero, 1, 1, 0, 0, 32000).wavelength &&
+               c.halfwave > 0 && c.halfwave < c.wavelength && c.waveform == 0);
+    }
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");
     return failed ? 1 : 0;

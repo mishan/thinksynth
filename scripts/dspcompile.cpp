@@ -78,23 +78,27 @@ struct Kernel
     const char *plugin;
     std::vector<string> ctl;
     const char *ctlCall;        /* the control struct's maker, or NULL */
+    bool ctlRate;               /* which takes the rate after them */
     std::vector<string> ins;
     bool pure;                  /* keeps nothing: control-rate if its inputs are */
     const char *type;           /* the state's struct, or NULL */
 };
 
 static const Kernel KERNELS[] = {
-    { "osc/fmop", { "freq", "ratio", "feedback" }, "thkFmop::ctl", { "mod", "index", "reset" },
-      false, "thkFmop" },
-    { "env/ad", { "a", "d", "p" }, "thkAd::ctl", { "reset" }, false, "thkAd" },
-    { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", { "trigger", "reset" }, false, NULL },
-    { "misc/midi2freq", {}, NULL, { "note" }, true, NULL },
-    { "mixer/pan", { "pan" }, "thkPan::ctl", { "in" }, true, NULL },
-    { "math/clamp", {}, NULL, { "in", "lo", "hi" }, true, NULL },
-    { "math/add", {}, NULL, { "in0", "in1" }, true, NULL },
-    { "math/sub", {}, NULL, { "in0", "in1" }, true, NULL },
-    { "math/mul", {}, NULL, { "in0", "in1" }, true, NULL },
-    { "mixer/mul", {}, NULL, { "in0", "in1" }, true, NULL },
+    { "osc/fmop", { "freq", "ratio", "feedback" }, "thkFmop::ctl", true,
+      { "mod", "index", "reset" }, false, "thkFmop" },
+    { "osc/simple", { "freq", "mul", "amp", "pw", "waveform" }, "thkSimple::ctl", true,
+      { "fm", "fmamt", "reset" }, false, "thkSimple" },
+    { "env/ad", { "a", "d", "p" }, "thkAd::ctl", false, { "reset" }, false, "thkAd" },
+    { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", false, { "trigger", "reset" },
+      false, NULL },
+    { "misc/midi2freq", {}, NULL, false, { "note" }, true, NULL },
+    { "mixer/pan", { "pan" }, "thkPan::ctl", false, { "in" }, true, NULL },
+    { "math/clamp", {}, NULL, false, { "in", "lo", "hi" }, true, NULL },
+    { "math/add", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/sub", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/mul", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "mixer/mul", {}, NULL, false, { "in0", "in1" }, true, NULL },
 };
 
 struct Value
@@ -300,7 +304,7 @@ struct Compiler
 
         for (size_t i = 0; i < ctls[n].size(); i++)
             a += (i ? ", " : "") + ctls[n][i].text;
-        if (string(k->plugin) == "osc/fmop")
+        if (k->ctlRate)
             a += ", rate";
         return "        const auto " + var(n, "ctl") + " = " + k->ctlCall + "(" + a + ");\n";
     }
@@ -327,6 +331,10 @@ struct Compiler
         if (p == "osc/fmop")
             s << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
               << ", " << args(0) << ");\n";
+        else if (p == "osc/simple")
+            s << "        float " << var(n, "sync") << ";\n"
+              << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ", " << args(0) << ", " << var(n, "sync") << ");\n";
         else if (p == "env/ad" || p == "env/adsr")
             s << "        float " << var(n, "play") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")

@@ -35,6 +35,7 @@
 #include "../plugins/misc/midi2freq.h"
 #include "../plugins/mixer/pan.h"
 #include "../plugins/osc/fmop.h"
+#include "../plugins/osc/simple.h"
 
 static int failed = 0;
 
@@ -47,6 +48,23 @@ report (const char *name, double worst, double limit)
     {
         printf("FAIL  %s\n  worst %.3g, over %.3g\n", name, worst, limit);
         failed++;
+    }
+}
+
+/* osc::simple's shapes, from where in the cycle and the level. */
+static double
+refSimple (int waveform, double r, double hi)
+{
+    const double a = 4 * r - 1, b = 4 * r - 3;
+
+    switch (waveform)
+    {
+    case 1: return hi * (2 * r - 1);
+    case 2: return r < 0.5 ? -hi : hi;
+    case 3: return r < 0.5 ? hi * a : -hi * b;
+    case 4: return r < 0.5 ? hi * std::sqrt(1 - a * a) : -hi * std::sqrt(1 - b * b);
+    case 5: return r < 0.5 ? hi * (1 - a * a) : hi * (b * b - 1);
+    default: return hi * std::sin(2 * M_PI * r);
     }
 }
 
@@ -158,6 +176,82 @@ main ()
     report("a pan that isn't a number is the middle",
            std::fabs(thkPan::ctl(NAN).left - (float)M_SQRT1_2) +
            std::fabs(thkPan::ctl(NAN).right - (float)M_SQRT1_2), 1.5e-6);
+
+    /* osc::simple at 100 samples a cycle: each waveform where its shape
+       says -- the square low for the first half, as its sign trick has it
+       -- and a cycle begun every 100 samples, the first on the 100th. */
+    {
+        struct Point { int waveform, at; float want; };
+        static const Point POINTS[] = {
+            { 0, 25, 1 }, { 0, 75, -1 }, { 1, 1, -1 }, { 1, 50, 0 }, { 2, 10, -0.8f },
+            { 2, 60, 0.8f }, { 3, 25, 0 }, { 3, 50, 1 }, { 5, 25, 1 }, { 5, 75, -1 },
+        };
+        char why[120] = "";
+
+        for (const Point &p : POINTS)
+        {
+            thkSimple osc;
+            const thkSimple::Ctl c = thkSimple::ctl(441, 1, p.waveform == 2 ? 0.8f : 1, 0,
+                                                    (float)p.waveform, 44100);
+            float sync, y = 0;
+
+            /* The phase steps before it's read: sample n is n + 1 in. */
+            for (int n = 0; n < p.at; n++)
+                y = osc.tick(c, 0, 0, 0, sync);
+            if (std::fabs(y - p.want) > 0.03f)
+                snprintf(why, sizeof(why), "waveform %d at %d: %.3f, wanted %.3f",
+                         p.waveform, p.at, y, p.want);
+        }
+        report("osc::simple's waveforms, where their shapes say", why[0] ? 1 : 0, 0);
+        if (why[0])
+            printf("  %s\n", why);
+
+        thkSimple osc;
+        const thkSimple::Ctl c = thkSimple::ctl(441, 1, 1, 0, 1, 44100);
+        int last = -1, worstGap = 0, n = 0;
+
+        for (int i = 0; i < 1000; i++)
+        {
+            float sync;
+
+            osc.tick(c, 0, 0, 0, sync);
+            if (sync > 0)
+            {
+                if (last >= 0)
+                    worstGap = std::max(worstGap, std::abs(i - last - 100));
+                last = i;
+                n++;
+            }
+        }
+        report("osc::simple begins a cycle every 100 samples", n == 9 ? worstGap : 99, 0);
+    }
+
+    /* osc::simple's every waveform, every sample of three cycles of 100,
+       at a level of 0.8, against its shape in double; and the saw with
+       its first part 30 of them. */
+    {
+        double worstShape = 0;
+
+        for (int waveform = 0; waveform <= 6; waveform++)
+        {
+            const float pw = waveform == 6 ? 0.3f : 0;
+            const int shape = waveform == 6 ? 1 : waveform;
+            const thkSimple::Ctl c = thkSimple::ctl(441, 1, 0.8f, pw, (float)shape, 44100);
+            thkSimple osc;
+
+            for (int n = 0; n < 300; n++)
+            {
+                float sync;
+                const double pos = n % 100 + 1, first = pw ? 100 * (double)pw : 50;
+                const double r = pos < first ? pos / (2 * first)
+                                             : (pos - first) * 0.5 / (100 - first) + 0.5;
+
+                worstShape = std::max(worstShape, std::fabs(osc.tick(c, 0, 0, 0, sync) -
+                                                            refSimple(shape, r, 0.8)));
+            }
+        }
+        report("osc::simple's every waveform, every sample", worstShape, 1e-5);
+    }
 
     /* The envelopes' shapes: (sample, level, sounding) where it matters. */
     struct Shape
