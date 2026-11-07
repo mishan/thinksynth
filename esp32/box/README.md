@@ -8,7 +8,9 @@ box` block by the mapper the desktop's controllers have (`hid/thhMapper`,
 `hid/thhBox`).
 
 As `dxbell.dsp` sets it: the screen is a strip of keys, C minor pentatonic
-two octaves left to right, louder the lower it's touched. Standing
+two octaves left to right, louder the lower it's touched. The screen
+draws them, a color for each note of the scale and darker toward the
+soft top, the Cs with a white foot, and lights the one under the finger. Standing
 upright facing you, tipping the top away bends the note up and toward
 you down; turning it like a wheel makes the bell brighter or darker.
 
@@ -22,5 +24,7 @@ With ESP-IDF 6 (`. ~/esp/esp-idf/export.sh`) and thinksynth built in
     idf.py set-target esp32s3
     idf.py -p /dev/ttyACM0 flash monitor
 
-`generate.sh` runs again whenever the patch changes. The monitor prints
+`generate.sh` runs again whenever the patch changes. A finger counts as
+lifted only after 40 ms of the screen reading none, since the touch
+controller reports a held finger in bursts. The monitor prints
 what the controls read twice a second.
