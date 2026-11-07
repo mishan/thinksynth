@@ -30,12 +30,12 @@
    calls; a chain's input turns them into composer events. */
 struct thhAction
 {
-    enum Kind { NOTE_ON, NOTE_OFF, VALUE, NOTE_BEND, NOTE_AUX };
+    enum Kind { NOTE_ON, NOTE_OFF, VALUE, NOTE_BEND, NOTE_AUX, LOOP };
 
     Kind        kind;
-    int         channel;        /* 0-15 */
+    int         channel;        /* 0-15; LOOP: where a record plays */
     int         note, vel;      /* NOTE_*; vel is 1-127 */
-    std::string arg;            /* VALUE */
+    std::string arg;            /* VALUE; LOOP: record, undo or clear */
     double      t;              /* VALUE: 0..1 along the control; NOTE_BEND:
                                    semitones; NOTE_AUX: the value */
     int         aux;            /* NOTE_AUX: which */
@@ -184,6 +184,8 @@ private:
     void lift (int button, std::vector<thhAction> &out);
     void strike (int axis, const thhState &s, int curChannel,
                  std::vector<thhAction> &out);
+    void loop (const thcHidBinding &b, int curChannel,
+               std::vector<thhAction> &out) const;
     /* vel < 0 plays at the velocity source's, or the profile's. */
     void sound (const thcHidBinding &b, Held &h, const thhState &s,
                 int curChannel, int vel, std::vector<thhAction> &out);

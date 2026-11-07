@@ -295,6 +295,9 @@ think_harness(notebendcheck)
 # (src/gthMidiPlay.h).
 think_harness(mpecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiPlay.cpp")
 
+# Loops of the notes the hands play (hid/thhLooper.h).
+think_harness(hidloopcheck COMPOSERHOST HID)
+
 # What the controller pane says about a profile (hid/thhPane.h).
 think_harness(hidpanecheck COMPOSERHOST HID)
 
@@ -1110,6 +1113,7 @@ add_test(NAME lexcheck COMMAND lexcheck)
 
 add_test(NAME hidblockcheck COMMAND hidblockcheck)
 add_test(NAME hidmapcheck COMMAND hidmapcheck)
+add_test(NAME hidloopcheck COMMAND hidloopcheck)
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME mpecheck

@@ -29,8 +29,9 @@
 /* Plays a mapper's actions on a synth as the on-screen keyboard plays keys:
    notes through addNote and delNote, and values written straight onto the
    channel's arg, in the arg's own range where the profile gave none. A
-   value for an arg the channel's patch hasn't got is dropped. heard, if
-   set, is told of each note played. On the thread the GUI runs on. */
+   value for an arg the channel's patch hasn't got is dropped, and so is a
+   loop, which is the host's to keep. heard, if set, is told of each note
+   played. On the thread the GUI runs on. */
 void thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
               const std::function<void (const thhAction &)> &heard);
 

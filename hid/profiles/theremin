@@ -1,0 +1,48 @@
+# A theremin for two Index controllers, on dsp/index.dsp.
+#
+# Right hand, pitch: press A to start the drone (A again ends it). Held
+# upright, as you rest it, it sounds the base note; tip it forward toward
+# level and the pitch slides down, nearly two octaves at level. The
+# trackpad, slid up or down, bends a semitone either way for fine work.
+# Lift fingers off the grip for more: index and middle for vibrato, the
+# middle of the grip to swell the note, ring and little for a sub octave.
+#
+# Left hand, voice: full volume at rest; pull the trigger to soften it,
+# all the way for silence. Lift fingers off the grip for more: index and
+# middle to brighten, the middle of the grip for growl, ring and little
+# for breath.
+#
+# One controller alone: A, tilt for pitch, the trigger to soften.
+
+device index {
+    base = "C5";
+
+    a = note 0 { latch; };
+    tilt = bend { range = 24; center = 0.9; smooth = 0.02; };
+    pad_y = bend { range = 1; smooth = 0.05; };
+    trigger = "level" { min = 1; max = 0; smooth = 0.03; };
+
+    ignore b;
+    ignore grip_force;
+    ignore grip_mid;
+    ignore grip_low;
+    ignore stick_y;
+    ignore turn;
+    ignore fist;
+};
+
+device index right {
+    ignore trigger;
+    grip_top = "wobble" { min = 1; max = 0; smooth = 0.05; };
+    grip_mid = aux 0 { min = 1; max = 0; smooth = 0.05; };
+    grip_low = "sub" { min = 1; max = 0; smooth = 0.05; };
+};
+
+device index left {
+    ignore a;
+    ignore pad_y;
+    ignore tilt;
+    grip_top = "bright" { min = 1; max = 0.4; smooth = 0.05; };
+    grip_mid = "growl" { min = 1; max = 0; smooth = 0.05; };
+    grip_low = "air" { min = 1; max = 0; smooth = 0.05; };
+};

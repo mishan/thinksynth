@@ -52,12 +52,17 @@ describe (const thcHidBinding &b)
     case thcHidBinding::VALUE:    s << "value " << b.arg; break;
     case thcHidBinding::PITCH:
         s << "pitch " << (b.octaves ? "octave" : "semitone") << " " << b.range;
+        for (size_t i = 0; i < b.scale.size(); i++)
+            s << (i ? "," : " scale ") << b.scale[i];
         break;
     case thcHidBinding::VELOCITY: s << "velocity"; break;
     case thcHidBinding::BEND:     s << "bend " << b.range; break;
     case thcHidBinding::AUX:      s << "aux" << b.semis; break;
     case thcHidBinding::STRIKE:
         s << "strike " << b.semis << " at" << b.at << " off" << b.off;
+        break;
+    case thcHidBinding::LOOP:
+        s << "loop " << b.arg << " at" << b.at << " off" << b.off;
         break;
     }
 
@@ -217,6 +222,27 @@ static const Row ROWS[] = {
       "index ch0 base60 vel100 | grip_force:value cutoff @1 | "
       "grip_force:value drive @1 | tilt:pitch octave 1 center0.27 @1 | "
       "tilt:value bright center-0.5 @1", 0, NULL },
+    { "a pitch axis on a scale",
+      "device index { tilt = pitch { scale = minor_pentatonic; range = 10; }; };",
+      "index ch0 base60 vel100 | tilt:pitch semitone 10 scale 0,3,5,7,10 @1",
+      0, NULL },
+    { "a scale that isn't one",
+      "device index { tilt = pitch { scale = lydian9; range = 10; }; };",
+      NULL, 1, "not a scale" },
+    { "a second scale that isn't one",
+      "device index { tilt = pitch { scale = major; scale = lydian9; range = 10; }; };",
+      NULL, 1, "not a scale" },
+    { "a scale stepping by octaves",
+      "device index {\n  tilt = pitch { step = octave; scale = major; "
+      "range = 2; };\n};", NULL, 2, "degrees" },
+    { "loops on a button and on an axis",
+      "device index { a = loop record { channel = 2; }; "
+      "twist = loop clear { at = 0.7; }; b = loop undo; };",
+      "index ch0 base60 vel100 | a:loop record at0.6 off0.4 ch2 @1 | "
+      "twist:loop clear at0.7 off0.5 @1 | b:loop undo at0.6 off0.4 @1", 0, NULL },
+    { "a loop that isn't one",
+      "device index {\n  a = loop again;\n};", NULL, 2,
+      "record, undo or clear" },
     { "a latched note and a smoothed knob",
       "device index { a = note 0 { latch; }; grip_top = \"pitch\" { "
       "smooth = 0.1; }; };",

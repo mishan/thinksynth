@@ -220,6 +220,7 @@ Parser::options (thcHidBinding &b)
     const bool pitch = b.kind == thcHidBinding::PITCH;
     const bool bend = b.kind == thcHidBinding::BEND;
     const bool aux = b.kind == thcHidBinding::AUX;
+    const bool loop = b.kind == thcHidBinding::LOOP;
 
     if (!isPunct(peek(), '{'))
         return true;
@@ -248,7 +249,8 @@ Parser::options (thcHidBinding &b)
         if (!expect('='))
             return false;
 
-        if (k == "channel" && (b.kind == thcHidBinding::NOTE || value || strike))
+        if (k == "channel" &&
+            (b.kind == thcHidBinding::NOTE || value || strike || loop))
         {
             if (!integer(b.channel, 1, 16, "channel"))
                 return false;
@@ -263,7 +265,7 @@ Parser::options (thcHidBinding &b)
             (k == "min" ? b.min : b.max) = value || aux ? v : iv;
             (k == "min" ? b.hasMin : b.hasMax) = true;
         }
-        else if ((k == "at" || k == "off") && strike)
+        else if ((k == "at" || k == "off") && (strike || loop))
         {
             double v;
 
@@ -321,6 +323,29 @@ Parser::options (thcHidBinding &b)
                             "octave or semitone");
             i_++;
         }
+        else if (k == "scale" && pitch)
+        {
+            static const struct { const char *name; std::vector<int> steps; }
+                scales[] = {
+                    { "major", { 0, 2, 4, 5, 7, 9, 11 } },
+                    { "minor", { 0, 2, 3, 5, 7, 8, 10 } },
+                    { "dorian", { 0, 2, 3, 5, 7, 9, 10 } },
+                    { "pentatonic", { 0, 2, 4, 7, 9 } },
+                    { "minor_pentatonic", { 0, 3, 5, 7, 10 } },
+                    { "blues", { 0, 3, 5, 6, 7, 10 } },
+                };
+            const Tok &v = peek();
+
+            b.scale.clear();
+            for (const auto &sc : scales)
+                if (isWord(v, sc.name))
+                    b.scale = sc.steps;
+            if (b.scale.empty())
+                return fail(v, "'" + v.text + "' is not a scale; write major, "
+                            "minor, dorian, pentatonic, minor_pentatonic or "
+                            "blues");
+            i_++;
+        }
         else if (k == "range" && (pitch || bend))
         {
             if (!integer(b.range, 1, 127, "range"))
@@ -340,6 +365,8 @@ Parser::options (thcHidBinding &b)
     if (b.shape == thcHidBinding::EXP &&
         ((b.hasMin && b.min <= 0) || (b.hasMax && b.max <= 0)))
         return fail(b.line, "an exp shape needs a range above 0");
+    if (b.octaves && !b.scale.empty())
+        return fail(b.line, "a scale steps by its degrees, not by octaves");
     if ((pitch || bend) && b.range == 0)
         return fail(b.line, std::string(pitch ? "a pitch axis" : "a bend") +
                     " needs a range");
@@ -426,22 +453,36 @@ Parser::binding (thcHidBinding &b, bool inLayer)
         if (!integer(b.semis, -127, 127, "strike"))
             return false;
     }
+    else if (isWord(act, "loop"))
+    {
+        b.kind = thcHidBinding::LOOP;
+        b.off = -1;
+        i_++;
+        if (!isWord(peek(), "record") && !isWord(peek(), "undo") &&
+            !isWord(peek(), "clear"))
+            return fail(peek(), "a loop is record, undo or clear");
+        b.arg = peek().text;
+        i_++;
+    }
     else
         return fail(act, "'" + act.text + "' is not an action; write note, "
-                    "strike, hold, toggle, octave, pitch, velocity, bend, aux "
-                    "or a quoted arg name");
+                    "strike, hold, toggle, octave, pitch, velocity, bend, aux, "
+                    "loop or a quoted arg name");
 
     if (!options(b))
         return false;
 
-    if (b.kind == thcHidBinding::STRIKE)
+    if (b.kind == thcHidBinding::STRIKE || b.kind == thcHidBinding::LOOP)
     {
+        const std::string what = b.kind == thcHidBinding::STRIKE ? "a strike"
+                                                                 : "a loop";
+
         if (b.at <= 0)
-            return fail(b.line, "a strike's at is above 0, where it rests");
+            return fail(b.line, what + "'s at is above 0, where it rests");
         if (b.off < 0)
             b.off = std::max(0.0, b.at - 0.2);
         if (b.off >= b.at)
-            return fail(b.line, "a strike turns off under where it turns on");
+            return fail(b.line, what + " turns off under where it turns on");
     }
 
     return expect(';');

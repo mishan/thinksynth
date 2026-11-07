@@ -8,6 +8,7 @@ add_library(think_hid OBJECT
     thhControls.cpp
     thhHands.cpp
     thhIndex.cpp
+    thhLooper.cpp
     thhMapper.cpp
     thhPane.cpp
     thhPlay.cpp)
