@@ -91,9 +91,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out = mod->getArg(node, args[OUT_OUT])->allocate(windowlen);
     float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
 
+    /* The times once a window while they hold still. */
+    const bool still = in_a->len() <= 1 && in_d->len() <= 1 && in_p->len() <= 1;
+    thkAd::Ctl c = thkAd::ctl((*in_a)[0], (*in_d)[0], (*in_p)[0] / TH_MAX);
+
     for (unsigned int i = 0; i < windowlen; i++)
-        out[i] = TH_MAX * env.tick((*in_a)[i], (*in_d)[i], (*in_p)[i] / TH_MAX,
-                                   (*in_reset)[i], play[i]);
+    {
+        if (!still)
+            c = thkAd::ctl((*in_a)[i], (*in_d)[i], (*in_p)[i] / TH_MAX);
+        out[i] = TH_MAX * env.tick(c, (*in_reset)[i], play[i]);
+    }
 
     state[0] = env.position;
     state[1] = env.phase;

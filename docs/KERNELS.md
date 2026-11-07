@@ -13,6 +13,13 @@ and the pattern is theirs:
   It includes `libthink/thKernel.h` and nothing else of the engine's: no
   `thArg`, no window, no `think.h`, so a program with no engine can
   include it.
+- **What a kernel makes of its slow inputs is a `Ctl`**: `thkFmop::ctl`
+  turns a frequency and ratio into a phase step, `thkAd::ctl` and
+  `thkAdsr` turn times into a sample's share of each segment. `tick()`
+  takes the `Ctl`. The plugin makes one a window while those inputs
+  hold one value, and one a sample while they move; a compiled voice
+  makes one a call while they're knobs, numbers or the note's. The same
+  arithmetic either way, so the two still render alike to the bit.
 - **A kernel that keeps nothing is a function**, `thk<Name>(...)`, as
   `thkMidi2freq` is. A plugin with two modes has a kernel for each, as
   `env::adsr` has `thkAdsrFree` and `thkAdsrGated`.

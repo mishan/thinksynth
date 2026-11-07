@@ -89,8 +89,8 @@ main ()
         const double fb = 0.3, freq = 220, ratio = 1.5, rate = 32000;
         const double want = std::sin(2 * M_PI * phase + index * mod +
                                      fb * (y1 + y2) * 0.5);
-        const float got = op.tick((float)freq, (float)ratio, (float)mod,
-                                  (float)index, (float)fb, 0, (float)rate);
+        const float got = op.tick(thkFmop::ctl((float)freq, (float)ratio, (float)rate),
+                                  (float)mod, (float)index, (float)fb, 0);
 
         worst = std::max(worst, std::fabs(got - want));
         y2 = y1;
@@ -154,11 +154,11 @@ main ()
             float play = 0, y;
 
             if (sh.kind == 0)
-                y = ad.tick(100, 300, 0.8f, 0, play);
+                y = ad.tick(thkAd::ctl(100, 300, 0.8f), 0, play);
             else if (sh.kind == 1)
-                y = fr.tick(100, 300, 0.3f, 200, 0.8f, 1, 0, play);
+                y = fr.tick(thkAdsr(100, 300, 0.3f, 200, 0.8f), 1, 0, play);
             else
-                y = gt.tick(100, 300, 0.3f, 200, 0.8f, n < sh.releaseAt ? 1 : 0, 0, play);
+                y = gt.tick(thkAdsr(100, 300, 0.3f, 200, 0.8f), n < sh.releaseAt ? 1 : 0, 0, play);
             if (n == sh.at[k].n)
             {
                 if (std::fabs(y - sh.at[k].level) > 0.01f || (play > 0) != sh.at[k].play)

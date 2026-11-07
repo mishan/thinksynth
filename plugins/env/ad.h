@@ -28,12 +28,26 @@ struct thkAd
 {
     enum { ATTACK, DECAY, DONE };
 
+    /* The times and the peak, and a sample's share of each segment: worked
+       out once while they hold still, since a division is the slowest
+       thing a small FPU does. */
+    struct Ctl
+    {
+        float a, d, peak;
+        float perA, perD;       /* 1 / a, 1 / d, or 0 for none */
+    };
+
+    static Ctl ctl (float a, float d, float p)
+    {
+        return { a, d, p == 0 ? 1 : p, a > 0 ? 1 / a : 0, d > 0 ? 1 / d : 0 };
+    }
+
     float position = 0;
     int   phase = ATTACK;
 
-    float tick (float a, float d, float p, float reset, float &play)
+    float tick (const Ctl &c, float reset, float &play)
     {
-        const float peak = p == 0 ? 1 : p;
+        const float a = c.a, d = c.d, peak = c.peak;
 
         if (reset > 0)
         {
@@ -60,7 +74,7 @@ struct thkAd
         play = phase != DONE;
         if (phase == ATTACK)
         {
-            out = (thkSin2pi((position++ / a - 0.5f) * 0.5f) + 1) * (peak * 0.5f);
+            out = (thkSin2pi((position++ * c.perA - 0.5f) * 0.5f) + 1) * (peak * 0.5f);
             if (position >= a)
             {
                 phase = DECAY;
@@ -69,7 +83,7 @@ struct thkAd
         }
         else if (phase == DECAY)
         {
-            out = (thkSin2pi((position++ / d + 0.5f) * 0.5f) + 1) * (peak * 0.5f);
+            out = (thkSin2pi((position++ * c.perD + 0.5f) * 0.5f) + 1) * (peak * 0.5f);
             if (position >= d)
                 phase = DONE;
         }

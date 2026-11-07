@@ -191,11 +191,17 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *state = inout_state->allocate(3);
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
 
+    /* The step once a window while the frequency and ratio hold still. */
+    const bool still = in_freq->len() <= 1 && in_ratio->len() <= 1;
+    thkFmop::Ctl c = thkFmop::ctl((*in_freq)[0], (*in_ratio)[0], (float)samples);
+
     for (unsigned int i = 0; i < windowlen; i++)
-        out[i] = TH_MAX * op.tick((*in_freq)[i], (*in_ratio)[i],
-                                  (*in_mod)[i] / TH_MAX, (*in_index)[i],
-                                  (*in_feedback)[i], (*in_reset)[i],
-                                  (float)samples);
+    {
+        if (!still)
+            c = thkFmop::ctl((*in_freq)[i], (*in_ratio)[i], (float)samples);
+        out[i] = TH_MAX * op.tick(c, (*in_mod)[i] / TH_MAX, (*in_index)[i],
+                                  (*in_feedback)[i], (*in_reset)[i]);
+    }
 
     state[0] = op.phase;
     state[1] = op.y1;

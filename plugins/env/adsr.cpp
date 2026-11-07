@@ -107,10 +107,19 @@ static void run (K &env, thNode *node, thSynthTree *mod, unsigned int windowlen)
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
     float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
 
+    /* The times and levels once a window while they hold still. */
+    const bool still = in_a->len() <= 1 && in_d->len() <= 1 && in_s->len() <= 1 &&
+                       in_r->len() <= 1 && in_p->len() <= 1;
+    thkAdsrCtl c = thkAdsr((*in_a)[0], (*in_d)[0], (*in_s)[0] / TH_MAX,
+                           (*in_r)[0], (*in_p)[0] / TH_MAX);
+
     for (unsigned int i = 0; i < windowlen; i++)
-        out[i] = TH_MAX * env.tick((*in_a)[i], (*in_d)[i], (*in_s)[i] / TH_MAX,
-                                   (*in_r)[i], (*in_p)[i] / TH_MAX,
-                                   (*in_trigger)[i], (*in_reset)[i], play[i]);
+    {
+        if (!still)
+            c = thkAdsr((*in_a)[i], (*in_d)[i], (*in_s)[i] / TH_MAX, (*in_r)[i],
+                        (*in_p)[i] / TH_MAX);
+        out[i] = TH_MAX * env.tick(c, (*in_trigger)[i], (*in_reset)[i], play[i]);
+    }
 }
 
 /* The envelope as it always ran, for a trigger written as a constant -- or

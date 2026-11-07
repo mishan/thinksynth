@@ -31,13 +31,26 @@
 
 struct thkFmop
 {
+    /* What the frequency and ratio make of a sample: the phase's step.
+       Worked out once while they hold still, a window or a compiled
+       voice's call, and the same arithmetic either way. */
+    struct Ctl
+    {
+        float step;             /* turns a sample */
+    };
+
+    static Ctl ctl (float freq, float ratio, float rate)
+    {
+        ratio = thkFinite(ratio) ? ratio : 1;
+        return { thkBoundFreq(freq * ratio, rate) / rate };
+    }
+
     float phase = 0;            /* turns, [0, 1) */
     float y1 = 0, y2 = 0;       /* the last two outputs */
 
-    float tick (float freq, float ratio, float mod, float index,
-                float feedback, float reset, float rate)
+    float tick (const Ctl &c, float mod, float index, float feedback,
+                float reset)
     {
-        ratio = thkFinite(ratio) ? ratio : 1;
         /* The floor and the NaN, not the ceiling: a negative index is the
            same timbre with the modulator inverted, best read as none. */
         index = thkFinite(index) && index > 0 ? index : 0;
@@ -55,8 +68,8 @@ struct thkFmop
 
         y2 = y1;
         y1 = y;
-        phase += thkBoundFreq(freq * ratio, rate) / rate;
-        /* One end only: the increment is positive. */
+        phase += c.step;
+        /* One end only: the step is positive. */
         if (phase >= 1)
             phase -= (float)(int32_t)phase;
         return y;

@@ -30,6 +30,21 @@
 
 #define THK_E 2.71828182845904523536f
 
+/* Both kernels' times and levels, and a sample's share of each segment:
+   worked out once while they hold still, since a division is the slowest
+   thing a small FPU does. */
+struct thkAdsrCtl
+{
+    float a, d, s, r, peak;
+    float perA, perD, perR;     /* 1 / a, 1 / d, 1 / r, or 0 for none */
+};
+
+static inline thkAdsrCtl thkAdsr (float a, float d, float s, float r, float p)
+{
+    return { a, d, s, r, p == 0 ? 1 : p, a > 0 ? 1 / a : 0, d > 0 ? 1 / d : 0,
+             r > 0 ? 1 / r : 0 };
+}
+
 /* The envelope as it always ran: attack, decay, sustain while the trigger
    is up, and the release once it is down; a trigger coming up again
    starts it over. */
@@ -40,10 +55,9 @@ struct thkAdsrFree
     float position = 0;
     int   phase = ATTACK;
 
-    float tick (float a, float d, float s, float r, float p, float trigger,
-                float reset, float &play)
+    float tick (const thkAdsrCtl &c, float trigger, float reset, float &play)
     {
-        const float peak = p == 0 ? 1 : p;
+        const float a = c.a, d = c.d, s = c.s, r = c.r, peak = c.peak;
         float out = 0;
 
         if (reset > 0)
@@ -68,7 +82,7 @@ struct thkAdsrFree
         switch (phase)
         {
         case ATTACK:
-            out = position++ / a * peak;
+            out = position++ * c.perA * peak;
             if (position >= a)
             {
                 phase = DECAY;
@@ -76,7 +90,7 @@ struct thkAdsrFree
             }
             break;
         case DECAY:
-            out = s + logf(THK_E - (THK_E - 1) * (position++ / d)) * (peak - s);
+            out = s + logf(THK_E - (THK_E - 1) * (position++ * c.perD)) * (peak - s);
             if (position >= d)
             {
                 phase = SUSTAIN;
@@ -101,7 +115,7 @@ struct thkAdsrFree
                 phase = DONE;
             }
             else
-                out = (1 - logf(1 + (THK_E - 1) * (position++ / r))) * s;
+                out = (1 - logf(1 + (THK_E - 1) * (position++ * c.perR))) * s;
             if (trigger > 0)
             {
                 position = 0;
@@ -133,11 +147,10 @@ struct thkAdsrGated
     float level = 0;
     float from = 0;             /* where the attack or release started */
 
-    float tick (float a, float d, float s, float r, float p, float trigger,
-                float reset, float &play)
+    float tick (const thkAdsrCtl &c, float trigger, float reset, float &play)
     {
+        const float a = c.a, d = c.d, s = c.s, r = c.r, peak = c.peak;
         const bool up = trigger > 0;
-        const float peak = p == 0 ? 1 : p;
         /* A voice's first rise, and `reset', start the attack on this
            sample; that rise is then spent. */
         const bool first = up && !was && phase == WAITING;
@@ -162,7 +175,7 @@ struct thkAdsrGated
         switch (phase)
         {
         case ATTACK:
-            level = from + (peak - from) * (position++ / a);
+            level = from + (peak - from) * (position++ * c.perA);
             if (position >= a)
             {
                 phase = DECAY;
@@ -170,7 +183,7 @@ struct thkAdsrGated
             }
             break;
         case DECAY:
-            level = s + logf(THK_E - (THK_E - 1) * (position++ / d)) * (peak - s);
+            level = s + logf(THK_E - (THK_E - 1) * (position++ * c.perD)) * (peak - s);
             if (position >= d)
             {
                 phase = SUSTAIN;
@@ -189,7 +202,7 @@ struct thkAdsrGated
                 phase = DONE;
             }
             else
-                level = (1 - logf(1 + (THK_E - 1) * (position++ / r))) * from;
+                level = (1 - logf(1 + (THK_E - 1) * (position++ * c.perR))) * from;
             break;
         default:
             level = 0;

@@ -58,26 +58,30 @@
 
 using std::string;
 
-/* A kernel the compiler can call: the plugin's inputs in the order the
-   call takes them, whether the call takes the rate, and how the call is
-   written. */
+/* A kernel the compiler can call: its control inputs, which make the
+   struct its tick() takes and are worked out once a call while they're
+   all control-rate, and the inputs its tick() takes a sample at a time,
+   each in the order its call takes them. */
 struct Kernel
 {
     const char *plugin;
+    std::vector<string> ctl;
+    const char *ctlCall;        /* the control struct's maker, or NULL */
     std::vector<string> ins;
     bool pure;                  /* keeps nothing: control-rate if its inputs are */
     const char *type;           /* the state's struct, or NULL */
 };
 
 static const Kernel KERNELS[] = {
-    { "osc/fmop", { "freq", "ratio", "mod", "index", "feedback", "reset" }, false, "thkFmop" },
-    { "env/ad", { "a", "d", "p", "reset" }, false, "thkAd" },
-    { "env/adsr", { "a", "d", "s", "r", "p", "trigger", "reset" }, false, NULL },
-    { "misc/midi2freq", { "note" }, true, NULL },
-    { "math/add", { "in0", "in1" }, true, NULL },
-    { "math/sub", { "in0", "in1" }, true, NULL },
-    { "math/mul", { "in0", "in1" }, true, NULL },
-    { "mixer/mul", { "in0", "in1" }, true, NULL },
+    { "osc/fmop", { "freq", "ratio" }, "thkFmop::ctl", { "mod", "index", "feedback", "reset" },
+      false, "thkFmop" },
+    { "env/ad", { "a", "d", "p" }, "thkAd::ctl", { "reset" }, false, "thkAd" },
+    { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", { "trigger", "reset" }, false, NULL },
+    { "misc/midi2freq", {}, NULL, { "note" }, true, NULL },
+    { "math/add", {}, NULL, { "in0", "in1" }, true, NULL },
+    { "math/sub", {}, NULL, { "in0", "in1" }, true, NULL },
+    { "math/mul", {}, NULL, { "in0", "in1" }, true, NULL },
+    { "mixer/mul", {}, NULL, { "in0", "in1" }, true, NULL },
 };
 
 struct Value
@@ -95,7 +99,8 @@ struct Compiler
     std::set<thNode *> placing;
     std::map<string, float> knobs;
     std::map<thNode *, bool> control;
-    std::map<thNode *, std::vector<Value> > ins;
+    std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
+    std::map<thNode *, std::vector<Value> > ctls, ins;
     string error;
 
     /* By the plugin's path, less where it was found and its suffix. */
@@ -236,9 +241,18 @@ struct Compiler
         }
         placing.insert(n);
 
-        bool ctl = k->pure;
-        std::vector<Value> vs;
+        bool ctl = k->pure, once = true;
+        std::vector<Value> cs, vs;
 
+        for (const string &in : k->ctl)
+        {
+            Value v;
+
+            if (!value(n, n->getArg(in), v))
+                return false;
+            once = once && v.control;
+            cs.push_back(v);
+        }
         for (const string &in : k->ins)
         {
             Value v;
@@ -249,11 +263,26 @@ struct Compiler
             vs.push_back(v);
         }
         placing.erase(n);
+        ctls[n] = cs;
         ins[n] = vs;
         control[n] = ctl;
+        ctlOnce[n] = once;
         order[n] = (int)placed.size();
         placed.push_back(n);
         return true;
+    }
+
+    /* A node's control struct, n<i>_ctl, as a statement. */
+    string emitCtl (thNode *n)
+    {
+        const Kernel *k = kernelFor(n);
+        string a;
+
+        for (size_t i = 0; i < ctls[n].size(); i++)
+            a += (i ? ", " : "") + ctls[n][i].text;
+        if (string(k->plugin) == "osc/fmop")
+            a += ", rate";
+        return "        const auto " + var(n, "ctl") + " = " + k->ctlCall + "(" + a + ");\n";
     }
 
     /* The node's work, as statements; its outputs n<i>_out (and _play). */
@@ -273,12 +302,15 @@ struct Compiler
         };
 
         s << "        /* " << n->name() << ", " << p << " */\n";
+        if (k->ctlCall && !ctlOnce[n])
+            s << emitCtl(n);
         if (p == "osc/fmop")
-            s << "        const float " << out << " = " << self << ".tick(" << args(0) << ", rate);\n";
+            s << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ", " << args(0) << ");\n";
         else if (p == "env/ad" || p == "env/adsr")
             s << "        float " << var(n, "play") << ";\n"
-              << "        const float " << out << " = " << self << ".tick(" << args(0)
-              << ", " << var(n, "play") << ");\n";
+              << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ", " << args(0) << ", " << var(n, "play") << ");\n";
         else if (p == "misc/midi2freq")
             s << "        const float " << out << " = thkMidi2freq(" << v[0].text << ", rate);\n";
         else
@@ -388,10 +420,13 @@ main (int argc, char **argv)
            "        (void)k;\n        float sounding = 1;\n\n",
            Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
 
-    /* Once a call: what numbers, knobs and the note alone decide. */
+    /* Once a call: what numbers, knobs and the note alone decide, and the
+       control structs of kernels whose control inputs are all that. */
     for (thNode *n : c.placed)
         if (c.control[n])
             printf("%s", c.emit(n).c_str());
+        else if (Compiler::kernelFor(n)->ctlCall && c.ctlOnce[n])
+            printf("%s", c.emitCtl(n).c_str());
     printf("\n        for (int i = 0; i < count; i++)\n        {\n");
     for (thNode *n : c.placed)
         if (!c.control[n])
