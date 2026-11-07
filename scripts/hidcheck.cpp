@@ -37,6 +37,7 @@
  */
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -244,6 +245,38 @@ describe (const thhState &s)
     return out.str();
 }
 
+/* The IMU's ring as the controller keeps it: three slots, each new sample
+   written over the oldest, each with its sequence number and the time it
+   was taken, in ticks of a 48 MHz clock. */
+struct ImuRing
+{
+    uint8_t  r[52];
+    uint8_t  seq;
+    uint32_t tick;
+
+    ImuRing () : seq(0), tick(1000)
+    {
+        memset(r, 0, sizeof(r));
+        r[0] = 0x20;
+    }
+
+    void sample (int16_t ax, int16_t ay, int16_t az, int16_t gx, double after)
+    {
+        uint8_t *p = r + 1 + 17 * (seq % 3);
+        const int16_t v[6] = { ax, ay, az, gx, 0, 0 };
+
+        for (int i = 0; i < 6; i++)
+        {
+            p[2 * i] = v[i] & 0xff;
+            p[2 * i + 1] = (v[i] >> 8) & 0xff;
+        }
+        tick += (uint32_t)(after * 48e6);
+        for (int i = 0; i < 4; i++)
+            p[12 + i] = (tick >> (8 * i)) & 0xff;
+        p[16] = seq++;
+    }
+};
+
 static void
 checkByHand (void)
 {
@@ -271,7 +304,8 @@ checkByHand (void)
         "trigger_touch thumbstick_touch trackpad_touch | grip_top=1.000 "
         "grip_mid=0.000 grip_low=0.506 trigger_near=0.251 grip_force=0.063 "
         "trigger=0.502 pad_x=0.500 pad_y=-1.000 pad_force=0.996 "
-        "stick_x=0.000 stick_y=0.000 tilt=0.000 roll=0.000 twist=0.000";
+        "stick_x=0.000 stick_y=0.000 tilt=0.000 roll=0.000 twist=0.000 "
+        "turn=0.000";
 
     report("a report built by hand",
            !ok ? "refused" : describe(s) == want ? "" :
@@ -369,19 +403,21 @@ checkImu (const char *path)
         const char *label;
         float       tilt[2], roll[2];   /* where it settles: least, most */
         float       twist;              /* how far twist reaches each way */
+        float       turn;               /* and turn: 0 is that it stays put */
     };
     static const Pose POSES[] = {
         { "hold it the way you play it, still", { 0.2f, 0.35f },
-          { -0.15f, 0.15f }, 0 },
+          { -0.15f, 0.15f }, 0, 0 },
         { "tip the front (the stick end) UP, still", { 0.8f, 1 },
-          { -1, 1 }, 0 },
-        { "tip the front DOWN, still", { -0.5f, -0.3f }, { -0.2f, 0.2f }, 0 },
+          { -1, 1 }, 0, 0 },
+        { "tip the front DOWN, still", { -0.5f, -0.3f }, { -0.2f, 0.2f }, 0,
+          0 },
         { "roll your wrist so the buttons face LEFT, still", { -0.15f, 0.15f },
-          { 0.8f, 1 }, 0 },
+          { 0.8f, 1 }, 0, 0 },
         { "roll your wrist so the buttons face RIGHT, still", { -0.15f, 0.15f },
-          { -1, -0.9f }, 0 },
+          { -1, -0.9f }, 0, 0 },
         { "twist it left and right a few times, like turning a key",
-          { -1, 1 }, { -1, 1 }, 0.5f },
+          { -1, 1 }, { -1, 1 }, 0.5f, 0.5f },
     };
     std::ifstream in(path);
     std::map<string, std::vector<std::vector<uint8_t> > > seen;
@@ -399,27 +435,34 @@ checkImu (const char *path)
         const Pose &pose = POSES[p];
         thhIndexImu imu;
         thhState s;
-        float lo = 0, hi = 0;
+        float lo = 0, hi = 0, tlo = 0, thi = 0;
         size_t fed = 0;
 
         for (const std::vector<uint8_t> &r : seen[pose.label])
+        {
             if (thhIndexFeedImu(r.data(), r.size(), imu, s))
             {
                 fed++;
                 lo = std::min(lo, s.axis[THH_INDEX_TWIST]);
                 hi = std::max(hi, s.axis[THH_INDEX_TWIST]);
+                tlo = std::min(tlo, s.axis[THH_INDEX_TURN]);
+                thi = std::max(thi, s.axis[THH_INDEX_TURN]);
             }
+        }
 
         const float tilt = s.axis[THH_INDEX_TILT], roll = s.axis[THH_INDEX_ROLL];
         char got[128];
 
-        snprintf(got, sizeof(got), "tilt %.2f, roll %.2f, twist %.2f..%.2f "
-                 "from %zu reports", tilt, roll, lo, hi, fed);
+        snprintf(got, sizeof(got), "tilt %.2f, roll %.2f, twist %.2f..%.2f, "
+                 "turn %.2f..%.2f from %zu reports", tilt, roll, lo, hi, tlo,
+                 thi, fed);
         report(pose.label,
                fed && tilt >= pose.tilt[0] && tilt <= pose.tilt[1] &&
                roll >= pose.roll[0] && roll <= pose.roll[1] &&
                (pose.twist ? hi >= pose.twist && lo <= -pose.twist
-                           : std::max(hi, -lo) < 0.05f) ? "" : got);
+                           : std::max(hi, -lo) < 0.05f) &&
+               (pose.turn ? thi >= pose.turn * 0.5f && tlo <= -pose.turn
+                          : std::max(thi, -tlo) < 0.05f) ? "" : got);
     }
 
     /* Rolled on past a quarter turn, and with the front straight up, roll
@@ -458,6 +501,66 @@ checkImu (const char *path)
         snprintf(got, sizeof(got), "roll %.3f", s.axis[THH_INDEX_ROLL]);
         report(TURNS[i].name, s.axis[THH_INDEX_ROLL] >= TURNS[i].lo &&
                s.axis[THH_INDEX_ROLL] <= TURNS[i].hi ? "" : got);
+    }
+
+    /* A steady turn of 45 degrees a second, for one second, then still:
+       turn reads near half a quarter turn (less what it has sprung back
+       already, about 0.42), and springs back to the middle. The state's
+       own clock never moves: the IMU's samples carry their time. */
+    {
+        ImuRing ring;
+        thhIndexImu imu;
+        thhState s;
+        const int16_t rate = (int16_t)(45 * 16.4);
+
+        for (int i = 0; i < 250; i++)
+        {
+            ring.sample(-4096, 0, 0, rate, 0.004);
+            thhIndexFeedImu(ring.r, sizeof(ring.r), imu, s);
+        }
+
+        const float turned = s.axis[THH_INDEX_TURN];
+
+        for (int i = 0; i < 250 * 10; i++)
+        {
+            ring.sample(-4096, 0, 0, 0, 0.004);
+            thhIndexFeedImu(ring.r, sizeof(ring.r), imu, s);
+        }
+
+        char got[64];
+
+        snprintf(got, sizeof(got), "turned to %.2f, then back to %.2f", turned,
+                 s.axis[THH_INDEX_TURN]);
+        report("an eighth of a turn a second for a second, then still",
+               turned > 0.38f && turned < 0.47f &&
+               std::fabs(s.axis[THH_INDEX_TURN]) < 0.05f ? "" : got);
+    }
+
+    /* Each report repeats the two samples before its newest, and a report
+       can be read twice: a sample counts once however often it is seen. */
+    {
+        float turned[2];
+
+        for (int twice = 0; twice < 2; twice++)
+        {
+            ImuRing ring;
+            thhIndexImu imu;
+            thhState s;
+
+            for (int i = 0; i < 125; i++)
+            {
+                ring.sample(-4096, 0, 0, (int16_t)(45 * 16.4), 0.004);
+                for (int k = 0; k <= twice; k++)
+                    thhIndexFeedImu(ring.r, sizeof(ring.r), imu, s);
+            }
+            turned[twice] = s.axis[THH_INDEX_TURN];
+        }
+
+        char got[64];
+
+        snprintf(got, sizeof(got), "once %.3f, twice %.3f", turned[0], turned[1]);
+        report("a sample counts once however often it is read",
+               turned[0] > 0.2f && turned[0] == turned[1] ? "" : got);
     }
 
     /* A short report, or the input's, is refused without moving anything. */

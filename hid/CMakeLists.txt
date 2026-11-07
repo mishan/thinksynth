@@ -5,6 +5,7 @@
 # other way round, so the composer can carry a mapping without this library.
 add_library(think_hid OBJECT
     thhControls.cpp
+    thhHands.cpp
     thhIndex.cpp
     thhMapper.cpp
     thhPane.cpp
@@ -16,7 +17,8 @@ target_include_directories(think_hid PUBLIC
 
 # Reading a controller from hidraw is Linux's; the rest builds anywhere.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_sources(think_hid PRIVATE thhReader.cpp)
+  target_sources(think_hid PRIVATE thhIndexHidraw.cpp thhReader.cpp)
+  target_link_libraries(think_hid PUBLIC ZLIB::ZLIB)
 endif()
 
 find_package(Threads REQUIRED)

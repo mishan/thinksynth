@@ -54,6 +54,7 @@ struct thcHidBinding
     double      center;     /* VALUE, PITCH: where the axis counts from */
     double      smooth;     /* VALUE: seconds it takes to follow the axis */
     bool        latch;      /* NOTE: a press starts it, the next ends it */
+    bool        both;       /* BEND, AUX: the other hand's notes too */
     Shape       shape;      /* VALUE */
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
     int         range;      /* PITCH: steps from the base note, either side
@@ -62,7 +63,7 @@ struct thcHidBinding
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
           hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
-          smooth(0), latch(false), shape(LINEAR),
+          smooth(0), latch(false), both(false), shape(LINEAR),
           octaves(false), range(0) {}
 };
 
@@ -85,6 +86,8 @@ struct thcHidLayer
 struct thcHidBlock
 {
     std::string device;
+    std::string hand;       /* "left", "right", or empty for either */
+    int         line;       /* the device's, for an error about it */
     int         channel;    /* 1-16; 0 plays the host's current channel */
     int         base;       /* MIDI note */
     int         velocity;   /* what buttons play at with no velocity source */
@@ -97,7 +100,7 @@ struct thcHidBlock
     bool                       hasChannel, hasBase, hasVelocity;
     std::vector<std::pair<std::string, int> > ignore;   /* name, line */
 
-    thcHidBlock () : channel(0), base(60), velocity(100), hasChannel(false),
+    thcHidBlock () : line(0), channel(0), base(60), velocity(100), hasChannel(false),
                      hasBase(false), hasVelocity(false) {}
 };
 
@@ -110,5 +113,12 @@ bool thcHidParseBlock (const std::vector<thcGenToken> &toks, size_t &pos,
 /* A whole profile file: `device NAME { ... };' and nothing else. */
 bool thcHidParseProfile (const std::string &text, thcHidBlock &out,
                          std::string &err, int &errLine);
+
+/* A profile of a device a hand holds: `device NAME { ... };' for either
+   hand, and `device NAME left { ... };' and `device NAME right { ... };'
+   for one, each at most once, in any order. */
+bool thcHidParseProfiles (const std::string &text,
+                          std::vector<thcHidBlock> &out, std::string &err,
+                          int &errLine);
 
 #endif /* TH_HID_BLOCK_H */

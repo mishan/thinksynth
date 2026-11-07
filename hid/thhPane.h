@@ -50,9 +50,13 @@ class thhPaneSource
 public:
     virtual ~thhPaneSource () {}
 
-    virtual const thcHidBlock &profile () const = 0;
-    virtual unsigned generation () const = 0;   /* bumped on each reload */
-    virtual thhState state () const = 0;
+    /* The controllers found, each with its hand ("left", "right", or empty
+       for one playing alone), what it plays and what it is doing now. */
+    virtual int controllers () const = 0;
+    virtual std::string handOf (int i) const = 0;
+    virtual const thcHidBlock &profileOf (int i) const = 0;
+    virtual thhState stateOf (int i) const = 0;
+    virtual unsigned generation () const = 0;   /* bumped as any of it changes */
     virtual std::string status () const = 0;
     virtual std::string path () const = 0;
     virtual int channel () const = 0;
@@ -60,6 +64,10 @@ public:
 
     /* Reads the profile again; false, with why, if it is wrong. */
     virtual bool reload (std::string &err) = 0;
+
+    /* A pair playing the wrong hands each other's, kept for next time. */
+    virtual bool canSwapHands () const = 0;
+    virtual void swapHands () = 0;
 };
 
 #endif /* THH_PANE_H */

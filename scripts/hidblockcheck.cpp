@@ -75,6 +75,8 @@ describe (const thcHidBinding &b)
         s << " smooth" << b.smooth;
     if (b.latch)
         s << " latch";
+    if (b.both)
+        s << " both";
 
     s << " @" << b.line;
 
@@ -235,6 +237,14 @@ static const Row ROWS[] = {
       "grip_low = 0.6; };\n    roll = \"bend\";\n  };\n};",
       "index ch0 base60 vel100 | layer fist ch0 base-1 @2 when "
       "grip_top>=0.7,grip_low>=0.6 [roll:value bend @4]", 0, NULL },
+    { "a layer with two postures",
+      "device index {\n  layer f {\n    when { tilt = 0.5; };\n"
+      "    when { roll = 0.5; };\n  };\n};", NULL, 4, "when" },
+    { "a sign with a space after it, said so",
+      "device index { a = note - 5; };", NULL, 1, "space" },
+    { "a strike at 0",
+      "device index { trigger = strike 0 { at = 0; }; };", NULL, 1,
+      "above 0" },
     { "a posture outside a layer",
       "device index {\n  when { grip_top = 0.7; };\n};", NULL, 2, "layer" },
     { "a posture past the axis",
@@ -312,6 +322,12 @@ static const Row ROWS[] = {
     { "a smoothing back in time",
       "device index { t = \"cutoff\" { smooth = -1; }; };", NULL, 1,
       "smooth" },
+    { "a bend of both hands' notes",
+      "device index { turn = bend { range = 2; of = both; }; };",
+      "index ch0 base60 vel100 | turn:bend 2 both @1", 0, NULL },
+    { "of a hand that isn't one",
+      "device index { turn = bend { range = 2; of = this; }; };", NULL, 1,
+      "this" },
     { "a bend with no range",
       "device index { stick_x = bend; };", NULL, 1, "range" },
     { "an aux past the four",
@@ -358,6 +374,55 @@ main (void)
         {
             printf("FAIL  %s\n  %s\n", r.name, why.c_str());
             failed++;
+        }
+    }
+
+    /* A profile of both hands. */
+    {
+        struct H
+        {
+            const char *name, *text, *want;     /* hands in order, or NULL */
+            int         errLine;
+        };
+        static const H HANDS[] = {
+            { "a block for either hand and one for each",
+              "device index { a = note 0; };\n"
+              "device index right { b = note 7; };\n"
+              "device index left { b = note -12; };\n",
+              "either:a | right:b | left:b", 0 },
+            { "one hand alone", "device index left { };", "left:", 0 },
+            { "a hand twice",
+              "device index left { };\ndevice index left { };", NULL, 2 },
+            { "a hand that isn't one", "device index middle { };", NULL, 1 },
+            { "two devices", "device index { };\ndevice other { };", NULL, 2 },
+        };
+
+        for (size_t i = 0; i < sizeof(HANDS) / sizeof(HANDS[0]); i++)
+        {
+            std::vector<thcHidBlock> blocks;
+            string err, got;
+            int line = -1;
+            const bool ok = thcHidParseProfiles(HANDS[i].text, blocks, err,
+                                                line);
+
+            for (size_t b = 0; b < blocks.size(); b++)
+            {
+                got += string(b ? " | " : "") +
+                       (blocks[b].hand.empty() ? "either" : blocks[b].hand) + ":";
+                for (size_t k = 0; k < blocks[b].bindings.size(); k++)
+                    got += blocks[b].bindings[k].control;
+            }
+
+            const bool good = HANDS[i].want ? ok && got == HANDS[i].want
+                                            : !ok && line == HANDS[i].errLine;
+
+            printf("%s  %s\n", good ? "ok  " : "FAIL", HANDS[i].name);
+            if (!good)
+            {
+                printf("  %s: read \"%s\", line %d: %s\n", ok ? "accepted" : "refused",
+                       got.c_str(), line, err.c_str());
+                failed++;
+            }
         }
     }
 

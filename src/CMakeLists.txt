@@ -318,6 +318,9 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_rollcanvas>)
 
 target_include_directories(thinksynth PRIVATE "${PROJECT_SOURCE_DIR}/hid")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_libraries(thinksynth PRIVATE ZLIB::ZLIB)
+endif()
 
 # The GUI subsystem on Windows, so launching this does not also open a
 # terminal. Without it the linker defaults to the console subsystem and

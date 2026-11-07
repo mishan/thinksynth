@@ -403,6 +403,13 @@ if(THINK_EMBEDDED)
 endif()
 # The composer host and the toolkit-free libraries are wanted either way;
 # src/ builds the application only with THINK_GUI.
+# A Valve Index controller's configuration, which says which hand it is, is
+# zlib's; reading one is Linux's (hid/), and everything that links it needs
+# zlib in scope.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(ZLIB REQUIRED)
+endif()
+
 add_subdirectory(src)
 add_subdirectory(hid)
 

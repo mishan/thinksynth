@@ -18,140 +18,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/hidraw.h>
 #include <poll.h>
-#include <sys/ioctl.h>
 #include <unistd.h>
 
-#include <algorithm>
 #include <chrono>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
-#include <map>
 
-#include "thhIndex.h"
 #include "thhReader.h"
-
-namespace fs = std::filesystem;
-
-static std::string
-slurp (const fs::path &p)
-{
-    std::ifstream in(p, std::ios::binary);
-
-    return std::string(std::istreambuf_iterator<char>(in),
-                       std::istreambuf_iterator<char>());
-}
-
-static bool
-isIndex (const std::string &uevent)
-{
-    return uevent.find("\nHID_ID=0003:000028DE:00002300\n") !=
-               std::string::npos &&
-           uevent.find("\nHID_NAME=Valve Index Controller\n") !=
-               std::string::npos;
-}
-
-bool
-thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
-              thhIndexNodes &out)
-{
-    /* Each interface's HID device sits in an interface directory under its
-       USB device's, which is what ties a controller's nodes together. Keyed
-       by that path, the first is the same one every time. */
-    std::map<fs::path, thhIndexNodes> byUsb;
-    std::error_code ec;
-
-    for (fs::directory_iterator it(fs::path(sysRoot) / "class/hidraw", ec), end;
-         !ec && it != end; it.increment(ec))
-    {
-        const fs::path dev = fs::canonical(it->path() / "device", ec);
-
-        if (ec || !isIndex("\n" + slurp(dev / "uevent")))
-            continue;
-
-        const std::string node = devRoot + "/" +
-                                 it->path().filename().string();
-        const std::string desc = slurp(dev / "report_descriptor");
-        thhIndexNodes &n = byUsb[dev.parent_path().parent_path()];
-
-        n.all.push_back(node);
-        if (thhIndexIsInput((const uint8_t *)desc.data(), desc.size()))
-            n.input = node;
-        if (thhIndexIsImu((const uint8_t *)desc.data(), desc.size()))
-            n.imu = node;
-    }
-
-    for (auto &u : byUsb)
-        if (!u.second.input.empty())
-        {
-            out = u.second;
-            std::sort(out.all.begin(), out.all.end());
-            return true;
-        }
-
-    return false;
-}
-
-bool
-thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
-                 int &input, int &imu, std::vector<int> &fds,
-                 std::string &status)
-{
-    thhIndexNodes n;
-
-    if (!thhFindIndex(sysRoot, devRoot, n))
-    {
-        status = "no Valve Index controller is plugged in";
-        return false;
-    }
-
-    std::vector<int> opened;
-
-    for (size_t i = 0; i < n.all.size(); i++)
-    {
-        const int fd = open(n.all[i].c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
-        bool woke = fd >= 0;
-
-        for (int k = 0; woke && k < 2; k++)
-        {
-            uint8_t buf[sizeof(THH_INDEX_INIT[k])];
-
-            memcpy(buf, THH_INDEX_INIT[k], sizeof(buf));
-            woke = ioctl(fd, HIDIOCSFEATURE(sizeof(buf)), buf) >= 0;
-        }
-
-        if (!woke)
-        {
-            status = fd < 0 && errno == EACCES
-                ? "no permission to open " + n.all[i] + "; run "
-                  "hid/install-udev-rule.sh to install the udev rule that "
-                  "allows it"
-                : (fd < 0 ? "can't open " : "can't wake ") + n.all[i] + ": " +
-                  strerror(errno);
-            if (fd >= 0)
-                close(fd);
-            for (size_t k = 0; k < opened.size(); k++)
-                close(opened[k]);
-            return false;
-        }
-
-        opened.push_back(fd);
-    }
-
-    imu = -1;
-    for (size_t i = 0; i < n.all.size(); i++)
-    {
-        if (n.all[i] == n.input)
-            input = opened[i];
-        if (n.all[i] == n.imu)
-            imu = opened[i];
-    }
-    fds.swap(opened);
-    status.clear();
-    return true;
-}
 
 thhReader::thhReader (const Connect &connect,
                       const std::function<void ()> &wake, int silenceMs)
@@ -229,36 +102,49 @@ thhReader::status () const
     return status_;
 }
 
+std::string
+thhReader::hand () const
+{
+    std::lock_guard<std::mutex> l(lock_);
+
+    return hand_;
+}
+
 void
 thhReader::run ()
 {
-    std::vector<int> fds;
+    thhConnection c;
     thhState s;
-    thhIndexImu imu;
-    int in = -1, motion = -1;
+    bool up = false;
 
     for (;;)
     {
-        if (in < 0)
+        if (!up)
         {
             std::string why;
-            const bool ok = connect_(in, motion, fds, why);
+
+            c = thhConnection();
+            up = connect_(c, why);
+
             bool changed;
 
             {
                 std::lock_guard<std::mutex> l(lock_);
 
-                changed = status_ != why;
+                /* A read that couldn't say keeps the hand it said before. */
+                changed = status_ != why || (up && !c.hand.empty() &&
+                                             hand_ != c.hand);
                 status_ = why;
+                if (up && !c.hand.empty())
+                    hand_ = c.hand;
             }
             if (changed)
                 notify();
 
-            if (ok)
+            if (up)
             {
                 s = thhState();
                 s.connected = true;
-                imu = thhIndexImu();
                 continue;
             }
 
@@ -269,45 +155,57 @@ thhReader::run ()
             continue;
         }
 
-        /* poll() passes over a negative fd, so a controller with no IMU
-           is only its input. */
-        struct pollfd p[3] = { { in, POLLIN, 0 }, { motion, POLLIN, 0 },
-                               { stop_[0], POLLIN, 0 } };
-        const int ready = poll(p, 3, silenceMs_);
+        std::vector<struct pollfd> p;
+
+        for (size_t i = 0; i < c.read.size(); i++)
+            p.push_back({ c.read[i], POLLIN, 0 });
+        p.push_back({ stop_[0], POLLIN, 0 });
+
+        const int ready = poll(p.data(), p.size(), silenceMs_);
 
         if (ready < 0 && errno == EINTR)
             continue;
-        if (ready > 0 && p[2].revents)
+        if (ready > 0 && p.back().revents)
             break;
 
-        uint8_t buf[64];
-        const int from = ready > 0 && p[0].revents ? in
-                         : ready > 0 && p[1].revents ? motion : -1;
-        const ssize_t n = from >= 0 ? read(from, buf, sizeof(buf)) : -1;
+        size_t from = 0;
 
-        if (n < 0 && from >= 0 && (errno == EAGAIN || errno == EINTR))
+        while (ready > 0 && from < c.read.size() && !p[from].revents)
+            from++;
+
+        uint8_t buf[64];
+        const bool got = ready > 0 && from < c.read.size();
+        const ssize_t n = got ? read(c.read[from], buf, sizeof(buf)) : -1;
+
+        if (n < 0 && got && (errno == EAGAIN || errno == EINTR))
             continue;
 
         /* Unplugged, asleep, or never woken: let go, and connect again. */
         if (n <= 0)
         {
-            for (size_t i = 0; i < fds.size(); i++)
-                close(fds[i]);
-            fds.clear();
-            in = motion = -1;
+            for (size_t i = 0; i < c.fds.size(); i++)
+                close(c.fds[i]);
+            c = thhConnection();
+            up = false;
             s = thhState();
             publish(s);
+
+            /* As after a connect that fails: a controller that goes as soon
+               as it is woken is not woken again at once. */
+            struct pollfd w = { stop_[0], POLLIN, 0 };
+
+            if (poll(&w, 1, 1000) > 0)
+                break;
             continue;
         }
 
         s.time = std::chrono::duration<double>(
                      std::chrono::steady_clock::now().time_since_epoch())
                      .count();
-        if (from == in ? thhIndexFeed(buf, n, s)
-                       : thhIndexFeedImu(buf, n, imu, s))
+        if (c.feed(from, buf, n, s))
             publish(s);
     }
 
-    for (size_t i = 0; i < fds.size(); i++)
-        close(fds[i]);
+    for (size_t i = 0; i < c.fds.size(); i++)
+        close(c.fds[i]);
 }

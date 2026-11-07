@@ -105,6 +105,17 @@ static const Row ROWS[] = {
     { "RPN 0 sets a member's bend range", 2,
       "b2 65 00  b2 64 00  b2 06 0c  92 3c 64  e2 7f 7f", 2, 60,
       "note=72.00 a0=0.00 a1=0.00" },
+    { "two members on one pitch: the later owns it, and the earlier's bend "
+      "doesn't move it", 2,
+      "92 3c 64  93 3c 64  e2 00 50", 2, 60, "note=60.00 a0=0.00 a1=0.00" },
+    { "...nor its off end it", 2,
+      "92 3c 64  93 3c 64  82 3c 00", 2, 60, "note=60.00 a0=0.00 a1=0.00" },
+    { "RPN 0 on one member is every member's range", 2,
+      "b2 65 00  b2 64 00  b2 06 0c  93 3c 64  e3 7f 7f", 2, 60,
+      "note=72.00 a0=0.00 a1=0.00" },
+    { "MPE's configuration message puts the ranges back", 2,
+      "b2 65 00  b2 64 00  b2 06 0c  b0 65 00  b0 64 06  b0 06 0f  "
+      "92 3c 64  e2 00 50", 2, 60, "note=72.00 a0=0.00 a1=0.00" },
     { "a velocity of 0 is an off", 2,
       "92 3c 64  92 3c 00", 2, 60, "gone" },
 };

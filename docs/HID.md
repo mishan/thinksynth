@@ -38,8 +38,8 @@ the on-screen keyboard to that channel. With no profile of your own:
 | Close the middle fingers | growl |
 | Close the ring and little fingers | breath |
 | Push the stick up or down | vibrato |
-| Roll your wrist | pan |
-| Roll your wrist with a full fist | bends the notes you are holding, two semitones either way |
+| Turn your wrist, as a doorknob | pan, springing back to the middle over a few seconds |
+| Turn your wrist with a full fist | bends the notes you are holding, two semitones either way |
 
 The notes play on any patch; the rest are `index.dsp`'s knobs, and do
 nothing on a patch without them. Each note's own pressure, `aux0`, opens that note's
@@ -66,24 +66,63 @@ device index {
     grip_mid = "growl" { smooth = 0.05; };
     grip_low = "air" { max = 0.5; smooth = 0.05; };
     stick_y = "wobble" { min = -1; max = 1; };
-    roll = "pan" { min = -1; max = 1; smooth = 0.05; };
+    turn = "pan" { min = -1; max = 1; smooth = 0.05; };
 
     layer fist {
         when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };
-        roll = bend { range = 2; smooth = 0.05; };
+        turn = bend { range = 2; smooth = 0.05; };
     };
+};
+
+device index right {
+    ignore grip_force;
+    ignore grip_mid;
+    ignore grip_low;
+    ignore stick_y;
+};
+
+device index left {
+    trigger = strike -12 { at = 0.5; };
+    a = note -12;
+    b = note -5;
+    turn = bend { range = 2; of = both; smooth = 0.05; };
+    ignore fist;
 };
 ```
 
+## Two controllers
+
+Plug in a pair and each plays its own hand, which each controller says it
+is. One that can't say plays whichever hand is free; if a pair comes out
+the wrong way round, **Swap hands** in the Controller pane gives each the
+other's, remembered by serial number from then on. Alone, either controller plays the first block of the profile below,
+whichever hand it is; as a pair, each plays that with its own hand's block
+on top:
+
+| Hand | Plays |
+|---|---|
+| Right | the notes: the trigger strikes, A and B, the trackpad's degree, tilt's octave, turn for pan, and a fist's bend |
+| Left | the shape of them: squeeze for level and brightness, the middle fingers for growl, the ring and little fingers for breath, the stick for vibrato, and turn to bend both hands' notes; and notes of its own an octave down |
+
+A bend or an aux `{ of = both; }` reaches the notes the other hand holds
+as well as this hand's own, and where both hands bend a note the bends
+add. Both hands play the keyboard's channel unless a block says otherwise,
+so the same note from both cuts itself off, as it would from two MIDI
+keyboards. The Controller pane shows each hand's bindings under its name.
+
 ## Your own profile
 
-Your profile is changes to the controller's own: write them to `hid/index`
+Your profile is changes to the controller's own, with a block for either
+hand and, if you like, `device index left { ... };` and `device index right
+{ ... };` for each: write them to `hid/index`
 in thinksynth's configuration directory, normally
 `~/.config/thinksynth/hid/index` (the Controller pane's Open file starts
-one). A control you bind replaces every binding of it in the controller's
-own profile, a layer replaces the layer of its name, `ignore NAME;` drops a
-control or a layer, and `base`, `channel` and `velocity` are yours if you
-set them. Everything else stays the controller's own, so it reaches you as
+one). A control you bind replaces every binding of it outside layers in the
+controller's own profile, a layer replaces the layer of its name, `ignore
+NAME;` drops a control's bindings outside layers, or a layer, and `base`,
+`channel` and `velocity` are yours if you set them. A control's binding
+inside one of the controller's own layers stays until you replace that
+layer. Your bindings may hold or toggle the controller's own layers. Everything else stays the controller's own, so it reaches you as
 it grows:
 
 ```
@@ -120,7 +159,7 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | `trigger = "cutoff" { min = 200; max = 8000; shape = exp; };` | an axis | rides a knob of the patch; with no range, the knob's own. `exp` needs a range above 0, and is linear otherwise |
 | `stick_y = pitch { step = octave; range = 2; };` | an axis | moves the base note when a note starts (`step = semitone` too) |
 | `trigger = velocity { min = 30; max = 127; };` | an axis | sets how hard buttons play |
-| `stick_x = bend { range = 2; };` | an axis | bends every note it is holding, each on its own, up to that many semitones (either way on a centered axis); a note started while bent starts bent. Works on any patch |
+| `stick_x = bend { range = 2; };` | an axis | bends every note it is holding, each on its own, up to that many semitones (either way on a centered axis); a note started while bent starts bent, and a note let go of is bent no further. Works on any patch |
 | `grip_force = aux 0 { min = 0; max = 1; };` | an axis | sets `aux0` (0 to 3) of every note it is holding, for a patch that reads `ionode->aux0` |
 
 A note, or a knob, can name its own `{ channel = 3; }`. A note can
@@ -184,3 +223,4 @@ Axes, 0 to 1 unless they center:
 | `tilt` | the front's angle above level, -1 (straight down) to 1 (straight up); held as you play it, about 0.25 |
 | `roll` | how far the buttons face left (+) or right (-), 1 at a quarter turn; it eases back toward 0 past that, and as the front tips toward straight up or down, but never jumps |
 | `twist` | how fast it is turning around the front, -1 to 1 |
+| `turn` | how far it has turned around the front since it was last still, -1 to 1 over a quarter turn, in any pose, however it is held; it springs back to 0 over a few seconds, as a gyro's turn has to |

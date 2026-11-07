@@ -292,9 +292,10 @@ wants them.
 
 **`aux0` to `aux3` are a note's own timbre.** A composed note carries four
 floats beside its pitch, velocity and level (`thcEvent`'s `u.note.aux`), and
-`thMidiNote` writes them into the voice's io node when the voice is built and
-never again — a mono slide leaves them where they were, as it leaves
-`velocity`. A graph reads them like `note`: `cutoff = @cutoff *
+`thMidiNote` writes them into the voice's io node when the voice is built,
+and again only when `thSynth::setNoteAux` sets one while the note sounds (an
+MPE controller's pressure, a Valve Index controller's `aux`) — a mono slide
+leaves them where they were, as it leaves `velocity`. A graph reads them like `note`: `cutoff = @cutoff *
 exp2(ionode->aux1)` is how `supersaw.dsp` takes a brightness per note. They are
 written only into a graph that mentions them, so a file that reads none has
 none. What each one means is the graph's to say, and a zero is a value — a MIDI

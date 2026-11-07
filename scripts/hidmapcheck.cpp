@@ -40,6 +40,7 @@
 #include <sstream>
 #include <string>
 
+#include "thhHands.h"
 #include "thhIndex.h"
 #include "thhMapper.h"
 
@@ -380,6 +381,11 @@ static const Row ROWS[] = {
       "layer mod { grip_top = \"cutoff\"; }; };",
       "axis grip_top 0.1; axis grip_top 0.9; down thumbstick; axis grip_top 0.1",
       " | on 1 67 127 | cutoff@1 0.900 | off 1 67, cutoff@1 0.100", 0, NULL },
+    { "a strike whose off is 0 lets go at rest",
+      "device index { trigger = strike 0 { at = 0.15; }; };",
+      "axis trigger 0; axis trigger 1; axis trigger 0; axis trigger 1; "
+      "axis trigger 0",
+      " | on 1 60 127 | off 1 60 | on 1 60 127 | off 1 60", 0, NULL },
     { "a release ends a strike", STRIKE,
       "axis grip_top 0; axis grip_top 0.9; release; axis grip_top 0",
       " | on 1 67 127 | off 1 67 | ", 0, NULL },
@@ -568,6 +574,161 @@ checkReconfigure (void)
     }
 }
 
+/* Two hands: the right plays, and the left's bend, of both hands' notes,
+   reaches what the right holds as well as what it holds itself. */
+static void
+checkBoth (void)
+{
+    const thhControls &c = thhIndexControls();
+    thcHidBlock rightP, leftP;
+    thhMapper right, left;
+    std::vector<thhAction> acts;
+    string err;
+    int line;
+
+    thcHidParseProfile("device index { a = note 0; b = note 4; };", rightP,
+                       err, line);
+    thcHidParseProfile("device index { a = note -12; "
+                       "turn = bend { range = 2; of = both; }; };", leftP,
+                       err, line);
+    right.configure(rightP, c, acts, err, line);
+    left.configure(leftP, c, acts, err, line);
+    left.shareWith(&right);
+
+    thhState r, l;
+    string got;
+    const auto step = [&](thhMapper &m, thhState &s) {
+        acts.clear();
+        s.time += 0.01;
+        m.update(s, 0, acts);
+        got += (got.empty() ? "" : " | ") + describe(acts);
+    };
+
+    r.connected = l.connected = true;
+    r.buttons = 1u << c.button("a");
+    step(right, r);                             /* right plays 60 */
+    l.axis[c.axis("turn")] = 0.5f;
+    step(left, l);                              /* left bends it */
+    l.buttons = 1u << c.button("a");
+    step(left, l);                              /* left plays 48, bent */
+    r.buttons |= 1u << c.button("b");
+    step(right, r);                             /* right plays 64 */
+    step(left, l);                              /* left's bend reaches it */
+
+    const string want = "on 1 60 100 | bend 1 60 +1.00 | "
+                        "on 1 48 100, bend 1 48 +1.00 | on 1 64 100 | "
+                        "bend 1 64 +1.00";
+
+    report("a bend of both hands' notes reaches the other hand's",
+           got == want ? "" : "asked for\n    " + got + "\n  wanted\n    " +
+           want);
+
+    /* Let go of, the left hand takes its share of the bend back off the
+       right hand's notes, which play on. */
+    acts.clear();
+    left.release(acts);
+
+    const string off = describe(acts);
+
+    report("a hand let go of takes its bend back off the other's notes",
+           off.find("bend 1 60 +0.00") != string::npos &&
+           off.find("bend 1 64 +0.00") != string::npos &&
+           off.find("off 1 60") == string::npos ? "" : "asked for " + off);
+}
+
+/* A smoothed knob held at its end gets there, rather than stopping a
+   hair short where each step is too small to send. */
+static void
+checkSmoothedEnd (void)
+{
+    const thhControls &c = thhIndexControls();
+    thcHidBlock p;
+    thhMapper m;
+    std::vector<thhAction> acts;
+    thhState s;
+    string err;
+    int line;
+    double last = -1;
+
+    thcHidParseProfile("device index { trigger = \"cutoff\" { smooth = 0.03; }; };",
+                       p, err, line);
+    m.configure(p, c, acts, err, line);
+    s.connected = true;
+    m.update(s, 0, acts);                   /* at rest first, then held */
+    s.axis[c.axis("trigger")] = 1;
+    for (int i = 0; i < 4000; i++)
+    {
+        acts.clear();
+        s.time += 0.001;
+        m.update(s, 0, acts);
+        for (const thhAction &a : acts)
+            last = a.t;
+    }
+
+    report("a smoothed knob held at its end reaches it",
+           last == 1 ? "" : "last sent " + std::to_string(last));
+}
+
+/* Which hand each connected controller plays. Each row: the controllers
+   before, as connected/said/had, and :remembered ("+right/left:left" is
+   connected, says right, had left, and the player said it is left; "-" is
+   not connected), and the hands they play after. */
+static void
+checkHands (void)
+{
+    struct Row
+    {
+        const char *name, *before, *want;
+    };
+    static const Row ROWS[] = {
+        { "each the hand it says", "+right/ +left/", "right left" },
+        { "one that doesn't say takes the free hand", "+left/ +/", "left right" },
+        { "...and alone, the right", "+/", "right" },
+        { "one guessed gives way to one that says", "+/right +right/",
+          "left right" },
+        { "two that say one hand: the first has it", "+right/ +right/",
+          "right left" },
+        { "a controller gone holds no hand", "-/right +/", "right right" },
+        { "...and has its hand still when it is back", "+/right -/left",
+          "right left" },
+        { "the hand the player said, over the order they came in",
+          "+/:left +/", "left right" },
+        { "...whichever had which before", "+/right:left +/left:right",
+          "left right" },
+        { "a hand said by the controller over the player's", "+right/:left",
+          "right" },
+        { "the player's, taken by one that says, gives way",
+          "+left/ +/:left", "left right" },
+    };
+
+    for (size_t i = 0; i < sizeof(ROWS) / sizeof(ROWS[0]); i++)
+    {
+        std::vector<thhHandSlot> slots;
+        std::istringstream in(ROWS[i].before);
+        string one, got;
+
+        while (in >> one)
+        {
+            thhHandSlot s;
+            const size_t slash = one.find('/');
+
+            const size_t colon = one.find(':');
+
+            s.connected = one[0] == '+';
+            s.said = one.substr(1, slash - 1);
+            s.hand = one.substr(slash + 1, colon == string::npos ? string::npos
+                                                                 : colon - slash - 1);
+            s.remembered = colon == string::npos ? "" : one.substr(colon + 1);
+            slots.push_back(s);
+        }
+        thhAssignHands(slots);
+        for (size_t k = 0; k < slots.size(); k++)
+            got += (k ? " " : "") + slots[k].hand;
+        report(ROWS[i].name, got == ROWS[i].want ? "" :
+               "gave \"" + got + "\", wanted \"" + ROWS[i].want + "\"");
+    }
+}
+
 static void
 checkValues (void)
 {
@@ -619,6 +780,9 @@ main (void)
 {
     checkRows();
     checkReconfigure();
+    checkBoth();
+    checkSmoothedEnd();
+    checkHands();
     checkValues();
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");

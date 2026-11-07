@@ -137,6 +137,75 @@ main (int argc, char *argv[])
            io(synth, 57, "note") == 57 && io(synth, 57, "aux0") == 0.75f ? "" :
            "57 moved");
 
+    /* A flood of expression with nothing drained: every note's off must
+       still arrive, whatever bends are let go of to make room for it. */
+    {
+        thSynth flood(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        int stuck = 0;
+
+        flood.loadTree(file.string(), 0, 100);
+        for (int n = 40; n < 60; n++)
+            flood.addNote(0, n, 100);
+        for (int k = 0; k < 60; k++)
+            for (int n = 40; n < 60; n++)
+                flood.bendNote(0, n, k / 60.0f);
+        for (int n = 40; n < 60; n++)
+            flood.delNote(0, n);
+        for (int i = 0; i < 300; i++)
+            flood.process();
+        for (int n = 40; n < 60; n++)
+            stuck += flood.getChannel(0)->getNote(n) != NULL;
+        report("a flood of bends lets every note off through",
+               stuck == 0 ? "" : std::to_string(stuck) + " still sounding");
+    }
+
+    /* A note held while its channel's patch is replaced is the old patch's
+       still, and its bend goes there. */
+    {
+        thSynth swap(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        swap.loadTree(file.string(), 0, 100);
+        swap.addNote(0, 60, 100);
+        for (int i = 0; i < 2; i++)
+            swap.process();
+        swap.loadTree(file.string(), 0, 100);
+        swap.process();
+        swap.bendNote(0, 60, 2);
+        swap.process();
+
+        thMidiChan *old = swap.getChannel(0)->draining();
+        thMidiNote *v = old ? old->getNote(60) : NULL;
+        thArg *a = v ? v->synthTree()->IONode()->getArg("note") : NULL;
+
+        report("a bend reaches a note held across a patch change",
+               a && (*a)[0] == 62 ? "" : a ? "it reads " + std::to_string((*a)[0])
+                                           : "no voice");
+    }
+
+    /* A mono voice slid to a new key plays that key, not the last one's
+       bend on top of it: the new key's own bend, if any, comes after. */
+    {
+        const fs::path mono = fs::temp_directory_path() / "notebendcheck-mono.dsp";
+        string g = GRAPH;
+
+        g.replace(g.find("channels = 1;"), 13, "channels = 1; mono = 1;");
+        std::ofstream(mono) << g;
+
+        thSynth slide(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        slide.loadTree(mono.string(), 0, 100);
+        slide.addNote(0, 60, 100);
+        slide.process();
+        slide.bendNote(0, 60, 12);
+        slide.process();
+        slide.addNote(0, 64, 100);
+        slide.process();
+        snprintf(got, sizeof(got), "64 reads %g", io(slide, 64, "note"));
+        report("a mono voice slid to a new key plays that key",
+               io(slide, 64, "note") == 64 ? "" : got);
+        fs::remove(mono);
+    }
+
     fs::remove(file);
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
 

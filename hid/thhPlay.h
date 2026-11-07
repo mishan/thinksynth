@@ -34,11 +34,14 @@
 void thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
               const std::function<void (const thhAction &)> &heard);
 
-/* The profile at path into out, or the device's own when there is no file
-   there. False, with the file, line and what is wrong in err, if the file
-   is there and doesn't fit the device; out is then the device's own. */
+/* What a hand ("left" or "right") plays: the device's own profile
+   (fallback), its blocks for either hand and then for this one, with the
+   player's file at path on top, its either-hand block and then this
+   hand's. False, with the file, line and what is wrong in err, if the
+   file is there and doesn't fit the device; out is then the device's own
+   for that hand. */
 bool thhLoadProfile (const std::string &path, const thhControls &controls,
-                     const char *fallback, thcHidBlock &out,
-                     std::string &err);
+                     const char *fallback, const std::string &hand,
+                     thcHidBlock &out, std::string &err);
 
 #endif /* THH_PLAY_H */

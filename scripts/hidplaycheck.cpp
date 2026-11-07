@@ -71,6 +71,7 @@ describe (const thcHidBlock &p)
 
         o << " " << b.control << ":" << (b.kind == thcHidBinding::VALUE ? b.arg
             : b.kind == thcHidBinding::HOLD ? "hold " + b.layer
+            : b.kind == thcHidBinding::TOGGLE ? "toggle " + b.layer
             : std::to_string(b.semis));
     }
     for (size_t l = 0; l < p.layers.size(); l++)
@@ -137,6 +138,16 @@ checkProfiles (const string &scratch)
           "device index {\n  ignore nothing;\n};", false, "/mine:2: " },
         { "a control the device doesn't have",
           "device index {\n  zz = note 5;\n};", false, "/mine:2: " },
+        { "a layer of the controller's own, toggled from the player's",
+          "device index { system = toggle fist; };", true,
+          "base60 a:0 b:7 grip_force:level grip_force:bright stick_y:wobble "
+          "thumbstick:hold fist system:toggle fist [fist: a:12]" },
+        { "a typo in an ignore, in a hand's block",
+          "device index right {\n  ignore stik_y;\n};", false, "/mine:2: " },
+        { "an error in a hand's block, with one controller",
+          "device index left {\n  bogus = note 1;\n};", false, "/mine:2: " },
+        { "the wrong device names its own line",
+          "# mine\n\ndevice other {\n};", false, "/mine:3: " },
         { "a file that doesn't parse",
           "device index {\n  a = note\n", false, "/mine:" },
     };
@@ -152,7 +163,7 @@ checkProfiles (const string &scratch)
         if (r.file)
             std::ofstream(path) << r.file;
 
-        const bool ok = thhLoadProfile(path, c, own, blk, err);
+        const bool ok = thhLoadProfile(path, c, own, "", blk, err);
         const string want = r.want ? r.want : asIs;
 
         if (r.ok)
@@ -168,15 +179,63 @@ checkProfiles (const string &scratch)
                    "said \"" + err + "\", played " + describe(blk));
     }
 
+    /* Each hand its own: the controller's own for either hand and for
+       that hand, then the player's for either and for that hand. */
+    {
+        const char *own2 =
+            "device index { a = note 0; b = note 7; };\n"
+            "device index left { a = note -12; };\n";
+        struct H
+        {
+            const char *name, *file, *hand, *want;
+        };
+        static const H HANDS[] = {
+            { "a hand's own block over either's", NULL, "left",
+              "base60 b:7 a:-12" },
+            { "the other hand has either's alone", NULL, "right",
+              "base60 a:0 b:7" },
+            { "the player's either-hand block reaches both", 
+              "device index { b = note 4; };", "right", "base60 a:0 b:4" },
+            { "...over a hand's own", "device index { b = note 4; };", "left",
+              "base60 a:-12 b:4" },
+            { "the player's hand over the player's either",
+              "device index { b = note 4; };\ndevice index left { b = note 5; };",
+              "left", "base60 a:-12 b:5" },
+            { "...and not the other hand",
+              "device index { b = note 4; };\ndevice index left { b = note 5; };",
+              "right", "base60 a:0 b:4" },
+        };
+
+        for (size_t i = 0; i < sizeof(HANDS) / sizeof(HANDS[0]); i++)
+        {
+            const H &h = HANDS[i];
+            const string path = scratch + "/hands";
+            thcHidBlock blk;
+            string err;
+
+            fs::remove(path);
+            if (h.file)
+                std::ofstream(path) << h.file;
+
+            const bool ok = thhLoadProfile(path, c, own2, h.hand, blk, err);
+
+            report(h.name, ok && describe(blk) == h.want ? "" :
+                   !ok ? "refused: " + err : "read as " + describe(blk));
+        }
+    }
+
     thcHidBlock blk;
     thhMapper m;
     std::vector<thhAction> none;
     string err;
     int line;
 
-    report("the Index's own profile fits it",
-           thcHidParseProfile(THH_INDEX_PROFILE, blk, err, line) &&
-           m.configure(blk, c, none, err, line) ? "" : err);
+    for (const char *hand : { "", "left", "right" })
+        report(string("the Index's own profile fits it, ") +
+               (*hand ? hand : "alone"),
+               thhLoadProfile(scratch + "/nothing-here", c, THH_INDEX_PROFILE,
+                              hand, blk, err) &&
+               m.configure(blk, c, none, err, line) ? "" : err);
 
     /* docs/HID.md's example of a profile of changes, as written there. */
     std::ofstream(scratch + "/example") <<
@@ -188,15 +247,23 @@ checkProfiles (const string &scratch)
         "        roll = \"bend\" { min = -1; max = 1; smooth = 0.05; };\n"
         "    };\n"
         "};\n";
-    report("docs/HID.md's example fits the Index's own profile",
-           thhLoadProfile(scratch + "/example", c, THH_INDEX_PROFILE, blk,
-                          err) ? "" : err);
+    for (const char *hand : { "", "left", "right" })
+        report(string("docs/HID.md's example fits the Index's own profile, ") +
+               (*hand ? hand : "alone"),
+               thhLoadProfile(scratch + "/example", c, THH_INDEX_PROFILE, hand,
+                              blk, err) ? "" : err);
+
+    fs::remove_all(scratch + "/adir");
+    fs::create_directories(scratch + "/adir");
+    report("a directory where the file should be says so",
+           !thhLoadProfile(scratch + "/adir", c, own, "", blk, err) &&
+           err.find(scratch + "/adir") == 0 ? "" : "said \"" + err + "\"");
 
     std::ofstream(scratch + "/unreadable") << "device index { };\n";
     fs::permissions(scratch + "/unreadable", fs::perms::none);
     if (!std::ifstream(scratch + "/unreadable"))
         report("a file it may not read says so",
-               !thhLoadProfile(scratch + "/unreadable", c, own, blk, err) &&
+               !thhLoadProfile(scratch + "/unreadable", c, own, "", blk, err) &&
                err.find(scratch + "/unreadable") == 0 ? "" :
                "said \"" + err + "\"");
     else

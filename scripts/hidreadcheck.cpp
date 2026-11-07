@@ -47,7 +47,10 @@
 #include <thread>
 #include <vector>
 
+#include <zlib.h>
+
 #include "thhIndex.h"
+#include "thhIndexHidraw.h"
 #include "thhReader.h"
 
 namespace fs = std::filesystem;
@@ -180,6 +183,66 @@ checkFind (const string &scratch)
     }
 }
 
+static void
+checkFindAll (const string &scratch)
+{
+    const std::vector<thhIndexNodes> all = thhFindIndexes(sysTree(
+        scratch + "/sys",
+        { { "1-4", 0, INDEX, VALVE, "input", 20 },
+          { "1-4", 1, INDEX, VALVE, "imu", 21 },
+          { "1-1", 0, "HTC Vive Tracker", VALVE, "input", 3 },
+          { "1-3", 0, INDEX, VALVE, "imu", 30 },
+          { "1-3", 1, INDEX, VALVE, "input", 31 } }), "/dev");
+    string got;
+
+    for (size_t i = 0; i < all.size(); i++)
+        got += (i ? "; " : "") + describe(all[i]);
+    report("both controllers, each with its own nodes, in order",
+           got == "input /dev/hidraw31, imu /dev/hidraw30, all /dev/hidraw30 "
+                  "/dev/hidraw31; input /dev/hidraw20, imu /dev/hidraw21, all "
+                  "/dev/hidraw20 /dev/hidraw21" ? "" : "found \"" + got + "\"");
+}
+
+static string
+deflate (const string &text)
+{
+    uLongf len = compressBound(text.size());
+    string out(len, '\0');
+
+    compress((Bytef *)&out[0], &len, (const Bytef *)text.data(), text.size());
+    out.resize(len);
+    return out;
+}
+
+static void
+checkHand (void)
+{
+    struct Row
+    {
+        const char *name;
+        string      config;
+        const char *want;
+    };
+    const Row rows[] = {
+        { "a left controller's configuration",
+          deflate("{\"device_serial_number\":\"LHR-1\",\"model_number\":"
+                  "\"Knuckles Left\",\"lighthouse_config\":{}}"), "left" },
+        { "a right one's, a revision on",
+          deflate("{ \"model_number\" : \"Knuckles EV3.0 Right\" }"), "right" },
+        { "another device's", deflate("{\"model_number\":\"Vive Tracker\"}"),
+          "" },
+        { "a configuration cut short", deflate("{\"model_number\":\"Kn"), "" },
+        { "bytes that aren't one", "not zlib at all", "" },
+    };
+
+    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++)
+    {
+        const string got = thhIndexHand(rows[i].config);
+
+        report(rows[i].name, got == rows[i].want ? "" : "said \"" + got + "\"");
+    }
+}
+
 static std::vector<uint8_t>
 input (uint32_t a, uint8_t trigger)
 {
@@ -236,13 +299,13 @@ struct Rig
         far = sv[1];
         farImu = mv[1];
         reader.reset(new thhReader(
-            [this, sv, mv](int &in, int &imu, std::vector<int> &fds,
-                           string &) {
+            [this, sv, mv](thhConnection &c, string &) {
                 if (connects++ > 0)
                     return false;
-                in = sv[0];
-                imu = mv[0];
-                fds.assign({ sv[0], mv[0] });
+                c.read.assign({ sv[0], mv[0] });
+                c.fds = c.read;
+                c.feed = thhIndexFeeder();
+                c.hand = "left";
                 return true;
             },
             [this]() { wakes++; }, silenceMs));
@@ -297,6 +360,8 @@ checkReader (void)
         r.send(input(1, 0));
         report("a press is an edge", r.settle(1) == "a" ? "" :
                "edges: " + describe(r.edges));
+        report("the hand connect said", r.reader->hand() == "left" ? "" :
+               "said \"" + r.reader->hand() + "\"");
 
         r.send(input(1, 0x10));
         r.send(input(1, 0x20));
@@ -365,6 +430,73 @@ checkSilence (void)
            "edges: " + describe(r.edges));
 }
 
+/* A controller that connects and is gone at once, over and over: the
+   reader waits between tries as it does when a connect fails, rather than
+   reopening it as fast as it can. And a hand once said is kept through a
+   connect that couldn't read it. */
+static void
+checkFlapping (void)
+{
+    std::atomic<int> connects(0);
+    std::atomic<bool> said(false);
+
+    {
+        thhReader reader(
+            [&](thhConnection &c, string &) {
+                int sv[2];
+
+                if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0)
+                    return false;
+                close(sv[1]);           /* gone as soon as it is here */
+                c.read.assign(1, sv[0]);
+                c.fds = c.read;
+                c.feed = thhIndexFeeder();
+                c.hand = said.exchange(true) ? "" : "right";
+                connects++;
+                return true;
+            },
+            []() {}, 60000);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        report("a controller gone as soon as it connects is tried once a second",
+               connects >= 2 && connects <= 3 ? "" :
+               "tried " + std::to_string(connects) + " times in 1.5 s");
+        report("a hand once said is kept through a connect that couldn't say",
+               reader.hand() == "right" ? "" :
+               "said \"" + reader.hand() + "\"");
+    }
+}
+
+/* A controller at rest sends no input report until something on it moves;
+   its IMU speaks at once, and is enough to know it is there, at rest. */
+static void
+checkImuFirst (void)
+{
+    Rig r;
+    std::vector<uint8_t> imu(52, 0);
+
+    imu[0] = 0x20;
+    r.send(imu, true);
+    report("an IMU report before any input is the connect, at rest",
+           r.settle(1) == "-" ? "" : "edges: " + describe(r.edges));
+}
+
+/* A controller at rest says almost nothing on its input: its ping, once a
+   second, is enough to know it is there, at rest. */
+static void
+checkPingFirst (void)
+{
+    Rig r;
+    std::vector<uint8_t> ping(64, 0);
+
+    ping[0] = 0x01;
+    ping[2] = 0x04;
+    ping[3] = 0x0b;
+    r.send(ping);
+    report("a ping, with no input yet, is the connect",
+           r.settle(1) == "-" ? "" : "edges: " + describe(r.edges));
+}
+
 static void
 checkPermission (const string &scratch)
 {
@@ -382,10 +514,9 @@ checkPermission (const string &scratch)
     std::ofstream(dev + "/hidraw14") << "";
     chmod((dev + "/hidraw14").c_str(), 0);
 
-    int in = -1, imu = -1;
-    std::vector<int> fds;
+    thhConnection c;
     string status;
-    const bool ok = thhConnectIndex(sys, dev, in, imu, fds, status);
+    const bool ok = thhConnectIndex(sys, dev, "", c, status);
 
     report("a node it may not open says how to allow it",
            !ok && status.find("udev") != string::npos ? "" :
@@ -415,8 +546,13 @@ main (int argc, char *argv[])
 
     readDescriptors(argv[1]);
     checkFind(scratch);
+    checkFindAll(scratch);
+    checkHand();
     checkReader();
     checkSilence();
+    checkFlapping();
+    checkImuFirst();
+    checkPingFirst();
     checkPermission(scratch);
     fs::remove_all(scratch);
 

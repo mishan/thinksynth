@@ -19,7 +19,6 @@
 #ifndef CONTROLLER_PANE_H
 #define CONTROLLER_PANE_H
 
-#include <array>
 #include <string>
 #include <vector>
 
@@ -47,13 +46,20 @@ private:
     Gtk::Label  status_;
     Gtk::Grid   grid_;
     Gtk::Box    buttons_;
-    Gtk::Button reload_, open_;
-    std::vector<std::array<Gtk::Label *, 7>> cells_;
+    Gtk::Button reload_, open_, swap_;
+    /* A binding's labels: the control and its value now, what it does and
+       where, and what won't work. */
+    struct Cells
+    {
+        Gtk::Label *head, *now, *does, *warning;
+    };
+    std::vector<Cells> cells_;
     sigc::connection tick_;
 
     bool onTick (void);
     void onReload (void);
     void onOpen (void);
+    void onSwap (void);
     void rebuild (size_t rows);
 };
 

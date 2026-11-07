@@ -50,7 +50,7 @@ enum thhIndexAxis
     THH_INDEX_TRIGGER_NEAR, THH_INDEX_GRIP_FORCE, THH_INDEX_TRIGGER,
     THH_INDEX_PAD_X, THH_INDEX_PAD_Y, THH_INDEX_PAD_FORCE,
     THH_INDEX_STICK_X, THH_INDEX_STICK_Y,
-    THH_INDEX_TILT, THH_INDEX_ROLL, THH_INDEX_TWIST,
+    THH_INDEX_TILT, THH_INDEX_ROLL, THH_INDEX_TWIST, THH_INDEX_TURN,
     THH_INDEX_AXES
 };
 
@@ -79,15 +79,28 @@ bool thhIndexFeed (const uint8_t *data, size_t len, thhState &s);
    gyro. Gravity, smoothed, gives tilt (the front's angle above level,
    -1..1 over a quarter turn) and roll (how far the buttons face left, +,
    or right, -, 1 at a quarter turn and less as the front tips toward up
-   or down); the gyro gives twist, how fast it is rolling. The smoothing
-   lives here, between reports. */
+   or down); the gyro gives twist, how fast it is rolling, and turn, how
+   far it has turned around its front, in any pose, 1 at a quarter turn,
+   springing back to the middle over a few seconds as a gyro must. The
+   smoothing and the turning live here, between reports.
+
+   A report is the last three samples, 4 ms apart, each new one written
+   over the oldest: only those newer than the last seen are taken, in
+   order, each timed by the IMU's own clock, so a sample counts once and a
+   reader that falls behind loses none of the turn. */
 struct thhIndexImu
 {
-    float g[3];         /* gravity, smoothed, in the IMU's own axes */
-    float twist;
-    bool  primed;
+    float    g[3];      /* gravity, smoothed, in the IMU's own axes */
+    float    twist;
+    float    turn;      /* degrees around the front, springing back */
+    uint8_t  seq;       /* the last sample's, and when it was taken */
+    uint32_t tick;
+    bool     primed;
 
-    thhIndexImu () : twist(0), primed(false) { g[0] = g[1] = g[2] = 0; }
+    thhIndexImu () : twist(0), turn(0), seq(0), tick(0), primed(false)
+    {
+        g[0] = g[1] = g[2] = 0;
+    }
 };
 
 bool thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,

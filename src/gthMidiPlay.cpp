@@ -39,9 +39,23 @@ void gthMidiPlay::setMpe (int channel)
         Chan &ch = chans_[c];
 
         ch.bend = ch.pressure = ch.timbre = 0;
-        ch.range = mpe_ >= 0 && c > 0 ? GTH_MPE_MEMBER_RANGE : GTH_BEND_RANGE;
         ch.rpn[0] = ch.rpn[1] = 127;
+        ch.nrpn = false;
+        ch.held.clear();
     }
+    for (int c = 0; c < 16; c++)
+        for (int n = 0; n < 128; n++)
+            owner_[c][n] = -1;
+    ranges();
+}
+
+/* Each channel's bend range as MPE has it unless a controller says other:
+   members 48 semitones, the master and every channel without MPE 2. */
+void gthMidiPlay::ranges ()
+{
+    for (int c = 0; c < 16; c++)
+        chans_[c].range = mpe_ >= 0 && c > 0 ? GTH_MPE_MEMBER_RANGE
+                                             : GTH_BEND_RANGE;
 }
 
 int gthMidiPlay::target (int midiChannel) const
@@ -66,6 +80,9 @@ void gthMidiPlay::express (int midiChannel, bool bend, bool pressure,
     {
         const int to = target(midiChannel), note = ch.held[i];
 
+        if (owner_[to][note] != midiChannel)
+            continue;
+
         if (bend)
             synth_->bendNote(to, note, bendOf(midiChannel));
         if (pressure)
@@ -88,7 +105,10 @@ void gthMidiPlay::play (unsigned char status, unsigned char data1,
     case 0x90:
         if (data2)
         {
-            ch.held.push_back(data1);
+            if (std::find(ch.held.begin(), ch.held.end(), data1) ==
+                ch.held.end())
+                ch.held.push_back(data1);
+            owner_[target(c)][data1 & 0x7f] = c;
             synth_->addNote(target(c), data1, data2);
             if (noteOn)
                 noteOn(target(c), data1, data2);
@@ -107,6 +127,9 @@ void gthMidiPlay::play (unsigned char status, unsigned char data1,
     case 0x80:
         ch.held.erase(std::remove(ch.held.begin(), ch.held.end(), data1),
                       ch.held.end());
+        if (owner_[target(c)][data1 & 0x7f] != c)
+            break;              /* another member's now */
+        owner_[target(c)][data1 & 0x7f] = -1;
         synth_->delNote(target(c), data1);
         if (noteOff)
             noteOff(target(c), data1);
@@ -135,10 +158,32 @@ void gthMidiPlay::play (unsigned char status, unsigned char data1,
         break;
 
     case 0xb0:
+    {
+        /* Data entry (6, 38, increment 96 and decrement 97) is the selected
+           parameter's, never a knob's: RPN 0, the bend range, whole for
+           an MPE zone; RPN 6, MPE's configuration, which puts the ranges
+           back; anything else, and any NRPN, nothing here. */
+        const bool entry = data1 == 6 || data1 == 38 || data1 == 96 ||
+                           data1 == 97;
+        const bool selected = ch.nrpn || ch.rpn[0] != 127 || ch.rpn[1] != 127;
+
         if (data1 == 101 || data1 == 100)
+        {
             ch.rpn[data1 == 101 ? 0 : 1] = data2;
-        else if (data1 == 6 && ch.rpn[0] == 0 && ch.rpn[1] == 0)
-            ch.range = data2;
+            ch.nrpn = false;
+        }
+        else if (data1 == 99 || data1 == 98)
+            ch.nrpn = true;
+        else if (data1 == 6 && !ch.nrpn && ch.rpn[0] == 0 && ch.rpn[1] == 0)
+        {
+            for (int m = 0; m < 16; m++)
+                if (m == c || (mpe && c > 0 && m > 0))
+                    chans_[m].range = data2;
+        }
+        else if (data1 == 6 && !ch.nrpn && ch.rpn[0] == 0 && ch.rpn[1] == 6)
+            ranges();
+        else if (entry && selected)
+            ;
         else if (mpe && data1 == 74)
         {
             ch.timbre = data2 / 127.0f;
@@ -147,5 +192,6 @@ void gthMidiPlay::play (unsigned char status, unsigned char data1,
         else
             synth_->handleMidiController(target(c), data1, data2);
         break;
+    }
     }
 }
