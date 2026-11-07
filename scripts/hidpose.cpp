@@ -23,6 +23,9 @@
  *   hidpose          walks through poses that can be set up by eye, checks
  *                    what each controller reads in each, and prints a table
  *   hidpose live     says over and over, in words, what each one reads
+ *   hidpose view     serves http://localhost:8765/, where each controller
+ *                    turns in 3D as the code takes it to be built, from its
+ *                    raw samples, beside what the app decodes
  *
  * Each pose is read from the controller's own reports, decoded by
  * thhIndexFeedImu as the app decodes them, and alongside it the raw
@@ -32,7 +35,10 @@
  */
 
 #include <errno.h>
+#include <netinet/in.h>
 #include <poll.h>
+#include <signal.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <chrono>
@@ -40,6 +46,8 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -47,6 +55,9 @@
 #include "thhIndexHidraw.h"
 
 using std::string;
+
+/* Whether samples are kept for the view to send. */
+static bool viewing = false;
 
 struct Pad
 {
@@ -64,6 +75,10 @@ struct Pad
     bool         primed = false;
     uint8_t      seq = 0;
     uint32_t     tick = 0;
+
+    /* Each fresh sample: accelerometer, gyro (raw counts) and seconds
+       since the one before, for the view. */
+    std::vector<string> samples;
 
     void mark ()
     {
@@ -99,6 +114,15 @@ raw (Pad &p, const uint8_t *d, size_t len)
                               ((uint32_t)s[15] << 24);
         const double dt = (uint32_t)(tick - p.tick) / 48e6;
 
+        char json[160];
+
+        snprintf(json, sizeof(json), "\"a\":[%d,%d,%d],\"w\":[%d,%d,%d],\"dt\":%.6f",
+                 (int16_t)(s[0] | (s[1] << 8)), (int16_t)(s[2] | (s[3] << 8)),
+                 (int16_t)(s[4] | (s[5] << 8)), (int16_t)(s[6] | (s[7] << 8)),
+                 (int16_t)(s[8] | (s[9] << 8)), (int16_t)(s[10] | (s[11] << 8)),
+                 p.primed && dt > 0 && dt < 0.1 ? dt : 0.0);
+        if (viewing)
+            p.samples.push_back(json);
         for (int k = 0; k < 3; k++)
         {
             p.g[k] += (int16_t)(s[2 * k] | (s[2 * k + 1] << 8));
@@ -254,6 +278,125 @@ check (Pad &p, const Pose &pose, string &row)
     return ok;
 }
 
+/* The page, beside this file, and a stream of every controller's samples
+   as server-sent events. */
+static int
+view (std::vector<Pad> &pads)
+{
+    const string dir = string(__FILE__).substr(0, string(__FILE__).rfind('/'));
+    std::ifstream in(dir + "/hidview.html");
+    std::ostringstream page;
+    const int ls = socket(AF_INET, SOCK_STREAM, 0);
+    const int one = 1;
+    sockaddr_in at = sockaddr_in();
+    std::vector<int> streams;
+
+    page << in.rdbuf();
+    if (!in)
+    {
+        fprintf(stderr, "can't read %s/hidview.html\n", dir.c_str());
+        return 1;
+    }
+    signal(SIGPIPE, SIG_IGN);
+    setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    at.sin_family = AF_INET;
+    at.sin_port = htons(8765);
+    at.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (bind(ls, (sockaddr *)&at, sizeof(at)) < 0 || listen(ls, 8) < 0)
+    {
+        perror("port 8765");
+        return 1;
+    }
+    printf("open http://localhost:8765/\n");
+
+    for (;;)
+    {
+        pollfd l = { ls, POLLIN, 0 };
+
+        if (poll(&l, 1, 0) > 0)
+        {
+            const int c = accept(ls, NULL, NULL);
+            string req;
+
+            /* The whole head, a second at most: a socket a browser opens
+               ahead and says nothing on would stop every stream, and a
+               head left unread makes close() a reset. */
+            for (pollfd r = { c, POLLIN, 0 };
+                 c >= 0 && req.find("\r\n\r\n") == string::npos &&
+                 req.size() < 65536 && poll(&r, 1, 1000) > 0;)
+            {
+                char buf[4096];
+                const ssize_t got = read(c, buf, sizeof(buf));
+
+                if (got <= 0)
+                    break;
+                req.append(buf, got);
+            }
+
+            /* Only a page this machine asked for by its own name, not
+               one a name some site points here asked for. */
+            const bool local = req.find("\r\nHost: localhost:8765\r\n") !=
+                                   string::npos ||
+                               req.find("\r\nHost: 127.0.0.1:8765\r\n") !=
+                                   string::npos;
+
+            if (local && req.find("\r\n\r\n") != string::npos)
+            {
+                if (req.compare(0, 11, "GET /events") == 0)
+                {
+                    const char *head = "HTTP/1.1 200 OK\r\nContent-Type: "
+                        "text/event-stream\r\nCache-Control: no-cache\r\n\r\n";
+
+                    if (write(c, head, strlen(head)) > 0)
+                    {
+                        streams.push_back(c);
+                        continue;
+                    }
+                }
+                else
+                {
+                    const string body = page.str();
+                    const string head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; "
+                        "charset=utf-8\r\nContent-Length: " +
+                        std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n";
+
+                    if (write(c, head.data(), head.size()) > 0)
+                        (void)!write(c, body.data(), body.size());
+                }
+            }
+            if (c >= 0)
+                close(c);
+        }
+
+        pump(pads, 5, false);
+
+        string out;
+
+        for (Pad &p : pads)
+        {
+            char axes[160];
+
+            snprintf(axes, sizeof(axes), "\"tilt\":%.3f,\"roll\":%.3f,"
+                     "\"turn\":%.3f,\"twist\":%.3f", p.s.axis[THH_INDEX_TILT],
+                     p.s.axis[THH_INDEX_ROLL], p.s.axis[THH_INDEX_TURN],
+                     p.s.axis[THH_INDEX_TWIST]);
+            for (const string &smp : p.samples)
+                out += "data: {\"hand\":\"" + p.hand + "\"," + smp + "," + axes +
+                       "}\n\n";
+            p.samples.clear();
+        }
+        /* A stream that can't take the whole of it is behind: half an
+           event would run into the next one's line. */
+        for (size_t i = streams.size(); i-- > 0 && !out.empty();)
+            if (send(streams[i], out.data(), out.size(), MSG_DONTWAIT) !=
+                (ssize_t)out.size())
+            {
+                close(streams[i]);
+                streams.erase(streams.begin() + i);
+            }
+    }
+}
+
 int
 main (int argc, char **argv)
 {
@@ -298,6 +441,9 @@ main (int argc, char **argv)
     }
     for (const Pad &p : pads)
         printf("%s is %s\n", p.hand.c_str(), p.serial.c_str());
+    viewing = argc > 1 && string(argv[1]) == "view";
+    if (viewing)
+        return view(pads);
 
     if (live)
     {
