@@ -63,11 +63,15 @@ main ()
 
         worst = std::max(worst, std::fabs(thkSin2pi(x) - std::sin(2 * M_PI * (double)x)));
     }
-    report("the sine, over a hundred turns either way", worst, 1e-6);
+    report("the sine, over a hundred turns either way", worst, 1.5e-6);
 
     report("the crest and the trough are 1 and -1 exactly",
            std::fabs(thkSin2pi(0.25f) - 1) + std::fabs(thkSin2pi(-0.25f) + 1) +
            std::fabs(thkSin2pi(1.25f) - 1), 0);
+
+    report("just short of a whole turn either way is next to 0",
+           std::fabs(thkSin2pi(-1e-9f)) + std::fabs(thkSin2pi(1 - 1e-9f)) +
+           std::fabs(thkSin2pi(-3 - 1e-9f)), 1e-6);
 
     const float odd[] = { NAN, INFINITY, -INFINITY, 1e7f, -1e7f };
     worst = 0;
@@ -89,8 +93,9 @@ main ()
         const double fb = 0.3, freq = 220, ratio = 1.5, rate = 32000;
         const double want = std::sin(2 * M_PI * phase + index * mod +
                                      fb * (y1 + y2) * 0.5);
-        const float got = op.tick(thkFmop::ctl((float)freq, (float)ratio, (float)rate),
-                                  (float)mod, (float)index, (float)fb, 0);
+        const float got = op.tick(thkFmop::ctl((float)freq, (float)ratio, (float)fb,
+                                               (float)rate),
+                                  (float)mod, (float)index, 0);
 
         worst = std::max(worst, std::fabs(got - want));
         y2 = y1;

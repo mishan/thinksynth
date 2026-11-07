@@ -31,40 +31,43 @@
 
 struct thkFmop
 {
-    /* What the frequency and ratio make of a sample: the phase's step.
-       Worked out once while they hold still, a window or a compiled
-       voice's call, and the same arithmetic either way. */
+    /* What the frequency, ratio and feedback make of a sample: the
+       phase's step, and the feedback clamped. Worked out once while they
+       hold still, a window or a compiled voice's call, and the same
+       arithmetic either way. */
     struct Ctl
     {
         float step;             /* turns a sample */
+        float feedback;         /* radians, 0 to FMOP_FEEDBACK_MAX */
     };
 
-    static Ctl ctl (float freq, float ratio, float rate)
+    static Ctl ctl (float freq, float ratio, float feedback, float rate)
     {
         ratio = thkFinite(ratio) ? ratio : 1;
-        return { thkBoundFreq(freq * ratio, rate) / rate };
+        return { thkBoundFreq(freq * ratio, rate) / rate,
+                 thkClamp(feedback, 0, FMOP_FEEDBACK_MAX) };
     }
 
     float phase = 0;            /* turns, [0, 1) */
     float y1 = 0, y2 = 0;       /* the last two outputs */
 
-    float tick (const Ctl &c, float mod, float index, float feedback,
-                float reset)
+    float tick (const Ctl &c, float mod, float index, float reset)
     {
         /* The floor and the NaN, not the ceiling: a negative index is the
            same timbre with the modulator inverted, best read as none. */
         index = thkFinite(index) && index > 0 ? index : 0;
-        feedback = thkClamp(feedback, 0, FMOP_FEEDBACK_MAX);
         mod = thkFinite(mod) ? mod : 0;
 
         if (reset > 0)
             phase = 0;
 
         /* The last two outputs averaged go round the loop: a null at
-           Nyquist, where a one-sample loop would ring. */
-        const float y = thkSin2pi(phase + (index * mod +
-                                           feedback * (y1 + y2) * 0.5f) *
-                                          (1 / 6.28318530717958647692f));
+           Nyquist, where a one-sample loop would ring. Most operators
+           have none, and are spared it. */
+        const float offset = c.feedback > 0
+                             ? index * mod + c.feedback * (y1 + y2) * 0.5f
+                             : index * mod;
+        const float y = thkSin2pi(phase + offset * (1 / 6.28318530717958647692f));
 
         y2 = y1;
         y1 = y;

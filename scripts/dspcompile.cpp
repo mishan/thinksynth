@@ -73,7 +73,7 @@ struct Kernel
 };
 
 static const Kernel KERNELS[] = {
-    { "osc/fmop", { "freq", "ratio" }, "thkFmop::ctl", { "mod", "index", "feedback", "reset" },
+    { "osc/fmop", { "freq", "ratio", "feedback" }, "thkFmop::ctl", { "mod", "index", "reset" },
       false, "thkFmop" },
     { "env/ad", { "a", "d", "p" }, "thkAd::ctl", { "reset" }, false, "thkAd" },
     { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", { "trigger", "reset" }, false, NULL },

@@ -35,12 +35,19 @@
 #include <stdint.h>
 #include <string.h>
 
-/* thIsFinite's test, on the bits so -ffast-math can't fold it away. */
+#include <cmath>
+
+/* thIsFinite's test, on the bits so -ffast-math can't fold it away: and
+   past an empty asm, since clang's takes a float argument to be finite
+   and folds even the bits' test to true. */
 static inline bool thkFinite (float x)
 {
     uint32_t bits;
 
     memcpy(&bits, &x, sizeof(bits));
+#if defined(__GNUC__)
+    __asm__("" : "+r"(bits));
+#endif
     return (bits & 0x7f800000u) != 0x7f800000u;
 }
 
@@ -57,38 +64,57 @@ static inline float thkBoundFreq (float freq, float rate)
     const float slowest = rate / 16777216.0f;
     const float fastest = rate * 0.5f;
 
-    return !(freq >= slowest) ? slowest : freq > fastest ? fastest : freq;
+    /* thkFinite, not a comparison: -ffast-math takes NaN to compare as
+       anything at all. */
+    return !thkFinite(freq) || freq < slowest ? slowest
+           : freq > fastest ? fastest : freq;
 }
 
-/* sin(2 pi x), x in turns: brought to the quarter turn either side of
-   zero, where a Taylor series to t^11 is within 6e-8 of the sine, under
-   what a float there can tell apart. In turns because a phase is,
-   so an oscillator hands over its phase and its offset and nothing is
-   multiplied by 2 pi twice. Beyond a million turns either way, a float
-   has no fraction left to give and the answer is 0. */
+/* sin(2 pi x), x in turns, from a table of 2048 to the turn and a line
+   between neighbors: within 1.2e-6 of the sine (118 dB down), and a
+   table read and one multiply-add, where a series is a dozen in a row --
+   on a small FPU each waiting on the last. Exact at 0, the crest and the
+   trough, which fall on the table: an envelope built on half a sine
+   peaks at its peak. Beyond a million turns either way, a float has no
+   fraction left to give and the answer is 0. */
+#define THK_SINE_SIZE 2048
+
+struct thkSineTable
+{
+    float at[THK_SINE_SIZE + 1];        /* the last is the first again */
+
+    thkSineTable ()
+    {
+        for (int i = 0; i <= THK_SINE_SIZE; i++)
+            at[i] = (float)std::sin(6.283185307179586476925 * i / THK_SINE_SIZE);
+        /* The crest and the trough exactly, whatever sin() rounds them to. */
+        at[THK_SINE_SIZE / 4] = 1;
+        at[THK_SINE_SIZE * 3 / 4] = -1;
+        at[0] = at[THK_SINE_SIZE / 2] = at[THK_SINE_SIZE] = 0;
+    }
+};
+
+/* One table for every kernel that includes this, made before main. */
+inline const thkSineTable thkSine;
+
 static inline float thkSin2pi (float x)
 {
-    if (!(x > -1048576.0f && x < 1048576.0f))
+    if (!thkFinite(x) || !(x > -1048576.0f && x < 1048576.0f))
         return 0;
 
     x -= (float)(int32_t)x;                 /* (-1, 1) */
-    if (x > 0.5f)
-        x -= 1;
-    else if (x < -0.5f)
+    if (x < 0)
         x += 1;
-    if (x > 0.25f)                          /* sin(pi - t) = sin(t) */
-        x = 0.5f - x;
-    else if (x < -0.25f)
-        x = -0.5f - x;
-    /* The crest and the trough exactly, where the series is a rounding
-       short: an envelope built on half a sine peaks at its peak. */
-    if (x == 0.25f || x == -0.25f)
-        return x * 4;
+    /* A hair under 0 and a turn on is a whole turn in float: the table's
+       end, one past which there is nothing. */
+    if (x >= 1)
+        x = 0;
 
-    const float t = 6.28318530717958647692f * x, t2 = t * t;
+    const float where = x * THK_SINE_SIZE;
+    const int i = (int)where;
+    const float *t = thkSine.at + i;
 
-    return t * (1 + t2 * (-1.0f / 6 + t2 * (1.0f / 120 + t2 * (-1.0f / 5040 +
-                t2 * (1.0f / 362880 + t2 * (-1.0f / 39916800))))));
+    return t[0] + (where - (float)i) * (t[1] - t[0]);
 }
 
 #endif /* TH_KERNEL_H */

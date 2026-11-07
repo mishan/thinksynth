@@ -33,9 +33,12 @@ and the pattern is theirs:
   state back.
 - **`libthink/thKernel.h`** holds what kernels share: `thkFinite`,
   `thkClamp` and `thkBoundFreq`, the float spellings of the engine's
-  guards, and `thkSin2pi`, a sine taking its angle in turns, within
-  2e-7 of `sin()` and exact at its crest and trough, so an envelope
-  built on half a sine peaks at its peak.
+  guards, and `thkSin2pi`, a sine taking its angle in turns from a
+  table of 2048 to the turn and a line between neighbors: within 1.2e-6
+  of `sin()`, exact at 0, its crest and its trough, so an envelope built
+  on half a sine peaks at its peak. A table read and one multiply-add,
+  where a series is a dozen in a row, each waiting on the last on a
+  small FPU (61 cycles a sine on the ESP32-S3, 111 as a series).
 - **`scripts/kernelcheck`** holds each kernel against a double reference
   of the same formula, and the change to what the corpus renders is
   measured with `scripts/dspab -a OLD_PLUGINS -b NEW_PLUGINS` and said in
