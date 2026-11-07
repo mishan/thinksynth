@@ -1359,15 +1359,27 @@ try
     await page.waitForTimeout(500);
     await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6], true));
 
-    const again = await cameraHolds(60);
+    /* Frozen the moment the note is seen held, so that only the watchdog
+       can let it go. */
+    const frozeHolding = await page.evaluate(async () =>
+    {
+        for (const until = performance.now() + 10000; performance.now() < until;)
+        {
+            if (window.solo.sounding().some((h) => h.note === 60 && h.camera === 1))
+            {
+                window.fakeCamera.freeze();
+                return true;
+            }
+            await new Promise((r) => setTimeout(r, 5));
+        }
+        return false;
+    });
+    const letGo = await quiet();
 
-    await page.waitForTimeout(200);
-
-    const stillHeld = (await sounding()).some((h) => h.note === 60);
-
-    await page.evaluate(() => window.fakeCamera.freeze());
-    check(again && stillHeld && await quiet(),
-          'a feed that stops lets go of what the camera held');
+    check(frozeHolding && letGo,
+          'a feed that stops lets go of what the camera held: ' +
+          `${frozeHolding ? 'held' : 'never held'}, ` +
+          `${letGo ? 'let go' : 'still down'}`);
 
     await page.click('#camera');
     check(await page.textContent('#camera') === 'Camera' &&
