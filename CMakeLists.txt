@@ -406,6 +406,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_package(JPEG)
   if(JPEG_FOUND)
     add_subdirectory(camera)
+  else()
+    message(STATUS "No libjpeg: no camera, cameracheck or camaxes")
   endif()
 endif()
 

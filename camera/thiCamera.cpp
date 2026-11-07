@@ -20,17 +20,22 @@
 #include <stdio.h>
 
 #include <jpeglib.h>
+#include <jerror.h>
 
 #include "thiCamera.h"
 
 namespace {
 
 /* libjpeg's default for an error is exit(); this jumps back instead, and
-   keeps its warnings off stderr, where a camera's would scroll for ever. */
+   keeps its warnings off stderr, where a camera's would scroll for ever.
+   Of those, only a frame that ran out before its end is lost: many webcams
+   put a few stray bytes before a marker in every frame, and that picture
+   is whole. */
 struct JpegError
 {
     jpeg_error_mgr mgr;
     jmp_buf        jump;
+    bool           lost;
 };
 
 void jpegFail (j_common_ptr c)
@@ -38,8 +43,12 @@ void jpegFail (j_common_ptr c)
     longjmp(((JpegError *)c->err)->jump, 1);
 }
 
-void jpegQuiet (j_common_ptr)
+void jpegWarn (j_common_ptr c, int level)
 {
+    JpegError *e = (JpegError *)c->err;
+
+    if (level < 0 && (e->mgr.msg_code == JWRN_JPEG_EOF || e->mgr.msg_code == JWRN_HIT_MARKER))
+        e->lost = true;
 }
 
 }
@@ -52,7 +61,8 @@ bool thiDecodeLuma (const uint8_t *jpeg, size_t len, int maxWidth,
 
     c.err = jpeg_std_error(&e.mgr);
     e.mgr.error_exit = jpegFail;
-    e.mgr.output_message = jpegQuiet;
+    e.mgr.emit_message = jpegWarn;
+    e.lost = false;
 
     if (setjmp(e.jump))
     {
@@ -90,7 +100,7 @@ bool thiDecodeLuma (const uint8_t *jpeg, size_t len, int maxWidth,
 
     /* A frame cut short decodes, gray where it ran out; that is a jump,
        not a picture. */
-    const bool whole = e.mgr.num_warnings == 0;
+    const bool whole = !e.lost;
 
     jpeg_destroy_decompress(&c);
     return whole;
@@ -181,6 +191,7 @@ void thiCamera::run ()
                 continue;
             }
             setStatus("");
+            motion.reset();
         }
 
         double seconds = 0;

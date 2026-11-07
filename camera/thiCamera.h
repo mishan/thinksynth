@@ -34,9 +34,9 @@
 #include "thMotion.h"
 
 /* The luma of a JPEG, decoded at the largest of 1/1, 1/2, 1/4 or 1/8 scale
-   that is no wider than maxWidth: libjpeg scales in the transform, so a
-   640x480 frame comes out 160x120 for a fraction of a full decode. False if
-   it isn't a JPEG libjpeg can read. */
+   that is no wider than maxWidth, or at 1/8 if none is: libjpeg scales in
+   the transform, so a 640x480 frame comes out 160x120 for a fraction of a
+   full decode. False if it isn't a JPEG libjpeg can read, or ran out. */
 bool thiDecodeLuma (const uint8_t *jpeg, size_t len, int maxWidth,
                     std::vector<uint8_t> &luma, int &width, int &height);
 
@@ -81,7 +81,7 @@ public:
     /* Frames kept for a drain that comes late; past this the oldest go. */
     static const size_t KEPT = 64;
 
-    /* Frames are decoded no wider than this. */
+    /* Frames are decoded toward this width; see thiDecodeLuma. */
     static const int WIDTH = 160;
 
     thiCamera (const Connect &connect, const std::function<void ()> &wake,

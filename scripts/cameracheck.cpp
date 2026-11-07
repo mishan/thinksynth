@@ -142,6 +142,15 @@ static void decoding (void)
     check("bytes that aren't a JPEG don't decode",
           !thiDecodeLuma(junk, sizeof junk, 160, luma, w, h));
 
+    /* Stray bytes before a marker, as some webcams send in every frame:
+       libjpeg warns, and the picture is whole. */
+    std::vector<uint8_t> stray = square(640, 480, 320, 240);
+    const size_t app0End = 4 + (stray[4] << 8 | stray[5]);
+
+    stray.insert(stray.begin() + app0End, { 0x01, 0x02, 0x03 });
+    check("a frame with stray bytes before a marker decodes",
+          thiDecodeLuma(stray.data(), stray.size(), 160, luma, w, h) && w == 160 && h == 120);
+
     std::vector<uint8_t> cut = square(640, 480, 320, 240);
 
     cut.resize(cut.size() * 3 / 4);
@@ -156,14 +165,16 @@ class ListSource : public thiSource
 public:
     struct Frame { std::vector<uint8_t> jpeg; double seconds; };
 
-    ListSource (std::deque<Frame> frames, bool dies)
-        : frames_(std::move(frames)), dies_(dies) { }
+    ListSource (std::deque<Frame> frames, bool dies, std::atomic<bool> *dry = NULL)
+        : frames_(std::move(frames)), dies_(dies), dry_(dry) { }
 
     bool next (std::vector<uint8_t> &jpeg, double &seconds, int waitMs,
                string &status) override
     {
         if (frames_.empty())
         {
+            if (dry_)
+                *dry_ = true;
             if (dies_)
             {
                 status = "unplugged";
@@ -181,6 +192,7 @@ public:
 private:
     std::deque<Frame> frames_;
     bool dies_;
+    std::atomic<bool> *dry_;
 };
 
 /* A square crossing a w x h picture at 120 fps, from `from' seconds. */
@@ -246,16 +258,19 @@ static void reading (void)
     /* A drainer that comes late gets the newest KEPT frames, oldest first. */
     {
         std::atomic<int> wakes(0);
+        std::atomic<bool> dry(false);
+        std::deque<ListSource::Frame> frames = crossing(200);
         bool once = false;
         thiCamera cam([&] (string &) {
             if (once)
                 return std::unique_ptr<thiSource>();
             once = true;
-            return std::unique_ptr<thiSource>(new ListSource(crossing(200), false));
+            return std::unique_ptr<thiSource>(new ListSource(frames, false, &dry));
         }, [&] { wakes++; });
         std::vector<thiAxes> f;
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        /* Dry is said after the last frame is published. */
+        within(30000, [&] { return dry.load(); });
         cam.drain(f);
 
         check("a late drain gets the newest frames, oldest first",
@@ -326,9 +341,11 @@ static void swapping (void)
         connects++;
         if (connects == 1)
             return std::unique_ptr<thiSource>(new ListSource(crossing(10), true));
+        /* The same ground with a bright patch over a fifth of it: too little
+           change for the noise floor to rise over. */
         std::deque<ListSource::Frame> other;
         for (int i = 0; i < 10; i++)
-            other.push_back({ encode(640, 480, [] (int x, int) { return x % 64 < 32 ? 200 : 20; }),
+            other.push_back({ encode(640, 480, [] (int x, int y) { return x < 320 && y < 192 ? 200 : 40; }),
                               (10 + i) / 120.0 + 0.05 });
         return std::unique_ptr<thiSource>(new ListSource(other, false));
     }, [] { }, 1);
@@ -365,15 +382,17 @@ static void unplugging (void)
         return std::unique_ptr<thiSource>(connects == 1
             ? new ListSource(crossing(20, 0), true)
             : new ListSource(crossing(20, 10, 1280, 720), false));
-    }, [] { }, 100);
+    }, [] { }, 300);
     std::vector<thiAxes> seen;
     bool gone = false, stillWhenGone = false, statusWhenGone = false;
+    int goneFrames = 0;
 
     within(3000, [&] {
         std::vector<thiAxes> f;
         if (cam.drain(f))
             for (const auto &a : f)
             {
+                goneFrames += !a.connected;
                 if (!a.connected && !gone)
                 {
                     gone = true;
@@ -386,7 +405,8 @@ static void unplugging (void)
     });
 
     check("an unplugged camera is heard once, still, with a reason",
-          gone && stillWhenGone && statusWhenGone);
+          goneFrames == 1 && stillWhenGone && statusWhenGone,
+          fmt("%.0f frames unplugged", goneFrames));
     check("a camera that comes back at another size is read again",
           !seen.empty() && seen.back().connected && seen.back().seconds >= 10
           && seen.back().axis[thMotion::MOTION] > 0 && fabs(seen.back().axis[thMotion::Y] - 0.5) < 0.05

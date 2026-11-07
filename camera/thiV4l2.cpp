@@ -22,10 +22,12 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <linux/videodev2.h>
 
+#include <algorithm>
 #include <vector>
 
 #include "thiV4l2.h"
@@ -115,7 +117,9 @@ public:
         f.fmt.pix.height = 480;
         f.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
         f.fmt.pix.field = V4L2_FIELD_ANY;
-        if (xioctl(fd_, VIDIOC_S_FMT, &f) < 0 || f.fmt.pix.pixelformat != V4L2_PIX_FMT_MJPEG)
+        if (xioctl(fd_, VIDIOC_S_FMT, &f) < 0)
+            return fail(status, errno == EBUSY ? "in use" : "can't set Motion-JPEG");
+        if (f.fmt.pix.pixelformat != V4L2_PIX_FMT_MJPEG)
             return fail(status, "can't set Motion-JPEG");
 
         v4l2_streamparm p = {};
@@ -188,12 +192,25 @@ public:
         if (xioctl(fd_, VIDIOC_DQBUF, &b) < 0)
             return errno == EAGAIN ? false : fail(status, "gone");
 
+        if (b.index >= buffers_.size())
+            return fail(status, "gone");
+
         const uint8_t *data = (const uint8_t *)buffers_[b.index].start;
 
-        jpeg.assign(data, data + b.bytesused);
-        /* The driver's capture time, on the monotonic clock: not when this
-           thread got round to it. */
-        seconds = b.timestamp.tv_sec + b.timestamp.tv_usec / 1e6;
+        jpeg.assign(data, data + std::min((size_t)b.bytesused, buffers_[b.index].length));
+
+        /* The driver's capture time when it keeps one on the monotonic
+           clock, as a webcam's does: not when this thread got round to it.
+           A driver that doesn't is stamped on arrival. */
+        if ((b.flags & V4L2_BUF_FLAG_TIMESTAMP_MASK) == V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC)
+            seconds = b.timestamp.tv_sec + b.timestamp.tv_usec / 1e6;
+        else
+        {
+            timespec now;
+
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            seconds = now.tv_sec + now.tv_nsec / 1e9;
+        }
 
         if (xioctl(fd_, VIDIOC_QBUF, &b) < 0)
             return fail(status, "gone");
@@ -221,6 +238,7 @@ private:
 std::unique_ptr<thiSource> thiOpenV4l2 (const std::string &device, std::string &status)
 {
     std::vector<std::string> candidates;
+    std::string found;
 
     if (!device.empty())
         candidates.push_back(device);
@@ -252,10 +270,13 @@ std::unique_ptr<thiSource> thiOpenV4l2 (const std::string &device, std::string &
             return std::move(source);
         if (!device.empty())
             return nullptr;
+        /* A camera that is there and won't start -- in use by something
+           else, say -- is the reason worth giving. */
+        found = status;
     }
 
     if (device.empty())
-        status = "no Motion-JPEG camera";
+        status = found.empty() ? "no Motion-JPEG camera" : found;
 
     return nullptr;
 }

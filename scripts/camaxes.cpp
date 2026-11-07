@@ -26,6 +26,7 @@
  * against a hand in a room; not a test, since it needs a camera.
  */
 
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,6 +38,15 @@
 
 #include "thiCamera.h"
 #include "thiV4l2.h"
+
+/* Ctrl-C ends the run the way the clock does, so the camera's exposure
+   setting is put back as it closes. */
+static volatile sig_atomic_t interrupted = 0;
+
+static void interrupt (int)
+{
+    interrupted = 1;
+}
 
 int main (int argc, char **argv)
 {
@@ -56,12 +66,14 @@ int main (int argc, char **argv)
         }
     }
 
+    signal(SIGINT, interrupt);
+
     thiCamera cam([&] (std::string &status) { return thiOpenV4l2(device, status); },
                   [] { });
     const auto end = std::chrono::steady_clock::now() + std::chrono::duration<double>(seconds);
     std::vector<thiAxes> frames;
 
-    while (std::chrono::steady_clock::now() < end)
+    while (!interrupted && std::chrono::steady_clock::now() < end)
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
@@ -80,8 +92,8 @@ int main (int argc, char **argv)
                 if (a == thMotion::MOTION || a >= thMotion::ZONE1)
                     peak.axis[a] = std::max(peak.axis[a], f.axis[a]);
 
-        const double fps = frames.size() > 1
-            ? (frames.size() - 1) / (frames.back().seconds - frames.front().seconds) : 0;
+        const double span = frames.back().seconds - frames.front().seconds;
+        const double fps = frames.size() > 1 && span > 0 ? (frames.size() - 1) / span : 0;
         const int bar = (int)(peak.axis[thMotion::MOTION] * 20 + 0.5);
         char zones[3][16];
 
