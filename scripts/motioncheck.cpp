@@ -402,6 +402,25 @@ static std::function<void (Frame &, double)> softSweep (double speed, double sof
     };
 }
 
+static void noisyBacklight (void)
+{
+    /* A backlit room clipped across most of the picture, and noise in the
+       rest: nothing moves, so the place must not either. */
+    thMotion m(W, H);
+    unsigned seed = 5;
+
+    play(m, 30, 1, [&] (Frame &f, double) {
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                f.px[(size_t)y * W + x] = x < 64 ? (uint8_t)fmin(255, fmax(0, lround(100 + 5 * gaussian(seed))))
+                                                 : 255;
+    });
+
+    check("a still, noisy room under a clipped backlight stays put",
+          m.axis(thMotion::X) == 0.5f && m.axis(thMotion::Y) == 0.5f,
+          fmt("x %.3f y %.3f", m.axis(thMotion::X), m.axis(thMotion::Y)));
+}
+
 static void slowSoftHand (void)
 {
     thMotion slowCam(W, H), fastCam(W, H);
@@ -440,6 +459,8 @@ static void lightIsNotMotion (void)
           235 },
         { "exposure stepping on a backlit player is not motion", 1.15,
           [] (int x, int) { return x > 50 && x < 110 ? 120 : 400; } },
+        { "exposure stepping on a little unclipped under a clipped sky is not motion", 1.25,
+          [] (int x, int y) { return x < 50 && y < 40 ? 120 : 400; } },
         { "exposure stepping in a dark room is not motion", 1.25,
           [] (int x, int y) { return x < 64 && y < 120 ? 80 + y * 0.5 : 3; } },
     };
@@ -509,6 +530,41 @@ static void lightIsNotMotion (void)
 
     check("a hand is seen crossing a bright wall while exposure steps",
           wallLeast > 0, fmt("motion fell to %.3f", wallLeast));
+
+    /* The same under a sky clipped across nine tenths of the picture, the
+       hand crossing the strip of room below it; and under a clipped sky
+       over a wall so near white it looks clipped too, where only the wall
+       says how exposure moved. */
+    static const struct { const char *name; int wallFrom, roomFrom, wall; } skies[] = {
+        { "a hand is seen under a clipped sky while exposure steps", 108, 108, 0 },
+        { "a hand is seen under a clipped sky and a near-white wall while exposure steps",
+          60, 113, 253 },
+    };
+
+    for (const auto &sk : skies)
+    {
+        thMotion sky(W, H);
+        unsigned wallSeed = 13;
+        int skyStep = 0;
+        double skyLeast = 1;
+
+        play(sky, 30, 0.5, [&] (Frame &f, double t) {
+            const double g = skyStep++ % 4 < 2 ? 1 : 0.87;
+
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    wallSeed = wallSeed * 1103515245 + 12345;
+                    f.px[(size_t)y * W + x] = y < sk.wallFrom ? 255
+                        : y < sk.roomFrom ? (uint8_t)lround(g * (sk.wall + (int)((wallSeed >> 16) % 3)))
+                        : (uint8_t)lround(g * (fabs(x - (20 + 200 * t)) < 8 && y > sk.roomFrom ? 40 : 120));
+                }
+            if (skyStep > 2)
+                skyLeast = fmin(skyLeast, sky.axis(thMotion::MOTION));
+        });
+
+        check(sk.name, skyLeast > 0, fmt("motion fell to %.3f", skyLeast));
+    }
 
     /* A big bright hand coming in from the picture's left, in its top two
        rows of zones: the bottom row must stay quiet. */
@@ -666,6 +722,7 @@ int main (void)
     stalls();
     padding();
     noisyStillness();
+    noisyBacklight();
     slowSoftHand();
     lightIsNotMotion();
     repeatedFrames();

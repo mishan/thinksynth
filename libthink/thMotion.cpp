@@ -138,7 +138,8 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
            is compared with, in RATIO_STEPS a unit, from pixels neither too
            dark for a ratio to mean anything nor clipped in either frame. A
            median, so a hand covering less than half of them does not move
-           it. */
+           it. A pixel clipped in both frames says nothing about exposure,
+           and nothing about noise. */
         static const int RATIO_STEPS = 128, RATIO_BINS = 4 * RATIO_STEPS;
         int ratios[RATIO_BINS] = { 0 }, unclipped[RATIO_BINS] = { 0 };
         long counted = 0, countedUnclipped = 0;
@@ -147,15 +148,16 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
             for (int x = 0; x < width_; x++)
             {
                 const int now = luma[(size_t)y * stride + x], then = was[(size_t)y * width_ + x];
+                const bool clippedThen = then >= wasWhite, clippedNow = now >= white;
 
-                if (then < 16)
+                if (then < 16 || (clippedThen && clippedNow))
                     continue;
 
                 const int bin = std::min(RATIO_BINS - 1, now * RATIO_STEPS / then);
 
                 ratios[bin]++;
                 counted++;
-                if (then < wasWhite && now < white)
+                if (!clippedThen && !clippedNow)
                 {
                     unclipped[bin]++;
                     countedUnclipped++;
@@ -163,22 +165,34 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
             }
 
         /* A flat bright wall filling the picture looks clipped and may not
-           be: with too little left once it is set aside, all of it. */
-        if (countedUnclipped * 8 >= (long)area)
+           be: with too little left once it is set aside, the pixels clipped
+           in only one frame too. */
+        if (countedUnclipped * 16 >= (long)area)
             gain = (median(unclipped, RATIO_BINS, countedUnclipped) + 0.5) / RATIO_STEPS;
-        else if (counted * 8 >= (long)area)
+        else if (counted * 16 >= (long)area)
             gain = (median(ratios, RATIO_BINS, counted) + 0.5) / RATIO_STEPS;
 
         /* The noise: the median residual is 0.6745 of a Gaussian's sigma,
-           and 4 sigma passes one pixel in sixteen thousand. */
+           and 4 sigma passes one pixel in sixteen thousand -- from enough
+           pixels that a hand in them is not most of them. */
         int residuals[256] = { 0 };
+        long informative = 0;
 
         for (int y = 0; y < height_; y++)
             for (int x = 0; x < width_; x++)
-                residuals[std::min(255, (int)residual(luma[(size_t)y * stride + x],
-                                                      was[(size_t)y * width_ + x]))]++;
+            {
+                const int now = luma[(size_t)y * stride + x], then = was[(size_t)y * width_ + x];
 
-        noiseFloor = std::max(noiseFloor, (int)(4 / 0.6745 * (median(residuals, 256, area) + 0.5)));
+                if (then >= wasWhite && now >= white)
+                    continue;
+
+                residuals[std::min(255, (int)residual(now, then))]++;
+                informative++;
+            }
+
+        if (informative * 16 >= (long)area)
+            noiseFloor = std::max(noiseFloor,
+                                  (int)(4 / 0.6745 * (median(residuals, 256, informative) + 0.5)));
     }
 
     double zone[9] = { 0 };
