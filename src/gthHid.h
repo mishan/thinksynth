@@ -28,6 +28,7 @@
 #include <glibmm/dispatcher.h>
 
 #include "thhHands.h"
+#include "thhLooper.h"
 #include "thhMapper.h"
 #include "thhPane.h"
 #include "thhReader.h"
@@ -64,6 +65,8 @@ public:
     bool reload (std::string &err);
     bool canSwapHands () const;
     void swapHands ();
+    std::string loops () const;
+    void clearLoops ();
 
 private:
     /* A controller: the USB device it is at, its reader, and the hand it
@@ -94,6 +97,11 @@ private:
     /* Each hand's bend of each note, which add. */
     std::map<std::pair<int, int>, double> bends_[2];
 
+    /* What both hands play, looped; ticked while it has loops. */
+    thhLooper        looper_;
+    thhVoices        voices_;
+    sigc::connection tick_;
+
     /* Before the readers, so it outlives their threads, which emit it
        until they are joined. */
     Glib::Dispatcher                    dispatcher_;
@@ -104,7 +112,10 @@ private:
     bool scan ();
     void hands ();
     void configure (bool pair);
-    void play (int hand, const std::vector<thhAction> &acts);
+    /* at: when the hand played them, on now()'s clock. */
+    void play (int hand, const std::vector<thhAction> &acts, double at = 0);
+    void sound (const std::vector<thhAction> &acts);
+    bool tick ();
     void drained ();
 };
 

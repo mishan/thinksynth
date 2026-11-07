@@ -68,6 +68,11 @@ public:
     /* A pair playing the wrong hands each other's, kept for next time. */
     virtual bool canSwapHands () const = 0;
     virtual void swapHands () = 0;
+
+    /* What the loops are doing, as a line to show, or nothing; and every
+       loop stopped, which a controller gone can't ask for. */
+    virtual std::string loops () const { return ""; }
+    virtual void clearLoops () {}
 };
 
 #endif /* THH_PANE_H */

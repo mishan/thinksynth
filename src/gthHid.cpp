@@ -16,6 +16,7 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 
@@ -29,6 +30,17 @@
 
 /* How often a new controller is looked for. */
 #define GTH_HID_SCAN_MS 1000
+
+/* How often the loops play what is due: well under what an ear hears as
+   late. */
+#define GTH_HID_LOOP_MS 2
+
+static double
+now ()
+{
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 gthHid::gthHid (thSynth *synth, const std::function<int ()> &channel)
     : synth_(synth), channel_(channel),
@@ -65,7 +77,10 @@ gthHid::~gthHid ()
     std::vector<thhAction> acts;
 
     scan_.disconnect();
+    tick_.disconnect();
     slots_.clear();
+
+    clearLoops();
     for (int h = 0; h < 2; h++)
     {
         acts.clear();
@@ -282,10 +297,11 @@ gthHid::swapHands ()
 
 /* A hand's actions on the synth: notes as the keyboard plays them, each
    note's bend the sum of the hands', in the order they came, so a note's
-   first bend follows it on. */
+   first bend follows it on; and the looper's, which hears what they play. */
 void
-gthHid::play (int hand, const std::vector<thhAction> &acts)
+gthHid::play (int hand, const std::vector<thhAction> &acts, double at)
 {
+    const double t = at > 0 ? at : now();
     std::vector<thhAction> out;
 
     for (size_t i = 0; i < acts.size(); i++)
@@ -293,6 +309,12 @@ gthHid::play (int hand, const std::vector<thhAction> &acts)
         thhAction a = acts[i];
         const std::pair<int, int> key(a.channel, a.note);
 
+        if (a.kind == thhAction::LOOP)
+        {
+            looper_.act(a, t, out);
+            generation_++;
+            continue;
+        }
         if (a.kind == thhAction::NOTE_BEND)
         {
             bends_[hand][key] = a.t;
@@ -308,12 +330,58 @@ gthHid::play (int hand, const std::vector<thhAction> &acts)
         out.push_back(a);
     }
 
-    thhPlay(*synth_, out, [](const thhAction &a) {
+    looper_.heard(out, t);
+    sound(out);
+    if (looper_.loops() && !tick_.connected())
+        tick_ = Glib::signal_timeout().connect(
+            sigc::mem_fun(*this, &gthHid::tick), GTH_HID_LOOP_MS);
+}
+
+void
+gthHid::sound (const std::vector<thhAction> &acts)
+{
+    std::vector<thhAction> heard;
+
+    voices_.pass(acts, heard);
+    thhPlay(*synth_, heard, [](const thhAction &a) {
         if (a.kind == thhAction::NOTE_ON)
             m_sigKbdNoteOn(a.channel, a.note, a.vel);
         else
             m_sigKbdNoteOff(a.channel, a.note);
     });
+}
+
+bool
+gthHid::tick ()
+{
+    std::vector<thhAction> acts;
+
+    looper_.tick(now(), acts);
+    sound(acts);
+    return looper_.loops() > 0;
+}
+
+std::string
+gthHid::loops () const
+{
+    const int n = looper_.loops();
+    const std::string playing = std::to_string(n) + " playing";
+
+    return looper_.recording() ? "recording" + (n ? ", " + playing : "")
+           : n ? playing : "";
+}
+
+void
+gthHid::clearLoops ()
+{
+    std::vector<thhAction> acts;
+    thhAction clear = thhAction();
+
+    clear.kind = thhAction::LOOP;
+    clear.arg = "clear";
+    looper_.act(clear, now(), acts);
+    sound(acts);
+    generation_++;
 }
 
 void
@@ -359,13 +427,18 @@ gthHid::drained ()
         }
 
         const int h = side(s.hand);
-        std::vector<thhAction> acts;
 
-        for (size_t e = 0; e < edges.size(); e++)
-            mappers_[h].update(edges[e], ch, acts);
-        mappers_[h].update(latest, ch, acts);
+        /* Each at its own report's time, so a loop records a tap read in
+           one drain as long as it was, and not a stall of this thread. */
+        for (size_t e = 0; e <= edges.size(); e++)
+        {
+            const thhState &st = e < edges.size() ? edges[e] : latest;
+            std::vector<thhAction> acts;
+
+            mappers_[h].update(st, ch, acts);
+            play(h, acts, st.time);
+        }
         s.latest = latest;
-        play(h, acts);
 
         if ((was || went) && !latest.connected)
             hands();
