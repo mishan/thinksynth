@@ -157,7 +157,7 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | `a = hold mod;` | a button | switches layer `mod` on while held |
 | `a = toggle mod;` | a button | switches layer `mod` on and off |
 | `trigger = "cutoff" { min = 200; max = 8000; shape = exp; };` | an axis | rides a knob of the patch; with no range, the knob's own. `exp` needs a range above 0, and is linear otherwise |
-| `stick_y = pitch { step = octave; range = 2; };` | an axis | moves the base note when a note starts (`step = semitone` too) |
+| `stick_y = pitch { step = octave; range = 2; };` | an axis | moves the base note when a note starts (`step = semitone` too, or `scale = minor_pentatonic;` to step by its degrees: `major`, `minor`, `dorian`, `pentatonic`, `minor_pentatonic`, `blues`) |
 | `trigger = velocity { min = 30; max = 127; };` | an axis | sets how hard buttons play |
 | `stick_x = bend { range = 2; };` | an axis | bends every note it is holding, each on its own, up to that many semitones (either way on a centered axis); a note started while bent starts bent, and a note let go of is bent no further. Works on any patch |
 | `grip_force = aux 0 { min = 0; max = 1; };` | an axis | sets `aux0` (0 to 3) of every note it is holding, for a patch that reads `ionode->aux0` |

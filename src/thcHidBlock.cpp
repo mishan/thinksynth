@@ -321,6 +321,29 @@ Parser::options (thcHidBinding &b)
                             "octave or semitone");
             i_++;
         }
+        else if (k == "scale" && pitch)
+        {
+            static const struct { const char *name; std::vector<int> steps; }
+                scales[] = {
+                    { "major", { 0, 2, 4, 5, 7, 9, 11 } },
+                    { "minor", { 0, 2, 3, 5, 7, 8, 10 } },
+                    { "dorian", { 0, 2, 3, 5, 7, 9, 10 } },
+                    { "pentatonic", { 0, 2, 4, 7, 9 } },
+                    { "minor_pentatonic", { 0, 3, 5, 7, 10 } },
+                    { "blues", { 0, 3, 5, 6, 7, 10 } },
+                };
+            const Tok &v = peek();
+
+            b.scale.clear();
+            for (const auto &sc : scales)
+                if (isWord(v, sc.name))
+                    b.scale = sc.steps;
+            if (b.scale.empty())
+                return fail(v, "'" + v.text + "' is not a scale; write major, "
+                            "minor, dorian, pentatonic, minor_pentatonic or "
+                            "blues");
+            i_++;
+        }
         else if (k == "range" && (pitch || bend))
         {
             if (!integer(b.range, 1, 127, "range"))
@@ -340,6 +363,8 @@ Parser::options (thcHidBinding &b)
     if (b.shape == thcHidBinding::EXP &&
         ((b.hasMin && b.min <= 0) || (b.hasMax && b.max <= 0)))
         return fail(b.line, "an exp shape needs a range above 0");
+    if (b.octaves && !b.scale.empty())
+        return fail(b.line, "a scale steps by its degrees, not by octaves");
     if ((pitch || bend) && b.range == 0)
         return fail(b.line, std::string(pitch ? "a pitch axis" : "a bend") +
                     " needs a range");

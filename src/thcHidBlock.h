@@ -59,6 +59,8 @@ struct thcHidBinding
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
     int         range;      /* PITCH: steps from the base note, either side
                                of it on a bipolar axis; BEND: semitones */
+    std::vector<int> scale; /* PITCH: its steps are these degrees, semitones
+                               above the base within an octave, if any */
 
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),

@@ -193,6 +193,13 @@ static const Row ROWS[] = {
       "axis stick_y -1; down a; up a",
       " | on 1 84 100 | off 1 84 |  | on 1 72 100 | off 1 72 |  | "
       "on 1 36 100 | off 1 36", 0, NULL },
+    { "the pitch axis on a scale's degrees, either side of the base",
+      "device index { a = note 0; "
+      "stick_y = pitch { scale = minor_pentatonic; range = 5; }; };",
+      "axis stick_y 1; down a; up a; axis stick_y 0.4; down a; up a; "
+      "axis stick_y -0.2; down a; up a; axis stick_y -1; down a; up a",
+      " | on 1 72 100 | off 1 72 |  | on 1 65 100 | off 1 65 |  | "
+      "on 1 58 100 | off 1 58 |  | on 1 48 100 | off 1 48", 0, NULL },
     { "the pitch axis in semitones, on a grip zone",
       "device index { a = note 0; grip_mid = pitch { range = 12; }; };",
       "axis grip_mid 0.5; down a; up a", " | on 1 66 100 | off 1 66", 0, NULL },

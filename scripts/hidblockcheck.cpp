@@ -52,6 +52,8 @@ describe (const thcHidBinding &b)
     case thcHidBinding::VALUE:    s << "value " << b.arg; break;
     case thcHidBinding::PITCH:
         s << "pitch " << (b.octaves ? "octave" : "semitone") << " " << b.range;
+        for (size_t i = 0; i < b.scale.size(); i++)
+            s << (i ? "," : " scale ") << b.scale[i];
         break;
     case thcHidBinding::VELOCITY: s << "velocity"; break;
     case thcHidBinding::BEND:     s << "bend " << b.range; break;
@@ -217,6 +219,19 @@ static const Row ROWS[] = {
       "index ch0 base60 vel100 | grip_force:value cutoff @1 | "
       "grip_force:value drive @1 | tilt:pitch octave 1 center0.27 @1 | "
       "tilt:value bright center-0.5 @1", 0, NULL },
+    { "a pitch axis on a scale",
+      "device index { tilt = pitch { scale = minor_pentatonic; range = 10; }; };",
+      "index ch0 base60 vel100 | tilt:pitch semitone 10 scale 0,3,5,7,10 @1",
+      0, NULL },
+    { "a scale that isn't one",
+      "device index { tilt = pitch { scale = lydian9; range = 10; }; };",
+      NULL, 1, "not a scale" },
+    { "a second scale that isn't one",
+      "device index { tilt = pitch { scale = major; scale = lydian9; range = 10; }; };",
+      NULL, 1, "not a scale" },
+    { "a scale stepping by octaves",
+      "device index {\n  tilt = pitch { step = octave; scale = major; "
+      "range = 2; };\n};", NULL, 2, "degrees" },
     { "a latched note and a smoothed knob",
       "device index { a = note 0 { latch; }; grip_top = \"pitch\" { "
       "smooth = 0.1; }; };",

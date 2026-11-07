@@ -104,10 +104,14 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
     case thcHidBinding::PITCH:
     {
         const bool both = axis >= 0 && controls.axes[axis].bipolar;
-        const std::string unit = b.octaves ? " octave" : " semitone";
+        const std::string unit = !b.scale.empty() ? " degree"
+                                 : b.octaves      ? " octave"
+                                                  : " semitone";
 
         r.action = "pitch, " + std::to_string(b.range) + unit +
-                   (b.range == 1 ? "" : "s") + (both ? " either way" : " up");
+                   (b.range == 1 ? "" : "s") +
+                   (b.scale.empty() ? "" : " of a scale") +
+                   (both ? " either way" : " up");
         break;
     }
     case thcHidBinding::VELOCITY:

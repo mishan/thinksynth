@@ -417,9 +417,20 @@ thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
         {
             const thcHidBinding &p = l->binds[l->axis[ax][i]].b;
 
-            if (p.kind == thcHidBinding::PITCH)
-                note += (int)std::lround((s.axis[ax] - p.center) * p.range) *
-                        (p.octaves ? 12 : 1);
+            if (p.kind != thcHidBinding::PITCH)
+                continue;
+
+            const int steps = (int)std::lround((s.axis[ax] - p.center) * p.range);
+            const int n = (int)p.scale.size();
+
+            if (n)
+            {
+                const int octave = steps >= 0 ? steps / n : -((n - 1 - steps) / n);
+
+                note += 12 * octave + p.scale[steps - octave * n];
+            }
+            else
+                note += steps * (p.octaves ? 12 : 1);
         }
     }
 

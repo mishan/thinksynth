@@ -98,6 +98,9 @@ static const Row ROWS[] = {
     { "a pitch axis on a grip zone only goes up",
       "device index { grip_top = pitch { range = 7; }; };", NULL, NULL, 0, 0,
       "grip_top | pitch, 7 semitones up |  | 0.00\n" },
+    { "a pitch axis on a scale counts its degrees",
+      "device index { tilt = pitch { scale = blues; range = 1; }; };", NULL,
+      NULL, 0, 0, "tilt | pitch, 1 degree of a scale either way |  | 0.00\n" },
     { "a layer's rows, with its channel",
       "device index { thumbstick = hold mod; a = note 0; "
       "layer mod { channel = 2; a = note 7; grip_mid = \"resonance\"; }; };",
