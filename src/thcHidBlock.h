@@ -1,0 +1,97 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef TH_HID_BLOCK_H
+#define TH_HID_BLOCK_H
+
+#include <string>
+#include <vector>
+
+#include "thcGenFile.h"
+
+/* What a HID controller's mapping says, as plain data.
+ *
+ * The same block is a device profile on its own (`device index { ... };')
+ * and, later, the body of a chain's `input hid'. It lives beside the .gen
+ * loader so both can read it with the .gen tokenizer, and it names controls
+ * only as words: which words a device has is the HID library's business,
+ * which depends on this and not the other way round. Every binding keeps its
+ * line so that library can still say where a bad control name is. */
+
+struct thcHidBinding
+{
+    enum Kind { NOTE, HOLD, TOGGLE, OCTAVE, VALUE, PITCH, VELOCITY };
+    enum Shape { LINEAR, EXP };
+
+    Kind        kind;
+    std::string control;
+    int         line;
+
+    int         semis;      /* NOTE: above the base note; OCTAVE: the step */
+    std::string layer;      /* HOLD, TOGGLE */
+    std::string arg;        /* VALUE */
+    int         channel;    /* NOTE, VALUE: 1-16; 0 inherits */
+    bool        hasMin, hasMax;
+    double      min, max;   /* VALUE, VELOCITY */
+    Shape       shape;      /* VALUE */
+    bool        octaves;    /* PITCH: steps of an octave, not a semitone */
+    int         range;      /* PITCH: steps from the base note, either side
+                               of it on a bipolar axis */
+
+    thcHidBinding ()
+        : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
+          hasMax(false), min(0), max(0), shape(LINEAR), octaves(false),
+          range(0) {}
+};
+
+struct thcHidLayer
+{
+    std::string name;
+    int         line;
+    int         channel;    /* 1-16; 0 inherits the device's */
+    int         base;       /* MIDI note; -1 inherits the device's */
+
+    std::vector<thcHidBinding> bindings;
+
+    thcHidLayer () : line(0), channel(0), base(-1) {}
+};
+
+struct thcHidBlock
+{
+    std::string device;
+    int         channel;    /* 1-16; 0 plays the host's current channel */
+    int         base;       /* MIDI note */
+    int         velocity;   /* what buttons play at with no velocity source */
+
+    std::vector<thcHidBinding> bindings;
+    std::vector<thcHidLayer>   layers;
+
+    thcHidBlock () : channel(0), base(60), velocity(100) {}
+};
+
+/* The body of a block, from the `{' at toks[pos] through its closing `}'.
+ * On success pos is one past the `}'. On failure err and errLine say what
+ * and where. */
+bool thcHidParseBlock (const std::vector<thcGenToken> &toks, size_t &pos,
+                       thcHidBlock &out, std::string &err, int &errLine);
+
+/* A whole profile file: `device NAME { ... };' and nothing else. */
+bool thcHidParseProfile (const std::string &text, thcHidBlock &out,
+                         std::string &err, int &errLine);
+
+#endif /* TH_HID_BLOCK_H */

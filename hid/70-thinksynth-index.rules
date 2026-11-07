@@ -1,0 +1,4 @@
+# Lets whoever is at the seat read a wired Valve Index controller, which
+# thinksynth plays as an instrument. Copy it to /etc/udev/rules.d/ and plug
+# the controller in again.
+KERNEL=="hidraw*", ATTRS{idVendor}=="28de", ATTRS{idProduct}=="2300", TAG+="uaccess"

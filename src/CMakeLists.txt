@@ -61,6 +61,7 @@ add_library(think_composerhost OBJECT
     thcGenFile.cpp
     thcGenEdit.cpp
     thcGenDiff.cpp
+    thcHidBlock.cpp
     thcFreeze.cpp
     thcAudition.cpp
     thcMidiFile.cpp
@@ -292,6 +293,11 @@ if(APPLE)
   list(APPEND THINKSYNTH_SOURCES "${THINK_ICNS}")
 endif()
 
+# A Valve Index controller as an instrument, read from hidraw.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  list(APPEND THINKSYNTH_SOURCES gthHid.cpp $<TARGET_OBJECTS:think_hid>)
+endif()
+
 add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
     $<TARGET_OBJECTS:think_nodemodel>
@@ -306,6 +312,10 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_nodecanvas>
     $<TARGET_OBJECTS:think_composercanvas>
     $<TARGET_OBJECTS:think_rollcanvas>)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_include_directories(thinksynth PRIVATE "${PROJECT_SOURCE_DIR}/hid")
+endif()
 
 # The GUI subsystem on Windows, so launching this does not also open a
 # terminal. Without it the linker defaults to the console subsystem and

@@ -400,6 +400,7 @@ endif()
 # The composer host and the toolkit-free libraries are wanted either way;
 # src/ builds the application only with THINK_GUI.
 add_subdirectory(src)
+add_subdirectory(hid)
 
 # Webcams: read with V4L2, so Linux's, and decoded with libjpeg.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

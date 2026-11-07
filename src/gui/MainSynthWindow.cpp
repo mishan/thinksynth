@@ -2350,6 +2350,11 @@ void MainSynthWindow::onMasterGain (void)
  *
  * Channels picks it, and a reload, a load or an effect keeps it; Patch
  * params and Patch graph show its pages, and the keys play it. */
+int MainSynthWindow::keyboardChannel (void) const
+{
+    return kbPanel_ ? kbPanel_->channel() : 0;
+}
+
 void MainSynthWindow::selectChannel (int chan)
 {
     if (chan < 0 || chan >= (int)holders_.size())

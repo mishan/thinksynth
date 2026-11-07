@@ -13,7 +13,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS;ROLLCANVAS;PANEL;STAGEPANEL;PATCH;DSPCATALOG;GENCATALOG" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;HID;NODECANVAS;COMPOSERCANVAS;ROLLCANVAS;PANEL;STAGEPANEL;PATCH;DSPCATALOG;GENCATALOG" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -28,6 +28,12 @@ function(think_harness name)
 
   if(H_COMPOSERHOST)
     list(APPEND sources $<TARGET_OBJECTS:think_composerhost>)
+  endif()
+
+  # The HID controller library (hid/). Wants COMPOSERHOST beside it, for the
+  # profile reader it is built on.
+  if(H_HID)
+    list(APPEND sources $<TARGET_OBJECTS:think_hid>)
   endif()
 
   # What a parameter panel is (src/PanelModel.h) and the providers that build
@@ -99,6 +105,10 @@ function(think_harness name)
 
   if(H_COMPOSERHOST)
     target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
+  endif()
+
+  if(H_HID)
+    target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/hid")
   endif()
 
   if(H_NODECANVAS OR H_COMPOSERCANVAS OR H_ROLLCANVAS)
@@ -267,6 +277,34 @@ think_harness(wavcheck)
 # The .gen and .dsp readers, and what a room does with what they read, on
 # changed copies of every shipped file.
 think_harness(parsecheck COMPOSERHOST)
+
+# What a HID controller's mapping block says (src/thcHidBlock.h).
+think_harness(hidblockcheck COMPOSERHOST)
+
+# What a HID controller's profile does with its controls (hid/thhMapper.h).
+think_harness(hidmapcheck COMPOSERHOST HID)
+
+# What the Index controller's reports mean, against a capture (hid/thhIndex.h).
+think_harness(hidcheck COMPOSERHOST HID)
+
+# A profile found or not, and a controller's actions on a real synth
+# (hid/thhPlay.h).
+think_harness(hidplaycheck COMPOSERHOST HID)
+
+# Finding a controller and reading it on a thread (hid/thhReader.h), which
+# is Linux's.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  think_harness(hidreadcheck COMPOSERHOST HID)
+  add_test(NAME hidreadcheck
+           COMMAND hidreadcheck
+                   "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt")
+  # A reader that doesn't stop hangs rather than fails.
+  set_tests_properties(hidreadcheck PROPERTIES TIMEOUT 60)
+endif()
+
+add_test(NAME hidplaycheck
+         COMMAND hidplaycheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp")
 
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.
@@ -1051,6 +1089,12 @@ add_test(NAME patchcheck
 
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)
+
+add_test(NAME hidblockcheck COMMAND hidblockcheck)
+add_test(NAME hidmapcheck COMMAND hidmapcheck)
+add_test(NAME hidcheck
+         COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"
+                          "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt")
 
 # The corpus, because "a row says what loading the file would have said" is a
 # claim about the shipped graphs; the fixtures run either way. The plugins are
