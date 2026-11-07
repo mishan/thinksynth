@@ -20,6 +20,9 @@ and the pattern is theirs:
   hold one value, and one a sample while they move; a compiled voice
   makes one a call while they're knobs, numbers or the note's. The same
   arithmetic either way, so the two still render alike to the bit.
+- **What runs once in a `Ctl` may afford libm**, where the accuracy is
+  worth more than the cycles: `thkPan::ctl` uses `sinf` and `cosf`, since
+  the table's rounding on each side is more than constant power allows.
 - **A kernel that keeps nothing is a function**, `thk<Name>(...)`, as
   `thkMidi2freq` is. A plugin with two modes has a kernel for each, as
   `env::adsr` has `thkAdsrFree` and `thkAdsrGated`.

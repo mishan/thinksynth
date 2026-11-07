@@ -89,6 +89,8 @@ static const Kernel KERNELS[] = {
     { "env/ad", { "a", "d", "p" }, "thkAd::ctl", { "reset" }, false, "thkAd" },
     { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", { "trigger", "reset" }, false, NULL },
     { "misc/midi2freq", {}, NULL, { "note" }, true, NULL },
+    { "mixer/pan", { "pan" }, "thkPan::ctl", { "in" }, true, NULL },
+    { "math/clamp", {}, NULL, { "in", "lo", "hi" }, true, NULL },
     { "math/add", {}, NULL, { "in0", "in1" }, true, NULL },
     { "math/sub", {}, NULL, { "in0", "in1" }, true, NULL },
     { "math/mul", {}, NULL, { "in0", "in1" }, true, NULL },
@@ -283,7 +285,7 @@ struct Compiler
         placing.erase(n);
         ctls[n] = cs;
         ins[n] = vs;
-        control[n] = ctl;
+        control[n] = ctl && once;
         ctlOnce[n] = once;
         order[n] = (int)placed.size();
         placed.push_back(n);
@@ -329,6 +331,15 @@ struct Compiler
             s << "        float " << var(n, "play") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
               << ", " << args(0) << ", " << var(n, "play") << ");\n";
+        else if (p == "mixer/pan")
+            s << "        const float " << var(n, "out0") << " = " << v[0].text << " * "
+              << var(n, "ctl") << ".left;\n"
+              << "        const float " << var(n, "out1") << " = " << v[0].text << " * "
+              << var(n, "ctl") << ".right;\n";
+        else if (p == "math/clamp")
+            s << "        const float " << out << " = " << v[0].text << " < " << v[1].text
+              << " ? " << v[1].text << " : " << v[0].text << " > " << v[2].text << " ? "
+              << v[2].text << " : " << v[0].text << ";\n";
         else if (p == "misc/midi2freq")
             s << "        const float " << out << " = thkMidi2freq(" << v[0].text << ", rate);\n";
         else
@@ -555,10 +566,12 @@ main (int argc, char **argv)
     /* Once a call: what numbers, knobs and the note alone decide, and the
        control structs of kernels whose control inputs are all that. */
     for (thNode *n : c.placed)
+    {
+        if (Compiler::kernelFor(n)->ctlCall && c.ctlOnce[n])
+            printf("%s", c.emitCtl(n).c_str());
         if (c.control[n])
             printf("%s", c.emit(n).c_str());
-        else if (Compiler::kernelFor(n)->ctlCall && c.ctlOnce[n])
-            printf("%s", c.emitCtl(n).c_str());
+    }
     printf("\n        for (int i = 0; i < count; i++)\n        {\n");
     for (thNode *n : c.placed)
         if (!c.control[n])

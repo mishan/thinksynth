@@ -27,8 +27,17 @@
 
 #include "thKernel.h"
 #include "../plugins/env/adsr.h"
+#include "../plugins/mixer/pan.h"
 
 static int failed = 0;
+
+/* By the bits: fast math may take a NaN to equal anything. */
+template <class T>
+static bool
+same (const T &a, const T &b)
+{
+    return memcmp(&a, &b, sizeof(T)) == 0;
+}
 
 static void
 report (const char *name, bool ok)
@@ -46,11 +55,19 @@ main ()
     float nan;
 
     memcpy(&nan, &b, sizeof(nan));
+
+    /* And 0, which a NaN is held to, from a volatile too: worked out where
+       the NaN's is, not folded where fast math may round it otherwise. */
+    volatile float vzero = 0;
+    const float zero = vzero;
+
     report("a sine of NaN is 0, not a read past the table", thkSin2pi(nan) == 0);
     /* What it gives back is fast math's to say; past the table is a crash. */
     (void)thkLn1e(nan);
     report("the envelopes' log of NaN reads no table", true);
     report("a NaN frequency is the slowest", thkBoundFreq(nan, 32000) == 32000 / 16777216.0f);
+
+    report("a NaN pan is the middle", same(thkPan::ctl(nan), thkPan::ctl(zero)));
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");
     return failed ? 1 : 0;

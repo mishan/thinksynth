@@ -30,6 +30,8 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "think.h"
 
@@ -38,15 +40,20 @@
 #include "thvDxbell.h"
 #include "thvGate.h"
 #include "thvNames.h"
+#include "thvGrab.h"
 
 #define WINDOW 128
 
 static int failed = 0;
 
+typedef std::vector<std::pair<const char *, float>> Turned;
+
+/* The knobs in turned are set alike on the engine and the voice before the
+   note, so nothing glides. */
 template <class V>
 static void
 check (const char *name, const std::string &file, const std::string &plugins,
-       int releaseAt, int windows, bool ends = false)
+       int releaseAt, int windows, bool ends = false, const Turned &turned = {})
 {
     thSynth synth(plugins, WINDOW, (int)V::rate);
     V voice;
@@ -60,6 +67,12 @@ check (const char *name, const std::string &file, const std::string &plugins,
         printf("FAIL  %s\n  %s didn't load\n", name, file.c_str());
         failed++;
         return;
+    }
+    for (const auto &t : turned)
+    {
+        synth.setChanArg(0, new thArg(std::string(t.first), t.second));
+        if (!knobs.set(t.first, t.second))
+            snprintf(why, sizeof(why), "no knob %s", t.first);
     }
     synth.addNote(0, 60, 100);
     voice.start(60, 100);
@@ -136,6 +149,11 @@ main (int argc, char **argv)
 
     check<thvDxbell>("dsp/dxbell.dsp, held then let go, to its end", dsp + "/dxbell.dsp",
                      plugins, 300, 1300, true);
+    check<thvGrab>("dsp/grab.dsp, its gated envelope released", dsp + "/grab.dsp",
+                   plugins, 300, 600);
+    check<thvGrab>("dsp/grab.dsp, every knob turned", dsp + "/grab.dsp", plugins, 300, 600,
+                   false, { { "bright", 0.8f }, { "ring", 20000 }, { "level", 0.6f },
+                            { "pan", 0.5f } });
     check<thvGate>("a gated envelope through its release, done as the engine is",
                    dsp + "/../scripts/compiled/gate.dsp", plugins, 100, 200, true);
     check<thvNames>("knobs named for a word of C++'s and for set()'s own",

@@ -33,6 +33,7 @@
 #include "../plugins/env/ad.h"
 #include "../plugins/env/adsr.h"
 #include "../plugins/misc/midi2freq.h"
+#include "../plugins/mixer/pan.h"
 #include "../plugins/osc/fmop.h"
 
 static int failed = 0;
@@ -133,6 +134,30 @@ main ()
             std::fabs(thkMidi2freq(INFINITY, 32000) - 15999) +
             std::fabs(thkMidi2freq(4210, 32000) - 15999);
     report("nothing is 0 Hz, and past the top is the top", worst, 0);
+
+    /* The pan's sides against cos and sin of (pan + 1) pi / 4, and their
+       powers summing to 1 wherever it's put; past the ends is the end. */
+    worst = 0;
+    for (float pan = -1.2f; pan <= 1.2f; pan += 0.001f)
+    {
+        const double t = (std::max(-1.0f, std::min(1.0f, pan)) + 1) * (M_PI / 4);
+        const thkPan::Ctl c = thkPan::ctl(pan);
+
+        worst = std::max(worst, std::max(std::fabs(c.left - std::cos(t)),
+                                         std::fabs(c.right - std::sin(t))));
+    }
+    report("the pan's two sides, from end to end", worst, 2e-7);
+    worst = 0;
+    for (float pan = -1; pan <= 1; pan += 0.001f)
+    {
+        const thkPan::Ctl c = thkPan::ctl(pan);
+
+        worst = std::max(worst, (double)std::fabs(c.left * c.left + c.right * c.right - 1));
+    }
+    report("the pan's sides' powers sum to the input's", worst, 3e-7);
+    report("a pan that isn't a number is the middle",
+           std::fabs(thkPan::ctl(NAN).left - (float)M_SQRT1_2) +
+           std::fabs(thkPan::ctl(NAN).right - (float)M_SQRT1_2), 1.5e-6);
 
     /* The envelopes' shapes: (sample, level, sounding) where it matters. */
     struct Shape
