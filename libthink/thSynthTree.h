@@ -149,6 +149,14 @@ public:
     const string &category(void) const { return category_; }
     void setCategory(const string &category) { category_ = category; }
 
+    /* The patch's `controller' blocks, as the text of a controller profile
+     * (docs/HID.md): `device' for each `controller', on the lines the file
+     * had them on, so a mistake is reported at the patch's own line.
+     * Nothing in the engine reads it; a host hands it to the controller
+     * code, which plays it over the player's own profile. */
+    const string &controller (void) const { return controller_; }
+    void addController (const string &text) { controller_ += text; }
+
     int nodeCount (void) const { return nodecount_; }
 
     const thArgMap &chanArgs (void) const { return chanargs_; }
@@ -389,7 +397,7 @@ private:
     /* What desugarExprs() left behind, for the editor. Not copied either. */
     std::vector<thExprBox> exprBoxes_;
 
-    string name_, desc_, category_;
+    string name_, desc_, category_, controller_;
     int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 
                             id for the node index */
     thNode **nodeindex_; /* index of all the nodes */
