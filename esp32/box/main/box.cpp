@@ -33,7 +33,6 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
-#include "esp_lcd_touch_tt21100.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -167,6 +166,9 @@ static Patch *const patches[] = { PATCHES };
 static SemaphoreHandle_t lock;
 static volatile int playing = 0;
 static volatile float load = 0;         /* of the audio task's time */
+/* Each patch's most, and the blocks it took longer than they last. */
+static float peak[64];
+static int late[64];
 
 /* The keys fingers are on, a bit each, for the screen; and which patch it
    shows as playing. */
@@ -174,8 +176,54 @@ static volatile uint32_t lit = 0;
 static volatile int shown = 0;
 
 static i2c_master_bus_handle_t bus;
-static i2c_master_dev_handle_t imu;
-static esp_lcd_touch_handle_t touch;
+static i2c_master_dev_handle_t imu, touch;
+
+/* A contact the touch controller reports. */
+struct Contact
+{
+    int id, x, y;
+};
+
+/* The BOX's touch controller, a TT21100 at 0x24, read as it asks to be:
+   the length of its report, then the whole report, whatever its length.
+   A report left unread is offered again and again, and nothing newer
+   behind it, so every one is read through. Finger records are ten bytes
+   each after a seven-byte header; a 14-byte report is the buttons'. */
+static int
+touchRead (Contact *out, int most)
+{
+    static uint8_t report[512];
+    uint8_t len[2];
+
+    if (i2c_master_receive(touch, len, 2, 20) != ESP_OK)
+        return 0;
+
+    const int n = len[0] | (len[1] << 8);
+
+    if (n < 2 || n > (int)sizeof(report) ||
+        i2c_master_receive(touch, report, n, 20) != ESP_OK || n < 7 || n == 14)
+        return 0;
+
+    int count = 0;
+
+    for (int r = 0; r < (report[5] & 0x1f) && 7 + 10 * (r + 1) <= n; r++)
+    {
+        const uint8_t *t = report + 7 + 10 * r;
+
+        if ((t[0] & 0x07) != 0 || count >= most)    /* a finger, not a pen */
+            continue;
+        /* A finger's last record says it has lifted: its tip off, its
+           event 3. */
+        if (!(t[1] & 0x80) || ((t[1] >> 5) & 3) == 3)
+            continue;
+        out[count].id = t[1] & 0x1f;
+        /* Mirrored across the 320 columns, as the screen is drawn. */
+        out[count].x = 319 - (t[2] | (t[3] << 8));
+        out[count].y = t[4] | (t[5] << 8);
+        count++;
+    }
+    return count;
+}
 
 static void
 audioTask (void *)
@@ -195,6 +243,9 @@ audioTask (void *)
         for (Patch *p : patches)
             p->render(mix[0], mix[1]);
         load = (esp_timer_get_time() - t) / (1e6f * BLOCK / BOX_RATE);
+        if (load > peak[playing])
+            peak[playing] = load;
+        late[playing] += load > 1;
         xSemaphoreGive(lock);
 
         for (int i = 0; i < BLOCK; i++)
@@ -506,26 +557,23 @@ controlTask (void *)
         wasDown = down;
 
         /* Each contact to the finger with its id, or to a free one. */
-        esp_lcd_touch_point_data_t points[FINGERS];
-        uint8_t count = 0;
+        Contact points[FINGERS];
+        const int count = touchRead(points, FINGERS);
 
-        esp_lcd_touch_read_data(touch);
-        if (esp_lcd_touch_get_data(touch, points, &count, FINGERS) != ESP_OK)
-            count = 0;
         most = count > most ? count : most;
         for (int p = 0; p < count; p++)
         {
             Finger *f = NULL;
 
             for (Finger &g : finger)
-                if (g.id == points[p].track_id)
+                if (g.id == points[p].id)
                     f = &g;
             for (Finger &g : finger)
                 if (!f && g.id < 0)
                     f = &g;
             if (!f)
                 continue;
-            f->id = points[p].track_id;
+            f->id = points[p].id;
             f->seen = now;
             f->s.axis[THH_BOX_X] = points[p].x / (float)(W - 1);
             f->s.axis[THH_BOX_Y] = points[p].y / (float)(H - 1);
@@ -572,6 +620,13 @@ controlTask (void *)
         lit = keys;
 
         if (n % 125 == 0)
+        {
+            printf("peaks");
+            for (int p = 0; p < NPATCHES; p++)
+                printf("  %s %.0f%% %d late", patches[p]->name, peak[p] * 100, late[p]);
+            printf("\n");
+        }
+        if (n % 125 == 0)
             printf("%s load %3.0f%%  presses %d  most at once %d  keys %03lx  tilt %+.2f roll %+.2f twist "
                    "%+.2f turn %+.2f\n", patches[playing]->name, load * 100, presses, most,
                    (unsigned long)keys, pose.axis[THH_BOX_TILT], pose.axis[THH_BOX_ROLL],
@@ -606,19 +661,8 @@ app_main (void)
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &imu));
     i2c_master_transmit(imu, on, 2, 100);
 
-    /* The touchscreen's controller, a TT21100 at 0x24, its interrupt on 3. */
-    esp_lcd_panel_io_handle_t tio;
-    esp_lcd_panel_io_i2c_config_t tc = ESP_LCD_TOUCH_IO_I2C_TT21100_CONFIG();
-    esp_lcd_touch_config_t touchc = {};
-
-    tc.scl_speed_hz = 400000;
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(bus, &tc, &tio));
-    touchc.x_max = 320;
-    touchc.y_max = 240;
-    touchc.rst_gpio_num = GPIO_NUM_NC;
-    touchc.int_gpio_num = GPIO_NUM_3;
-    touchc.flags.mirror_x = 1;
-    ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_tt21100(tio, &touchc, &touch));
+    ic.device_address = 0x24;
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &touch));
 
     lock = xSemaphoreCreateMutex();
     printf("thinkbox: %d patches, %d voices each at %d Hz\n", NPATCHES, VOICES, BOX_RATE);
