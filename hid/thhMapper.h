@@ -84,23 +84,28 @@ private:
         int                channel;     /* 1-16; 0 inherits */
         int                base;        /* -1 inherits */
         std::vector<Bound> binds;
-        int                button[THH_MAX_BUTTONS], axis[THH_MAX_AXES];
-        int                pitch, velocity;     /* into binds, or -1 */
+        int                button[THH_MAX_BUTTONS];   /* into binds, or -1 */
+        std::vector<int>   axis[THH_MAX_AXES];        /* into binds */
+        int                velocity;                  /* into binds, or -1 */
+        std::vector<std::pair<int, double> > when;    /* a posture's */
+        std::vector<double> off;                      /* where each lets go */
     };
 
-    /* A layer switched on, by the button holding it or by a toggle; the
-       newest is last and wins. */
+    /* A layer switched on, by the button holding it, a toggle or the
+       posture it waits for; the newest is last and wins. */
     struct Active
     {
         int  layer, button;
-        bool toggle;
+        bool toggle, posture;
     };
 
     /* What a button's press did, so its release can undo exactly that. */
     struct Held
     {
         enum What { NONE, NOTE, HOLD } what;
-        int channel, note;
+        int    channel, note;
+        double off;             /* a strike's: where it lets go */
+        bool   latched;         /* a latch's: until the next press */
     };
 
     std::vector<Layer>  layers_;
@@ -111,22 +116,43 @@ private:
     Held        held_[THH_MAX_BUTTONS];
     int         sounding_[16][128];         /* buttons holding each note */
     int         octave_;
-    bool        sent_[THH_MAX_AXES];
-    double      last_[THH_MAX_AXES];
-    std::string lastArg_[THH_MAX_AXES];
-    int         lastChannel_[THH_MAX_AXES];
+
+    /* What each axis last sent where: a new set of targets hears where the
+       axis is at once, and the same set only past the deadband. */
+    struct Sent
+    {
+        std::vector<std::pair<int, std::string> > to;
+        std::vector<double>                       t;
+        std::vector<double>                       smoothed;
+        double                                    time;
+    };
+    Sent        sent_[THH_MAX_AXES];
 
     static bool bindLayer (const std::vector<thcHidBinding> &bindings,
                            const thcHidBlock &profile,
                            const thhControls &controls, Layer &l,
                            std::string &err, int &errLine);
     const Bound *find (bool axis, int index) const;
-    const Bound *source (bool pitch) const;
+    const Layer *axisLayer (int axis) const;
+    const Bound *velocitySource () const;
     int channelOf (const thcHidBinding &b, int curChannel) const;
     int base () const;
+    /* Strikes, by axis: the note each holds, and whether the axis has been
+       under its off since, and when it last was. */
+    Held   heldAxis_[THH_MAX_AXES];
+    bool   armed_[THH_MAX_AXES];
+    double below_[THH_MAX_AXES];
+
+    void postures (const thhState &s);
     void press (int button, const thhState &s, int curChannel,
                 std::vector<thhAction> &out);
     void lift (int button, std::vector<thhAction> &out);
+    void strike (int axis, const thhState &s, int curChannel,
+                 std::vector<thhAction> &out);
+    /* vel < 0 plays at the velocity source's, or the profile's. */
+    void sound (const thcHidBinding &b, Held &h, const thhState &s,
+                int curChannel, int vel, std::vector<thhAction> &out);
+    void unsound (Held &h, std::vector<thhAction> &out);
     double along (const Bound &ax, const thhState &s) const;
 };
 

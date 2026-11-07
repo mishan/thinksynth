@@ -35,19 +35,23 @@
 
 struct thcHidBinding
 {
-    enum Kind { NOTE, HOLD, TOGGLE, OCTAVE, VALUE, PITCH, VELOCITY };
+    enum Kind { NOTE, HOLD, TOGGLE, OCTAVE, VALUE, PITCH, VELOCITY, STRIKE };
     enum Shape { LINEAR, EXP };
 
     Kind        kind;
     std::string control;
     int         line;
 
-    int         semis;      /* NOTE: above the base note; OCTAVE: the step */
+    int         semis;      /* NOTE, STRIKE: above the base; OCTAVE: the step */
     std::string layer;      /* HOLD, TOGGLE */
     std::string arg;        /* VALUE */
-    int         channel;    /* NOTE, VALUE: 1-16; 0 inherits */
+    int         channel;    /* NOTE, VALUE, STRIKE: 1-16; 0 inherits */
     bool        hasMin, hasMax;
-    double      min, max;   /* VALUE, VELOCITY */
+    double      min, max;   /* VALUE, VELOCITY, STRIKE's velocity */
+    double      at, off;    /* STRIKE: on rising past at, off below off */
+    double      center;     /* VALUE, PITCH: where the axis counts from */
+    double      smooth;     /* VALUE: seconds it takes to follow the axis */
+    bool        latch;      /* NOTE: a press starts it, the next ends it */
     Shape       shape;      /* VALUE */
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
     int         range;      /* PITCH: steps from the base note, either side
@@ -55,8 +59,9 @@ struct thcHidBinding
 
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
-          hasMax(false), min(0), max(0), shape(LINEAR), octaves(false),
-          range(0) {}
+          hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
+          smooth(0), latch(false), shape(LINEAR),
+          octaves(false), range(0) {}
 };
 
 struct thcHidLayer
@@ -66,9 +71,13 @@ struct thcHidLayer
     int         channel;    /* 1-16; 0 inherits the device's */
     int         base;       /* MIDI note; -1 inherits the device's */
 
+    /* A posture: on while each of these axes is at least its value. */
+    std::vector<std::pair<std::string, double> > when;
+    int         whenLine;
+
     std::vector<thcHidBinding> bindings;
 
-    thcHidLayer () : line(0), channel(0), base(-1) {}
+    thcHidLayer () : line(0), channel(0), base(-1), whenLine(0) {}
 };
 
 struct thcHidBlock
@@ -81,7 +90,13 @@ struct thcHidBlock
     std::vector<thcHidBinding> bindings;
     std::vector<thcHidLayer>   layers;
 
-    thcHidBlock () : channel(0), base(60), velocity(100) {}
+    /* What a profile of changes says it sets, and drops from what it
+       changes: `ignore NAME;', a control or a layer. */
+    bool                       hasChannel, hasBase, hasVelocity;
+    std::vector<std::pair<std::string, int> > ignore;   /* name, line */
+
+    thcHidBlock () : channel(0), base(60), velocity(100), hasChannel(false),
+                     hasBase(false), hasVelocity(false) {}
 };
 
 /* The body of a block, from the `{' at toks[pos] through its closing `}'.

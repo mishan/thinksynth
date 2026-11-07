@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -78,6 +79,8 @@ thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
         n.all.push_back(node);
         if (thhIndexIsInput((const uint8_t *)desc.data(), desc.size()))
             n.input = node;
+        if (thhIndexIsImu((const uint8_t *)desc.data(), desc.size()))
+            n.imu = node;
     }
 
     for (auto &u : byUsb)
@@ -93,7 +96,8 @@ thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
 
 bool
 thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
-                 int &input, std::vector<int> &fds, std::string &status)
+                 int &input, int &imu, std::vector<int> &fds,
+                 std::string &status)
 {
     thhIndexNodes n;
 
@@ -136,9 +140,14 @@ thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
         opened.push_back(fd);
     }
 
+    imu = -1;
     for (size_t i = 0; i < n.all.size(); i++)
+    {
         if (n.all[i] == n.input)
             input = opened[i];
+        if (n.all[i] == n.imu)
+            imu = opened[i];
+    }
     fds.swap(opened);
     status.clear();
     return true;
@@ -225,14 +234,15 @@ thhReader::run ()
 {
     std::vector<int> fds;
     thhState s;
-    int in = -1;
+    thhIndexImu imu;
+    int in = -1, motion = -1;
 
     for (;;)
     {
         if (in < 0)
         {
             std::string why;
-            const bool ok = connect_(in, fds, why);
+            const bool ok = connect_(in, motion, fds, why);
             bool changed;
 
             {
@@ -248,6 +258,7 @@ thhReader::run ()
             {
                 s = thhState();
                 s.connected = true;
+                imu = thhIndexImu();
                 continue;
             }
 
@@ -258,18 +269,23 @@ thhReader::run ()
             continue;
         }
 
-        struct pollfd p[2] = { { in, POLLIN, 0 }, { stop_[0], POLLIN, 0 } };
-        const int ready = poll(p, 2, silenceMs_);
+        /* poll() passes over a negative fd, so a controller with no IMU
+           is only its input. */
+        struct pollfd p[3] = { { in, POLLIN, 0 }, { motion, POLLIN, 0 },
+                               { stop_[0], POLLIN, 0 } };
+        const int ready = poll(p, 3, silenceMs_);
 
         if (ready < 0 && errno == EINTR)
             continue;
-        if (ready > 0 && p[1].revents)
+        if (ready > 0 && p[2].revents)
             break;
 
         uint8_t buf[64];
-        const ssize_t n = ready > 0 ? read(in, buf, sizeof(buf)) : -1;
+        const int from = ready > 0 && p[0].revents ? in
+                         : ready > 0 && p[1].revents ? motion : -1;
+        const ssize_t n = from >= 0 ? read(from, buf, sizeof(buf)) : -1;
 
-        if (n < 0 && ready > 0 && (errno == EAGAIN || errno == EINTR))
+        if (n < 0 && from >= 0 && (errno == EAGAIN || errno == EINTR))
             continue;
 
         /* Unplugged, asleep, or never woken: let go, and connect again. */
@@ -278,13 +294,17 @@ thhReader::run ()
             for (size_t i = 0; i < fds.size(); i++)
                 close(fds[i]);
             fds.clear();
-            in = -1;
+            in = motion = -1;
             s = thhState();
             publish(s);
             continue;
         }
 
-        if (thhIndexFeed(buf, n, s))
+        s.time = std::chrono::duration<double>(
+                     std::chrono::steady_clock::now().time_since_epoch())
+                     .count();
+        if (from == in ? thhIndexFeed(buf, n, s)
+                       : thhIndexFeedImu(buf, n, imu, s))
             publish(s);
     }
 

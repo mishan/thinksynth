@@ -50,6 +50,7 @@ enum thhIndexAxis
     THH_INDEX_TRIGGER_NEAR, THH_INDEX_GRIP_FORCE, THH_INDEX_TRIGGER,
     THH_INDEX_PAD_X, THH_INDEX_PAD_Y, THH_INDEX_PAD_FORCE,
     THH_INDEX_STICK_X, THH_INDEX_STICK_Y,
+    THH_INDEX_TILT, THH_INDEX_ROLL, THH_INDEX_TWIST,
     THH_INDEX_AXES
 };
 
@@ -67,8 +68,29 @@ extern const uint8_t THH_INDEX_INIT[2][5];
    theirs. */
 bool thhIndexIsInput (const uint8_t *desc, size_t len);
 
+/* And whether it is the IMU's, whose input report is 0x20. */
+bool thhIndexIsImu (const uint8_t *desc, size_t len);
+
 /* An input report into s. False, leaving s as it was, for anything that
    isn't one: a ping, another report, too few bytes. */
 bool thhIndexFeed (const uint8_t *data, size_t len, thhState &s);
+
+/* The IMU's report 0x20 carries three samples of the accelerometer and the
+   gyro. Gravity, smoothed, gives tilt (the front's angle above level,
+   -1..1 over a quarter turn) and roll (how far the buttons face left, +,
+   or right, -, 1 at a quarter turn and less as the front tips toward up
+   or down); the gyro gives twist, how fast it is rolling. The smoothing
+   lives here, between reports. */
+struct thhIndexImu
+{
+    float g[3];         /* gravity, smoothed, in the IMU's own axes */
+    float twist;
+    bool  primed;
+
+    thhIndexImu () : twist(0), primed(false) { g[0] = g[1] = g[2] = 0; }
+};
+
+bool thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
+                      thhState &s);
 
 #endif /* THH_INDEX_H */

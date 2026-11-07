@@ -271,7 +271,7 @@ checkByHand (void)
         "trigger_touch thumbstick_touch trackpad_touch | grip_top=1.000 "
         "grip_mid=0.000 grip_low=0.506 trigger_near=0.251 grip_force=0.063 "
         "trigger=0.502 pad_x=0.500 pad_y=-1.000 pad_force=0.996 "
-        "stick_x=0.000 stick_y=0.000";
+        "stick_x=0.000 stick_y=0.000 tilt=0.000 roll=0.000 twist=0.000";
 
     report("a report built by hand",
            !ok ? "refused" : describe(s) == want ? "" :
@@ -326,11 +326,15 @@ checkDescriptors (const string &path)
         const string name = line.substr(0, tab);
         const std::vector<uint8_t> d = unhex(line.substr(tab + 1));
         const bool input = thhIndexIsInput(d.data(), d.size());
+        const bool imu = thhIndexIsImu(d.data(), d.size());
 
         n++;
         report("the " + name + " interface's descriptor",
-               input == (name == "input") ? "" :
-               input ? "taken for the input's" : "not taken for the input's");
+               input != (name == "input") ?
+                   (input ? "taken for the input's" : "not taken for the input's")
+               : imu != (name == "imu") ?
+                   (imu ? "taken for the IMU's" : "not taken for the IMU's")
+               : "");
 
         /* Cut short anywhere, it is read no further than it goes; and cut
            before its Input item (0x81), not even the input's is. */
@@ -355,13 +359,126 @@ checkDescriptors (const string &path)
                                                      : "");
 }
 
+/* Each pose's reports through a filter of its own, so a still pose reads
+   as itself rather than as the way there from the last one. */
+static void
+checkImu (const char *path)
+{
+    struct Pose
+    {
+        const char *label;
+        float       tilt[2], roll[2];   /* where it settles: least, most */
+        float       twist;              /* how far twist reaches each way */
+    };
+    static const Pose POSES[] = {
+        { "hold it the way you play it, still", { 0.2f, 0.35f },
+          { -0.15f, 0.15f }, 0 },
+        { "tip the front (the stick end) UP, still", { 0.8f, 1 },
+          { -1, 1 }, 0 },
+        { "tip the front DOWN, still", { -0.5f, -0.3f }, { -0.2f, 0.2f }, 0 },
+        { "roll your wrist so the buttons face LEFT, still", { -0.15f, 0.15f },
+          { 0.8f, 1 }, 0 },
+        { "roll your wrist so the buttons face RIGHT, still", { -0.15f, 0.15f },
+          { -1, -0.9f }, 0 },
+        { "twist it left and right a few times, like turning a key",
+          { -1, 1 }, { -1, 1 }, 0.5f },
+    };
+    std::ifstream in(path);
+    std::map<string, std::vector<std::vector<uint8_t> > > seen;
+    string line;
+
+    while (std::getline(in, line))
+    {
+        const size_t tab = line.find('\t');
+
+        seen[line.substr(0, tab)].push_back(unhex(line.substr(tab + 1)));
+    }
+
+    for (size_t p = 0; p < sizeof(POSES) / sizeof(POSES[0]); p++)
+    {
+        const Pose &pose = POSES[p];
+        thhIndexImu imu;
+        thhState s;
+        float lo = 0, hi = 0;
+        size_t fed = 0;
+
+        for (const std::vector<uint8_t> &r : seen[pose.label])
+            if (thhIndexFeedImu(r.data(), r.size(), imu, s))
+            {
+                fed++;
+                lo = std::min(lo, s.axis[THH_INDEX_TWIST]);
+                hi = std::max(hi, s.axis[THH_INDEX_TWIST]);
+            }
+
+        const float tilt = s.axis[THH_INDEX_TILT], roll = s.axis[THH_INDEX_ROLL];
+        char got[128];
+
+        snprintf(got, sizeof(got), "tilt %.2f, roll %.2f, twist %.2f..%.2f "
+                 "from %zu reports", tilt, roll, lo, hi, fed);
+        report(pose.label,
+               fed && tilt >= pose.tilt[0] && tilt <= pose.tilt[1] &&
+               roll >= pose.roll[0] && roll <= pose.roll[1] &&
+               (pose.twist ? hi >= pose.twist && lo <= -pose.twist
+                           : std::max(hi, -lo) < 0.05f) ? "" : got);
+    }
+
+    /* Rolled on past a quarter turn, and with the front straight up, roll
+       moves smoothly: no wrap at the far side, no swing when gravity
+       hardly crosses it. Gravity here is a unit vector in the IMU's axes. */
+    struct Turn
+    {
+        const char *name;
+        float       g[3];
+        float       lo, hi;     /* where roll must be */
+    };
+    static const Turn TURNS[] = {
+        { "rolled a quarter turn left",   { 0, 0, 1 },          0.95f, 1 },
+        { "rolled on past it",            { 0, 0.5f, 0.866f },  0.8f, 0.9f },
+        { "rolled most of the way over",  { 0, 0.98f, 0.17f },  0.1f, 0.25f },
+        { "the front straight up, a hair left", { -1, 0, 0.02f }, -0.05f, 0.05f },
+        { "the front straight up, a hair right", { -1, 0, -0.02f }, -0.05f, 0.05f },
+    };
+
+    for (size_t i = 0; i < sizeof(TURNS) / sizeof(TURNS[0]); i++)
+    {
+        uint8_t r[52] = { 0x20 };
+        thhIndexImu imu;
+        thhState s;
+        char got[64];
+
+        for (int k = 0; k < 3; k++)
+            for (int a = 0; a < 3; a++)
+            {
+                const int16_t v = (int16_t)(TURNS[i].g[a] * 4096);
+
+                r[1 + 17 * k + 2 * a] = v & 0xff;
+                r[2 + 17 * k + 2 * a] = (v >> 8) & 0xff;
+            }
+        thhIndexFeedImu(r, sizeof(r), imu, s);
+        snprintf(got, sizeof(got), "roll %.3f", s.axis[THH_INDEX_ROLL]);
+        report(TURNS[i].name, s.axis[THH_INDEX_ROLL] >= TURNS[i].lo &&
+               s.axis[THH_INDEX_ROLL] <= TURNS[i].hi ? "" : got);
+    }
+
+    /* A short report, or the input's, is refused without moving anything. */
+    uint8_t r[64] = { 0x20 };
+    thhIndexImu imu;
+    thhState s;
+
+    report("an IMU report too short, or the input's, is refused",
+           !thhIndexFeedImu(r, 51, imu, s) &&
+           !thhIndexFeedImu((r[0] = 0x01, r), 64, imu, s) &&
+           s.axis[THH_INDEX_TILT] == 0 ? "" : "taken");
+}
+
 int
 main (int argc, char *argv[])
 {
-    if (argc < 3)
+    if (argc < 4)
     {
         fprintf(stderr, "usage: hidcheck <scripts/hid/index-input.txt> "
-                "<scripts/hid/index-descriptors.txt>\n");
+                "<scripts/hid/index-descriptors.txt> "
+                "<scripts/hid/index-imu.txt>\n");
         return 2;
     }
 
@@ -374,6 +491,7 @@ main (int argc, char *argv[])
     checkCapture(argv[1]);
     checkByHand();
     checkDescriptors(argv[2]);
+    checkImu(argv[3]);
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
 

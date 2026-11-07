@@ -22,6 +22,12 @@
 
 #include "thhMapper.h"
 
+/* How far under its values a posture's axes go before it lets go, so a
+   hand at the edge of one doesn't flicker in and out of it: this, or half
+   the way to the axis's bottom where that's nearer, or a posture low on
+   its axis could never let go at all. */
+#define THH_POSTURE_GIVE 0.15
+
 /* Values closer than this to the last one sent aren't sent: below what an
    8-bit control can resolve, so only noise is lost. */
 #define THH_DEADBAND (1.0 / 256)
@@ -41,10 +47,10 @@ thhMapper::thhMapper ()
     : buttons_(0), axes_(0), velocity_(100), octave_(0)
 {
     memset(held_, 0, sizeof(held_));
+    memset(heldAxis_, 0, sizeof(heldAxis_));
+    memset(armed_, 0, sizeof(armed_));
+    memset(below_, 0, sizeof(below_));
     memset(sounding_, 0, sizeof(sounding_));
-    memset(sent_, 0, sizeof(sent_));
-    memset(last_, 0, sizeof(last_));
-    memset(lastChannel_, 0, sizeof(lastChannel_));
 }
 
 /* One layer's bindings onto the device's controls. */
@@ -56,8 +62,8 @@ thhMapper::bindLayer (const std::vector<thcHidBinding> &bindings,
     for (int i = 0; i < THH_MAX_BUTTONS; i++)
         l.button[i] = -1;
     for (int i = 0; i < THH_MAX_AXES; i++)
-        l.axis[i] = -1;
-    l.pitch = l.velocity = -1;
+        l.axis[i].clear();
+    l.velocity = -1;
 
     for (size_t i = 0; i < bindings.size(); i++)
     {
@@ -90,28 +96,32 @@ thhMapper::bindLayer (const std::vector<thcHidBinding> &bindings,
             return false;
         }
 
-        if (b.kind == thcHidBinding::PITCH || b.kind == thcHidBinding::VELOCITY)
+        if (b.kind == thcHidBinding::VELOCITY)
         {
-            int &slot = b.kind == thcHidBinding::PITCH ? l.pitch : l.velocity;
-
-            if (slot >= 0)
+            if (l.velocity >= 0)
             {
-                err = b.kind == thcHidBinding::PITCH
-                      ? "a layer has one pitch axis"
-                      : "a layer has one velocity source";
+                err = "a layer has one velocity source";
                 return false;
             }
-            slot = (int)l.binds.size();
+            l.velocity = (int)l.binds.size();
         }
 
-        /* The parser has checked the layer exists. */
         for (size_t j = 0; j < profile.layers.size(); j++)
             if (profile.layers[j].name == b.layer)
                 bound.layer = (int)j + 1;
+        if ((b.kind == thcHidBinding::HOLD || b.kind == thcHidBinding::TOGGLE) &&
+            bound.layer < 0)
+        {
+            err = "there is no layer '" + b.layer + "'";
+            return false;
+        }
 
         if (!wantsButton)
             bound.bipolar = controls.axes[axis].bipolar;
-        (wantsButton ? l.button : l.axis)[bound.index] = (int)l.binds.size();
+        if (wantsButton)
+            l.button[bound.index] = (int)l.binds.size();
+        else
+            l.axis[bound.index].push_back((int)l.binds.size());
         l.binds.push_back(bound);
     }
 
@@ -154,6 +164,27 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
         l.name = pl.name;
         l.channel = pl.channel;
         l.base = pl.base;
+
+        for (size_t j = 0; j < pl.when.size(); j++)
+        {
+            const std::string &w = pl.when[j].first;
+            const int axis = controls.axis(w);
+
+            errLine = pl.whenLine;
+            if (axis < 0)
+            {
+                err = controls.button(w) >= 0
+                      ? "'" + w + "' is a button; a posture wants axes"
+                      : "'" + w + "' is not a control the " + controls.device +
+                        " has";
+                return false;
+            }
+            const double at = pl.when[j].second;
+            const double floor = controls.axes[axis].bipolar ? -1 : 0;
+
+            l.when.push_back(std::make_pair(axis, at));
+            l.off.push_back(at - std::min(THH_POSTURE_GIVE, (at - floor) / 2));
+        }
         if (!bindLayer(pl.bindings, profile, controls, l, err, errLine))
             return false;
 
@@ -213,7 +244,9 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     axes_ = (int)controls.axes.size();
     velocity_ = profile.velocity;
     octave_ = 0;
-    memset(sent_, 0, sizeof(sent_));
+    for (int i = 0; i < THH_MAX_AXES; i++)
+        sent_[i] = Sent();
+    memset(armed_, 0, sizeof(armed_));
 
     for (size_t i = 0; i < active_.size(); i++)
         if (!active_[i].toggle)
@@ -222,37 +255,53 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     return true;
 }
 
-/* What a control does now: the newest active layer that binds it, else the
-   profile's own binding, else nothing. */
+/* Which layer an axis answers to now: the newest active one that binds
+   it, else the profile's own, else none. */
+const thhMapper::Layer *
+thhMapper::axisLayer (int axis) const
+{
+    for (size_t i = active_.size(); i-- > 0;)
+        if (!layers_[active_[i].layer].axis[axis].empty())
+            return &layers_[active_[i].layer];
+
+    return layers_[0].axis[axis].empty() ? NULL : &layers_[0];
+}
+
+/* What a control does now, or the first of what an axis does. */
 const thhMapper::Bound *
 thhMapper::find (bool axis, int index) const
 {
+    if (axis)
+    {
+        const Layer *l = axisLayer(index);
+
+        return l ? &l->binds[l->axis[index][0]] : NULL;
+    }
+
     for (size_t i = active_.size(); i-- > 0;)
     {
         const Layer &l = layers_[active_[i].layer];
-        const int at = axis ? l.axis[index] : l.button[index];
 
-        if (at >= 0)
-            return &l.binds[at];
+        if (l.button[index] >= 0)
+            return &l.binds[l.button[index]];
     }
 
-    const int at = axis ? layers_[0].axis[index] : layers_[0].button[index];
+    const int at = layers_[0].button[index];
 
     return at >= 0 ? &layers_[0].binds[at] : NULL;
 }
 
-/* The pitch axis or the velocity source: the newest active layer's that has
-   one, else the profile's. */
+/* The velocity source: the newest active layer's that has one, else the
+   profile's. */
 const thhMapper::Bound *
-thhMapper::source (bool pitch) const
+thhMapper::velocitySource () const
 {
     for (size_t i = active_.size() + 1; i-- > 0;)
     {
         const Layer &l = layers_[i ? active_[i - 1].layer : 0];
-        const int at = pitch ? l.pitch : l.velocity;
 
-        if (at >= 0)
-            return &l.binds[at];
+        if (l.velocity >= 0)
+            return &l.binds[l.velocity];
     }
 
     return NULL;
@@ -282,7 +331,7 @@ thhMapper::base () const
 double
 thhMapper::along (const Bound &ax, const thhState &s) const
 {
-    const double v = s.axis[ax.index];
+    const double v = s.axis[ax.index] - ax.b.center;
     const double t = ax.bipolar ? (v + 1) / 2 : v;
 
     return t < 0 ? 0 : t > 1 ? 1 : t;
@@ -292,6 +341,13 @@ void
 thhMapper::press (int button, const thhState &s, int curChannel,
                   std::vector<thhAction> &out)
 {
+    /* A latched note's next press ends it, whatever binds the button now. */
+    if (held_[button].what == Held::NOTE && held_[button].latched)
+    {
+        unsound(held_[button], out);
+        return;
+    }
+
     const Bound *bt = find(false, button);
 
     if (!bt)
@@ -330,36 +386,55 @@ thhMapper::press (int button, const thhState &s, int curChannel,
         return;
     }
 
-    if (b.kind != thcHidBinding::NOTE)
-        return;
+    if (b.kind == thcHidBinding::NOTE)
+    {
+        sound(b, held_[button], s, curChannel, -1, out);
+        held_[button].latched = b.latch;
+    }
+}
 
-    const Bound *pitch = source(true);
-    const Bound *velocity = source(false);
+void
+thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
+                  int curChannel, int vel, std::vector<thhAction> &out)
+{
+    const Bound *velocity = velocitySource();
     int note = base() + 12 * octave_ + b.semis;
 
-    if (pitch)
-        note += (int)std::lround(s.axis[pitch->index] * pitch->b.range) *
-                (pitch->b.octaves ? 12 : 1);
+    /* Every pitch axis in effect adds its steps. */
+    for (int ax = 0; ax < axes_; ax++)
+    {
+        const Layer *l = axisLayer(ax);
+
+        for (size_t i = 0; l && i < l->axis[ax].size(); i++)
+        {
+            const thcHidBinding &p = l->binds[l->axis[ax][i]].b;
+
+            if (p.kind == thcHidBinding::PITCH)
+                note += (int)std::lround((s.axis[ax] - p.center) * p.range) *
+                        (p.octaves ? 12 : 1);
+        }
+    }
 
     if (note < 0 || note > 127)
         return;
 
-    int vel = velocity_;
-
-    if (velocity)
+    if (vel < 0 && velocity)
     {
         const double lo = velocity->b.hasMin ? velocity->b.min : 1;
         const double hi = velocity->b.hasMax ? velocity->b.max : 127;
 
         vel = (int)std::lround(lo + along(*velocity, s) * (hi - lo));
     }
+    else if (vel < 0)
+        vel = velocity_;
 
     const int channel = channelOf(b, curChannel);
-    Held &h = held_[button];
 
     h.what = Held::NOTE;
     h.channel = channel;
     h.note = note;
+    h.off = b.off;
+    h.latched = false;
 
     if (sounding_[channel][note]++ == 0)
     {
@@ -374,23 +449,13 @@ thhMapper::press (int button, const thhState &s, int curChannel,
 }
 
 void
-thhMapper::lift (int button, std::vector<thhAction> &out)
+thhMapper::unsound (Held &h, std::vector<thhAction> &out)
 {
-    Held &h = held_[button];
-    const Held::What what = h.what;
-
+    if (h.what != Held::NOTE)
+        return;
     h.what = Held::NONE;
 
-    if (what == Held::HOLD)
-    {
-        for (size_t i = 0; i < active_.size(); i++)
-            if (!active_[i].toggle && active_[i].button == button)
-            {
-                active_.erase(active_.begin() + i);
-                break;
-            }
-    }
-    else if (what == Held::NOTE && --sounding_[h.channel][h.note] == 0)
+    if (--sounding_[h.channel][h.note] == 0)
     {
         thhAction a = thhAction();
 
@@ -399,6 +464,71 @@ thhMapper::lift (int button, std::vector<thhAction> &out)
         a.note = h.note;
         out.push_back(a);
     }
+}
+
+/* A strike's speed is how long the axis took from its off to its at: this
+   quick or quicker is its loudest, this slow or slower its softest. */
+#define THH_STRIKE_FAST 0.01
+#define THH_STRIKE_SLOW 0.25
+
+void
+thhMapper::strike (int axis, const thhState &s, int curChannel,
+                   std::vector<thhAction> &out)
+{
+    Held &h = heldAxis_[axis];
+    const float v = s.axis[axis];
+
+    /* Let go where it began, whatever binds the axis now. */
+    if (h.what == Held::NOTE && v < h.off)
+        unsound(h, out);
+
+    const Bound *bd = find(true, axis);
+
+    if (!bd || bd->b.kind != thcHidBinding::STRIKE)
+    {
+        armed_[axis] = false;
+        return;
+    }
+
+    if (v < bd->b.off)
+    {
+        armed_[axis] = true;
+        below_[axis] = s.time;
+    }
+    else if (v >= bd->b.at && armed_[axis] && h.what != Held::NOTE)
+    {
+        const double lo = bd->b.hasMin ? bd->b.min : 20;
+        const double hi = bd->b.hasMax ? bd->b.max : 127;
+        const double t = std::max(0.0, std::min(1.0,
+            (s.time - below_[axis] - THH_STRIKE_FAST) /
+            (THH_STRIKE_SLOW - THH_STRIKE_FAST)));
+
+        armed_[axis] = false;
+        sound(bd->b, h, s, curChannel, (int)std::lround(hi - t * (hi - lo)),
+              out);
+    }
+}
+
+void
+thhMapper::lift (int button, std::vector<thhAction> &out)
+{
+    Held &h = held_[button];
+
+    if (h.what == Held::NOTE && h.latched)
+        return;
+    if (h.what != Held::HOLD)
+    {
+        unsound(h, out);
+        return;
+    }
+
+    h.what = Held::NONE;
+    for (size_t i = 0; i < active_.size(); i++)
+        if (!active_[i].toggle && active_[i].button == button)
+        {
+            active_.erase(active_.begin() + i);
+            break;
+        }
 }
 
 void
@@ -416,6 +546,8 @@ thhMapper::update (const thhState &s, int curChannel,
         return;
     }
 
+    postures(s);
+
     /* Coming back, every button that is down is a press. */
     const uint32_t was = prev_.connected ? prev_.buttons : 0;
 
@@ -430,51 +562,124 @@ thhMapper::update (const thhState &s, int curChannel,
     }
 
     for (int ax = 0; ax < axes_; ax++)
-    {
-        const Bound *bd = find(true, ax);
+        strike(ax, s, curChannel, out);
 
-        if (!bd || bd->b.kind != thcHidBinding::VALUE)
+    for (int ax = 0; ax < axes_; ax++)
+    {
+        const Layer *l = axisLayer(ax);
+        std::vector<const Bound *> values;
+        Sent to;
+
+        for (size_t i = 0; l && i < l->axis[ax].size(); i++)
         {
-            sent_[ax] = false;
-            continue;
+            const Bound &bd = l->binds[l->axis[ax][i]];
+
+            if (bd.b.kind == thcHidBinding::VALUE)
+            {
+                values.push_back(&bd);
+                to.to.push_back(std::make_pair(channelOf(bd.b, curChannel),
+                                               bd.b.arg));
+                to.t.push_back(along(bd, s));
+            }
         }
 
-        const double t = along(*bd, s);
-        const int channel = channelOf(bd->b, curChannel);
+        /* A new set of targets hears where the axis is at once. Otherwise
+           each is sent past the deadband, and the ends always, or a slow
+           move would stop short. */
+        const bool fresh = to.to != sent_[ax].to;
 
-        /* A new target hears where the control is at once. Otherwise the
-           ends are always sent, or a slow move would stop short. */
-        if (sent_[ax] && lastArg_[ax] == bd->b.arg &&
-            lastChannel_[ax] == channel &&
-            (t == last_[ax] ||
-             (std::fabs(t - last_[ax]) < THH_DEADBAND && t > 0 && t < 1)))
-            continue;
-        sent_[ax] = true;
-        last_[ax] = t;
-        lastArg_[ax] = bd->b.arg;
-        lastChannel_[ax] = channel;
+        /* A smoothed knob goes a share of the way there, the more the
+           longer since the last state, and starts where the axis is. */
+        to.time = s.time;
+        to.smoothed = to.t;
+        for (size_t i = 0; i < values.size(); i++)
+        {
+            const double k = values[i]->b.smooth;
 
-        thhAction a = thhAction();
+            if (!fresh && k > 0)
+            {
+                const double prev = sent_[ax].smoothed[i];
 
-        a.kind = thhAction::VALUE;
-        a.channel = channel;
-        a.arg = bd->b.arg;
-        a.t = t;
-        a.hasMin = bd->b.hasMin;
-        a.hasMax = bd->b.hasMax;
-        a.min = bd->b.min;
-        a.max = bd->b.max;
-        a.exp = bd->b.shape == thcHidBinding::EXP;
-        out.push_back(a);
+                to.smoothed[i] = prev + (1 - std::exp(-(s.time - sent_[ax].time) / k)) *
+                                        (to.t[i] - prev);
+            }
+            to.t[i] = to.smoothed[i];
+        }
+
+        for (size_t i = 0; i < values.size(); i++)
+        {
+            const double t = to.t[i];
+            const Bound &bd = *values[i];
+
+            if (!fresh && (t == sent_[ax].t[i] ||
+                           (std::fabs(t - sent_[ax].t[i]) < THH_DEADBAND &&
+                            t > 0 && t < 1)))
+            {
+                to.t[i] = sent_[ax].t[i];
+                continue;
+            }
+
+            thhAction a = thhAction();
+
+            a.kind = thhAction::VALUE;
+            a.channel = to.to[i].first;
+            a.arg = bd.b.arg;
+            a.t = t;
+            a.hasMin = bd.b.hasMin;
+            a.hasMax = bd.b.hasMax;
+            a.min = bd.b.min;
+            a.max = bd.b.max;
+            a.exp = bd.b.shape == thcHidBinding::EXP;
+            out.push_back(a);
+        }
+        sent_[ax] = to;
     }
 
     prev_ = s;
 }
 
-/* Holds let go with the notes; toggles stay as they are. */
+
+void
+thhMapper::postures (const thhState &s)
+{
+    for (size_t j = 1; j < layers_.size(); j++)
+    {
+        const Layer &l = layers_[j];
+        bool all = !l.when.empty(), gone = false;
+        size_t at = active_.size();
+
+        for (size_t i = 0; i < active_.size(); i++)
+            if (active_[i].posture && active_[i].layer == (int)j)
+                at = i;
+
+        for (size_t i = 0; i < l.when.size(); i++)
+        {
+            const float v = s.axis[l.when[i].first];
+
+            all = all && v >= l.when[i].second;
+            gone = gone || v < l.off[i];
+        }
+
+        if (at == active_.size() && all)
+            active_.push_back({ (int)j, -1, false, true });
+        else if (at < active_.size() && gone)
+            active_.erase(active_.begin() + at);
+    }
+}
+
+/* Holds and postures let go with the notes, the postures to be taken up
+   again from the next state; toggles stay as they are. */
 void
 thhMapper::release (std::vector<thhAction> &out)
 {
     for (int b = 0; b < THH_MAX_BUTTONS; b++)
+    {
+        held_[b].latched = false;
         lift(b, out);
+    }
+    for (int a = 0; a < THH_MAX_AXES; a++)
+        unsound(heldAxis_[a], out);
+    for (size_t i = active_.size(); i-- > 0;)
+        if (active_[i].posture)
+            active_.erase(active_.begin() + i);
 }

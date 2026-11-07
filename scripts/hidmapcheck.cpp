@@ -27,6 +27,7 @@
  *   axis A V        an axis moves to V
  *   unplug, plug    the controller goes and comes back
  *   release         the host asks the mapper to let go
+ *   wait N          N ms pass; every step is another 10
  *
  * Every step but `release' is one update(). What each step asked for is
  * written out by describe() and the steps are joined with " | ", so a row
@@ -112,9 +113,12 @@ play (thhMapper &m, const thhControls &c, const string &script, thhState &s,
             w >> s.axis[c.axis(name)];
         else if (verb == "unplug" || verb == "plug")
             s.connected = verb == "plug";
+        else if (verb == "wait")
+            s.time += atoi(name.c_str()) / 1000.0;
         else if (verb != "release")
             return "a step this harness can't read: '" + step + "'";
 
+        s.time += 0.01;
         if (verb == "release")
             m.release(acts);
         else
@@ -147,6 +151,13 @@ struct Row
 #define BOTH \
     "device index { b = note 2; thumbstick = hold mod; system = toggle drone; " \
     "layer mod { b = note 7; }; layer drone { b = note 4; }; };"
+#define STRIKE \
+    "device index { grip_top = strike 7; thumbstick = hold mod; " \
+    "layer mod { grip_top = strike 12; }; };"
+#define FIST \
+    "device index { a = note 0; system = toggle up; " \
+    "layer fist { when { grip_top = 0.7; grip_low = 0.7; }; a = note 7; }; " \
+    "layer up { a = note 12; }; };"
 #define STICK \
     "device index { a = note 0; stick_y = pitch { step = octave; range = 2; }; };"
 
@@ -308,29 +319,112 @@ static const Row ROWS[] = {
       "down system; up system; down b; up b; down a; up a",
       " |  |  |  |  |  |  |  |  |  |  |  |  |  "
       "|  |  |  |  |  |  |  |  |  | ", 0, NULL },
-    { "a layer's pitch axis over the base's",
+    { "a layer's pitch axis adds to the base's",
       "device index { a = note 0; thumbstick = hold mod; "
       "stick_y = pitch { step = octave; range = 1; }; "
       "layer mod { pad_y = pitch { step = octave; range = 1; }; }; };",
-      "axis stick_y 1; down a; up a; down thumbstick; down a; up a",
-      " | on 1 72 100 | off 1 72 |  | on 1 60 100 | off 1 60", 0, NULL },
+      "axis stick_y 1; down a; up a; down thumbstick; axis pad_y 1; down a; "
+      "up a",
+      " | on 1 72 100 | off 1 72 |  |  | on 1 84 100 | off 1 84", 0, NULL },
+    { "pitch axes add: a degree on the trackpad, an octave on tilt",
+      "device index { a = note 0; pad_y = pitch { range = 7; }; "
+      "tilt = pitch { step = octave; range = 1; center = 0.25; }; };",
+      "axis tilt 0.25; axis pad_y 0.5; down a; up a; axis tilt 0.7; down a; "
+      "up a; axis tilt 1; down a; up a; axis tilt -0.5; down a; up a",
+      " |  | on 1 64 100 | off 1 64 |  | on 1 64 100 | off 1 64 |  | "
+      "on 1 76 100 | off 1 76 |  | on 1 52 100 | off 1 52", 0, NULL },
+    { "one axis drives several knobs",
+      "device index { grip_force = \"cutoff\"; "
+      "grip_force = \"drive\" { channel = 2; }; };",
+      "axis grip_force 0.5; axis grip_force 0.501; axis grip_force 1",
+      "cutoff@1 0.500, drive@2 0.500 |  | cutoff@1 1.000, drive@2 1.000",
+      0, NULL },
+    { "a knob counts from its center",
+      "device index { tilt = \"bright\" { center = 0.25; }; };",
+      "axis tilt 0.25; axis tilt 1", "bright@1 0.500 | bright@1 0.875",
+      0, NULL },
+    { "a layer's knobs replace all of the base's on that axis",
+      "device index { grip_force = \"cutoff\"; grip_force = \"drive\"; "
+      "thumbstick = hold mod; layer mod { grip_force = \"air\"; }; };",
+      "axis grip_force 0.5; down thumbstick; up thumbstick",
+      "cutoff@1 0.500, drive@1 0.500 | air@1 0.500 | "
+      "cutoff@1 0.500, drive@1 0.500", 0, NULL },
 
+    { "a fast strike is loud", STRIKE,
+      "axis grip_top 0.1; axis grip_top 0.8; axis grip_top 0.1",
+      " | on 1 67 127 | off 1 67", 0, NULL },
+    { "a slow one is soft", STRIKE,
+      "axis grip_top 0.3; axis grip_top 0.5; wait 300; axis grip_top 0.7; "
+      "axis grip_top 0",
+      " |  |  | on 1 67 20 | off 1 67", 0, NULL },
+    { "a strike holds between its off and its at", STRIKE,
+      "axis grip_top 0.1; axis grip_top 0.8; axis grip_top 0.55; "
+      "axis grip_top 0.7; axis grip_top 0.3",
+      " | on 1 67 127 |  |  | off 1 67", 0, NULL },
+    { "a hand already closed when it starts strikes nothing", STRIKE,
+      "axis grip_top 0.9; axis grip_top 0.9",
+      " | ", 0, NULL },
+    { "a layer's strike ends as it began, the layer gone", STRIKE,
+      "down thumbstick; axis grip_top 0.9; up thumbstick; axis grip_top 0.1; "
+      "axis grip_top 0.9; axis grip_top 0",
+      " | on 1 72 127 |  | off 1 72 | on 1 67 127 | off 1 67", 0, NULL },
+    { "a strike lets go when a layer makes its axis a knob",
+      "device index { grip_top = strike 7; thumbstick = hold mod; "
+      "layer mod { grip_top = \"cutoff\"; }; };",
+      "axis grip_top 0.1; axis grip_top 0.9; down thumbstick; axis grip_top 0.1",
+      " | on 1 67 127 | cutoff@1 0.900 | off 1 67, cutoff@1 0.100", 0, NULL },
+    { "a release ends a strike", STRIKE,
+      "axis grip_top 0; axis grip_top 0.9; release; axis grip_top 0",
+      " | on 1 67 127 | off 1 67 | ", 0, NULL },
+    { "a button bound to strike",
+      "device index { a = strike 0; };", "", NULL, 1, "is a button" },
+    { "a fist switches its layer on, and opening it off", FIST,
+      "axis grip_top 0.8; axis grip_low 0.8; down a; up a; axis grip_low 0.6; "
+      "down a; up a; axis grip_low 0.5; down a; up a",
+      " |  | on 1 67 100 | off 1 67 |  | on 1 67 100 | off 1 67 |  | "
+      "on 1 60 100 | off 1 60", 0, NULL },
+    { "a posture low on its axis still lets go, at the axis's bottom",
+      "device index { a = note 0; layer near { when { grip_top = 0.1; }; a = note 7; }; };",
+      "axis grip_top 0.2; down a; up a; axis grip_top 0; down a; up a",
+      " | on 1 67 100 | off 1 67 |  | on 1 60 100 | off 1 60", 0, NULL },
+    { "half a fist is no fist", FIST,
+      "axis grip_low 0.9; down a; up a",
+      " | on 1 60 100 | off 1 60", 0, NULL },
+    { "the newest of a toggle and a posture wins", FIST,
+      "axis grip_top 0.8; axis grip_low 0.8; down system; up system; "
+      "down a; up a; axis grip_low 0; axis grip_low 0.8; down a; up a",
+      " |  |  |  | on 1 72 100 | off 1 72 |  |  | on 1 67 100 | off 1 67",
+      0, NULL },
+    { "a note held as the fist opens ends where it began", FIST,
+      "axis grip_top 0.8; axis grip_low 0.8; down a; axis grip_low 0; up a",
+      " |  | on 1 67 100 |  | off 1 67", 0, NULL },
+    { "a posture on a button",
+      "device index {\n  layer f {\n    when { a = 0.5; };\n  };\n};", "",
+      NULL, 3, "is a button" },
+    { "a latched note sounds from one press to the next",
+      "device index { a = note 0 { latch; }; b = note 4; };",
+      "down a; up a; down b; up b; down a; up a",
+      "on 1 60 100 |  | on 1 64 100 | off 1 64 | off 1 60 | ", 0, NULL },
+    { "a release ends a latched note", 
+      "device index { a = note 0 { latch; }; };",
+      "down a; up a; release; down a; up a",
+      "on 1 60 100 |  | off 1 60 | on 1 60 100 | ", 0, NULL },
+    { "a smoothed knob follows its axis over its time",
+      "device index { grip_top = \"pitch\" { smooth = 0.1; }; };",
+      "axis grip_top 0; axis grip_top 1; wait 1000",
+      "pitch@1 0.000 | pitch@1 0.095 | pitch@1 1.000", 0, NULL },
     { "a control the device doesn't have",
       "device index {\n  zz = note 0;\n};", "", NULL, 2, "'zz'" },
     { "a button bound to a value",
       "device index { a = \"cutoff\"; };", "", NULL, 1, "is a button" },
     { "an axis bound to a note",
       "device index { grip_mid = note 0; };", "", NULL, 1, "is an axis" },
-    { "two pitch axes",
-      "device index {\n  stick_y = pitch { range = 1; };\n"
-      "  pad_y = pitch { range = 1; };\n};", "", NULL, 3, "one pitch axis" },
     { "a layer's control the device doesn't have",
       "device index {\n  layer mod {\n    zz = note 0;\n  };\n};",
       "", NULL, 3, "'zz'" },
-    { "two pitch axes in one layer",
-      "device index {\n  layer mod {\n    stick_y = pitch { range = 1; };\n"
-      "    pad_y = pitch { range = 1; };\n  };\n};", "", NULL, 4,
-      "one pitch axis" },
+    { "two velocity sources",
+      "device index {\n  trigger = velocity;\n  pad_y = velocity;\n};", "",
+      NULL, 3, "one velocity source" },
     { "a layer rebinding a modifier",
       "device index {\n  system = toggle drone;\n  layer drone {\n"
       "    system = note 5;\n  };\n};", "", NULL, 4, "switches a layer" },

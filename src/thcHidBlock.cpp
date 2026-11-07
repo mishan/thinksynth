@@ -18,6 +18,7 @@
 
 #include "config.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "think.h"
@@ -97,6 +98,7 @@ private:
     bool statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
                     int &channel, int &base, bool inLayer);
     bool layer (thcHidBlock &blk);
+    bool when (thcHidLayer &l);
     bool binding (thcHidBinding &out, bool inLayer);
     bool options (thcHidBinding &b);
 };
@@ -202,7 +204,8 @@ bool
 Parser::options (thcHidBinding &b)
 {
     const bool value = b.kind == thcHidBinding::VALUE;
-    const bool vel = b.kind == thcHidBinding::VELOCITY;
+    const bool strike = b.kind == thcHidBinding::STRIKE;
+    const bool vel = b.kind == thcHidBinding::VELOCITY || strike;
     const bool pitch = b.kind == thcHidBinding::PITCH;
 
     if (!isPunct(peek(), '{'))
@@ -217,10 +220,22 @@ Parser::options (thcHidBinding &b)
         if (key.kind != Tok::WORD)
             return fail(key, "expected a setting");
         i_++;
+
+        /* The one setting that is a word alone. */
+        if (k == "latch" && b.kind != thcHidBinding::NOTE)
+            return fail(key, "'latch' is a note's setting");
+        if (k == "latch")
+        {
+            b.latch = true;
+            if (!expect(';'))
+                return false;
+            continue;
+        }
+
         if (!expect('='))
             return false;
 
-        if (k == "channel" && (b.kind == thcHidBinding::NOTE || value))
+        if (k == "channel" && (b.kind == thcHidBinding::NOTE || value || strike))
         {
             if (!integer(b.channel, 1, 16, "channel"))
                 return false;
@@ -234,6 +249,30 @@ Parser::options (thcHidBinding &b)
                 return false;
             (k == "min" ? b.min : b.max) = value ? v : iv;
             (k == "min" ? b.hasMin : b.hasMax) = true;
+        }
+        else if ((k == "at" || k == "off") && strike)
+        {
+            double v;
+
+            if (!number(v, k))
+                return false;
+            if (v < 0 || v > 1)
+                return fail(t_[i_ - 1], k + " is 0 to 1");
+            (k == "at" ? b.at : b.off) = v;
+        }
+        else if (k == "smooth" && value)
+        {
+            if (!number(b.smooth, k))
+                return false;
+            if (b.smooth < 0)
+                return fail(t_[i_ - 1], "smooth is 0 or more seconds");
+        }
+        else if (k == "center" && (value || pitch))
+        {
+            if (!number(b.center, k))
+                return false;
+            if (b.center < -1 || b.center > 1)
+                return fail(t_[i_ - 1], "center is -1 to 1");
         }
         else if (k == "shape" && value)
         {
@@ -343,12 +382,31 @@ Parser::binding (thcHidBinding &b, bool inLayer)
         b.kind = thcHidBinding::VELOCITY;
         i_++;
     }
+    else if (isWord(act, "strike"))
+    {
+        b.kind = thcHidBinding::STRIKE;
+        b.off = -1;     /* until it is given, or follows at */
+        i_++;
+        if (!integer(b.semis, -127, 127, "strike"))
+            return false;
+    }
     else
         return fail(act, "'" + act.text + "' is not an action; write note, "
-                    "hold, toggle, octave, pitch, velocity or a quoted arg "
-                    "name");
+                    "strike, hold, toggle, octave, pitch, velocity or a "
+                    "quoted arg name");
 
-    return options(b) && expect(';');
+    if (!options(b))
+        return false;
+
+    if (b.kind == thcHidBinding::STRIKE)
+    {
+        if (b.off < 0)
+            b.off = std::max(0.0, b.at - 0.2);
+        if (b.off >= b.at)
+            return fail(b.line, "a strike turns off under where it turns on");
+    }
+
+    return expect(';');
 }
 
 /* One statement of a device's body or a layer's: a setting, a layer (in a
@@ -363,8 +421,20 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
     if (tok.kind != Tok::WORD)
         return fail(tok, "expected a control or a setting");
 
-    if (inLayer && (k == "layer" || k == "velocity"))
+    if (inLayer && (k == "layer" || k == "velocity" || k == "ignore"))
         return fail(tok, k + " can't be set inside a layer");
+    if (k == "ignore")
+    {
+        std::string name;
+
+        i_++;
+        if (!word(name, "ignore"))
+            return false;
+        blk.ignore.push_back(std::make_pair(name, tok.line));
+        return expect(';');
+    }
+    if (k == "when")
+        return fail(tok, "a posture's when belongs in a layer");
     if (k == "layer")
         return layer(blk);
 
@@ -377,20 +447,55 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
             : k == "base"  ? !baseNote(base)
             : !integer(blk.velocity, 1, 127, "velocity"))
             return false;
+        if (!inLayer)
+            (k == "channel" ? blk.hasChannel : k == "base" ? blk.hasBase
+                                                           : blk.hasVelocity) = true;
         return expect(';');
     }
-
-    for (size_t i = 0; i < bindings.size(); i++)
-        if (bindings[i].control == k)
-            return fail(tok, "'" + k + "' is already bound on line " +
-                        std::to_string(bindings[i].line));
 
     thcHidBinding b;
 
     if (!binding(b, inLayer))
         return false;
+
+    /* An axis may ride several knobs and pitch axes at once; anything else
+       is one binding to a control. */
+    const auto repeats = [](const thcHidBinding &x) {
+        return x.kind == thcHidBinding::VALUE || x.kind == thcHidBinding::PITCH;
+    };
+
+    for (size_t i = 0; i < bindings.size(); i++)
+        if (bindings[i].control == b.control &&
+            (!repeats(bindings[i]) || !repeats(b)))
+            return fail(b.line, "'" + b.control + "' is already bound on line " +
+                        std::to_string(bindings[i].line));
+
     bindings.push_back(b);
     return true;
+}
+
+/* `when { axis = at-least; ... };' */
+bool
+Parser::when (thcHidLayer &l)
+{
+    l.whenLine = peek().line;
+    i_++;
+    if (!expect('{'))
+        return false;
+    while (!closes())
+    {
+        std::string name;
+        double v;
+
+        if (!word(name, "when") || !expect('=') || !number(v, name))
+            return false;
+        if (v < -1 || v > 1)
+            return fail(t_[i_ - 1], name + " is -1 to 1");
+        l.when.push_back(std::make_pair(name, v));
+        if (!expect(';'))
+            return false;
+    }
+    return err_.empty() && expect(';');
 }
 
 bool
@@ -412,7 +517,8 @@ Parser::layer (thcHidBlock &blk)
     if (!expect('{'))
         return false;
     while (!closes())
-        if (!statement(blk, l.bindings, l.channel, l.base, true))
+        if (isWord(peek(), "when") ? !when(l)
+            : !statement(blk, l.bindings, l.channel, l.base, true))
             return false;
     if (!err_.empty() || !expect(';'))
         return false;

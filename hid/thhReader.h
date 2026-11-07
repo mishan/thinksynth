@@ -30,11 +30,11 @@
 
 /* Linux only: hidraw, poll() and a thread.
 
-   The /dev nodes of one wired Index controller: the input interface's, and
-   all of them, every one of which is woken. */
+   The /dev nodes of one wired Index controller: the input interface's, the
+   IMU's if it has one, and all of them, every one of which is woken. */
 struct thhIndexNodes
 {
-    std::string              input;
+    std::string              input, imu;
     std::vector<std::string> all;
 };
 
@@ -47,14 +47,15 @@ bool thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
 /* Reads a controller on a thread of its own and hands what it reads to
    another thread, which drains it.
 
-   connect opens a controller, giving its input fd and every fd to close
-   with it, or says why it can't (status); it is asked again a second later.
+   connect opens a controller, giving its input fd, its IMU's (or -1), and
+   every fd to close with it, or says why it can't (status); it is asked
+   again a second later.
    wake is called on the reader's thread when there is something to drain,
    once until the next drain. */
 class thhReader
 {
 public:
-    typedef std::function<bool (int &input, std::vector<int> &fds,
+    typedef std::function<bool (int &input, int &imu, std::vector<int> &fds,
                                 std::string &status)> Connect;
 
     /* A controller silent for silenceMs is taken as gone: it pings about
@@ -95,6 +96,7 @@ private:
 /* The connect for a real controller: thhFindIndex under /sys and /dev,
    each node opened and sent the controller's wake-up. */
 bool thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
-                      int &input, std::vector<int> &fds, std::string &status);
+                      int &input, int &imu, std::vector<int> &fds,
+                      std::string &status);
 
 #endif /* THH_READER_H */

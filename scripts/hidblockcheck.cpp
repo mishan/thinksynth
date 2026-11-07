@@ -54,6 +54,9 @@ describe (const thcHidBinding &b)
         s << "pitch " << (b.octaves ? "octave" : "semitone") << " " << b.range;
         break;
     case thcHidBinding::VELOCITY: s << "velocity"; break;
+    case thcHidBinding::STRIKE:
+        s << "strike " << b.semis << " at" << b.at << " off" << b.off;
+        break;
     }
 
     if (b.channel)
@@ -64,6 +67,12 @@ describe (const thcHidBinding &b)
         s << " max" << b.max;
     if (b.kind == thcHidBinding::VALUE && b.shape == thcHidBinding::EXP)
         s << " exp";
+    if (b.center)
+        s << " center" << b.center;
+    if (b.smooth)
+        s << " smooth" << b.smooth;
+    if (b.latch)
+        s << " latch";
 
     s << " @" << b.line;
 
@@ -77,6 +86,11 @@ describe (const thcHidBlock &blk)
 
     s << blk.device << " ch" << blk.channel << " base" << blk.base
       << " vel" << blk.velocity;
+    if (blk.hasChannel || blk.hasBase || blk.hasVelocity)
+        s << " sets" << (blk.hasChannel ? " ch" : "") <<
+             (blk.hasBase ? " base" : "") << (blk.hasVelocity ? " vel" : "");
+    for (size_t i = 0; i < blk.ignore.size(); i++)
+        s << " -" << blk.ignore[i].first;
 
     for (size_t i = 0; i < blk.bindings.size(); i++)
         s << " | " << describe(blk.bindings[i]);
@@ -86,7 +100,11 @@ describe (const thcHidBlock &blk)
         const thcHidLayer &l = blk.layers[i];
 
         s << " | layer " << l.name << " ch" << l.channel << " base" << l.base
-          << " @" << l.line << " [";
+          << " @" << l.line;
+        for (size_t j = 0; j < l.when.size(); j++)
+            s << (j ? "," : " when ") << l.when[j].first << ">="
+              << l.when[j].second;
+        s << " [";
 
         for (size_t j = 0; j < l.bindings.size(); j++)
             s << (j ? " | " : "") << describe(l.bindings[j]);
@@ -135,7 +153,7 @@ static const Row ROWS[] = {
       "        channel = 2;\n"
       "    };\n"
       "};\n",
-      "index ch1 base60 vel90"
+      "index ch1 base60 vel90 sets ch base vel"
       " | stick_y:pitch octave 2 @5"
       " | a:note 0 @6 | b:note 2 @6 | thumbstick:note 4 @6"
       " | trigger:velocity min30 max127 @7"
@@ -152,7 +170,13 @@ static const Row ROWS[] = {
 
     { "a sharp in the base note",
       "device index { base = \"C#4\"; };",
-      "index ch0 base61 vel100", 0, NULL },
+      "index ch0 base61 vel100 sets base", 0, NULL },
+    { "controls and layers dropped",
+      "device index { ignore stick_y; ignore fist; };",
+      "index ch0 base60 vel100 -stick_y -fist", 0, NULL },
+    { "an ignore inside a layer",
+      "device index {\n  layer a {\n    ignore b;\n  };\n};", NULL, 3,
+      "inside a layer" },
 
     { "a note on its own channel",
       "device index { a = note 0 { channel = 3; }; };",
@@ -174,11 +198,41 @@ static const Row ROWS[] = {
       "device index { index = velocity; };",
       "index ch0 base60 vel100 | index:velocity @1", 0, NULL },
 
+    { "a strike, with its own thresholds and velocity",
+      "device index { grip_top = strike 7 { at = 0.7; off = 0.5; min = 20; "
+      "max = 110; channel = 2; }; };",
+      "index ch0 base60 vel100 | grip_top:strike 7 at0.7 off0.5 ch2 min20 "
+      "max110 @1", 0, NULL },
+    { "a strike's off is under its at by default",
+      "device index { trigger = strike -5 { at = 0.9; }; };",
+      "index ch0 base60 vel100 | trigger:strike -5 at0.9 off0.7 @1", 0, NULL },
+    { "one axis on several knobs and a pitch axis, from a center",
+      "device index { grip_force = \"cutoff\"; grip_force = \"drive\"; "
+      "tilt = pitch { step = octave; range = 1; center = 0.27; }; "
+      "tilt = \"bright\" { center = -0.5; }; };",
+      "index ch0 base60 vel100 | grip_force:value cutoff @1 | "
+      "grip_force:value drive @1 | tilt:pitch octave 1 center0.27 @1 | "
+      "tilt:value bright center-0.5 @1", 0, NULL },
+    { "a latched note and a smoothed knob",
+      "device index { a = note 0 { latch; }; grip_top = \"pitch\" { "
+      "smooth = 0.1; }; };",
+      "index ch0 base60 vel100 | a:note 0 latch @1 | "
+      "grip_top:value pitch smooth0.1 @1", 0, NULL },
     { "a layer named before it is declared",
       "device index {\n  grip = hold mod;\n  layer mod { base = \"C3\"; };\n};",
       "index ch0 base60 vel100 | grip:hold mod @2"
       " | layer mod ch0 base48 @3 []", 0, NULL },
 
+    { "a posture",
+      "device index {\n  layer fist {\n    when { grip_top = 0.7; "
+      "grip_low = 0.6; };\n    roll = \"bend\";\n  };\n};",
+      "index ch0 base60 vel100 | layer fist ch0 base-1 @2 when "
+      "grip_top>=0.7,grip_low>=0.6 [roll:value bend @4]", 0, NULL },
+    { "a posture outside a layer",
+      "device index {\n  when { grip_top = 0.7; };\n};", NULL, 2, "layer" },
+    { "a posture past the axis",
+      "device index { layer f { when { tilt = 2; }; }; };", NULL, 1,
+      "-1 to 1" },
     { "an unquoted note",
       "device index {\n  base = C4;\n};", NULL, 2, "quote" },
     { "two notes for a base",
@@ -207,6 +261,12 @@ static const Row ROWS[] = {
       "device index { a = octave 0; };", NULL, 1, "not 0" },
     { "a layer nobody declared",
       "device index {\n  grip = hold mod;\n};", NULL, 2, "no layer 'mod'" },
+    { "a knob and a note on one control",
+      "device index {\n  a = \"cutoff\";\n  a = note 2;\n};", NULL, 3,
+      "already" },
+    { "a center past the axis",
+      "device index { tilt = \"bright\" { center = 2; }; };", NULL, 1,
+      "-1 to 1" },
     { "a control bound twice",
       "device index {\n  a = note 0;\n  a = note 2;\n};", NULL, 3, "already" },
     { "a modifier inside a layer",
@@ -235,6 +295,16 @@ static const Row ROWS[] = {
       NULL, 2, "min" },
     { "a velocity past 127",
       "device index { t = velocity { max = 200; }; };", NULL, 1, "1 to 127" },
+    { "a strike that turns off above where it turns on",
+      "device index { trigger = strike 0 { at = 0.5; off = 0.6; }; };",
+      NULL, 1, "under" },
+    { "a strike past the end of its axis",
+      "device index { trigger = strike 0 { at = 1.5; }; };", NULL, 1, "0 to 1" },
+    { "a latch on a knob",
+      "device index { t = \"cutoff\" { latch; }; };", NULL, 1, "latch" },
+    { "a smoothing back in time",
+      "device index { t = \"cutoff\" { smooth = -1; }; };", NULL, 1,
+      "smooth" },
     { "a setting a block doesn't have",
       "device index { a = note 0 { color = 1; }; };", NULL, 1, "color" },
     { "a missing semicolon",

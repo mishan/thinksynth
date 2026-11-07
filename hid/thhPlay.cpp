@@ -51,32 +51,112 @@ thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
     }
 }
 
+/* The player's changes on the controller's own profile: a control bound in
+   mine replaces every binding of it in own, a layer replaces the one of its
+   name, an ignore drops either, and a setting mine sets is mine. Own's
+   lines go negative, so an error in what is left of it can say so. False
+   if mine ignores what isn't there. */
+static bool
+overlay (const thcHidBlock &own, const thcHidBlock &mine, thcHidBlock &out,
+         std::string &err, int &line)
+{
+    out = own;
+    for (size_t i = 0; i < out.bindings.size(); i++)
+        out.bindings[i].line = -out.bindings[i].line;
+    for (size_t l = 0; l < out.layers.size(); l++)
+    {
+        out.layers[l].line = -out.layers[l].line;
+        out.layers[l].whenLine = -out.layers[l].whenLine;
+        for (size_t i = 0; i < out.layers[l].bindings.size(); i++)
+            out.layers[l].bindings[i].line = -out.layers[l].bindings[i].line;
+    }
+
+    if (mine.hasChannel)
+        out.channel = mine.channel;
+    if (mine.hasBase)
+        out.base = mine.base;
+    if (mine.hasVelocity)
+        out.velocity = mine.velocity;
+
+    const auto drop = [&out](const std::string &name) {
+        const size_t had = out.bindings.size() + out.layers.size();
+
+        for (size_t i = out.bindings.size(); i-- > 0;)
+            if (out.bindings[i].control == name)
+                out.bindings.erase(out.bindings.begin() + i);
+        for (size_t l = out.layers.size(); l-- > 0;)
+            if (out.layers[l].name == name)
+                out.layers.erase(out.layers.begin() + l);
+        return out.bindings.size() + out.layers.size() < had;
+    };
+
+    for (size_t i = 0; i < mine.ignore.size(); i++)
+        if (!drop(mine.ignore[i].first))
+        {
+            err = "the controller's own profile has no '" +
+                  mine.ignore[i].first + "' to ignore";
+            line = mine.ignore[i].second;
+            return false;
+        }
+
+    for (size_t i = 0; i < mine.bindings.size(); i++)
+        for (size_t k = out.bindings.size(); k-- > 0;)
+            if (out.bindings[k].control == mine.bindings[i].control)
+                out.bindings.erase(out.bindings.begin() + k);
+    out.bindings.insert(out.bindings.end(), mine.bindings.begin(),
+                        mine.bindings.end());
+
+    for (size_t l = 0; l < mine.layers.size(); l++)
+    {
+        size_t k = 0;
+
+        while (k < out.layers.size() && out.layers[k].name != mine.layers[l].name)
+            k++;
+        if (k < out.layers.size())
+            out.layers[k] = mine.layers[l];
+        else
+            out.layers.push_back(mine.layers[l]);
+    }
+
+    return true;
+}
+
 bool
 thhLoadProfile (const std::string &path, const thhControls &controls,
                 const char *fallback, thcHidBlock &out, std::string &err)
 {
     std::error_code ec;
     std::string ignored;
+    thcHidBlock own;
     int line = 0;
 
     err.clear();
-    if (std::filesystem::exists(path, ec))
+    thcHidParseProfile(fallback, own, ignored, line);
+    out = own;
+
+    if (!std::filesystem::exists(path, ec))
+        return true;
+
+    std::ifstream in(path.c_str());
+    std::ostringstream text;
+    thcHidBlock mine, both;
+    thhMapper check;
+    std::vector<thhAction> none;
+
+    text << in.rdbuf();
+    if (!in)
+        err = path + ": can't read it";
+    else if (thcHidParseProfile(text.str(), mine, err, line) &&
+             overlay(own, mine, both, err, line) &&
+             check.configure(both, controls, none, err, line))
     {
-        std::ifstream in(path.c_str());
-        std::ostringstream text;
-        thhMapper check;
-        std::vector<thhAction> none;
-
-        text << in.rdbuf();
-        if (!in)
-            err = path + ": can't read it";
-        else if (thcHidParseProfile(text.str(), out, err, line) &&
-                 check.configure(out, controls, none, err, line))
-            return true;
-        else
-            err = path + ":" + std::to_string(line) + ": " + err;
+        out = both;
+        return true;
     }
+    else
+        err = line < 0 ? "the controller's own profile, line " +
+                         std::to_string(-line) + ": " + err
+                       : path + ":" + std::to_string(line) + ": " + err;
 
-    thcHidParseProfile(fallback, out, ignored, line);
-    return err.empty();
+    return false;
 }

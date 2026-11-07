@@ -25,29 +25,79 @@ which file to install.
 
 ## What it plays
 
-With no profile of your own, the controller plays this:
+Load `dsp/index.dsp`, the controller's own instrument, on a channel, and set
+the on-screen keyboard to that channel. With no profile of your own:
+
+| Do | Plays |
+|---|---|
+| Pull the trigger | the note, louder the faster you pull |
+| Press A, B | the root, the fifth |
+| Slide your thumb up or down the trackpad, then play | up to seven semitones either way |
+| Tip the front up or down from where you hold it, then play | an octave up or down |
+| Squeeze | louder and brighter |
+| Close the middle fingers | growl |
+| Close the ring and little fingers | breath |
+| Push the stick up or down | vibrato |
+| Roll your wrist | pan |
+| Roll your wrist with a full fist | bend, two semitones either way |
+
+The notes play on any patch; the rest are `index.dsp`'s knobs, and do
+nothing on a patch without them. How closed a fist has to be depends on
+the hand: the Controller pane shows each grip zone as you hold it, and
+your own profile can move the posture's values.
+
+The profile is:
 
 ```
 device index {
     base = "C4";
+
+    trigger = strike 0 { at = 0.5; };
     a = note 0;
-    b = note 4;
-    trigger_click = note 7;
-    stick_y = pitch { step = octave; range = 1; };
-    trigger = velocity { min = 40; max = 127; };
+    b = note 7;
+    pad_y = pitch { range = 7; };
+    tilt = pitch { step = octave; range = 1; center = 0.25; };
+
+    grip_force = "level" { min = 0.6; max = 1; smooth = 0.03; };
+    grip_force = "bright" { min = 0.3; max = 0.9; smooth = 0.03; };
+    grip_mid = "growl" { smooth = 0.05; };
+    grip_low = "air" { max = 0.5; smooth = 0.05; };
+    stick_y = "wobble" { min = -1; max = 1; };
+    roll = "pan" { min = -1; max = 1; smooth = 0.05; };
+
+    layer fist {
+        when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };
+        roll = "bend" { min = -1; max = 1; smooth = 0.05; };
+    };
 };
 ```
 
-Notes play on the channel the on-screen keyboard is set to, and the
-composer's roll hears them as it hears the keyboard's.
-
 ## Your own profile
 
-Write one to `hid/index` in thinksynth's configuration directory, normally
-`~/.config/thinksynth/hid/index`. It is read when thinksynth starts; one
-that can't be read, doesn't parse, or names a control the controller
-hasn't got is reported on the terminal with its line, and the controller
-plays its own instead.
+Your profile is changes to the controller's own: write them to `hid/index`
+in thinksynth's configuration directory, normally
+`~/.config/thinksynth/hid/index` (the Controller pane's Open file starts
+one). A control you bind replaces every binding of it in the controller's
+own profile, a layer replaces the layer of its name, `ignore NAME;` drops a
+control or a layer, and `base`, `channel` and `velocity` are yours if you
+set them. Everything else stays the controller's own, so it reaches you as
+it grows:
+
+```
+device index {
+    grip_mid = "wobble";          # in place of growl
+    ignore stick_y;               # no vibrato on the stick
+    layer fist {                  # a fist of your own hand's measure
+        when { grip_top = 0.7; grip_mid = 0.7; grip_low = 0.7; };
+        roll = "bend" { min = -1; max = 1; smooth = 0.05; };
+    };
+};
+```
+
+It is read when thinksynth starts and when the pane's Reload is pressed; one
+that can't be read, doesn't parse, or names a control the controller hasn't
+got is reported with its line, and the controller plays its own profile
+alone. The pane marks the bindings that are yours.
 
 A profile is settings and bindings, in the `.gen` file's syntax:
 
@@ -60,6 +110,7 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | Binding | On | Does |
 |---|---|---|
 | `a = note 7;` | a button | plays a note this many semitones above the base |
+| `grip_top = strike 7 { at = 0.6; };` | an axis | plays a note as it rises past `at`, louder the faster it got there, and ends it when it falls back under `off` (`at` less 0.2 unless given). `min` and `max` bound its velocity |
 | `a = octave 1;` | a button | moves every later note up or down an octave |
 | `a = hold mod;` | a button | switches layer `mod` on while held |
 | `a = toggle mod;` | a button | switches layer `mod` on and off |
@@ -67,11 +118,49 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | `stick_y = pitch { step = octave; range = 2; };` | an axis | moves the base note when a note starts (`step = semitone` too) |
 | `trigger = velocity { min = 30; max = 127; };` | an axis | sets how hard buttons play |
 
-A note, or a knob, can name its own `{ channel = 3; }`.
+A note, or a knob, can name its own `{ channel = 3; }`. A note can
+`{ latch; }`: one press starts it and the next ends it, for a drone. A knob
+can be `{ smooth = 0.1; }`, following its axis over that many seconds
+rather than stepping with it.
+
+An axis can ride several knobs and pitch axes at once: bind it again, once
+for each. Every pitch axis adds its steps, so the trackpad can pick a
+degree while tilt picks the octave. A knob or a pitch axis can count from
+a `center` other than the axis's own (`tilt = pitch { step = octave;
+range = 1; center = 0.25; };` measures from the angle you hold it at).
 
 A layer, `layer mod { ... };`, holds bindings that replace the profile's own
 while it is on, and may set its own `channel` and `base`. The newest layer on
 wins. A layer can't rebind a button that switches layers.
+
+A layer can also be a posture, on whenever the hand takes a shape:
+
+```
+layer fist {
+    when { grip_top = 0.7; grip_mid = 0.7; grip_low = 0.7; };
+    roll = "bend";
+};
+```
+
+It is on while every axis it names is at least its value, and goes off
+once any of them falls 0.15 under it.
+
+### A theremin
+
+A latched note held while the fingers ride its pitch and the squeeze its
+level, on `dsp/index.dsp`:
+
+```
+device index {
+    a = note 0 { latch; };
+    grip_top = "bend" { min = -1; max = 1; smooth = 0.05; };
+    grip_force = "level" { smooth = 0.05; };
+    roll = "wobble";
+};
+```
+
+`bend` is two semitones either way; a patch with a wider pitch knob plays a
+wider theremin.
 
 ### The controls
 
@@ -90,3 +179,6 @@ Axes, 0 to 1 unless they center:
 | `stick_x`, `stick_y` | the stick, -1 to 1, +y away from the hand |
 | `pad_x`, `pad_y` | the trackpad where it is touched, -1 to 1, centered when it isn't |
 | `pad_force` | how hard the trackpad is pressed |
+| `tilt` | the front's angle above level, -1 (straight down) to 1 (straight up); held as you play it, about 0.25 |
+| `roll` | how far the buttons face left (+) or right (-), 1 at a quarter turn; it eases back toward 0 past that, and as the front tips toward straight up or down, but never jumps |
+| `twist` | how fast it is turning around the front, -1 to 1 |

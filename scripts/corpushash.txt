@@ -73,6 +73,7 @@ cd62a060ab97f125  hat0.dsp
 a80e227ac94ce1f5  hat808.dsp
 17b44ac21c7a8e11  hoover.dsp
 837319baad102d25  horns.dsp
+d8c6b8f5f5e9d6bd  index.dsp
 a50c176628ec1aed  juno.dsp
 c9ae7e9f0fff59b5  kick808.dsp
 5d69252499da9225  kick909.dsp

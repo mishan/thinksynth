@@ -34,8 +34,9 @@ struct thhState
     float    axis[THH_MAX_AXES];
     uint32_t buttons;           /* bit i: the device's button i is down */
     bool     connected;
+    double   time;              /* seconds, on a clock that only goes on */
 
-    thhState () : buttons(0), connected(false)
+    thhState () : buttons(0), connected(false), time(0)
     {
         for (int i = 0; i < THH_MAX_AXES; i++)
             axis[i] = 0;

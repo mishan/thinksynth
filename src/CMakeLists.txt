@@ -207,6 +207,7 @@ set(THINKSYNTH_SOURCES
     gui/KeyboardPanel.cpp
     gui/MainSynthWindow.cpp
     gui/MidiMap.cpp
+    gui/ControllerPane.cpp
     gui/GraphCanvas.cpp
     gui/NodeCanvasWidget.cpp
     gui/NodePalette.cpp
@@ -293,9 +294,11 @@ if(APPLE)
   list(APPEND THINKSYNTH_SOURCES "${THINK_ICNS}")
 endif()
 
-# A Valve Index controller as an instrument, read from hidraw.
+# A Valve Index controller as an instrument. Its pane and its library
+# build anywhere; reading one, from hidraw, is Linux's.
+list(APPEND THINKSYNTH_SOURCES $<TARGET_OBJECTS:think_hid>)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  list(APPEND THINKSYNTH_SOURCES gthHid.cpp $<TARGET_OBJECTS:think_hid>)
+  list(APPEND THINKSYNTH_SOURCES gthHid.cpp)
 endif()
 
 add_executable(thinksynth
@@ -313,9 +316,7 @@ add_executable(thinksynth
     $<TARGET_OBJECTS:think_composercanvas>
     $<TARGET_OBJECTS:think_rollcanvas>)
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_include_directories(thinksynth PRIVATE "${PROJECT_SOURCE_DIR}/hid")
-endif()
+target_include_directories(thinksynth PRIVATE "${PROJECT_SOURCE_DIR}/hid")
 
 # The GUI subsystem on Windows, so launching this does not also open a
 # terminal. Without it the linker defaults to the console subsystem and
