@@ -1,0 +1,44 @@
+# nonfinite.gen -- a piece with one bad instrument and one good one.
+#
+# Rendered through genwav it must come back with a peak -- the good channel is
+# still sounding -- and with a non-zero `non-finite voices' count, which is
+# exit 4. See cmake/RunGuardPiece.cmake.
+#
+# Beside the harness rather than in gen/, for the reason the two .dsp files
+# here give: a piece that fails on purpose would fail every corpus sweep.
+#
+# No seed: two Euclidean patterns on a common pulse are the same eight notes
+# every time.
+
+name "Guard: non-finite";
+description "One instrument that diverges, one that does not.";
+
+tempo 120;
+
+instrument bad {
+    dsp "nonfinite.dsp";
+    amp = 100;
+};
+
+instrument good {
+    dsp "sound.dsp";
+    amp = 100;
+};
+
+chain diverges {
+    stage src gen::euclid {
+        steps = 4; fills = 2; rotate = 0;
+        notes = "C4";   # middle C, the one note nonfinite.dsp poisons
+        period = 0.5 beats; hold = 0.4 beats; vel = 100;
+    };
+    sink { instrument = bad; };
+};
+
+chain sounds {
+    stage src gen::euclid {
+        steps = 4; fills = 2; rotate = 1;
+        notes = "G3";
+        period = 0.5 beats; hold = 0.4 beats; vel = 100;
+    };
+    sink { instrument = good; };
+};

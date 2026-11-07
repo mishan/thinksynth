@@ -1,0 +1,253 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ */
+
+/* arp -- the plugin THC_EV_NOTEOFF exists for: it has to know what is
+ * held NOW, which is the one thing a duration-carrying event cannot
+ * say.
+ *
+ * receive() maintains the held set from either kind of press: a live
+ * key (duration <= 0) is held until its NOTEOFF; a composed note
+ * (duration > 0) holds itself for exactly its duration, so an upstream
+ * generator can lay chords on the arp and get them broken. tick() walks
+ * the held set -- up, down, up-and-down, or seeded random -- extended
+ * across `octaves', at `period' a step; the same stage arpeggiates a
+ * hardware keyboard through `input midi' and an eno_line through the
+ * chain, with nothing configured differently.
+ *
+ * `vel = 0' means "as played": each emitted note carries the velocity
+ * of the held note it came from, which is what makes an arpeggio of an
+ * expressive performance still expressive.
+ */
+
+#include <algorithm>
+#include <cstring>
+#include <random>
+#include <vector>
+
+#include "thcomposer.h"
+
+enum { P_PATTERN, P_OCTAVES, P_PERIOD, P_HOLD, P_VEL, P_PASS, P_COUNT };
+
+static int paramIndex[P_COUNT];
+
+extern "C" THINK_PLUGIN_API int
+composer_init (thcComposerInfo *info)
+{
+    static const thcParamDef defs[P_COUNT] = {
+        { "pattern", "0 up, 1 down, 2 up-and-down, 3 random",
+          THC_PARAM_INT, 0, 3, 0, NULL, NULL },
+        { "octaves", "how many octaves the held set spans",
+          THC_PARAM_INT, 1, 3, 1, NULL, NULL },
+        { "period",  "time between steps", THC_PARAM_FLOAT,
+          0.02, 10, 0.2, NULL, "s" },
+        { "hold",    "time before each step's note-off", THC_PARAM_FLOAT,
+          0.01, 10, 0.15, NULL, "s" },
+        { "vel",     "step velocity; 0 means as played", THC_PARAM_INT,
+          0, 127, 0, NULL, NULL },
+        { "pass",    "1: what is held also flows downstream",
+          THC_PARAM_INT, 0, 1, 0, NULL, NULL },
+    };
+
+    for (int i = 0; i < P_COUNT; i++)
+        paramIndex[i] = info->register_param(info->host, &defs[i]);
+
+    info->set_flags(info->host, THC_GENERATOR | THC_TRANSFORMER);
+    info->set_desc(info->host,
+        "Breaks whatever is held into a pattern of steps.");
+
+    return 0;
+}
+
+struct Held
+{
+    int    note, velocity;
+    float  level;
+    float  aux[4];
+    unsigned char say[THC_NOTE_SAY];
+    double releaseAt;        /* <= 0: held until its NOTEOFF            */
+};
+
+struct State {
+    const thcParams *params;
+    std::mt19937     rng;
+
+    std::vector<Held> held;
+    int  pos;
+    int  dir;                /* up-and-down's current direction         */
+
+    void release (int note)
+    {
+        for (size_t i = 0; i < held.size(); i++)
+            if (held[i].note == note)
+            {
+                held.erase(held.begin() + i);
+                return;
+            }
+    }
+};
+
+extern "C" THINK_PLUGIN_API void *
+composer_create (const thcParams *params)
+{
+    State *st = new State;
+
+    st->params = params;
+    st->rng.seed(params->seed);
+    st->pos = 0;
+    st->dir = 1;
+
+    return st;
+}
+
+extern "C" THINK_PLUGIN_API void
+composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
+{
+    State *st = static_cast<State *>(state);
+    const thcParams *p = st->params;
+
+    if (ev->type == THC_EV_NOTE)
+    {
+        /* Re-pressing a held note replaces it: one key, one entry. */
+        st->release(ev->u.note.note);
+
+        Held h;
+
+        h.note = ev->u.note.note;
+        h.velocity = ev->u.note.velocity;
+        h.level = ev->u.note.level;
+
+        for (int a = 0; a < 4; a++)
+            h.aux[a] = ev->u.note.aux[a];
+        memcpy(h.say, ev->u.note.say, sizeof(h.say));
+        h.releaseAt = ev->u.note.duration > 0
+            ? ev->at + ev->u.note.duration : 0;
+
+        st->held.push_back(h);
+    }
+    else if (ev->type == THC_EV_NOTEOFF)
+        st->release(ev->u.note.note);
+
+    /* `pass' is about the notes this stage eats, and nothing else.
+     *
+       Gating the emit on every event type meant a `pass = 0' stage
+       silently swallowed the chanarg writes and structure edits of
+       everything upstream of it -- a gen::reshape in front of one
+       delivered nothing at all. A stage consuming what it is *for* is a
+       design; a stage consuming everything that happens to pass through
+       it is a hole in a pipeline.
+     *
+       The off goes with its on. Forwarding a release whose press this
+       stage ate is an off for a note it deliberately did not play, and
+       the scheduler hands an unmatched off to delNote -- which silences
+       whatever else is sounding at that pitch on that channel, quite
+       possibly another chain's note. Eat both or pass both. */
+    if ((ev->type != THC_EV_NOTE && ev->type != THC_EV_NOTEOFF) ||
+        thcParamInt(p, paramIndex[P_PASS], -1, 1) != 0)
+        out->emit(out->ctx, ev);
+}
+
+extern "C" THINK_PLUGIN_API double
+composer_tick (void *state, const thcTransport *t, thcEventSink *out)
+{
+    State *st = static_cast<State *>(state);
+    const thcParams *p = st->params;
+    auto get = [&](int i) { return p->get(p->ctx, paramIndex[i]); };
+
+    /* Composed notes let go of themselves. */
+    for (size_t i = st->held.size(); i-- > 0; )
+        if (st->held[i].releaseAt > 0 && st->held[i].releaseAt <= t->now)
+            st->held.erase(st->held.begin() + i);
+
+    if (t->running && !st->held.empty())
+    {
+        /* The sequence: held notes sorted ascending, repeated up the
+           octaves. Rebuilt per step because the held set is live.
+           Stable, because the same pitch can be held twice at two
+           velocities, and which comes first should not be the standard
+           library's decision. */
+        std::vector<Held> seq = st->held;
+
+        std::stable_sort(seq.begin(), seq.end(),
+                         [](const Held &a, const Held &b)
+                         { return a.note < b.note; });
+
+        /* Twelve octaves up is past note 127 from anything held. */
+        int octaves = thcParamInt(p, paramIndex[P_OCTAVES], 0, 11);
+        size_t base = seq.size();
+
+        for (int o = 1; o < octaves; o++)
+            for (size_t i = 0; i < base; i++)
+            {
+                Held h = seq[i];
+
+                h.note += 12 * o;
+
+                if (h.note <= 127)
+                    seq.push_back(h);
+            }
+
+        int len = (int)seq.size();
+        int pick;
+
+        switch (thcParamInt(p, paramIndex[P_PATTERN], -1, 4))
+        {
+            default:
+            case 0:  pick = st->pos % len;                    break;
+            case 1:  pick = len - 1 - st->pos % len;          break;
+            case 2:                    /* up-and-down, no repeats at the
+                                          turnarounds when len > 1      */
+            {
+                if (len == 1)
+                    pick = 0;
+                else
+                {
+                    int cycle = 2 * len - 2;
+                    int k = st->pos % cycle;
+
+                    pick = k < len ? k : cycle - k;
+                }
+                break;
+            }
+            case 3:  pick = (int)(st->rng() % len);           break;
+        }
+
+        thcEvent ev = {};
+
+        ev.type = THC_EV_NOTE;
+        ev.u.note.level = seq[pick].level;
+
+        for (int a = 0; a < 4; a++)
+            ev.u.note.aux[a] = seq[pick].aux[a];
+        memcpy(ev.u.note.say, seq[pick].say, sizeof(ev.u.note.say));
+        ev.at = t->now;
+        ev.channel = 0;                  /* the sink routes             */
+        ev.u.note.note = seq[pick].note;
+
+        int vel = thcParamInt(p, paramIndex[P_VEL], -10000, 10000);
+
+        ev.u.note.velocity = vel > 0 ? vel : seq[pick].velocity;
+        ev.u.note.duration = get(P_HOLD);
+
+        out->emit(out->ctx, &ev);
+        st->pos++;
+    }
+
+    return t->now + get(P_PERIOD);
+}
+
+extern "C" THINK_PLUGIN_API void
+composer_destroy (void *state)
+{
+    delete static_cast<State *>(state);
+}

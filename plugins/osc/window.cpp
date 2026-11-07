@@ -1,0 +1,258 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <math.h>
+
+#include "think.h"
+
+#include "thArg.h"
+#include "thPlugin.h"
+#include "thPluginManager.h"
+#include "thNode.h"
+#include "thSynthTree.h"
+#include "thSynth.h"
+
+static inline float SQR (float x)
+{
+    return x*x;
+}
+
+enum {IN_FREQ, IN_PW, IN_WAVEFORM, IN_RESET, OUT_ARG, OUT_SYNC,
+      OUT_SYNC2, INOUT_LAST};
+
+std::atomic<int> args[INOUT_LAST + 1];
+
+/* osc::simple shipped with this same description. This one runs 0 to 1 and
+   implements three of its six waveforms. */
+static const char desc[] = "Unipolar oscillator, for windowing";
+thPlugin::State    mystate = thPlugin::ACTIVE;
+
+/* Six indices, three of them implemented, and the gaps are the point.
+ *
+ * The switch in module_callback() has cases 0 through 5 -- the same six
+ * osc::simple has -- but 1, 4 and 5 are commented out, and there is no
+ * default:, so those values leave out[i] holding whatever was in the buffer. An
+ * empty name is how this list says "an index exists here and does nothing".
+ *
+ * All six rather than stopping after the last implemented one, because the
+ * length of this list is a statement about the arg's range and truncating it
+ * would quietly redefine what a 5 in a .dsp means. What a control drawn from it
+ * offers is decided by the *named* entries, not by the length -- so this says
+ * six and still gives three choices ending at Triangle.
+ *
+ * Written from the cases rather than from the comment above them. The comment
+ * is what the file hoped for; the switch is what it does. */
+static const char *const waveforms[] = {
+    "Sine", "", "Square", "Triangle", "", ""
+};
+
+const float SQRT2_2 = 2*sqrt(2);
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+/* ModuleLoad() invokes this function with a pointer to the plugin
+ * instance. */
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
+    args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PW],
+                       "Pulse width: how much of the cycle is the first half");
+    plugin->setArgRange(args[IN_PW], 0, 1);
+    /* The plugin already had this default, written where nothing
+       could read it: `if (pw == 0) pw = 0.5;' */
+    plugin->setArgDefault(args[IN_PW], 0.5);
+    args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_WAVEFORM], "Which wave");
+
+    plugin->setArgValues(args[IN_WAVEFORM], waveforms,
+                         (int)(sizeof(waveforms) / sizeof(waveforms[0])));
+
+    args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RESET], "Reset position to 0 when this goes to 1");
+    plugin->setArgRange(args[IN_RESET], 0, 1);
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* Unlike the other oscillators here this one runs 0 to 1: it is a window,
+       for multiplying something else by. */
+    plugin->setArgDesc(args[OUT_ARG], "The window, 0 to 1 rather than -1 to 1");
+    plugin->setArgRange(args[OUT_ARG], 0, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+    args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_SYNC], "Output a 1 when the wave begins its cycle");
+    plugin->setArgRange(args[OUT_SYNC], 0, 1);
+    args[OUT_SYNC2] = plugin->regArg("sync2", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_SYNC2],
+                       "Output a 1 at the half-way point, where pw puts it");
+    plugin->setArgRange(args[OUT_SYNC2], 0, 1);
+
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    int i, halfway;
+    float *out;
+    float *out_last, *sync, *sync2;
+    float halfwave, ratio;
+    float position;
+    double wavelength, freq;
+    float pw; /* Make pw cooler! */
+    thArg *in_freq, *in_pw, *in_waveform, *in_reset;
+    thArg *out_arg, *out_sync, *out_sync2;
+    thArg *inout_last;
+
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out_sync = mod->getArg(node, args[OUT_SYNC]); /* Output a 1 when the wave begins 
+                                             its cycle */
+    out_sync2 = mod->getArg(node, args[OUT_SYNC2]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+    position = (*inout_last)[0];
+    out_last = inout_last->allocate(2);
+    sync = out_sync->allocate(windowlen);
+    sync2 = out_sync2->allocate(windowlen);
+    out = out_arg->allocate(windowlen);
+    in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_pw = mod->getArg(node, args[IN_PW]);
+    in_waveform = mod->getArg(node, args[IN_WAVEFORM]);
+
+    in_reset = mod->getArg(node, args[IN_RESET]); /* Reset position to 0 when this 
+                                              goes to 1 */
+
+    halfway = (int)(*inout_last)[1];
+
+    for(i=0; i < (int)windowlen; i++) {
+        freq = (*in_freq)[i];
+
+        wavelength = samples/thBoundFreq(freq, samples);
+
+        /* A reset is the arg's own description -- "Reset position to 0" --
+           and taking a wavelength off instead put the phase *behind* the
+           start of the cycle whenever it had not reached the end, where
+           `ratio' is negative and every waveform below runs off its scale.
+           osc::simple's reset has always zeroed it.
+
+           The subtraction is right for the other case, where `position' has
+           advanced a sample past the end of the cycle. It is not enough when
+           `wavelength' is what moved: a note retuned upwards shortens it by
+           the interval, leaving a phase several cycles long that one
+           subtraction does not bring back. */
+        if((*in_reset)[i] == 1) {
+            position = 0;
+        } else if(position > wavelength) {
+            position -= wavelength;
+
+            if(position > wavelength) {
+                position = fmod(position, wavelength);
+            }
+        }
+
+        sync[i] = 0;
+        sync2[i] = 0;
+
+        pw = (*in_pw)[i];  /* Pulse Width */
+        if(pw == 0) {
+            pw = 0.5;
+        }
+
+        /* Neither half of the cycle may be empty -- both are divided by their
+           own length below. See osc::simple, which has the same shape. */
+        pw = thClampArg(pw, TH_PW_MIN, TH_PW_MAX);
+
+        halfwave = wavelength * pw;
+        if(position < halfwave) {
+            if(halfway) {
+                halfway = 0;
+                sync[i] = 1;
+            }
+            ratio = position/(2*halfwave);
+        } else {
+            if(!halfway)
+            {
+                halfway = 1;
+                sync2[i] = 1;
+            }
+            ratio = 0.5*((position - halfwave) / (wavelength - halfwave)) + 0.5;
+        }
+
+        switch((int)(*in_waveform)[i]) {
+            /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle,
+               5 = parabola */
+            case 0:    /* SINE WAVE */
+                out[i] = (sin((ratio-.25)*2*M_PI) + 1)/2;
+                break;
+//            case 1:    /* SAWTOOTH WAVE */
+//                out[i] = amp_range*ratio+amp_min;
+//                break;
+            case 2:    /* SQUARE WAVE */
+            {
+                if(ratio <= 0.5)
+                    out[i] = 0;
+                else
+                    out[i] = 1;
+                break;
+            }
+            case 3:    /* TRIANGLE WAVE */
+                ratio *= 2;
+                if(ratio < 1) {
+                    out[i] = ratio;
+                } else {
+                    out[i] = (-ratio + 2);
+                }
+                break;
+//            case 4:    /* HALF-CIRCLE WAVE */
+/*                if(ratio < 0.5) {
+                    out[i] = SQRT2_2*sqrt((wavelength-(2*position))*position/
+                                          SQR(wavelength))*amp_max;
+                } else {
+                    out[i] = SQRT2_2*sqrt((wavelength-(2*(position-halfwave)))
+                                          *(position-halfwave)/SQR(wavelength))
+                        *amp_min;
+                }
+                break;
+*/
+//            case 5:    /* PARABOLA WAVE */
+/*                if(ratio < 0.5) {
+                    out[i] = amp_max*(1-SQR(ratio*4-1));
+                } else {
+                    out[i] = amp_max*(SQR((ratio-0.5)*4-1)-1);
+                }
+*/
+        }
+        position++;
+    }
+    
+    out_last[0] = position;
+    out_last[1] = halfway;
+
+    return 0;
+}

@@ -1,0 +1,294 @@
+TODO
+====
+
+Grouped by kind rather than priority, after the short list of what comes next.
+Line references were checked against the tree; if one has drifted, the
+description should still find it.
+
+
+Next
+----
+
+In order. Each is described where it points.
+
+1. The rest of the relay's gaps.
+   (docs/JAM_BACKLOG.md §9)
+
+
+Packaging
+---------
+
+The port is done: all three platforms build, are real CI gates, and have been
+run and heard on real hardware. One thing it never covered.
+
+- The macOS .app has never been run on a Mac without GTK on it -- which is
+  every ordinary Mac, and is what bundling GTK into it is for. CI cannot check
+  this: building at all means Homebrew put GTK on the runner, so a bundle that
+  resolved against it looks like one carrying its own. macOS does run, but that
+  was built from source against the GTK it needed to build in the first place,
+  which is a different claim.
+
+  Windows is done -- the zip has been unpacked and run on a machine that has
+  never had GTK. Homebrew's keg symlinks and the two-prefix problem are macOS
+  only, so that does not carry over.
+
+  Does not apply to Linux, where the package is meant to use the
+  distribution's GTK.  (docs/PACKAGING.md)
+
+
+Never heard
+-----------
+
+- No MIDI has ever been played through the RtMidi path, on any platform. The
+  headless checks pass; that is not the same thing.
+
+
+The corpus
+----------
+
+- Six plugins lost their last user in the corpus when dsp/old and its
+  neighbors were cleared out: dist::clip, filt::res1pole, math::sin,
+  osc::bandosc, osc::multisined, and mixer::add outside bowl.dsp. Nothing
+  loads or renders them now, so nothing notices if they break. Either give
+  each a graph or retire it.
+
+- Nothing ships the whole piano. grand.dsp is the strings and the hammer;
+  the pedal's resonance is fx/sympathetic.dsp, a channel effect, and the
+  room is fx/hall.dsp. No patch or piece puts them together, so the
+  sympathetic work is only heard by someone who assembles the chain by
+  hand. A Grand patch, and a short piece to show it off.
+
+- grand.dsp's note-on cost has not been measured in the browser again since
+  it was cut. Through the wasm module on a desktop, one note-on cost about
+  1.4 ms of a quantum -- half the 2.67 ms a 128-frame quantum has at 48 kHz
+  -- and a six-note chord about 7 ms; a phone is several times slower, so
+  the grand clicked on every note there, and the web page opens patch mode
+  on ladder.dsp rather than on it. Natively, since: the hammer solver starts
+  from the last sample's forces (a 16-note chord's first window 175M -> 66M
+  instructions), a note restarts a finished voice instead of copying the
+  tree (addNote about 8x fewer instructions), and constant expressions cost
+  one value a window. Re-measure with a variant of wasm/web/bench.mjs that
+  holds a chord on one .dsp, on the desktop and on a phone, and move the
+  default patch if it is now cheap enough. scripts/dspbench is the native
+  side of the same measurement.
+
+- grand.dsp's damper falls in one stage. filt::pianostring's damper is one
+  per-trip loss on every string and every partial, so a released note falls
+  in a straight line in dB. A real damped note drops fast and then leaves a
+  quiet tail of a few hundred ms -- the out-of-phase unison motion the felt
+  barely touches -- with the upper partials gone before the fundamental.
+  Either spare part of the out-of-phase motion from the damper's loss or
+  make that loss rise with frequency. There is no damper-felt noise either.
+  The damper times themselves are guesses: the Iowa recordings the rest was
+  fitted to hold every note to its end, so fitting them wants a recording
+  with key releases in it.
+
+
+Coverage
+--------
+
+- dspcheck should grow a "load this and process it" check for anything the
+  editor writes.
+
+- A dspstress TSan job is deliberately out of the default matrix: TSan cannot
+  be combined with ASan so it needs its own build tree, and the run is slow.
+  Worth a nightly schedule: trigger once the rest is stable.
+
+- thSynthTree::buildSynthTree walks the graph recursively with a recalc flag
+  rather than a proper topological order. An editor makes it easy to build
+  pathological graphs.
+
+- gen/README.md's first line spells out how many pieces there are, and it
+  has drifted from the count more than once. gencheck already
+  checks every piece has a category; it could read the spelled number
+  against the count too, with a table of number words to fifty. About
+  thirty lines in scripts/gencheck.cpp.
+
+
+Engine
+------
+
+- RT-safety, what is left of it. The per-window path is clear: thMidiChan no
+  longer builds an std::string per channel per note per window, no longer
+  searches a std::map for it, and no longer lets thSynthTree::getArg invent
+  and insert the arg it could not find; the two VLAs are buffers owned by the
+  channel. Audio is bit-identical across the corpus. Still outstanding, and
+  none of it per window:
+
+    * A freshly copied note's args are resized from 1 to windowlen on its
+      first window, so every plugin holding state allocates once per note,
+      on the audio thread. A voice restarted from the channel's pool does
+      not -- thArg keeps its capacity and zero-fills in place -- so this is
+      now the first `poly' notes of a channel, and any note struck while
+      every pooled voice is sounding. Sizing the args when the note is built
+      would move the rest to the GUI thread.
+    * insertNote and releaseNote reach `trigger' by name. Per key press.
+    * buildSynthTree's recursive recalc walk, above.  (docs/ARCHITECTURE.md)
+
+- Performance left on the table, measured on grand.dsp and not yet done:
+
+    * The browser build compiles without -msimd128, so nothing in it
+      vectorizes. It measured no faster on its own, and it would raise the
+      page's floor from Safari 15.2 to 16.4, so it waits for code written
+      to use it, such as filt::pianostring's unison below.
+    * filt::pianostring is most of what a grand voice costs once it is
+      sounding. Its unison strings run the same cascade side by side and
+      would go into one SIMD vector; keeping the state in double rather
+      than rounding it to float every sample would drop the conversions.
+      Both change the output slightly, as the hammer's warm start did.
+    * The grand holds 48 voices, each until it falls 80 dB, and at 15 to
+      40 s a note that is a lot of voices under a sustained passage. Ending
+      a voice sooner once it is inaudible under the others is the biggest
+      lever left, and a question about the sound rather than the code.
+
+- philly and mirrorball are still over budget on a slow machine: 154 and
+  54 over-budget quanta a minute in Chromium on a 4-core cloud VM, against
+  4 and 3 on the desktop #390 measured. The quanta that run over mostly
+  start no note; it is the steady load, a p50 of 0.74 ms of the 2.67 ms a
+  quantum has (philly). Natively, delay::chorus and osc::simple are half
+  of it: tonewheel.dsp's ten sines and scanner and section.dsp's chorus,
+  per voice, then rhodes.dsp. Tabling osc::multiwave's sines measured no
+  faster. What is left changes the sound: one scanner per organ, as on a
+  Hammond, rather than one per voice; the section's chorus on the
+  channel; fewer tonewheels where a drawbar is down.
+
+- Arg descriptions cover 33 of 314 args. That is every one an author had
+  already written a comment about, and the rest are deliberately empty rather
+  than invented -- but somebody who knows these DSPs could write the other
+  281, and a tooltip is the cheapest documentation this tree has.  Likewise
+  the eight declared defaults are the eight the plugins special-case zero
+  for; others may have a sensible default nobody has written down.
+  (docs/ARCHITECTURE.md)
+
+- A @chanarg cannot be driven by a node. "This parameter varies with an LFO"
+  works today; "the knob moves on its own" needs engine work.
+
+
+Composition
+-----------
+
+- Fitness from the sound itself, for `gen::evolve'. `gen::breed' listens now:
+  `target' names an instrument or a sound file, the host renders each genome
+  through the chain's instrument on a private synth (src/thcAudition.cpp) and
+  answers with the distance libthink/thSoundFeat.h measures, through
+  `thcAudition' in thcomposer.h. `evolve' breeds phrases, and a phrase's
+  sound is a rendered bar rather than a note; the ear would need a
+  `hear' that takes a note list, and the same asynchronous flow breed has.
+  Live, a piece that listens replays exactly only offline (genwav): the
+  wall clock decides which cycle a generation lands on.
+
+- A composer that changes the *shape* of an instrument's graph, not just a
+  number in it. `gen::swap' replaces a channel's whole graph by name and
+  `gen::reshape' moves one constant inside the graph that is there; what
+  neither can do is add a node, remove one, or rewire what feeds what.
+  `THC_EV_NODEARG' refuses an arg that is wired to anything -- another node's
+  output, a @chanarg, a note property -- precisely because writing a number
+  over a wire is an add/remove/rewire edit wearing a value edit's clothes,
+  and that is the refusal this would have to replace with a mechanism.
+
+  What it wants is a third structure edit beside `THC_EV_PATCH' and
+  `THC_EV_NODEARG', delivered the way those are: built on the GUI thread,
+  swapped through the command queue, scheduled and sparse and drawn on the
+  roll, so a composer still cannot thrash a graph faster than its event
+  stream flows. The legal moves are already written down --
+  `NodeGraph::canConnect' is the constraint function, so a mutated graph can
+  be well-formed by construction rather than by luck -- and `loadTree' has
+  been a live atomic instrument swap since before any of this existed.
+  `thinklang' is pure, so candidate graphs parse off to one side without
+  touching the live synth, and `NodeEdit' is the one-writer splice seam a
+  program edits text through.
+
+  Past that is the graph as a genome. scripts/dspmatch does it offline:
+  `grow' splices a node into a wire, puts an envelope or LFO on a constant,
+  or adds a voice, each edit raced with its own tuning against the graph as
+  it stands, and the genome is the .dsp text through NodeEdit::Text. What it
+  cannot do is edit an expression, which is where most shipped patches sum
+  their oscillators, and it is a tool rather than a composer: the third
+  structure edit above is what would let a piece do it live.
+
+- Meta chains: a chain that schedules or chooses among the sections rather
+  than emitting notes, so the form of a piece is composed the way its notes
+  are. `section' landed and is the data half of this; what is missing is
+  something that reads it. The other road -- meta-composers splicing the
+  piece file itself through `thcGenEdit', so a piece rewrites itself and Save
+  publishes what it became -- verifies just as well and reads a great deal
+  stranger. Data first.
+
+- Writing a graph out *inline* in a `.gen', rather than naming a `.dsp' by
+  file. An `instrument' block carries a filename and the chanarg values that
+  make it this instrument, which delivered the self-contained piece; putting
+  the graph itself in the same file needs the two grammars merged, and the
+  merge is still waiting on a payoff rather than blocking one.
+  (docs/UNIFICATION.md)
+
+
+Node editor
+-----------
+
+- Renaming a control. Right-click gives its range, label and group; the name is
+  shown and insensitive, because renaming has to rewrite every `in1 = @old' in
+  the file as well as the block. That is removeControl plus addControl plus a
+  rename of every reference, and it wants deciding on rather than bolting to a
+  dialog about ranges.
+
+- Nothing edits a .dsp's header. `name', `author', `description' and now
+  `category' can only be written by hand or by NodeEdit::createFile, which
+  writes the first two once and never again -- so the editor can rewire a
+  graph it cannot retitle, and a graph saved under a new name goes on
+  announcing the old one in every chooser. The Composer has this for a piece
+  already and is the model: thcGenEdit::setInfo is generic over the key and
+  splices the statement in, erases it when the box is emptied, and inserts it
+  after the existing header lines when it is not there; ComposerWindow's Edit
+  -> Piece tab is four entry boxes over it. What is wanted here is the same
+  pair -- a NodeEdit::setInfo over the .dsp index, and somewhere in the node
+  editor to type into.
+
+  The category makes it worth doing rather than merely tidy. It is the one
+  header field a chooser sorts on, so a graph somebody writes in the editor
+  lands under Uncategorized with no way to move it that does not involve a
+  text editor.  (src/NodeEdit.h, src/thcGenEdit.cpp setInfo,
+  docs/DSP_FORMAT.md "category")
+
+
+The browser page
+----------------
+
+- A clicked Life, CA or evolve board is still not written back on the
+  page: their pictures are states the piece goes on changing, so capture
+  is a deliberate act, and the page has no button for it yet (the desktop's
+  is in the Selection pane). Grids, the euclid ring and accent's steps are
+  written at each gesture's end (THC_INPUT_EDITS).  (wasm/web/thinkweb.cpp)
+
+- Two for mullion rather than this tree. `panes.commands()': what can be
+  split, what is zoomed and what is in the drawer, as data -- `{ id,
+  label, run, enabled }' -- so a tab's right-click, a View menu and a
+  command palette can list the tiler's commands, which today are Alt chords
+  and nothing else. About forty lines, and the seam a menu bar would sit on
+  later, as a module of its own. And popover.js on the `popover' attribute
+  and CSS anchor positioning, keeping the JS clamp as the fallback: a
+  popover in the top layer is clipped by nothing, which is the whole reason
+  overlay() exists. Worth checking before more is built on overlay().
+
+- The page cannot ask what is on a channel. It knows what it put there
+  itself, which is not the same question: a piece's own instruments, and
+  whatever an earlier mode left, are invisible to it. Two things want the
+  answer. The channels row says "as it is" over a channel nothing is loaded
+  on, where it should say "nothing" -- and in piece mode, keys aimed at a
+  channel the piece neither names nor listens on are silent with nothing in
+  the page to say why. A `tw_loaded(channel)' export beside tw_sink_channel
+  would settle both, and would let the key channel take a default too.
+  (wasm/web/main.js)
+
+- Four measurements the browser build has only ever been given on a fast
+  desktop. The scheduler runs in the worklet on numbers taken there, and
+  each of these could move that decision:
+
+    * The worst quantum on a slow machine: the busiest pieces (`orrery',
+      `tide') plus a chord of note-ons, at 256 and at 128.
+      `wasm/web/bench.mjs' is the harness; what is missing is the machine.
+    * Chrome's and Firefox's main-thread-to-worklet delay on each OS, with
+      a real output device rather than an offline context.
+    * Background-tab behavior through a silent stretch of a piece, in both
+      browsers.
+    * Whether a dedicated worker's timers really are unthrottled in the
+      browsers the room targets. Secondary sources only, so far.

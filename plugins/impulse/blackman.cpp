@@ -1,0 +1,113 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+#include "think.h"
+#include "impulselen.h"
+
+static const char desc[] = "Generates a sine impulse";
+thPlugin::State    mystate = thPlugin::PASSIVE;
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+enum { IN_LEN,IN_CUT,OUT_ARG };
+
+std::atomic<int> args[OUT_ARG + 1];
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    /* An impulse response for delay::fir, not a signal. Both args come from
+       sample 0, so neither modulates. */
+    args[IN_LEN] = plugin->regArg("len", thPlugin::ARG_IN);
+    /* `(int)(*in_len)[0]' -- the impulse is this many samples long. */
+    plugin->setArgStep(args[IN_LEN], 1);
+    plugin->setArgDesc(args[IN_LEN],
+                       "How long the response is; longer is a steeper "
+                       "filter");
+    plugin->setArgUnits(args[IN_LEN], "samples");
+    args[IN_CUT] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* A windowed sinc, so this is where the sinc's zero crossings fall: a
+       fraction of the sample rate, like filt::moog's, and not hertz. */
+    plugin->setArgDesc(args[IN_CUT],
+                       "Cutoff, 0 to 0.5 -- a fraction of the sample rate");
+    plugin->setArgRange(args[IN_CUT], 0, 0.5);
+    plugin->setArgUnits(args[IN_CUT], "fraction of the rate");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG],
+                       "A Blackman-windowed sinc, normalised to sum to 1");
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    float *out;
+    thArg *in_len, *in_cut;
+    thArg *out_arg;
+    float factor, len, k = 0;
+    unsigned int i;
+
+    in_len = mod->getArg(node, args[IN_LEN]);
+    in_cut = mod->getArg(node, args[IN_CUT]);
+    len = impulseLen((*in_len)[0], samples);
+    factor = (*in_cut)[0]/2;
+
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate((int)len+1);
+    
+    for(i = 0; i <= (unsigned int)len; i++)
+    {
+        /* At a cutoff of 0 every tap of the sinc is 0 and the sum below
+           would divide by it. The sinc's limit there is flat, which
+           leaves the window alone: an average, all that passes being DC.
+           The middle tap first, the window's 1 there, so a length of 0
+           -- one tap -- never reaches cos(0/0). */
+        if(i == len/2)
+        {
+            out[i] = factor > 0 ? 2*M_PI*factor : 1;
+        } 
+        else if (factor <= 0)
+        {
+            out[i] = 0.42-0.5*cos((2*M_PI*i)/len)+0.08*cos((4*M_PI*i)/len);
+        }
+        else 
+        {
+            out[i] = (sin(2*M_PI*factor*(i-len/2))/(i-len/2))*
+                (0.42-0.5*cos((2*M_PI*i)/len)+0.08*cos((4*M_PI*i)/len));
+        }
+        k += out[i];  /* We need to make all the samples add up to 1 */
+    }
+
+    k = 1/k;
+
+    for(i = 0; i < len; i++)
+    {
+        out[i] *= k;
+    }
+
+    return 0;
+}

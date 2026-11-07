@@ -1,0 +1,633 @@
+# Architecture
+
+What the pieces are and how they fit. For the `.dsp` and `.patch` file formats
+see [DSP_FORMAT.md](DSP_FORMAT.md); for the output stage and gain staging see
+[AUDIO.md](AUDIO.md).
+
+## The layers
+
+~22k lines of C++ in four layers:
+
+| Layer | Path | Role |
+|---|---|---|
+| Core engine | `libthink/` | Synth graph, arg system, MIDI, DSP-language parser. Builds `libthink.so.8.0`. |
+| Plugins | `plugins/` | One `.cpp` per plugin → one module each, `dlopen`ed at parse time. Categories: `osc filt env math mixer delay impulse logic misc analysis dist input fft test visual`. |
+| App / IO | `src/` | `main.cpp`, RtAudio + RtMidi, patch file and prefs IO, the node-editor model. |
+| GUI | `src/gui/` | gtkmm-4: main window, keyboard, arg sliders, patch selector, MIDI map, node canvas. |
+
+Data lives in `dsp/` — 61 instruments and 16 effect graphs under `dsp/fx/` —
+plus the 22 wavs under `dsp/samples/` and `patches/**/*.patch` (105 presets).
+All of it installs and all of it loads; there is no longer a drawer of files
+that do neither. Three graphs that are specimens rather than instruments live
+in `scripts/guard/` beside the harnesses that cite them.
+
+`plugins/visual/` is a different kind of plugin — see
+[VISUALIZERS.md](VISUALIZERS.md). It links cairo and not libthink, and has no
+node, arg or tree.
+
+## Key classes
+
+- **`thSynth`** — top level. Owns `midiChannels_[]` (`thMidiChan*`), a
+  `thPluginManager`, and `treelist_` (a `map<string, thSynthTree*>` of parsed
+  DSP files, shared across channels). `process()` is the audio-thread entry
+  point.
+- **`thSynthTree`** — one parsed `.dsp`: `nodes_` (name → `thNode*`),
+  `chanargs_` (the `@foo` user-facing params), an `ionode_`, and a flat
+  `nodeindex_` array for fast arg-pointer resolution. Copied per note.
+- **`thNode`** — one graph node: a `thPlugin*` and a `map<string,thArg*>` plus
+  a parallel `argindex_` array. Holds `children_`/`parents_` lists.
+- **`thArg`** — a value. Three flavours: `ARG_VALUE` (constant), `ARG_NODE`
+  (pointer to another node's arg), `ARG_CHAN` (reference to a `@chanarg`).
+  Emits a sigc++ signal on change — this is how GUI sliders talk to the engine.
+- **`thPlugin`** — the `dlopen` wrapper. Plugins export `module_init`
+  (registers named args, returns integer indices), `module_callback` (the
+  per-window DSP) and `module_cleanup`; optionally `module_reset` and
+  `module_prepare`, which reads what a node needs from disk on the loading
+  thread instead of in its first window.
+- **`thExprNode`** — an arithmetic expression over signals, alive only between
+  the parse and `thSynthTree::desugarExprs`. `freq->out * exp2(@cents / 1200)`
+  becomes `math::` nodes at load and the audio path sees a graph like any
+  other. An all-constant expression never becomes one of these: the grammar
+  folds it at parse, as it always has. See
+  [DSP_FORMAT.md](DSP_FORMAT.md#arithmetic-over-signals).
+
+Plugins keep their state *in args* — delay lines, filter history, oscillator
+phase. That is not incidental; see [AUDIO.md](AUDIO.md) on why `thArg::allocate()`
+must value-initialise.
+
+## Arg direction
+
+`regArg(name, dir)` carries an `ArgDir`, and `argIsPort()` is what keeps the
+editor from offering a delay ring for wiring. `ARG_IN` is the default, so a
+plugin built against the older header still loads — which is why *this* did not
+need an interface-version bump, though a later change to the same structure did.
+See the note on `MODULE_IFACE_VER`, now 5, at the end of the next section.
+
+Three directions matter:
+
+- **in** — read by the plugin, wireable, drawn as an input port.
+- **out** — written by the plugin, wireable, drawn as an output port.
+- **state** (`ARG_STATE`, conventionally spelled `INOUT_` in a plugin's enum) —
+  internal state allocated and read across windows. 69 of these exist and no
+  shipped `.dsp` references one. They must never appear on the canvas: nobody
+  wants to wire a delay line's internal buffer.
+
+## Arg type
+
+`regArg` says which way an arg faces. Four more things a plugin can say about
+one:
+
+- **step** — 0 for an ordinary continuous parameter, 1 for one that means a
+  whole number.
+- **values** — the names of those whole numbers, where they have any. A list
+  implies a step of 1, and a range running from its first named entry to its
+  last.
+- **description** — what the arg is for, for a tooltip.
+- **default** — the value the plugin behaves as though the arg held when it is
+  0.
+
+Only the default reaches the audio path, and only at load: `buildArgMap` writes
+it into an arg the `.dsp` never mentioned. The rest is advice.
+
+### Step and value names
+
+They exist because `osc::simple` reads `waveform` as `switch ((int)buf[i])`, so
+3.4 *is* 3 — and a control that can produce 3.4 is a control most of whose
+travel does nothing. The eight shipped patches that drive a waveform all
+declared `.max = 5.1` or `5.5` rather than 5, which was an author working around
+exactly that: padding the top of a continuous slider so it could still truncate
+to the last waveform. Those declarations say 5 now.
+
+Two plugins have a selector to declare, both spelled `waveform`. `osc::simple`
+implements six cases; `osc::window` implements three and leaves 1, 4 and 5
+commented out with no `default:`, so those values leave the output buffer
+unwritten. Its list is six long and names three — an empty name is how the
+format says "an index exists here and does nothing".
+
+Six rather than four, because **the length of the list is a statement about the
+arg's range**: stopping after the last implemented entry would quietly redefine
+what a 5 in a `.dsp` means. What gets offered is decided by the named entries
+instead, so the list says six and the control still shows three. A step is
+measured from zero, not from the bottom of the range, because the thing being
+stepped to is what `(int)x` can distinguish.
+
+Eight further args carry a step with no names: they are read `(int)(*in_x)[0]`
+and used as a length or a count — `delay/echo`'s size, `filt/comb`'s, the four
+`impulse` lengths, `osc/multiwave` and `osc/multisined`'s `waves`. A delay line
+of 220 samples has nothing to call itself. Found by grepping for a cast of an
+arg to int rather than by reading arg names, which is the difference between a
+sweep and a guess — an earlier draft did the latter and named two plugins that
+do no such thing.
+
+### Description and default
+
+Both are deliberately thin on content, for the same reason: **everything in them
+was transcribed, and nothing was written.**
+
+33 args across 11 plugins already carried a trailing comment on the line that
+fetches them — `in_mul = mod->getArg(node, args[IN_MUL]); /* Multiply the
+wavelength by this */`. Those are the descriptions. The other 281 have none and
+stay empty. Reading someone else's arithmetic and writing a confident sentence
+about what it is for produces a tooltip that is wrong in a way nobody can see.
+
+The defaults are the same principle over a different pattern. Fourteen args
+across eleven plugins are special-cased in their own callback — `if (amp_max ==
+0) amp_max = TH_MAX;`, `if (mul) freq *= mul;`, `if (pw == 0) pw = 0.5;`. Those
+plugins already had defaults; they were written somewhere nothing could read
+them, so a node the editor added came out saying `amp = 0` and left the reader
+to know that meant full scale. **A default here is not a suggested starting
+value**, and that is what stops it being taste.
+
+`buildArgMap` loads them. An omitted arg used to become a 0 that the callback
+substituted for per sample, inside itself; the declaration is what the engine
+reads now, so probe, tooltip and arithmetic agree on one number. Sound is
+unchanged because a default is a transcription: `amp = 0` and no `amp` line
+reach the loop identically. `NodeEdit::disconnect` depends on that too — it
+rewrites an arg to `= 0` rather than deleting the line. `argtype` compares all
+three spellings bitwise and checks every declared default against what a bare
+node of its plugin loads holding.
+
+`NodeEdit::addNode` also writes them into a node the palette adds. That one is
+for the reader: same sound, in a file that says what it does.
+
+### Getting it to the control
+
+A control is a `@chanarg`, and a chanarg is not a plugin arg — the two are
+joined only by the wire between them, `in1 = @blim`. So
+`thSynthTree::typeChanArgs` walks the tree after `buildArgMap` and carries the
+type along that wire. It rides on the same correspondence every plugin already
+depends on: a node arg's index equals the plugin's registration index for it,
+which is what makes `mod->getArg(node, args[IN_FREQ])` find anything.
+
+**A control is typed only by unanimous agreement.** 197 of the 206 controls in
+the corpus drive exactly one parameter, but nine drive several, and a control
+feeding both a waveform selector and a mixer gain cannot become a list of six
+names without losing the ability to say 0.35 to the mixer. A consumer that says
+nothing disagrees with one that does — "no opinion" is the opinion that this is
+an ordinary number, and it is held by every arg of every plugin that has not
+been taught otherwise.
+
+A `.dsp` can also say it directly, with `@x.step` and `@x.values`, and the file
+wins. That needs `thArg::typedByFile` to be a separate flag rather than being
+inferred: a step of 0 is the default, so without it an author saying "leave
+this one continuous" and an author saying nothing would be the same state.
+
+**This bumped `MODULE_IFACE_VER` to 5.** Direction did not need one: `regArg`
+gained a defaulted parameter and nothing about `thPlugin`'s shape moved, so a
+plugin built against the older header still loaded and reported every arg as an
+input. This time the three parallel arrays behind `regArg` became one vector,
+which moves every member after them — and `setDesc` and `setState` are inlined
+*into the plugin* from the header and reach their members by offset. As it
+happens both sit before what moved, so a stale plugin would probably survive.
+"Probably" is the problem: that is the shape of the stale-`libthink` bug below,
+where a mismatched library made every header-inlined accessor read at the wrong
+offset and return garbage silently. The version check exists to make that loud,
+and stale plugin `.so` files in a source tree are a thing that actually happens
+here — `NodePalette`'s own tooltip tells people to go and delete them.
+
+It stayed at 5 when the description and the default were added, and again when
+the range and the units were, and the rule above is why: those went *inside*
+`ArgInfo`, which lives in a vector, so `thPlugin` is the same size and every
+member is where it was. Adding methods is not a layout change. The version is
+for layout changes, and saying which is which is the whole value of having one.
+
+**The library's soname is the other direction, and that one did move.** Growing
+`ArgInfo` changes the stride of the vector behind `regArg`, and `getArgName`,
+`getArgDir` and the rest are inlined into whatever includes `thPlugin.h`. So a
+binary compiled against the new header and linked against a `libthink` that
+fills that vector with the old `ArgInfo` reads every arg at the wrong offset
+and returns garbage without a diagnostic — the failure below, exactly.
+`THINK_LIB_MAJOR` went to 7 for it. `MODULE_IFACE_VER` guards libthink against
+a stale plugin; the soname guards a binary against a stale libthink.
+
+### Drawing it
+
+What a control *is* — its rows, its label, what it is worth in the unit it was
+written in, how many decimals are worth showing, which group it belongs to —
+is `thPanel`, in [`src/PanelModel.h`](../src/PanelModel.h). Plain data, no
+toolkit, built from live state by a provider (`src/ArgPanel.cpp` for a
+channel's args, `src/KnobPanel.cpp` for a piece's knobs, `src/NodePanel.cpp`
+for a selected node's, `src/StagePanel.cpp` for a composer stage's) and
+rendered by a shell — `src/gui/PanelView.cpp` on the desktop,
+`wasm/web/panel.js` in the browser, which reaches it through
+`tw_panel_open`/`tw_panel_json`. It exists because those rules used to live
+inside a widget-building function and had to be written a second time,
+worse, for the browser — which meant an envelope time read `20000 ms` in one
+and `882000` in the other.
+
+An edit does not write. A provider turns "row `cutoff`, the person typed 4000"
+into a `thPanelEdit` and says whether it is allowed; the shell delivers it. On
+the desktop that is an immediate `thArg::setValue`; in the browser it is a
+broadcast command, because the local tab has no privileged path to the
+scheduler. A knob is the case where the two deliveries visibly differ: a knob
+is heard, so a move has to land at the same transport time on every peer, and
+`tw_panel_edit` refuses one outright — `tw_knob` carries the stamp. A node's
+value is the case with no delivery at all: it is a number in the `.dsp`, so
+the intent becomes a splice into that text (`NodeEdit::setValue` on the
+desktop, `tw_edit_set_value` in the browser) and nothing live is written.
+
+A composer stage's param is the case with both halves at once, and the only
+panel whose rows are read out of a file rather than off live objects. What a
+row carries is what the `.gen` line says — the number in the unit it was
+written in, the knob it is read through, the note names rather than the MIDI
+numbers the store holds — so the intent is a whole authored right-hand side,
+and delivering one is a splice (`thcGenEdit::setParam`) followed by
+`StagePanel::deliver` into the running stage. A shell hands over only the
+part the person touched — `4000`, `ms`, `@warmth`, `@` — and the provider
+completes it against the line. It is stamped like a knob, for the same
+reason: a `period` that changes a window earlier on one peer moves that
+stage's next firing, and from there the peers are composing different
+pieces.
+
+`scripts/panelcheck` is the gate, and it needs no display;
+`wasm/web/panelcheck.mjs` is the other one, and diffs the module's
+description of two fixtures — a channel's panel and a stage's — against the
+native build's, byte for byte.
+
+What a `.patch` is went the same way and for the same reason.
+`src/PatchFile.h` is the format — text in, a `thPatchDoc` out, and the
+document back to text — and `src/PatchApply.h` is the order it goes onto a
+channel in. `src/gthPatchfile.cpp` keeps what only a desktop has (`PATCH_PATH`,
+`fopen`, thinkrc) and the page keeps `fetch`; everything between those two
+ends is one reading, compiled twice. `wasm/web/patch.js` used to hold a second
+one, and the two had drifted —
+[DSP_FORMAT.md](DSP_FORMAT.md#one-reader) says how. `scripts/patchcheck` and
+`wasm/web/patchcheck.mjs` are the pair of gates, in the shape the panel's
+are.
+
+### What an arg says about itself
+
+`regArg` gives an arg a name and a direction; six calls beside it carry the
+rest. Four are advice, read by the editor and by `NODES.md` and by nothing in
+the audio path. `setArgDefault` and `setArgSmooth` are the exceptions:
+`buildArgMap` loads the first into every arg a `.dsp` leaves out, and the
+second is below.
+
+| | |
+|---|---|
+| `setArgDesc` | what the arg is for, as a tooltip fragment |
+| `setArgStep` | 1 where the callback reads `(int)x` |
+| `setArgValues` | the names of those whole numbers, which implies a step |
+| `setArgDefault` | what the callback substitutes when the arg is 0 |
+| `setArgRange` / `setArgUnits` | the span the arithmetic is defined over, and what the numbers are |
+| `setArgSmooth` | that a step in the arg is heard, so a knob turning it should glide |
+
+A range is not `thArg`'s `min` and `max`. Those are a *control's* travel,
+declared by the `.dsp`, and a node arg no control drives has none; this is the
+plugin's own statement, and for a filter it is the span its coefficients stay
+stable across. Units are what settles `filt::moog`'s cutoff (0 to 1, a fraction
+of the sample rate) against `filt::res2pole2`'s (hertz) — two args with the
+same name, the same direction and the same plausible numbers, which could
+previously only be told apart by reading both callbacks.
+
+A knob moves a window at a time, so a filter's cutoff or a gain on a knob
+steps, and a slow turn is a zipper. An arg declared with `setArgSmooth` is
+glided instead: when a chanarg feeds it, directly or through arithmetic on
+numbers and the note, `thSynthTree::smoothArgs` runs each new value through a
+one-pole of `TH_SMOOTH_MS` and hands the plugin the ramp, a sample at a time,
+until it arrives. Which args a knob feeds is worked out when the tree is
+built, not from how long the arg is: at a window of one an envelope is one
+value long too, and must not be glided. The channel's level glides the same
+way. The filters' cutoffs and resonances and the mixers' gains, fades and pans
+declare it.
+
+`scripts/dspnodes` collects all of it into [NODES.md](NODES.md) by walking the
+palette's catalogue, so the reference covers exactly what the editor offers. A
+ctest regenerates and diffs it, so it cannot go stale.
+
+## Threading
+
+There are two threads, and with `thSynth::setThreads` a few more that
+render for the audio thread.
+
+**The audio thread** is RtAudio's callback. It is the sole mutator of
+everything reachable from `midiChannels_`.
+
+**Render threads**, if any, take the window's channels off the audio thread
+in lanes while it waits on them: a channel and the one its effect listens
+to render on one lane, as does every channel whose graph holds a plugin
+that keeps one table for the whole synth (noise, samples, pad). Each
+channel renders into its own buffer and retires into its own queue; the
+audio thread sums the buffers and hands on what was retired afterwards, in
+the order one thread would have, so the samples are the same however many
+threads there are. `genwav -j` and its `genwav.threads` gates hold it to
+that.
+
+**The GUI thread** is everything else: the on-screen keyboard, patch
+load/unload, preference restore, and MIDI (see below).
+
+They communicate through two lock-free SPSC ring buffers (`thRing.h` — a
+command queue, *not* a sample FIFO):
+
+- **Forward queue**, GUI → audio. The GUI does all the allocation — building a
+  `thMidiNote` copies an entire synth tree, which must not happen on the RT
+  thread — and enqueues a command holding the finished object: `NOTE_ON`,
+  `NOTE_OFF`, `ALL_NOTES_OFF`, `SET_CHANNEL`, `SET_CHAN_ARG`. The audio thread
+  drains the queue at the top of `process()` and applies each one, which is just
+  pointer and container manipulation.
+- **Retire queue**, audio → GUI. Whatever the audio thread displaces — the old
+  channel, the stolen note, the replaced arg — it hands back, and the GUI frees
+  it. Because the audio thread only releases a pointer once it is genuinely
+  unreachable, this needs no epoch counting and no grace period.
+
+So `removeChan`, `loadTree` and `setChanArg` are all "build the replacement,
+enqueue the swap, free what comes back". No locks on either side.
+
+A channel's chanarg map is the one exception to the audio thread doing the
+swapping, and it is the GUI thread's alone. `setChanArg` points the prototype
+at the replacement, queues `SET_CHAN_ARG` carrying both the new arg and the
+one it displaces, and then puts the new one in the map; the audio thread only
+re-points the live voices and retires the old arg. It never reads the map —
+the channel keeps `amp` and `SusPedal` in pointers of their own for it — so
+an arg panel listing it, or a new name inserted into it, races nothing.
+
+### What this deliberately does not solve
+
+Slider moves. `ArgPanel::deliver` calls `setValue()` from the GUI thread while the audio
+thread reads the same arg — that is the whole point of a parameter control, and
+routing every drag through the queue would be silly. For a single float where
+`len_` is already 1, `setValue` does not reallocate and is one relaxed atomic
+store, and both ways a plugin reads a one-value arg — `getBuffer` and
+`operator[]` — are relaxed atomic loads, so a read cannot tear. What this does
+not give is smoothing; a plugin asks for that ([above](#what-an-arg-says-about-itself)). The
+`setValue(float*, int)` overload *can* reallocate and does go through the
+queue.
+
+### It is not hard-RT-safe yet
+
+The per-window path is, now. `thMidiChan::process` used to spell `out0`, `play`
+and `trigger` out as `std::string`s and look each one up in a `std::map` — per
+channel, per note, per window — and `thSynthTree::getArg` *creates* an arg it
+cannot find, so a `.dsp` declaring more channels than it wires up allocated a
+`thArg` and inserted it on the first window of every note. Those args are
+resolved to indices once, when the channel is built, and any the file did not
+write is created there; reaching one in a voice's own tree is now two array
+subscripts, because both halves of an arg's address survive the per-note tree
+copy. That is the property [thProbe already rides
+on](VISUALIZERS.md#the-tap) and the one every plugin's `mod->getArg(node,
+args[IN_FREQ])` already uses. The two VLAs sized by window length went the same
+way, into buffers allocated with the channel.
+
+`scripts/dsplevel` and a bitwise A/B over the corpus both say the sound did not
+move: 81 DSPs, three voices, eight windows, byte for byte.
+
+What is left is real but narrower, and none of it is per window:
+
+- **Plugins allocate on a note's first window.** A note's args are copied from
+  the channel's prototype holding a single placeholder value, so the first
+  window resizes each of them from 1 to `windowlen` — see [AUDIO.md](AUDIO.md)
+  on why that is also where a twenty-year-old noise bug lived. One burst per
+  note. Fixing it means sizing a note's args when it is built, on the GUI
+  thread, rather than when it is first processed.
+- **Note events still look up by name.** `insertNote` and `releaseNote` reach
+  `trigger` through a string. Per key press.
+- **`thSynthTree::buildSynthTree` walks recursively with a `recalc` flag**
+  rather than in topological order.
+
+What the queue design buys is *race freedom* — no torn containers, no
+use-after-free — and none of the above is a race.
+
+## Audio and MIDI
+
+Both go through RtAudio and RtMidi, one API each across
+CoreAudio/WASAPI/ASIO/ALSA/JACK and CoreMIDI/WinMM/ALSA-seq/JACK-MIDI. They are
+callback-driven, which is the model the old JACK path already used.
+
+### The ring between `process()` and the callback
+
+`thSynth::process()` produces exactly `getWindowlen()` frames per call and
+cannot be asked for fewer. The device asks for whatever it asks for.
+
+```
+  device callback (RT)          gthSynthSource                thSynth
+  ------------------            --------------                -------
+  wants N frames  ---------->   pop N from ring
+                                 ring low?  ---------------->  process()
+                                                               push windowlen
+                                <-- N frames of float
+  clamp, interleave, write
+```
+
+`process()` is called from the callback when the ring runs low. That keeps the
+"audio thread owns the graph" invariant from the queue rework, at the cost of a
+callback that crosses a window boundary doing a whole window's work — so period
+jitter is one window wide. The alternative, a dedicated producer thread, would
+reintroduce a second thread touching the graph and therefore a second consumer
+for a queue that is SPSC.
+
+The ring is four windows deep and primed before `start()` so the first callback
+never underruns. `getWindowlen()` is now an internal detail of the synth rather
+than a constraint on the device, which is how it should always have been.
+
+This is also a bug fix rather than only a port requirement. The old code did
+
+```c
+int copy = ((int)nframes < l) ? (int)nframes : l;
+```
+
+and silently discarded the rest of the window. If the device handed it 512
+frames, samples 512–1023 were dropped and a fresh window generated — the synth
+running at double speed with every other half-window thrown away. Only
+`nframes == windowlen` was ever correct, which happened to be true of JACK's
+default period on Linux and of nothing else.
+
+### And the same path backwards, for a live input
+
+A host that captures audio hands over a device period; the graph reads a whole
+window. So `gthSynthSource::feedInput` is the mirror of the buffer above:
+periods are accumulated, and a completed window is handed to
+`thSynth::feedCapture` immediately before the `process()` that renders with it.
+An effect graph reads it as `live0`…`live<N-1>` on its io node
+([DSP_FORMAT.md](DSP_FORMAT.md)); nothing else in the engine touches it.
+
+Both ends are the same thread again — a duplex callback is handed the period it
+captured and the period it must fill in one call — so again no lock-free ring,
+just a circular buffer with a count.
+
+Two consequences, neither a bug:
+
+**A live graph hears one window late, or two.** One because `produce()` hands
+out the window it has and renders the next; a second where the device period is
+*smaller* than the window, because then the first ask for a window of capture
+comes with only a period in hand and that window is rendered with silence. In a
+browser the period is the worklet's quantum of 128, and so is the page's
+window.
+
+**And the alignment depends on the block size**, which is the one place a live
+input breaks the property `scripts/dspblock` exists to check. The *samples* a
+graph sees are the samples the device captured, in order, whatever the period —
+but which window boundary the accumulation completes on is a function of the
+period, so the render is not bit-identical across block sizes.
+`scripts/dspcapture` checks the half that holds and says why.
+
+Nothing is fed to the synth until something has fed the source, so every
+offline path — `genwav`, `gencheck`, `dspcheck` — leaves the capture buffer at
+the zeros it was allocated with and renders reproducibly.
+
+### MIDI crosses a thread boundary
+
+RtMidi delivers on its own thread, and Windows has no file-descriptor story to
+hand to Glib in any case.
+
+```
+RtMidi callback thread          GUI thread (GTK main loop)      audio thread
+----------------------          --------------------------      ------------
+push 3 bytes into SPSC ring
+Glib::Dispatcher::emit()  ---->  drain ring
+                                 processmidi() logic
+                                   Synth->addNote()      ----->  command queue
+                                   m_sigNoteOn()                 drain in process()
+                                   (on-screen keyboard)
+```
+
+`Glib::Dispatcher` is specifically the "wake the GTK main loop from another
+thread" mechanism and is implemented on Win32 as well as on Unix. The MIDI ring
+reuses `thRing.h` as is.
+
+Going straight from RtMidi's thread into the command queue would skip a hop, but
+it loses the `m_sigNoteOn`/`m_sigNoteOff` signals that light up the on-screen
+keyboard, and it makes the command queue multi-producer. Not worth it.
+
+Nothing downstream of `thSynth::handleMidiController()` touches a platform API —
+`thMidiController`, `thMidiControllerConnection` and `src/gui/MidiMap.cpp` are
+all portable.
+
+**One ordering worth not breaking.** `gthMidiQueue::drain` clears its notify
+flag *before* the pop loop rather than after. Clearing after leaves a roughly
+two-instruction window in which a push sees the flag still set, skips its
+`emit()`, and strands a message until the next one arrives — live, that is a
+note that hangs. `dspmidi`'s third phase holds this down: rather than racing
+for a two-instruction window, it uses a drain hook to stand in it and pushes
+from another thread from there. Move the store down past that hook and the
+check fails every run.
+
+### MIDI out: stamped, then sent on a clock
+
+The composer can play an instrument on a device (`midi "port";` in a `.gen`,
+docs/GEN_FORMAT.md §4b). The scheduler stays toolkit-free: it talks to a
+`thcMidiOut` a host sets, and for a channel attached there it hands over
+notes, their offs and mapped chanargs instead of calling the synth. Each one
+carries the `thcMonotonicUs()` it is due, worked out from the step's
+own clock (`stepTransportAt`) and the event's distance from the transport.
+
+```
+GUI thread (20 ms timer)            gthMidiOut sender thread       device
+------------------------            ------------------------       ------
+step -> deliver(ev)
+  noteOn(ch, note, vel, level,  ->  heap by due time + delay
+         due)                        wait until due + delay  ---->  RtMidiOut
+```
+
+`gthMidiOut` (the application's) keeps the messages in a heap and a thread
+of its own sends each at its due time plus a delay, 40 ms by default: enough
+to cover the step, so a line comes out evenly rather than with the timer's
+jitter in it, and about the synth's own output latency, so the two line up.
+It keeps what is sounding per port, channel and key, so a retrigger sends the
+key's note-off first and `flush()` — a pause, a stop, a route changing —
+ends exactly what the device holds. Where no port answers an instrument's
+pattern, or this machine's route says so, the scheduler loads its `dsp`
+instead.
+
+What turns notes into bytes is `thcMidiRouter`, shared with the browser:
+port matching, routes, the per-channel `cc` and expression state. In the
+browser the scheduler runs in the AudioWorklet, which cannot reach Web MIDI,
+so `twMidiOut` (wasm/web/thinkweb.cpp) stamps each message with the
+AudioContext time of the frame it sounds at (`setMidiClock`) and the
+worklet posts them to the page every quantum. The page (midiout.js) maps
+that time to `performance.now()` through getOutputTimestamp, hands each
+message to `MIDIOutput.send(bytes, time)` shortly before it is due, and keeps
+what each device holds, as `gthMidiOut` does on the desktop. The worklet
+names an output by its index in the list the page last sent, and each list
+has a generation the worklet stamps on every message, so one posted against
+an older list is dropped rather than sent to whatever device now has its
+index; a list is only sent again when the outputs change, and only the
+instruments whose device changed are applied again. The mirror is never
+given ports, so it plays the `dsp` and composes the same.
+
+MIDI clock rides the same path. Where the host's `thcMidiOut` says it
+wants clock (`wantsClock`), the scheduler sends a tick for every 24th of a
+beat a step passes, stamped at that beat (`clockTicks`), and Start, Stop,
+Song Position and Continue as the transport starts and stops
+(`clockStart`); the output sends them to the ports chosen for clock, raw,
+at their stamps plus the delay.
+
+## Plugin linkage
+
+A plugin exports `apiversion`, `module_init`, `module_callback` and
+`module_cleanup`, and imports everything else from libthink.
+
+`generate_export_header(think)` produces a `THINK_API` macro —
+`__declspec(dllexport|dllimport)` on Windows, `visibility("default")` elsewhere
+— applied to the classes a plugin touches: `thPlugin`, `thArg`, `thNode`,
+`thSynthTree`, `thSynth`, `thMidiChan`, `thUtil`. libthink is compiled
+`-fvisibility=hidden` on Unix, deliberately: without it, a forgotten `THINK_API`
+keeps working on Linux and surfaces as a Windows link error six months later.
+Every plugin links against libthink — harmless on Linux and macOS, mandatory on
+Windows.
+
+Loading is `dlopen`/`LoadLibraryW` behind one seam in `thPlugin.cpp`. CMake's
+`MODULE` library type builds the right kind of object on each platform, and the
+suffix is set explicitly from `THINK_PLUGIN_SUFFIX` — the build and the runtime
+have to agree on it, since `PLUGIN_SUFFIX` is what `thPluginManager` and
+`NodeCatalog` append when they go looking.
+
+## Paths
+
+`thPluginManager::resolveRoot()` and `thUtil::findDataFile()` share one search
+order:
+
+```
+$THINK_DSP_PATH                    (environment override)
+the name as given
+<subdir>/<name>                    relative to the cwd
+<exe>/../share/thinksynth/dsp      (Unix install)
+<exe>/../Resources/dsp             (macOS .app)
+<exe>/dsp, ./dsp                   (build tree, Windows install)
+DSP_PATH                           (compiled-in default)
+```
+
+This is load-bearing rather than cosmetic. Before it existed, `.patch` files
+resolved their DSP against a years-old `/usr/local/share/thinksynth/dsp` left
+over from some previous `make install`, and the corpus sweep appeared to pass on
+the development machine while failing 63 of 99 on a clean runner. Configuring
+with `-DCMAKE_INSTALL_PREFIX=/nonexistent` is the way to check this honestly,
+because it removes any possibility of a stale install answering.
+
+## Preferences and the first run
+
+`gthPrefs` uses `Glib::get_user_config_dir()`, which gets `~/.config`,
+`~/Library/Application Support` and `%LOCALAPPDATA%` right, and writes
+`<config>/thinksynth/thinkrc`. A `~/.thinkrc` left by an older version is read
+as a fallback when no current file exists, and never written back to.
+
+When neither exists, `gthPrefs::LoadDefaults()` puts four patches on four
+channels and `Save()` writes the file. So a fresh install starts with a
+keyboard that makes a sound, and what it did is an editable file rather than
+hidden state.
+
+The defaults are a table in `gthPrefs.cpp`, not a shipped config file. A file
+was what this used to be, `configure_file`d with absolute paths -- correct only
+on an installation matching the prefix the build was configured with, and wrong
+on every relocatable one. The table names patches relatively and
+`gthPatchManager::resolvePatch` finds them through the same search everything
+else uses, so the same four lines are right in a build tree, an installed
+prefix, a `.app` and a Flatpak.
+
+That resolution is also why the generated file stays portable. A patch is
+resolved for *opening* and recorded by the name as given, exactly as
+`resolveDsp` already did for DSPs -- so a saved `thinkrc` still says
+`leads/SuperRes.patch` and still works after the install moves. `configcheck`
+holds that down, because it is invisible until the day it matters.
+
+## If you have thinksynth installed in /usr/local
+
+The soname is at 6. This matters more than it sounds: before the last bump, a
+binary built against new headers still resolved the older `libthink.so` from
+`/usr/local/lib` at run time, linked without complaint, and then read every
+header-inlined accessor at the wrong offset — `thSynth::getChannel` returning
+garbage, arg tables coming up empty, the keyboard's channel spinner showing
+values like `-733809408`. Silent corruption, no diagnostic.
+
+With the soname bumped the failure is loud instead: `libthink.so.N => not
+found`. Run from the build tree, or install first. A stale copy in
+`/usr/local/lib` can then sit there harmlessly.

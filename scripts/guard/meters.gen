@@ -1,0 +1,15 @@
+tempo 120;
+
+section quiet 1 s { plink = 0; };
+section loud 1 s { };
+section end;
+
+instrument plink { dsp "pluck.dsp"; };
+
+chain plink {
+    stage src gen::euclid {
+        steps = 1; fills = 1; notes = "C4";
+        period = 0.25 s; hold = 0.1 s;
+    };
+    sink { instrument = plink; };
+};

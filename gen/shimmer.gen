@@ -1,0 +1,116 @@
+# shimmer.gen -- five long notes into a reverb that climbs.
+#
+# Glass and a pad, five notes between them, each on a tape loop of its
+# own length (gen::eno_line), so the chord they make is never quite the
+# same twice: two pad notes low, D3 and A3, and three glass notes over
+# them. Every one of them goes into fx/shimmer.dsp on the mix, a long
+# feedback-delay network (delay::fdn) with a pitch shifter in its loop,
+# so what is played comes back an octave up, and that an octave up
+# again, each time quieter and darker. It is the piece the network and
+# the shifter were built for.
+#
+# THE INTERVAL WANDERS. The shifter's ratio is the @interval knob, and a
+# chain writes the knob: a misc::drift running at control rate, read by
+# a gen::walk pinned to it, takes the climb slowly between a fifth and an
+# octave and back, a new target every minute and a half or so. In
+# between the climb is out of tune with the notes, which is the point:
+# the tail smears and then settles. The knob moves on screen as it goes,
+# and a drag on it holds until the drift's next value, a second later.
+#
+# THE SECTIONS ARE IN MINUTES: the glass alone, then the pad under it,
+# the glass thinning while the pad holds, and the glass alone again to
+# close. Twelve minutes, and then the room rings out.
+#
+# Self-contained: open it and press Play.
+
+name "Shimmer";
+author "Misha Nasledov";
+description "Glass and a pad on five tape loops into a reverb with a pitch shifter in its feedback, the shift wandering between a fifth and an octave.";
+category "Pieces";
+
+seed 1983;
+
+section open    120 s { pad_d = 0;  pad_a = 0; };
+section bloom   300 s { };
+section thin    180 s { glass_fs = 0.6;  glass_e = 0.5; };
+section close   120 s { pad_d = 0;  pad_a = 0;  glass_cs = 0.7; };
+section end;
+
+@interval = 2;
+@interval.widget = 1;
+@interval.min = 0.5;
+@interval.max = 2;
+@interval.label = "Interval";
+
+effect "fx/shimmer.dsp" {
+    decay    = 18;
+    size     = 2;
+    damping  = 6000;
+    shimmer  = 0.6;
+    interval = @interval;
+    mix      = 0.45;
+};
+
+instrument glass {
+    dsp   "glass.dsp";
+    index = 2.5;
+    level = 0.8;
+};
+
+instrument pad {
+    dsp    "pad.dsp";
+    level  = 1;
+    cutoff = 1400;
+    a      = 4000 ms;
+    r      = 8000 ms;
+};
+
+chain pad_d {
+    stage src gen::eno_line {
+        notes = "D3";  period = 31.7 s;  jitter = 3 s;
+        hold = 18 s;  vel = 70;  vel_jitter = 8;
+    };
+    sink { instrument = pad; };
+};
+
+chain pad_a {
+    stage src gen::eno_line {
+        notes = "A3";  period = 37.3 s;  jitter = 3 s;
+        hold = 15 s;  vel = 62;  vel_jitter = 8;
+    };
+    sink { instrument = pad; };
+};
+
+chain glass_fs {
+    stage src gen::eno_line {
+        notes = "F#4";  period = 19.1 s;  jitter = 2 s;
+        hold = 5 s;  vel = 80;  vel_jitter = 12;
+    };
+    sink { instrument = glass; };
+};
+
+chain glass_cs {
+    stage src gen::eno_line {
+        notes = "C#5";  period = 23.9 s;  jitter = 2 s;
+        hold = 4 s;  vel = 74;  vel_jitter = 12;
+    };
+    sink { instrument = glass; };
+};
+
+chain glass_e {
+    stage src gen::eno_line {
+        notes = "E5";  period = 29.3 s;  jitter = 2 s;
+        hold = 4 s;  vel = 68;  vel_jitter = 12;
+    };
+    sink { instrument = glass; };
+};
+
+# The shifter's interval, wandering between a fifth and an octave.
+chain drift {
+    start = 1 s;                # after the drift has a first value
+    stage d misc::drift { rate = 0.011;  depth = 0.25;  center = 1.75;
+                          seed = 5; };
+    stage w gen::walk { min = d->out;  max = d->out;  step = 0;
+                        period = 1 s; };
+    sink { knob = @interval; };
+};

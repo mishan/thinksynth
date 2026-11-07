@@ -1,0 +1,577 @@
+# thinksynth
+#
+# Replaces autotools + the hand-rolled build.mk. See docs/PORTING.md, "CMake".
+#
+# It began as a deliberately faithful reproduction of what configure.ac and
+# build.mk did rather than an improvement on it, so that the two builds
+# produced the same artefacts and the same dspcheck/dsplevel results and
+# anything that broke later was attributable to one change rather than two.
+# Autotools is gone now, and the cleanups that reproduction was holding back
+# -- dropping -ffast-math, linking plugins against libthink, C++17,
+# visibility -- have all landed.
+
+cmake_minimum_required(VERSION 3.16)
+
+project(thinksynth
+        VERSION 0.1
+        LANGUAGES CXX)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+include(GNUInstallDirs)
+include(CMakeDependentOption)
+include(CheckIncludeFileCXX)
+include(CheckCXXSourceCompiles)
+include(TestBigEndian)
+
+# ---------------------------------------------------------------------------
+# Library version
+#
+# Bump lib_major when libthink's ABI changes. docs/ARCHITECTURE.md records what goes
+# wrong when a stale copy with an older soname is left in /usr/local/lib.
+#
+# 7: thPlugin::ArgInfo grew a range and a unit. thPlugin itself is the same
+# size -- ArgInfo lives in a vector -- so MODULE_IFACE_VER did not move and a
+# plugin built against the older header still loads. What did move is the
+# stride of that vector, and getArgName, getArgDir, getArgStep and the rest are
+# inlined into whatever includes thPlugin.h. A binary compiled against this
+# header and linked against a libthink that fills the vector with the older
+# ArgInfo therefore reads every arg at the wrong offset, and reads it silently.
+# That is the case the soname exists to make loud.
+#
+# 8: thMidiChan gained choke state and an inline choke() accessor. A client
+# built with that header must not silently use an older constructor that never
+# initializes the new state, even on targets where it fits in existing padding.
+# ---------------------------------------------------------------------------
+
+set(THINK_LIB_MAJOR 8)
+set(THINK_LIB_MINOR 0)
+
+# ---------------------------------------------------------------------------
+# Options
+# ---------------------------------------------------------------------------
+
+option(THINK_ENABLE_DEBUG "Print debug messages to stdout" OFF)
+option(THINK_BUILD_HARNESSES "Build the scripts/ test harnesses" ON)
+option(THINK_BUILD_STATIC_LIB "Also build libthink as a static archive" ON)
+
+# Off leaves what a host embedding the engine needs -- libthink, the plugins,
+# the composer host and the harnesses that need no toolkit -- and asks for
+# nothing beyond flex, pkg-config and sigc++: no GTK, glib, cairo or audio
+# backend. The composers that draw are built without their drawing.
+option(THINK_GUI "Build the application, its canvases and the visual plugins" ON)
+
+# libthink and every DSP plugin in one static archive, with the plugins
+# compiled in and found through a table instead of dlopened: what a host
+# links when it cannot count on a plugins/ directory beside it, such as an
+# audio plugin inside a DAW. See cmake/ThinkStatic.cmake.
+option(THINK_EMBEDDED "Also build think_embedded, libthink with the plugins compiled in" ON)
+
+# dsp/juno.dsp as a CLAP, VST3 and LV2 instrument, through DPF, which is
+# fetched. Off by default: it needs the network the first time and nothing
+# else here depends on it. See plugin/.
+option(THINK_BUILD_PLUGIN "Build thinksynth as an audio plugin (needs THINK_EMBEDDED)" OFF)
+
+# configure.ac:108 put -ffast-math on every object *and* the link line, which
+# sets FTZ/DAZ process-wide -- including for the GUI, and including for the
+# link, which is where it pulls in crtfastmath.o and makes the setting a
+# property of the whole process rather than of the DSP code that might have
+# wanted it. Nothing in the tree depends on it; see the commit that flipped
+# this default for the measured effect on the corpus.
+option(THINK_FAST_MATH "Build with -ffast-math (as autotools did)" OFF)
+
+# Sanitizers are applied globally rather than per-target on purpose. An
+# earlier round of measurements was worthless because the flags reached only
+# the harness and not libthink or the plugins -- see docs/AUDIO.md, "The
+# harnesses".
+set(THINK_SANITIZE "" CACHE STRING
+    "Sanitizers to build everything with, e.g. address,undefined or thread")
+
+# Global for the same reason: a line the harnesses run in a plugin counts
+# only if the plugin was built to record it. Reports: scripts/coverage.sh.
+option(THINK_COVERAGE "Build everything to record line coverage (gcov)" OFF)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  # autotools defaulted to -O2 with no -g; RelWithDebInfo is -O2 plus symbols.
+  set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
+endif()
+
+# C++17 for std::filesystem, which replaces the dirent.h walks and the
+# strrchr('/') path arithmetic. thRing.h's <atomic> already required C++11.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# M_PI, for every target, once.
+#
+# CMAKE_CXX_EXTENSIONS OFF is what makes this necessary and it is worth
+# keeping: -std=c++17 rather than -std=gnu++17 is the setting that stops
+# a GCC extension compiling here and failing on a compiler that does not
+# have it. The cost is that M_PI, which is not in C++ and which glibc
+# hands out anyway because g++ defines _GNU_SOURCE, disappears on MinGW's
+# UCRT -- where it lives behind _USE_MATH_DEFINES.
+#
+# So a file using it built on Linux and failed on Windows, which is a
+# feedback loop measured in CI runs rather than seconds. Three files ended
+# up carrying an identical `#ifndef M_PI' shim; the fourth forgot, and the
+# Windows job is where that was found out. Defining it here is the root
+# cause fixed for every file in the tree, including the ones nobody has
+# written yet. libthink/thMath.h is the belt for plugins built out of tree,
+# which get none of this.
+add_compile_definitions(_USE_MATH_DEFINES)
+
+# libthink is found next to the binary in the build tree and via the install
+# prefix afterwards, which is what src/Makefile.in's $ORIGIN rpath did.
+set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_FULL_LIBDIR}")
+set(CMAKE_BUILD_WITH_INSTALL_RPATH OFF)
+
+add_compile_options(-Wall)
+
+if(THINK_FAST_MATH)
+  add_compile_options(-ffast-math)
+endif()
+
+if(THINK_ENABLE_DEBUG)
+  add_compile_options(-W -Wno-unused-parameter)
+endif()
+
+if(THINK_SANITIZE)
+  add_compile_options(-fsanitize=${THINK_SANITIZE} -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=${THINK_SANITIZE})
+endif()
+
+# Atomic, because the audio and composer threads run the same lines at once
+# and a torn count reads as a negative one.
+if(THINK_COVERAGE)
+  add_compile_options(--coverage -fprofile-update=atomic)
+  add_link_options(--coverage)
+endif()
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
+find_package(FLEX REQUIRED)
+
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(SIGC   REQUIRED IMPORTED_TARGET sigc++-3.0)
+
+# The audio plugin draws its controls with cairo, and wants nothing else here.
+if(THINK_GUI OR THINK_BUILD_PLUGIN)
+  # Named on its own rather than taken transitively through gtkmm, because the
+  # visual plugins link cairo *without* linking gtkmm -- and because
+  # visualcheck draws to an image surface with no toolkit and no display at
+  # all. Nothing in libthink or in the 62 DSP plugins sees this. See
+  # src/thVisual.h.
+  pkg_check_modules(CAIRO  REQUIRED IMPORTED_TARGET cairo)
+endif()
+
+if(THINK_GUI)
+  include(GuiDependencies)
+endif()
+
+# What -d selects when nothing says otherwise. Empty means "let RtAudio
+# choose", which is the right default now that one backend covers everything.
+set(THINK_DEFAULT_OUTPUT "" CACHE STRING
+    "Default audio API: alsa, jack, pulse, core, wasapi, none, or empty")
+
+# ---------------------------------------------------------------------------
+# Platform probes
+# ---------------------------------------------------------------------------
+
+check_include_file_cxx(dlfcn.h HAVE_DLFCN_H)
+
+if(NOT APPLE)
+  # AC_SEARCH_LIBS(dlopen, [dl c_r]) -- glibc 2.34+ folded libdl into libc, so
+  # find_library may legitimately come up empty. Only fail if dlopen is
+  # genuinely unavailable.
+  find_library(THINK_DL_LIBRARY dl)
+  if(NOT THINK_DL_LIBRARY)
+    set(THINK_DL_LIBRARY "")
+  endif()
+endif()
+
+set(CMAKE_REQUIRED_LIBRARIES ${THINK_DL_LIBRARY})
+check_cxx_source_compiles("
+  #include <dlfcn.h>
+  int main() { dlerror(); return 0; }
+" HAVE_DLERROR)
+unset(CMAKE_REQUIRED_LIBRARIES)
+
+check_cxx_source_compiles("
+  #include <signal.h>
+  int main() { sighandler_t h = 0; (void)h; return 0; }
+" THINK_HAVE_SIGHANDLER_T)
+
+if(NOT THINK_HAVE_SIGHANDLER_T)
+  check_cxx_source_compiles("
+    #include <signal.h>
+    int main() { sig_t h = 0; (void)h; return 0; }
+  " THINK_HAVE_SIG_T)
+  if(THINK_HAVE_SIG_T)
+    set(USE_SIG_T 1)
+  else()
+    set(GUESS_SIG_T 1)
+  endif()
+endif()
+
+test_big_endian(THINK_BIG_ENDIAN)
+if(THINK_BIG_ENDIAN)
+  set(WORDS_BIGENDIAN 1)
+endif()
+
+if(APPLE)
+  set(USING_DARWIN 1)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+  set(USING_FREEBSD 1)
+endif()
+
+if(THINK_ENABLE_DEBUG)
+  set(USE_DEBUG 1)
+endif()
+
+# ---------------------------------------------------------------------------
+# Install layout, and the paths baked into config.h
+#
+# The trailing slashes matter: the sources concatenate a bare filename onto
+# each of these.
+# ---------------------------------------------------------------------------
+
+if(WIN32)
+  set(THINK_PLUGIN_SUFFIX ".dll")
+elseif(APPLE)
+  set(THINK_PLUGIN_SUFFIX ".dylib")
+else()
+  set(THINK_PLUGIN_SUFFIX ".so")
+endif()
+
+set(THINK_PLUGIN_PATH "${CMAKE_INSTALL_FULL_LIBDIR}/${PROJECT_NAME}/plugins/")
+set(THINK_DSP_PATH    "${CMAKE_INSTALL_FULL_DATADIR}/${PROJECT_NAME}/dsp/")
+set(THINK_PATCH_PATH  "${CMAKE_INSTALL_FULL_DATADIR}/${PROJECT_NAME}/patches/")
+
+# The application ID: the GApplication id, the desktop entry and metainfo
+# stems, the macOS bundle identifier, and the Flatpak app-id are all this one
+# string. They have to agree -- a GApplication id that differs from the
+# Flatpak app-id fails to own its name on the session bus, which takes
+# desktop integration and the portals with it -- and the way to make them
+# agree is to have one of them.
+#
+# Compiled in rather than read from FLATPAK_ID at run time, because it is
+# equally the identity outside a sandbox, where there is no FLATPAK_ID.
+set(THINK_APP_ID "org.thinksynth.thinksynth")
+
+# Who published this, and where it lives. Named here because more than one
+# thing wants them: the Windows version block behind File -> Properties, and
+# CPACK_PACKAGE_VENDOR further down, which used to carry the vendor string on
+# its own.
+set(THINK_APP_VENDOR "Misha Nasledov")
+set(THINK_APP_URL    "https://github.com/mishan/thinksynth")
+
+configure_file(cmake/config.h.in "${PROJECT_BINARY_DIR}/config.h")
+
+# Every translation unit does #include "config.h", unqualified.
+include_directories("${PROJECT_BINARY_DIR}")
+
+# ---------------------------------------------------------------------------
+
+# Windows has no rpath. A .exe finds a DLL next to itself or on PATH, and
+# nothing else -- so libthink.dll sitting in build/libthink/ is invisible to
+# build/src/thinksynth.exe. On Linux and macOS the build tree works because
+# CMake writes an rpath into every binary it links; there is no equivalent to
+# write here.
+#
+# The symptom is unhelpful: MSYS2's loader fails with ENOENT, so bash reports
+# "No such file or directory" and exits 127, for a file that plainly exists.
+#
+# $<TARGET_RUNTIME_DLLS> is CMake's answer -- the DLLs of the target's linked
+# dependencies, which it copies next to the executable after linking. It does
+# not cover the GTK stack, which comes from PATH under MSYS2 and from the
+# packaging step for a release, and it needs CMake 3.21.
+function(think_copy_runtime_dlls target)
+  if(NOT WIN32 OR CMAKE_VERSION VERSION_LESS 3.21)
+    return()
+  endif()
+
+  add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "$<TARGET_RUNTIME_DLLS:${target}>" "$<TARGET_FILE_DIR:${target}>"
+      COMMAND_EXPAND_LISTS
+      VERBATIM)
+endfunction()
+
+if(WIN32 AND CMAKE_VERSION VERSION_LESS 3.21)
+  message(WARNING
+      "CMake ${CMAKE_VERSION} cannot copy runtime DLLs into the build tree "
+      "(3.21+ needed), so nothing built here will start without libthink.dll "
+      "on PATH.")
+endif()
+
+# Decides where plugins, DSPs and libthink go on each platform. Must precede
+# the subdirectories, whose install() rules use it.
+include(Layout)
+
+enable_testing()
+
+# Every test on Linux runs under scripts/headless.sh: its own Xvfb and its
+# own PipeWire with nothing behind it but a null sink. editorcheck and
+# composercheck build real windows, and on a desktop they would open them
+# there, over whatever is being worked on; anything that opens an audio
+# stream would play it through the speakers. Each test gets its own
+# servers, so `ctest -j' is as safe as a serial run.
+#
+# The default follows whether Xvfb is installed, since without it the
+# script only hides the display. Set before the first add_test, because
+# CMAKE_TEST_LAUNCHER only reaches the tests created after it -- and only
+# on CMake 3.29 or later, which is when the TEST_LAUNCHER property came in.
+if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
+  find_program(THINK_XVFB Xvfb)
+  if(THINK_XVFB)
+    set(_think_headless_default ON)
+  else()
+    set(_think_headless_default OFF)
+  endif()
+  option(THINK_TEST_HEADLESS
+         "Run tests on a private Xvfb and a silent private PipeWire"
+         ${_think_headless_default})
+  if(THINK_TEST_HEADLESS)
+    if(CMAKE_VERSION VERSION_LESS 3.29)
+      message(WARNING
+          "THINK_TEST_HEADLESS needs CMake 3.29 or later; tests will open "
+          "windows on the desktop and play through its audio. Run ctest "
+          "under scripts/headless.sh instead.")
+    else()
+      list(PREPEND CMAKE_TEST_LAUNCHER
+           "${PROJECT_SOURCE_DIR}/scripts/headless.sh")
+    endif()
+  endif()
+endif()
+
+# Outside the THINK_BUILD_HARNESSES gate below, and outside any platform test,
+# because it guards two committed files that every checkout contains whichever
+# platform it is on: src/thinksynth.ico for Windows and src/thinksynth.icns for
+# the macOS bundle are both rendered from the shared SVG ahead of time, and
+# nothing about editing that SVG makes a stale render stop working. Costs one
+# file hash, and needs neither a build nor a renderer.
+add_test(NAME icon-stamp
+         COMMAND "${CMAKE_COMMAND}"
+                 "-DTHINK_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+                 -P "${PROJECT_SOURCE_DIR}/cmake/CheckIconStamp.cmake")
+
+add_subdirectory(libthink)
+add_subdirectory(plugins)
+
+if(THINK_EMBEDDED)
+  # The loader again, reading the table rather than the disk. The engine's
+  # objects are think_objects', compiled once for both.
+  think_loader_objects(think_embedded_loader)
+  target_compile_definitions(think_embedded_loader PUBLIC THINK_STATIC_PLUGINS)
+
+  think_static_registry("${PROJECT_BINARY_DIR}/static/registry.cpp")
+  get_property(THINK_EMBEDDED_SOURCES GLOBAL PROPERTY THINK_STATIC_SOURCES)
+
+  add_library(think_embedded STATIC
+      $<TARGET_OBJECTS:think_objects>
+      $<TARGET_OBJECTS:think_embedded_loader>
+      ${THINK_EMBEDDED_SOURCES}
+      "${PROJECT_BINARY_DIR}/static/registry.cpp")
+
+  # THINK_STATIC: nothing is imported from a DLL (thExport.h).
+  target_compile_definitions(think_embedded PUBLIC
+      THINK_STATIC_PLUGINS THINK_STATIC)
+
+  # What a plugin module is compiled with in cmake/ThinkPlugin.cmake, less
+  # PLUGIN_BUILD, which would declare every plugin's exports extern "C" --
+  # one definition for the whole archive, where the namespaces need one
+  # each.
+  target_include_directories(think_embedded
+      PUBLIC  "${PROJECT_SOURCE_DIR}/libthink"
+              "${PROJECT_BINARY_DIR}/libthink"
+      PRIVATE "${PROJECT_SOURCE_DIR}"
+              "${PROJECT_BINARY_DIR}")
+
+  target_link_libraries(think_embedded PUBLIC PkgConfig::SIGC m)
+
+  set_target_properties(think_embedded PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON)
+endif()
+# The composer host and the toolkit-free libraries are wanted either way;
+# src/ builds the application only with THINK_GUI.
+add_subdirectory(src)
+
+if(THINK_BUILD_HARNESSES)
+  add_subdirectory(scripts)
+endif()
+
+if(THINK_BUILD_PLUGIN)
+  if(NOT THINK_EMBEDDED)
+    message(FATAL_ERROR "THINK_BUILD_PLUGIN needs THINK_EMBEDDED")
+  endif()
+
+  add_subdirectory(plugin)
+endif()
+
+# The graphs, and the kit osc::sample plays. Two patterns rather than
+# one: a FILES_MATCHING install takes nothing it was not told about, so
+# `*.dsp' alone shipped a sampler with nothing to sample -- the node
+# looks a wav up under samples/ on the same path a .dsp is looked up on,
+# and on an installed copy that path is this directory.
+#
+# There is nothing to exclude any more. This rule used to skip three
+# drawers -- effects/, old/ and noargs/, 77 files of 2003-04 sketchbook
+# that shipped to every user because FILES_MATCHING recurses. They are
+# gone: two of them became effect graphs in fx/, five became instruments
+# at the top of this directory, and two that are not instruments at all
+# moved to scripts/guard/ beside the harnesses that cite them. What is
+# left is what an installed copy should offer, which is why the rule is
+# one line again.
+#
+# The check below is what keeps it that way.
+install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
+        FILES_MATCHING PATTERN "*.dsp" PATTERN "samples/*.wav")
+
+# And then check the install did what it was told.
+#
+# Two things have to stay true of an installed dsp/, and neither is
+# visible from the rule above once somebody adds a directory:
+#
+#   it is flat, plus fx/.  thUtil::findDataFile resolves a bare name
+#      against a list of directories and does not recurse, which is why
+#      a piece writes `effect "fx/echo.dsp"' with the subdirectory in
+#      the name. A DSP installed any deeper is one nothing can open.
+#
+#   no two share a basename.  There were three collisions while the
+#      drawers installed -- bd10.dsp, rpiano1.dsp and supersaw.dsp each
+#      named two different graphs -- and which one a bare name reached
+#      was down to the order findDataFile happens to search. None is
+#      left, and this is what keeps it that way.
+#
+# A new drawer trips the first of these and an ordinary name clash the
+# second, so neither check has a list in it that can go stale.
+#
+# `list(FIND)' rather than `if(... IN_LIST ...)'. The generated
+# cmake_install.cmake carries no cmake_minimum_required and no
+# cmake_policy, so everything in here runs in script mode at whatever
+# policy defaults the running CMake happens to have. CMP0057 -- which is
+# what makes IN_LIST an operator rather than three words -- is not among
+# them on the CMake the Linux packaging job runs, and `cpack' failed on
+# "if given arguments: _base IN_LIST _seen" while `cmake --install' on a
+# newer CMake had gone through fine. Nothing in this block may use a
+# command that needs a policy set.
+install(CODE "
+  set(_dsp \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${THINK_PKG_DATA_DIR}/dsp\")
+  file(GLOB_RECURSE _installed RELATIVE \"\${_dsp}\" \"\${_dsp}/*.dsp\")
+
+  set(_deep \"\")
+  set(_seen \"\")
+  set(_dupes \"\")
+
+  foreach(_rel IN LISTS _installed)
+    if(NOT _rel MATCHES \"^(fx/)?[^/]+$\")
+      list(APPEND _deep \"\${_rel}\")
+    endif()
+
+    get_filename_component(_base \"\${_rel}\" NAME)
+    list(FIND _seen \"\${_base}\" _at)
+    if(NOT _at EQUAL -1)
+      list(APPEND _dupes \"\${_base}\")
+    endif()
+    list(APPEND _seen \"\${_base}\")
+  endforeach()
+
+  if(_deep)
+    message(FATAL_ERROR
+        \"these DSPs installed below dsp/ or dsp/fx/, where \"
+        \"thUtil::findDataFile cannot reach them: \${_deep}\")
+  endif()
+
+  if(_dupes)
+    message(FATAL_ERROR
+        \"two installed DSPs share a basename, so which one a bare name \"
+        \"resolves to is down to search order: \${_dupes}\")
+  endif()
+")
+
+install(DIRECTORY patches/ DESTINATION "${THINK_PKG_DATA_DIR}/patches"
+        FILES_MATCHING PATTERN "*.patch")
+
+# ---------------------------------------------------------------------------
+# Freedesktop desktop entry, icon and AppStream metainfo.
+#
+# Only meaningful on a free desktop: macOS takes the same information from the
+# .app's Info.plist and Windows from the executable, so installing them there
+# would put files inside the bundle that nothing ever reads.
+#
+# These are what make the Flatpak an application rather than a binary in a
+# sandbox. Without the desktop entry it has no menu item and no icon; without
+# the metainfo no software centre can describe it. They are installed for an
+# ordinary install too, which is where they belonged in any case.
+#
+# The file stem is the application ID and has to be: the desktop entry names
+# its icon by that ID, the metainfo's <launchable> names the desktop entry,
+# and Flatpak exports only files named for the app's own ID.
+# ---------------------------------------------------------------------------
+
+if(THINK_GUI AND NOT APPLE AND NOT WIN32)
+  install(FILES "data/${THINK_APP_ID}.desktop"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+
+  install(FILES "data/${THINK_APP_ID}.svg"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
+
+  install(FILES "data/${THINK_APP_ID}.metainfo.xml"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
+endif()
+
+# ---------------------------------------------------------------------------
+# The two generated data files that used to come from etc/Makefile.in and
+# docs/Makefile.in.
+#
+# Their templates still spell substitutions the way configure did -- @dsp_path@
+# rather than @THINK_DSP_PATH@ -- so the variables are aliased here instead of
+# rewriting files whose contents are not really ours to reformat.
+# ---------------------------------------------------------------------------
+
+set(dsp_path       "${THINK_DSP_PATH}")
+set(patch_path     "${THINK_PATCH_PATH}")
+set(plugin_path    "${THINK_PLUGIN_PATH}")
+set(DEFAULT_OUTPUT "${THINK_DEFAULT_OUTPUT}")
+set(PACKAGE_VERSION "${PROJECT_VERSION}")
+
+configure_file(docs/thinksynth.1.in  "${PROJECT_BINARY_DIR}/docs/thinksynth.1" @ONLY)
+
+# A man page is a Unix notion; a .app and a zip have nowhere sensible to put
+# one. There is no config file to install any more -- the defaults a first run
+# gets are built into the binary, because a configure_file'd one carried the
+# absolute paths of the machine that ran cmake and was wrong everywhere else.
+if(THINK_GUI AND NOT APPLE AND NOT WIN32)
+  install(FILES "${PROJECT_BINARY_DIR}/docs/thinksynth.1"
+          DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
+endif()
+
+if(THINK_GUI)
+  include(Packaging)
+endif()
+
+# ---------------------------------------------------------------------------
+
+message(STATUS "")
+message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION}")
+message(STATUS "  system ................: ${CMAKE_SYSTEM_NAME}")
+message(STATUS "  build type ............: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  GUI ...................: ${THINK_GUI}")
+message(STATUS "  RtAudio ...............: ${THINK_RTAUDIO_ORIGIN}")
+message(STATUS "  RtMidi ................: ${THINK_RTMIDI_ORIGIN}")
+message(STATUS "  mullion-gtk ...........: ${THINK_MULLION_ORIGIN}")
+message(STATUS "  default output ........: ${THINK_DEFAULT_OUTPUT}")
+message(STATUS "  debug .................: ${THINK_ENABLE_DEBUG}")
+message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")
+message(STATUS "  sanitizers ............: ${THINK_SANITIZE}")
+message(STATUS "  coverage ..............: ${THINK_COVERAGE}")
+message(STATUS "  libthink soversion ....: ${THINK_LIB_MAJOR}")
+message(STATUS "  think_embedded ........: ${THINK_EMBEDDED}")
+message(STATUS "  audio plugin ..........: ${THINK_BUILD_PLUGIN}")
+message(STATUS "  plugins install to ....: ${THINK_PLUGIN_PATH}")
+message(STATUS "")

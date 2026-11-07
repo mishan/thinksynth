@@ -1,0 +1,2323 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef THCSCHEDULER_H
+#define THCSCHEDULER_H
+
+#include <cmath>
+#include <deque>
+#include <functional>
+#include <map>
+#include <set>
+#include <memory>
+#include <string>
+#include <vector>
+#include <stdint.h>
+
+#include <chrono>
+
+#include <sigc++/sigc++.h>
+
+#include "libthink/thcomposer.h"
+
+#include "thcAudition.h"
+#include "thcNodeHost.h"
+
+class thSynth;
+class thArg;
+class thcPlugin;
+
+/* The host side of the composer framework: one object, living in src/
+ * next to the MIDI plumbing, GUI thread only. It owns the transport, the
+ * chains, and three small priority queues:
+ *
+ *   wakeups_   when each generator next wants its tick() called
+ *   pending_   fully-transformed events waiting for their delivery time
+ *   noteOffs_  offs derived from delivered notes' durations
+ *
+ * The one structural decision worth stating out loud: transformer
+ * propagation is SYNCHRONOUS, delivery is SCHEDULED. When a stage emits,
+ * the event runs through the remaining stages of its chain immediately,
+ * in stage order, as plain function calls -- however far in the future
+ * its `at' is. Only what falls out the end of the chain goes into
+ * pending_, keyed by `at'. So an echo emitting copies at +2s and +4s is
+ * just three emits; humanize is a one-line adjustment of `at'; and the
+ * whole pipeline stays deterministic because nothing about transformer
+ * order depends on wall-clock interleaving.
+ *
+ * Threading: everything here runs on the GUI thread off the one timer the
+ * app calls tick() from, exactly like MIDI input runs off its Dispatcher.
+ * The synth is only ever touched through the same calls the on-screen
+ * keyboard already uses, so the two-thread invariant and the command queue
+ * stay the whole story.
+ */
+
+/* Backing store for one instance's params; implements the thcParams
+ * accessors handed to composer_create. set() is what the panel and the
+ * .gen loader call; it forwards to composer_param_changed if exported,
+ * and re-arms a THC_NEVER sleeper through the scheduler. */
+class thcParamStore
+{
+public:
+    thcParamStore (thcPlugin *plugin, unsigned seed);
+
+    double      get (int index) const;
+    const char *getString (int index) const;
+
+    void set (int index, double v);
+    void setString (int index, const std::string &v);
+
+    /* By name, for callers holding a .gen line rather than an index.
+       Returns false when the plugin has no such param. */
+    bool set (const std::string &name, double v);
+    bool setString (const std::string &name, const std::string &v);
+
+    /* `period = 4 beats' -- the stored number is beats, and get()
+       converts through the transport's tempo at read time, so the value
+       keeps meaning something across tempo automation. The unit lives in
+       the value, not the plugin: the same param is free-running seconds
+       in one .gen file and clocked beats in another. */
+    void setBeats (int index, bool beats);
+
+    /* True if any value in this store is beat-valued, and therefore
+       scaled by the transport's tempo. Asked by the window, which has a
+       tempo control to offer or withhold. */
+    bool anyBeats (void) const;
+
+    /* `prob = @density' -- the composer-world ARG_CHAN. While bound,
+       get() reads the knob and the stored value is shadowed; the plugin
+       just calls get() as always. NULL unbinds. The scheduler is what
+       connects the knob's changed signal to param_changed/rearm --
+       see thcScheduler::bindKnob. */
+    void bindKnob (int index, thArg *knob);
+    thArg *knobBinding (int index) const;
+
+    /* `step = lfo->out' -- the composer-world ARG_NODE, which v2 of the
+       format deliberately did not have and embedded DSP nodes need. It
+       arrives as one more thing get() reads through, exactly
+       as a knob does, because that is what it is: an embedded DSP
+       node's output buffer is a thArg, and a control signal is a value
+       somebody reads at the moment they want it.
+     *
+       The pointer is the node's own output arg and stays put -- the
+       host runs one-sample windows and thArg::allocate keeps a buffer
+       whose length has not changed. NULL unbinds. */
+    void bindNode (int index, thArg *out);
+    thArg *nodeBinding (int index) const;
+
+    /* A node this store reads has moved: wake a generator that went to
+     * sleep behind it. Called once per window for a chain that has
+     * nodes; cheap, and silent when nothing changed.
+     *
+     * A wake and not a param_changed, which is the whole design
+     * decision. A knob forwards every change because a hand moves it a
+     * few times a second; a node's output moves every single window,
+     * and fifty param_changed a second into a module that rebuilds
+     * something on each one -- gen::ca reallocates its board -- would
+     * be a good deal worse than the silence it replaces. What a
+     * sleeper actually needs is only the wake: THC_NEVER means "nothing
+     * will change until a param does", and a node driving that param is
+     * a param changing. A module that wants the movement itself reads
+     * it at the moment it wants it, which is what a node binding is
+     * for and why it is read rather than pushed. */
+    void pollNodes (void);
+
+    /* Whether a node this store reads has moved since it was last asked,
+       which pollNodes wakes a sleeper for. */
+    bool nodesMoved (void);
+
+    /* ---- a rewind is a load ----
+     *
+     * What reset() owes a fresh instance is the load, done again. On a
+     * load the instance is created over the plugin's defaults and then
+     * the file's values are set and the bindings made, each announced as
+     * it happens. A rewind used to re-create the instance over the final
+     * values with the bindings already in place, announce the bindings,
+     * and call that the same -- and it is not, because create and
+     * param_changed can do more than read a value. gen::evolve draws a
+     * population in create sized by `length' and `population', and
+     * draws another on each of those being announced: loaded, three
+     * populations from the defaults up; rewound, one from the final
+     * values. Same file, same seed, a different lead from the first bar
+     * (orrery). Nothing about that is evolve's fault. The store had told
+     * the two instances two different stories.
+     *
+     * So every operation on the store before the transport first runs
+     * -- a value, a string, a unit, a binding, a bare announcement -- is
+     * kept, in order, and a rewind puts the store back to its defaults
+     * before the instance is created and then does them all again to
+     * the new one.
+     *
+     * What happens while the transport runs is kept in a second list and
+     * done after the first, because "what a fresh load would have done"
+     * is not the same question on the two hosts. On the desktop an edit
+     * to the work file pokes the live store so it is audible without a
+     * reload (Composer::applyParam), and the file a reload would
+     * read is the edited one -- so `prob = 0.5' typed after Play, a
+     * binding made after Play, an unbind after Play, all have to survive
+     * a rewind, as they did before any of this was recorded.
+     *
+     * A knob moved during play is the one thing that is still dropped,
+     * and it is dropped because there is nothing to keep: the knob is
+     * not in the store, the param reads through to it, and it holds its
+     * position across a rewind by itself. Only the announcement it makes
+     * would be recorded, and replaying a slider's whole drag at every
+     * rewind is a cost with no meaning. */
+
+    /* Back to the plugin's defaults, unbound: what the loader found.
+       Called before composer_create. */
+    void restoreDefaults (void);
+
+    /* The load's operations and then the edits made since, again, and
+       forget what pollNodes last saw. Called after composer_create. */
+    void replay (void);
+
+    /* From here on, nothing done is kept for a rewind: called by the
+       scheduler when the transport first starts. */
+    void freeze (void) { recording_ = false; }
+
+    /* For a replay in pieces: get() answers what it answers now, whatever
+       a knob or the tempo does after, and what would be announced in the
+       meantime waits. A node binding still reads the node, which the
+       replay is moving. release() reads live again and announces each
+       value that has moved since. */
+    void hold (void);
+    void release (void);
+
+    /* What the .gen loader calls after composer_create to push a fresh
+       value at a module that caches (a NOTESET reparse), without
+       changing anything -- and what a knob's changed signal funnels
+       through. */
+    void notifyChanged (int index);
+
+    /* Handed to composer_create; its address must stay stable for the
+       instance's lifetime -- the module is entitled to keep the pointer,
+       and eno_line does. That is why thcStage below is heap-allocated
+       rather than sitting by value in a reallocating vector. */
+    const thcParams *params (void) const { return &params_; }
+
+    thcPlugin *plugin (void) const { return plugin_; }
+
+private:
+    friend class thcScheduler;
+
+    static double      cbGet (void *ctx, int index);
+    static const char *cbGetString (void *ctx, int index);
+
+    thcPlugin                *plugin_;
+    thcParams                 params_;     /* ctx points back at this    */
+    std::vector<double>       values_;
+    std::vector<std::string>  strings_;
+    std::vector<char>         beats_;      /* value is beats, not seconds */
+    std::vector<thArg *>      knobs_;      /* live binding, NULL = value  */
+    std::vector<thArg *>      nodes_;      /* embedded node's output      */
+    std::vector<float>        lastNode_;   /* what pollNodes last saw     */
+
+    /* Everything done to the store, in order: what replay() does again.
+       See there. */
+    enum OpKind { OP_SET, OP_STRING, OP_BEATS, OP_KNOB, OP_NODE, OP_NOTIFY };
+
+    struct Op
+    {
+        OpKind      kind;
+        int         index;
+        double      value;
+        std::string text;
+        thArg      *arg;
+        bool        flag;
+    };
+
+    std::vector<Op>           history_;   /* the load                    */
+    std::vector<Op>           edits_;     /* what was done to it since   */
+    bool                      recording_; /* history_, or edits_         */
+    bool                      replaying_; /* neither: this is the replay */
+
+    void record (OpKind kind, int index, double value = 0,
+                 const std::string &text = std::string(),
+                 thArg *arg = NULL, bool flag = false);
+
+    /* One list of operations, applied in order. */
+    void run (const std::vector<Op> &ops);
+
+    /* The forward to the module and the re-arm, without a record. */
+    void announce (int index);
+
+    /* Set by the scheduler once composer_create has run: where to send
+       param_changed forwards, how to re-arm a sleeping generator, and
+       where tempo comes from for the beats conversion. */
+    void                    *instance_;
+    std::function<void()>    rearm_;
+    std::function<double()>  tempo_;
+
+    bool                      held_ = false;
+    std::vector<double>       heldValues_;
+    std::vector<std::string>  heldStrings_;
+    double                    heldTempo_ = 0;
+};
+
+/* One value an instrument sets on top of its graph.
+ *
+ * `units' is the suffix the author wrote -- "ms" or "%", or empty for the
+ * raw terms the engine works in. A .patch has neither, because it stores
+ * every chanarg already folded; that is why a patch file is full of
+ * numbers like 39690 and cannot be read by a person. A piece file is
+ * meant to be read, so the fold happens on the way in, through
+ * thFoldUnit and at the rate the synth was actually built with -- the
+ * same arithmetic, at the same rate, as the .dsp the value lands on.
+ */
+struct thcInstrumentArg
+{
+    std::string name;
+    double      value;
+    std::string units;
+
+    /* `fmin = @warmth;' -- the piece knob this value is read from, or
+     * empty for a plain number.
+     *
+     * The composer-world ARG_CHAN, pointed the other way. A stage param
+     * bound to a knob is *read* through it, because a composer asks its
+     * param store for a value whenever it wants one; a chanarg cannot be
+     * read that way, because the thing that reads it is the audio graph
+     * and the only value it will ever see is the one in its thArg. So
+     * this binding is a push: the knob moves, the chanarg is set. Same
+     * knob, same panel, same metadata -- and the direction is decided by
+     * which side of the boundary does the reading, not by a preference.
+     *
+     * `units' means what it means for a literal, and applies to the
+     * knob's number on every change. */
+    std::string knob;
+};
+
+/* `loop.file = "talk.wav";' -- a node's text arg inside the instrument's
+ * graph, which is the one kind of arg a chanarg cannot reach: the wav an
+ * osc::sample or osc::grain node plays. Written onto the channel's
+ * prototype tree when the instrument is applied, so every voice is built
+ * playing it. */
+struct thcInstrumentText
+{
+    std::string node, arg, value;
+};
+
+/* `cc cutoff = 74 { min = 60; max = 12000; };' in an instrument played
+ * over MIDI: what the chanarg `cutoff' becomes on the device. A value is
+ * scaled from [min, max] onto 0..127 and clamped; the default range is
+ * 0..127, so a chain that already speaks in controller values is sent
+ * as it is. */
+struct thcMidiCC
+{
+    std::string name;
+    int         cc;             /* -1 for the pitch wheel (`bend')       */
+    double      min, max;
+    bool        bend;           /* `bend NAME { ... };': 14-bit, min down,
+                                   max up, their middle centered          */
+
+    thcMidiCC (void) : cc(0), min(0), max(127), bend(false) {}
+};
+
+/* An instrument the piece carries: a DSP graph named by file, the
+ * chanarg values that make it this instrument rather than that graph's
+ * defaults, and the channel it was given.
+ *
+ * The channel is an *allocation*, not a declaration. A .gen used to name
+ * MIDI channels in its sinks and leave what was loaded on them to
+ * whoever opened the file -- which is why every shipped piece carries a
+ * paragraph at the top telling you what to go and load first. An
+ * instrument answers that question inside the file, and the number
+ * underneath becomes the loader's business rather than the author's;
+ * thcGenLoader says how one is chosen. `channel = N' survives in the
+ * language for the other case, an externally loaded patch this piece
+ * does not own.
+ */
+struct thcInstrument
+{
+    std::string name;
+    std::string dsp;
+
+    /* What keeps `dsp' and `effect' loadable when either is a graph written
+       inside the piece (thUtil::addGraphText): copied with the instrument,
+       and the text is gone with the last copy. */
+    std::vector<std::shared_ptr<void>> graphs;
+
+    /* The graph that runs on this channel's summed voices, or empty. Not the
+     * one that makes the notes: the one a delay throw needs, which outlives
+     * the note that fed it -- see docs/DSP_FORMAT.md's "An effect graph".
+     *
+     * Loaded after the instrument, because an effect belongs to a channel and
+     * loading an instrument builds a new one. */
+    std::string effect;
+
+    /* The instrument whose sound that effect hears besides this channel's
+     * own, or empty -- `effect "fx/vocoder.dsp" { side = carrier; }'.
+     *
+     * A name here and a number beside it for the same reason the channel
+     * below is a number: the file names instruments and the engine runs
+     * channels, and the loader is what turns one into the other once every
+     * channel has been allocated. -1 is "no side", which is every effect
+     * that hears only the channel it is on.
+     */
+    std::string side;
+    int sideChannel;
+
+    /* Both graphs' values, in one list. The effect's carry a `fx.' prefix on
+       their names, which is how the engine addresses them, so the one call
+       that writes a chanarg reaches either map. */
+    std::vector<thcInstrumentArg> args;
+
+    /* And the graph's text args, in the order written. */
+    std::vector<thcInstrumentText> texts;
+
+    /* `midi "Surge XT"; midichannel = 3;' -- played on a device rather
+     * than a graph: the port a host matches by name, and the device's
+     * channel, 0-15 here and 1-16 in the file. Empty where the instrument
+     * is a graph only. The channel above is still allocated, because the
+     * sinks and the scheduler address instruments by it; it is what the
+     * host's thcMidiOut routes. `dsp' is optional beside `midi', and is
+     * what plays where no port answers -- a host without MIDI, a machine
+     * without the device. */
+    std::string midi;
+    int midiChannel;            /* 0-15; -1 where `midi' is empty         */
+    int midiProgram;            /* 0-127 sent on apply; -1 none           */
+    std::vector<thcMidiCC> ccs;
+
+    int channel;                /* 0-15, engine numbering; -1 unallocated */
+
+    thcInstrument (void)
+        : sideChannel(-1), midiChannel(-1), midiProgram(-1), channel(-1) {}
+};
+
+/* The clock the scheduler paces itself by and stamps MIDI with, in
+ * microseconds. One function, so that whatever compares a stamp against
+ * now -- gthMidiOut's sending thread -- reads the same clock it was
+ * stamped on. */
+inline int64_t thcMonotonicUs (void)
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+/* Where the notes of an instrument played over MIDI go. The scheduler is
+ * toolkit-free and knows no port; a host that can send MIDI implements
+ * this and hands it to setMidiOut, and every instrument that names `midi'
+ * is offered to it on apply. Without one -- a harness, genwav, the
+ * browser -- such an instrument plays its `dsp', or nothing.
+ *
+ * Times are thcMonotonicUs() microseconds at which the event is
+ * due: the scheduler delivers on a 20 ms timer, so an event arrives up to
+ * a step after its time, and the stamp is what lets an implementation
+ * send it on a steady clock anyway (see gthMidiOut). A time already
+ * passed means "now". Called on the thread the scheduler runs on. */
+class thcMidiOut
+{
+public:
+    virtual ~thcMidiOut (void) {}
+
+    /* Engine channel `channel' now plays `inst' on a device. False, with
+       `why', where no port answers for it, and the scheduler falls back
+       to the instrument's dsp. */
+    virtual bool attach (int channel, const thcInstrument &inst,
+                         std::string &why) = 0;
+
+    /* The channel is a graph again, or nothing: what is sounding on the
+       device stops now. */
+    virtual void detach (int channel) = 0;
+
+    virtual void noteOn (int channel, int note, int velocity, float level,
+                         int64_t when) = 0;
+    virtual void noteOff (int channel, int note, int64_t when) = 0;
+
+    /* A chanarg. One the instrument maps with no `cc' is dropped. */
+    virtual void control (int channel, const std::string &name,
+                          double value, int64_t when) = 0;
+
+    /* Stop: whatever is queued for the channel is dropped and every note
+       sounding on it is ended now. -1 is every channel. */
+    virtual void flush (int channel) = 0;
+
+    /* MIDI clock, for a host that sends it somewhere: 24 ticks to the
+     * beat while the transport runs, Start when it starts from the top,
+     * Song Position and Continue when it starts anywhere else -- a resume,
+     * a seek -- and Stop when it stops. `position' is Song Position's, in
+     * sixteenths. Only asked for where wantsClock() says so: a tick is
+     * forty-eight messages a second at 120 bpm, for nobody otherwise. */
+    enum { CLOCK_TICK, CLOCK_START, CLOCK_CONTINUE, CLOCK_STOP,
+           CLOCK_POSITION };
+
+    virtual bool wantsClock (void) const { return false; }
+    virtual void clock (int kind, int position, int64_t when)
+    {
+        (void)kind;
+        (void)position;
+        (void)when;
+    }
+};
+
+/* A note a chain was heard to play, or a stage let out: what freezing a
+ * chain into a pattern reads, and what a probe on an arrow draws. */
+struct thcPlayed
+{
+    double at, duration;           /* transport seconds; 0 until a held
+                                      note's release says               */
+    int    note, velocity;
+};
+
+/* One placement of a plugin in a chain. */
+class thcScheduler;
+
+struct thcStage
+{
+    thcPlugin     *plugin;
+    std::string    name;        /* name in a .gen chain, if any          */
+    int            line;        /* source line for diagnostics            */
+    void          *state;       /* from composer_create                  */
+    thcParamStore  params;
+    bool           sleeping;    /* tick returned THC_NEVER               */
+
+    /* The host's ear as this stage sees it (thcAudition in
+       thcomposer.h): its ctx is this stage, since what a stage may
+       listen to is its own chain's instrument. Pointed at by
+       params.params()->audition, which is why a stage must not move. */
+    thcAudition    ear;
+    thcScheduler  *sched;
+    size_t         chain;
+
+    /* Whether THIS placement is clocked. A plugin that exports both
+       entry points is a generator as a gen:: stage and only a
+       transformer as an xform:: one -- the file's declared role, not
+       the module's capability, decides what gets scheduled. */
+    bool           ticks;
+    bool           awaitingStart; /* first tick still pending           */
+
+    /* How many times inside the current transport step this stage has
+       asked to be woken at a time that has already passed, or within
+       TH_MIN_WAKE_S of its wake (thcScheduler.cpp). Re-arming
+       such a wake from the stage's own clock rather than the step's is
+       what keeps a piece independent of the step size, and it is also
+       what would let a stage that does it every time spin; see the cap
+       in thcScheduler.cpp. A stage that asks for a future time -- which
+       is every stage in the tree -- never touches this. */
+    unsigned       stalled;
+
+    /* Whether it holds what its text does not: an ear's answers, or a
+       picture played on that does not write itself into the text. Its
+       chain is not played again from its start, which would lose them. */
+    bool           unwritten = false;
+
+    /* When an event last went in and last came out, in transport
+       seconds, or -1: what the composer view flashes. A note-off is not
+       counted; it is bookkeeping, not something the stage did. */
+    double         lastIn, lastOut;
+
+    /* The notes that went along the arrow after it -- its own and any it
+       let pass -- and, for a stage that takes notes, the ones that came
+       into it: eight seconds of each, oldest first, what a probe draws. */
+    std::deque<thcPlayed> in, out;
+
+    thcStage (thcPlugin *p, unsigned seed, bool wantTick)
+        : plugin(p), line(0), state(NULL), params(p, seed), sleeping(false),
+          sched(NULL), chain(0), ticks(wantTick), awaitingStart(wantTick),
+          stalled(0), lastIn(-1), lastOut(-1)
+    {
+        ear.ctx = NULL;
+        ear.hear = NULL;
+        ear.heard = NULL;
+        ear.forget = NULL;
+    }
+};
+
+/* Where a chain's events go when they fall off the end. A plain sink
+ * takes notes; a chanarg sink takes THC_EV_CHANARG events and names the
+ * patch knob they land on. Type filtering happens here, not in a stage,
+ * so one generator can drive a melody and a filter sweep at once; two
+ * sinks is fan-out. */
+struct thcSink
+{
+    int         channel;
+    std::string chanarg;     /* empty: a note sink; "*": see below       */
+
+    bool isChanarg (void) const { return !chanarg.empty(); }
+
+    /* A chanarg sink written `chanarg = "*";' -- one that lets each
+     * event name its own target instead of overwriting it.
+     *
+     * The ordinary chanarg sink names one knob, which is right for a
+     * walk or an envelope: the plugin produces a number and has no
+     * business knowing which knob it lands on. A morph produces a whole
+     * *vector* -- several knobs at once, each with its own name -- and
+     * one sink per knob cannot express that, because every sink would
+     * deliver the same value.
+     *
+     * `*' cannot collide with a real name: a chanarg is a .dsp
+     * identifier, and identifiers do not contain it. */
+    bool namesItsOwn (void) const { return chanarg == "*"; }
+
+    /* `sink { knob = @runs; };': the chain's values set a piece knob,
+       and everything bound to it follows -- stage params through their
+       live binding, instrument chanargs through their push. No channel
+       (-1) and no chanarg: a knob is the piece's, not a channel's. */
+    thArg      *knob = NULL;
+
+    bool isKnob (void) const { return knob != NULL; }
+
+    /* The sink a chain's notes go to: neither of the two value sinks. */
+    bool isNotes (void) const { return chanarg.empty() && knob == NULL; }
+};
+
+/* A linear pipeline: stage 0 is usually a generator, the rest
+ * transformers. Live MIDI can also be routed in at stage 0. */
+struct thcChain
+{
+    std::string  name;
+    bool         muted;
+    bool         soloed;     /* while any chain is, only those are heard */
+
+    /* When a note ([0]) or a chanarg ([1]) of this chain was last
+       delivered, and when one was last dropped at the end of the chain
+       by the mute, the solos or the arrangement, at the time it would
+       have been heard; transport seconds, or -1. Apart, because a chain
+       with a note sink and a chanarg sink lights each by its own. */
+    double       lastHeard[2], lastGated[2];
+
+    /* The notes it was heard to play in the last PLAYED_KEEP seconds of
+       transport, oldest first. */
+    std::deque<thcPlayed> played;
+    bool         inputMidi;  /* fed by live MIDI on the sink channel     */
+    double       start;      /* first generator wake, seconds or beats  */
+    bool         startBeats;
+    bool         seeded;     /* its own seed rather than the master's   */
+    unsigned     seed;
+
+    /* unique_ptr for the address stability thcParamStore::params()
+       documents, not for shared ownership. */
+    std::vector<std::unique_ptr<thcStage> > stages;
+
+    /* Empty means "deliver events exactly as emitted" -- the
+       programmatic-chain case harnesses use. A .gen chain always has at
+       least one (the loader enforces it). */
+    std::vector<thcSink> sinks;
+
+    /* The chain's embedded DSP nodes, or NULL where it has none -- which
+       is every chain in the corpus but one, so this costs nothing to
+       carry. Per chain rather than per piece because that is where they
+       are written and what they modulate: an LFO in a chain is part of
+       that chain's shape, the way a transformer is. */
+    std::unique_ptr<thcNodeHost> nodes;
+};
+
+/* One stretch of the piece, and what it does to the chains
+ * (docs/GEN_FORMAT.md).
+ *
+ * The arrangement a piece used to write one chain at a time, as an
+ * xform::form under each of them: eight patterns of marks that had to be
+ * kept in step by hand, and no way to say "the lead is louder here" at
+ * all. A section says it once, for the whole piece, in the order the
+ * piece is played.
+ *
+ * `levels' is a chain name and what that section does to it: 0 mutes,
+ * anything else scales its notes' velocities, and a chain the section
+ * does not name plays as written. A vector rather than a map because
+ * declaration order is what the file says and what an editor draws.
+ *
+ * `hold' is a section that plays again when it ends rather than giving
+ * way to the next: a loop that waits for a cue, which is what a game's
+ * "until the wave ramps" is.
+ */
+struct thcSection
+{
+    std::string name;
+
+    /* How long it lasts: beats when `beats', else seconds. A length in
+       bars is folded to beats by the loader, through `meter'. */
+    double      length;
+    bool        beats;
+
+    std::vector<std::pair<std::string, double> > levels;
+
+    /* A piece knob, by name, and what it is set to as the section begins
+       however it was reached -- in order, round a loop or a hold, cued or
+       sought: `@energy = 0.8;'. */
+    std::vector<std::pair<std::string, double> > knobs;
+
+    bool        hold;
+
+    thcSection (void) : length(0), beats(false), hold(false) { }
+};
+
+class thcScheduler
+{
+public:
+    explicit thcScheduler (thSynth *synth);
+    ~thcScheduler (void);
+
+    /* ---- building chains ----
+     *
+     * Programmatic: the .gen loader sits on top of exactly these calls
+     * and adds nothing of its own. addStage creates the instance
+     * immediately, with a seed derived from the master seed and the
+     * stage's position, so the same seed and the same construction
+     * order replay the same piece. */
+    size_t    addChain (const std::string &name);
+
+    /* `asGenerator' is the stage's declared role -- gen:: or xform:: in
+       a .gen file. The two-argument form takes the plugin's word for
+       it. NULL when the module refuses to create an instance; nothing
+       is left half-added. */
+    thcStage *addStage (size_t chain, thcPlugin *plugin);
+    thcStage *addStage (size_t chain, thcPlugin *plugin, bool asGenerator);
+
+    void      addSink (size_t chain, int channel,
+                       const std::string &chanarg = "");
+    void      addKnobSink (size_t chain, thArg *knob);
+
+    /* A knob's value written into the piece's text: where a rewind puts
+       it back, if a chain writes it. */
+    void      setKnobHome (thArg *knob, float value);
+
+    void      setChainInput (size_t chain, bool midi);
+    /* May be set while loading the chain, before transport starts. */
+    void      setChainStart (size_t chain, double at, bool beats);
+
+    /* Seeds the chain's stages from `seed' instead of the master seed:
+       the same seed is the same take whatever the piece's seed is and
+       wherever the chain sits. Only before its first stage is added. */
+    void      setChainSeed (size_t chain, unsigned seed);
+    void      clearChains (void);
+
+    /* ---- piece knobs ----
+     *
+     * `@density' in a .gen file: a thArg, so the same widget/min/max/
+     * label metadata the .dsp parser stores drives the same kind of
+     * panel. The scheduler owns them; binding one to a stage param
+     * (bindKnob) is the live ARG_CHAN-style link, including waking a
+     * THC_NEVER sleeper when the knob moves. */
+    thArg *addKnob (const std::string &name, float value);
+    thArg *knob (const std::string &name);
+
+    /* Where the loader writes `@name.min' and the rest: the knob itself,
+       except in a staged edit, where a lent knob's metadata waits in a
+       stand-in for adopt(), as its value waits in pendingValues_. */
+    thArg *knobMeta (const std::string &name);
+
+    /* thcAudition's entry points, with a stage for ctx. */
+    static int cbHear (void *ctx, const char *target,
+                       const char *const *names, const double *values, int n);
+    static int cbHeard (void *ctx, int ticket, double *distance);
+    static void cbForget (void *ctx, int ticket);
+
+    void ensureAuditioner (void);
+
+    int hear (thcStage *stage, const char *target,
+              const char *const *names, const double *values, int n);
+
+    /* An instrument as the ear renders it: its .dsp found the way
+       applyInstrument finds it, its args folded to the engine's terms
+       and read through their knobs. False if it has no .dsp. */
+    bool auditionInstrument (const thcInstrument &inst,
+                             thcAuditioner::Instrument &out);
+    const std::map<std::string, thArg *> &knobs (void) const
+    {
+        return knobs_;
+    }
+
+    /* Refuses a knob the stage's own chain writes, as the loader does:
+       the chain's every value would move what it does next. */
+    void bindKnob (thcStage *stage, int paramIndex, thArg *knob);
+    bool chainWrites (size_t chain, const thArg *knob) const;
+
+    /* Back to the stored value, whichever kind of binding was shadowing
+       it.
+     *
+       A caller typing `prob = 0.9' over `prob = mid->out' is undoing a
+       binding without knowing or caring which of the two it was, and
+       there was no way to say that: bindKnob(NULL) releases the knob
+       and leaves a node still shadowing the value that was just
+       written. The panel, the canvas and the file then said 0.9 while
+       the piece went on playing the LFO -- and saving and reopening
+       sounded different from what had just been heard. */
+    void unbindParam (thcStage *stage, int paramIndex);
+
+    /* A control-rate host for a chain that has dsp:: stages in it.
+     *
+     * Made here rather than by the loader because the plugin root is
+     * the synth's answer and not the file's: a harness pointed at a
+     * build tree and an installed application must load the *same*
+     * .so files into both hosts, or the gate that says the two agree is
+     * comparing two different builds. Caller owns it. */
+    thcNodeHost *newNodeHost (void);
+
+    /* The control rate, in windows per second. One number, stated once,
+       because the loader, the host and the gate all have to mean the
+       same thing by it. */
+    static long controlRate (void) { return 50; }
+
+    /* ---- instruments ----
+     *
+     * The instruments the piece declares, in the order it declares them,
+     * each with the channel the loader allocated for it. Owned here for
+     * the reason the knobs are: they belong to the piece, and the piece
+     * is what clearChains takes away. */
+    size_t addInstrument (const thcInstrument &inst);
+
+    const std::vector<thcInstrument> &instruments (void) const
+    {
+        return instruments_;
+    }
+
+    const thcInstrument *instrument (const std::string &name) const;
+    thcInstrument       *instrument (size_t index);
+
+    /* Is this event a structure edit rather than something to play?
+       One place, because the sink filter, the roll and the gates all
+       have to agree about which events are which. */
+    static bool isStructureEdit (thcEventType t)
+    {
+        return t == THC_EV_PATCH || t == THC_EV_NODEARG ||
+               t == THC_EV_GROW || t == THC_EV_GRAFT;
+    }
+
+    /* ---- structure edits ----
+     *
+     * The services behind THC_EV_PATCH and THC_EV_NODEARG. Both are
+     * host-side on purpose: a composer emits an intent and this does
+     * it, so no plugin ever holds a graph. */
+
+    /* `channel' becomes `name', which must be an instrument the piece
+       declares. Goes through the same load hook and the same values a
+       piece's own instrument does, so an instrument swapped in is
+       indistinguishable from one declared there -- and so the patch
+       tab, the arg panel and the dirty flag all follow it in the
+       application. False with `why' when it cannot be done. */
+    bool swapInstrument (int channel, const std::string &name,
+                         std::string &why);
+
+    /* THC_EV_GROW: the graph on `channel' one edit on, the edit `choice'
+       picks among those of `kinds' -- or, with `shrink', one edit back.
+       Only on a channel the piece declares an instrument for, and only in
+       a host with a grower (setGrower). The grown graph is loaded as an
+       inline graph is, under a name its text decides, and goes on as a
+       swap does. With a `target', up to `listen' edits are heard against
+       it, each tuned toward it first for `tune' generations if a tuner is
+       set, and the nearest is taken -- on a later step if the ear answers
+       later. With `depth', the step is held to that many edits on the
+       declared graph as the stack stands, and `shrink' is a wish to go
+       back. False with `why' when it cannot be done. */
+    bool growInstrument (int channel, unsigned int choice, bool shrink,
+                         const std::string &kinds, const std::string &target,
+                         int listen, int tune, std::string &why,
+                         int depth = 0);
+
+    /* THC_EV_GRAFT: what a generation is asked to breed with, as the
+       event says it and with its target found -- an instrument of the
+       piece as its graph and values, or a sound file -- and the values
+       the channel's own instrument plays its graph with, in the terms of
+       a synth at `rate'. */
+    struct GraftAsk
+    {
+        unsigned int dice = 0;
+        std::string kinds, target;
+        int population = 6, elites = 1, depth = 4, tune = 6;
+        double crossover = 0.7, mutation = 0.8;
+
+        std::string targetGraph, targetWav;
+        std::vector<std::pair<std::string, float> > args, targetArgs;
+        double rate = 0;
+    };
+
+    /* One generation of `channel''s flock, and its champion put on as
+       growth puts a graph: the channel then holds the declared graph and
+       the champion, which is what Keep writes. Only on a channel the piece
+       declares an instrument for, in a host with a grafter. */
+    bool graftInstrument (int channel, const GraftAsk &ask,
+                          std::string &why);
+
+    /* What breeds: the flock as it was -- empty for none yet -- the
+       declared graph, and the ask; the flock as it is now, its champion's
+       text and how many edits that is on the declared graph. A hook, as
+       Grower is (NodeBreed). */
+    typedef std::function<bool (const std::string &base,
+                                const std::string &flock,
+                                const GraftAsk &ask, std::string &flockOut,
+                                std::string &champion, size_t &depth,
+                                std::string &why)> Grafter;
+
+    void setGrafter (const Grafter &fn) { grafter_ = fn; }
+
+    /* A grafter that answers later, for a host that cannot spend a
+       generation -- dozens of renders -- on the thread this runs on: the
+       application's, which draws its window, and the browser's worklet.
+       Asked with a ticket, and answered through graftAnswer. Used where
+       there is no grafter; what comes after waits for the answer, as it
+       waits for a growth's. */
+    typedef std::function<void (unsigned int ticket, const std::string &base,
+                                const std::string &flock,
+                                const GraftAsk &ask)> GraftRequest;
+
+    void setGraftRequest (const GraftRequest &fn) { graftRequest_ = fn; }
+
+    /* What the grafter bred for `ticket', taken as a Grafter's answer is,
+       unless the channel's growth has moved since it was asked; `ok'
+       false with `why' if it bred nothing. */
+    void graftAnswer (unsigned int ticket, bool ok, const std::string &flock,
+                      const std::string &champion, size_t depth,
+                      const std::string &why);
+
+    /* Whether an answer for `ticket' is still waited on: false once a
+       rewind, a swap or a step that superseded it has let it go, and a
+       grafter can stop breeding it. */
+    bool graftWanted (unsigned int ticket) const
+    {
+        for (const auto &e : grown_)
+            if (ticket != 0 && e.second.asked == ticket)
+                return true;
+
+        return false;
+    }
+
+    /* `channel''s flock as the grafter left it, for a host to show; false
+       while it has none. */
+    bool flockText (int channel, std::string &text) const
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.flock.empty())
+            return false;
+
+        text = g->second.flock;
+        return true;
+    }
+
+    /* `text' on `channel' as growth would put it there, one step up the
+       same stack: heard at once, gone with a step back or a rewind, and
+       what Keep writes. What a search that finished offers to be heard. */
+    bool tryGraph (int channel, const std::string &text, std::string &why);
+
+    /* What turns a graph's text into the text one edit on: `choice' among
+       the edits of `kinds', judged against `base', the declared graph, and
+       up to `want' of them for a host that listens to choose among, each
+       with what it did in words. A hook, as loading is, because the edits
+       are the node model's (NodeMutate::grow) and a host that does not
+       link it -- the Node build -- has no business growing anything. */
+    typedef std::function<bool (const std::string &text,
+                                const std::string &base, unsigned int choice,
+                                const std::string &kinds, size_t want,
+                                std::vector<std::string> &grown,
+                                std::vector<std::string> &what,
+                                std::string &why)> Grower;
+
+    void setGrower (const Grower &fn) { grower_ = fn; }
+
+    /* A grower that answers later, for a host that cannot grow on the
+       thread this runs on -- the browser's audio worklet, whose quantum is
+       a few milliseconds and a growth step's level check a tenth of a
+       second. Asked with a ticket, `text' the graph on the channel, and
+       answered through growthAnswer: up to `want' edits, as a Grower makes
+       them. Used where there is no grower. */
+    typedef std::function<void (unsigned int ticket, const std::string &text,
+                                const std::string &base, unsigned int choice,
+                                const std::string &kinds, size_t want)>
+        GrowRequest;
+
+    void setGrowRequest (const GrowRequest &fn) { growRequest_ = fn; }
+
+    /* What the grower made for `ticket': taken as a Grower's edits are --
+       heard against the step's target if it has one -- unless something
+       has moved the channel's stack since it was asked; `why' if it made
+       nothing. */
+    void growthAnswer (unsigned int ticket,
+                       const std::vector<std::string> &grown,
+                       const std::vector<std::string> &what,
+                       const std::string &why);
+
+    /* An ear that answers later, the host's, for one with no auditioner
+       here: the browser's worklet and mirror, whose renders a worker of
+       the page's makes. Asked with a ticket and the request as JSON --
+       the candidate's and the target's graph texts and values, or the
+       target's sound file, and how much to tune -- and answered through
+       earAnswer. Used where there is no auditioner. */
+    typedef std::function<void (int ticket, const std::string &ask)>
+        EarRequest;
+
+    void setEarRequest (const EarRequest &fn) { earRequest_ = fn; }
+    void earAnswer (int ticket, bool ok, double distance,
+                    const std::string &tuned);
+
+    /* Whether this makes an auditioner of its own: off for a browser
+       realm that asks the page instead, which is all of them but the
+       ear's worker. */
+    void setLocalEar (bool on) { localEar_ = on; }
+
+    /* What tunes each edit a growth toward a target hears, before it is
+       judged: NodeEvolve::tuneAdded, for a host that links the node model.
+       Set before the piece plays; the ear's thread reads it. */
+    void setTuner (const thcAuditioner::Tuner &fn);
+
+    /* One change growth made to a channel, for a host to show. */
+    struct GrowthStep
+    {
+        double at = 0;              /* transport seconds                */
+        size_t depth = 0;           /* edits on the declared graph after */
+        std::string what;           /* the edit, in words; empty for a
+                                       step back                        */
+
+        /* Distances to the target in dB, NaN where none was heard: the
+           graph on the channel after, the one it grew from, and each
+           edit heard, of which `taken' went on (-1 without a target). */
+        double distance = NAN;
+        double from = NAN;
+        std::vector<double> heard;
+        int taken = -1;
+    };
+
+    /* The edits on `channel' in words, the declared graph's "" first, and
+       every change since the piece loaded or rewound. False for a
+       channel that has not grown. */
+    bool growth (int channel, std::vector<std::string> &stack,
+                 std::vector<GrowthStep> &log) const;
+
+    /* Moves whenever any channel's growth does, for a host to poll. */
+    unsigned int growthSerial (void) const { return growthSerial_; }
+
+    /* Back to `depth' edits on the declared graph, as steps back would
+       go; the stack above it is gone. A growing stage goes on from there,
+       counting the edits it asked for rather than these. Behind a step
+       still waiting for its answer, as a composer's step is, so a host
+       that grew at once and one that asked go back from the same stack. */
+    bool growBackTo (int channel, size_t depth, std::string &why);
+
+    /* `graph' put on `channel' in place of `over' -- what the caller put
+       there last -- while that is still what plays, and otherwise on top
+       of whatever does, or with `strict' not at all; or, with `graph'
+       empty, `over' taken off again if it still plays: a search's Listen,
+       result and Discard. Behind a step waiting for its answer, as
+       growBackTo is; `done' hears what it came to, "" when it went on. */
+    typedef std::function<void (const std::string &why)> PutDone;
+
+    void putGraph (int channel, const std::string &graph,
+                   const std::string &over, bool strict,
+                   const PutDone &done);
+
+    /* The graph on `channel' now, as text: what growth or a search put
+       there, or what the instrument declares. False for a channel that is
+       none of the piece's, or a graph that cannot be read. */
+    bool graphText (int channel, std::string &text) const;
+
+    /* The graph growth has put on `channel', as text, or false while the
+       channel holds what the piece declares. What Keep writes into it. */
+    bool grownText (int channel, std::string &text) const
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.texts.size() < 2)
+            return false;
+
+        text = g->second.texts.back();
+        return true;
+    }
+
+    /* The graph growth on `channel' started from, while it has grown. */
+    bool declaredText (int channel, std::string &text) const
+    {
+        const auto g = grown_.find(channel);
+
+        if (g == grown_.end() || g->second.texts.size() < 2)
+            return false;
+
+        text = g->second.texts[0];
+        return true;
+    }
+
+    /* Which instrument `channel' is holding: the last one swapped onto
+       it, or the one whose declaration owns it, or empty for a channel
+       this piece has no instrument on. The host asks so that a reload
+       does not mistake a swapped channel for one still holding what its
+       declaration names. */
+    std::string holding (int channel) const;
+
+    /* The instrument declared on `channel', or NULL. */
+    const thcInstrument *channelOf (int channel) const;
+
+    /* One constant inside whatever graph is on `channel'.
+     *
+       Not a chanarg: a node's own arg, which the .dsp never offered.
+       Lands on the channel's prototype tree -- the one thMidiChan builds
+       new voices from and the audio thread never reads -- so notes
+       already sounding finish unchanged and the next note is built
+       differently. That is the editor's promise, kept by the same
+       mechanism rather than restated. */
+    bool setNodeArg (int channel, const std::string &node,
+                     const std::string &arg, float value,
+                     std::string &why);
+
+    /* Who turns a named .dsp into a sounding channel.
+     *
+     * The scheduler knows what the piece declared; how *this program*
+     * loads a patch is not its business and must not become its
+     * business. In the application an instrument has to appear on a
+     * patch tab, with a filename, a dirty flag and an arg panel behind
+     * it, and every bit of that lives in gthPatchManager where the
+     * composer host cannot see it. So the app installs a hook.
+     *
+     * The default below -- parse the graph, put it on the channel -- is
+     * not a fallback nobody runs. It is precisely what a headless
+     * harness wants, which is what makes the instrument path gateable
+     * at all rather than only reachable through the GUI. */
+    typedef std::function<bool (const thcInstrument &inst,
+                                std::string &why)> InstrumentLoader;
+
+    /* And the way back. A .gen that fails to load is documented to load
+       nothing, and until this existed that was true of the chains and
+       false of the channels: an instrument that came up before a later
+       one failed stayed up, on a tab, for a piece nobody was going to
+       hear. The host needs to hear about it for the same reason it
+       handles the load -- what has to be undone is a patch tab, not
+       just a graph. */
+    typedef std::function<bool (const thcInstrument &inst)>
+        InstrumentUnloader;
+
+    /* And who puts the instrument's effect on the same channel.
+     *
+     * Beside InstrumentLoader and for the same reason. It was argued once
+     * that an effect could go straight through the synth whether or not the
+     * host had a hook, because "an effect is not a patch" -- and then a
+     * .patch learned to carry one, so it is. Loading it behind the host's
+     * back left gthPatchManager believing the channel had none: the page
+     * offered to choose one where there already was one, its `None' button
+     * was dead, and saving the patch wrote the effect's values under a file
+     * it had not named, which the next load then refused.
+     *
+     * Empty takes the effect off, which is what the piece declaring none
+     * means once the host may be holding one from before. `side' is the
+     * channel the effect listens to besides its own, or -1; it belongs to
+     * the effect, so a host that swaps one has to carry it across. */
+    typedef std::function<bool (int channel, const std::string &effect,
+                                int side, std::string &why)> EffectLoader;
+
+    void setInstrumentLoader (const InstrumentLoader &fn) { loadDsp_ = fn; }
+
+    /* The ear renders inside a stage's tick rather than on a thread:
+       every answer is in by the next tick, so a piece that listens
+       replays exactly. For the harnesses and the offline renderer; a
+       live host leaves it off and takes the answers as they come. */
+    void setAuditionSynchronous (bool on);
+
+    /* A chain made again while the piece plays is played from its start
+       up to now (see catchUp). By default all of it happens inside the
+       call that asked. Deferred, the host plays it on in pieces --
+       replayAdvance, as much of a window as it can spare -- and says
+       where it is heard again: replayLand, at the top of a window.
+       Meanwhile the chain plays what it had queued, and the replay reads
+       its knobs, the tempo and its mute as they stood when it began, so
+       that two hosts advancing it in different pieces and landing it at
+       the same time hear the same chain. */
+    void setReplayDeferred (bool on) { replayDeferred_ = on; }
+    bool replaying (void) const { return !replays_.empty(); }
+
+    /* At most `ticks' more of the replays' ticks; true once every one has
+       caught up with the transport and can land. */
+    bool replayAdvance (unsigned ticks);
+
+    /* Every replay heard from here, played through first if it has not
+       caught up -- but one with a landing of its own (setReplayLandAt);
+       true if there was one. settleReplays lands every one, for a change
+       that has to find none under way. */
+    bool replayLand (void);
+    void settleReplays (void);
+
+    /* While at or above zero, a replay asked for -- now, or by a
+       recompose() marked now and run at a later step -- is heard from
+       transport time `at', deferred or not, rather than where the host
+       lands it: the host may advance it, and stepping the transport to
+       `at' plays the rest through and lands it there. For a host whose
+       peers step different windows: a room's stamped commands, which every
+       peer has to hear land in the same place. One asked for at or after
+       `at' is played through whole. */
+    void setReplayLandAt (double at) { replayLandAt_ = at; }
+
+    /* How long after its stamp a room's command lands what it replays. The
+       browser host and the room's reference (genwav.mjs -c) both land
+       there, or their tapes part. */
+    static constexpr double ROOM_REPLAY_LAND_S = 0.05;
+
+    /* NULL where there is no ear. A harness reads answered() off it. */
+    thcAuditioner *auditioner (void) const { return auditioner_; }
+    void setInstrumentUnloader (const InstrumentUnloader &fn)
+    {
+        unloadDsp_ = fn;
+    }
+    void setEffectLoader (const EffectLoader &fn) { loadEffect_ = fn; }
+
+    /* Is this channel somebody else's?
+     *
+     * The loader allocates the lowest channel a `channel = N' sink has
+     * not claimed, which is the whole story in a harness and only half
+     * of it in the application: there, channel 1 may already hold a
+     * patch the person loaded by hand, or one their thinkrc loaded at
+     * startup, and taking it would replace their instrument with the
+     * piece's without asking. The host is the only thing that knows.
+     *
+     * "Somebody else's" and not merely "loaded", because the channels
+     * this piece is already on have to stay reusable -- an instrument
+     * that moved one to the right on every reload would be worse than
+     * the problem. The default is that nothing is anybody's, which is
+     * true of a harness and of a synth with an empty rack. */
+    typedef std::function<bool (int channel)> ChannelTaken;
+
+    void setChannelTaken (const ChannelTaken &fn) { taken_ = fn; }
+
+    /* The host's MIDI output, or NULL; see thcMidiOut. Set before a piece
+       is loaded: an instrument is offered to it when it is applied. */
+    void setMidiOut (thcMidiOut *out) { midiOut_ = out; }
+
+    /* The clock thcMidiOut's stamps are on, where it is not the monotonic
+       one: `at' turns a transport time into a stamp, `now' says what the
+       stamp is now. The browser's, whose clock is the AudioContext's and
+       whose transport runs at a speed of its own. Unset, a stamp is the
+       step's thcMonotonicUs() moved by the event's distance from
+       the transport. */
+    void setMidiClock (const std::function<int64_t (double at)> &at,
+                       const std::function<int64_t (void)> &now)
+    {
+        midiAt_ = at;
+        midiNow_ = now;
+    }
+
+    /* Whether engine channel `channel' is being played on a device. */
+    bool playsOverMidi (int channel) const
+    {
+        return channel >= 0 && channel < 16 && overMidi_[channel];
+    }
+
+    /* Why an instrument that names `midi' is not being played on a
+       device -- no port matched, no MIDI in this host -- or empty where
+       it is, or never asked to be. */
+    /* The reason, said again by a host that knows it changed without
+       the instrument having to be applied again. */
+    void setMidiWhy (int channel, const std::string &why)
+    {
+        if (channel >= 0 && channel < 16 && !overMidi_[channel])
+            midiWhy_[channel] = why;
+    }
+
+    const std::string &midiWhy (int channel) const
+    {
+        static const std::string none;
+
+        return channel >= 0 && channel < 16 ? midiWhy_[channel] : none;
+    }
+    bool channelTaken (int channel) const
+    {
+        return taken_ ? taken_(channel) : false;
+    }
+
+    /* Loads instrument `index' onto its channel and sets its values.
+       False with `why' saying what went wrong, which the .gen loader
+       turns into a load error against the instrument's line: a piece
+       whose instrument is missing will not play, and should say so
+       rather than open silent and let the person hunt for it.
+
+       All or nothing. A value can only be checked once its graph is on
+       the channel, so a refusal usually happens with the .dsp already
+       loaded -- and this takes it back rather than leaving the caller
+       to know which failures did and did not install something. The one
+       case it cannot keep that promise in is a command ring too full to
+       carry the removal, and then it says so in `why' rather than
+       claiming the channel is clear. */
+    bool applyInstrument (size_t index, std::string &why);
+
+    /* Takes instrument `index' back off its channel. Idempotent, and
+       harmless on one that never got there.
+
+       False when it could not be taken back -- the audio thread has to
+       be told to drop a channel and the command ring can be full. The
+       channel is then still loaded and still sounding, and the
+       instrument is remembered (see strandedCount) so the attempt can be
+       made again rather than the graph being abandoned. */
+    bool unapplyInstrument (size_t index);
+
+    /* Every channel a swap put a MIDI instrument naming `pattern' on
+       (any, where it is empty), swapped onto again, so it lands where the
+       ports and routes say now. Returns how many. */
+    int reapplySwapped (const std::string &pattern);
+    bool unapply (const thcInstrument &what);
+
+    /* ---- the graph on the mix ------------------------------------------
+     *
+     * A top-level `effect' statement: the same object a channel carries,
+     * on the sum of every channel, run after the mix and before the master
+     * gain. A reverb on four channels is four reverbs paying for one room,
+     * and a limiter on a channel is not limiting the thing that clips.
+     *
+     * Held as a thcInstrument with no `dsp' and a channel of -1, which is
+     * what "the mix rather than a channel" is spelled as everywhere below:
+     * the values, their units and their knob bindings are exactly an
+     * instrument's, and reusing the record is what keeps them one
+     * implementation rather than two that drift.
+     *
+     * The application has no chooser for it yet; when it grows one it wants
+     * a hook here, beside setEffectLoader and for its reason. Until then a
+     * piece's master effect goes straight through the synth, which is what
+     * a headless render wants and what the app does correctly by accident:
+     * there is no patch tab for the mix to disagree with. */
+    void setMasterEffect (const std::string &dsp,
+                          const std::vector<thcInstrumentArg> &args,
+                          const std::vector<std::shared_ptr<void>> &graphs =
+                              std::vector<std::shared_ptr<void>>());
+
+    const thcInstrument &masterEffect (void) const { return master_; }
+
+    /* Puts it on, or -- with nothing declared -- takes off whatever the
+       last piece left. Called once per load, after the instruments, for
+       the reason they are applied after the channels are allocated: it is
+       the last thing the file says about what the sound goes through. */
+    bool applyMasterEffect (std::string &why);
+
+    /* And takes it off again, which is what a failed load owes. */
+    bool unapplyMasterEffect (void);
+
+    /* How many instruments are waiting to be taken off a channel that
+       would not let go.
+     *
+     * A full command ring means the audio thread is not draining -- it
+     * is wedged, or there is no backend at all -- so the channel is
+     * still loaded and still sounding, and the piece it belonged to is
+     * already gone. Dropping the record would leave a graph nobody could
+     * name; this keeps it, and every tick of the transport tries again.
+     * Zero in every ordinary run. */
+    size_t strandedCount (void) const { return stranded_.size(); }
+
+    size_t chainCount (void) const { return chains_.size(); }
+    thcChain *chain (size_t i)
+    {
+        return i < chains_.size() ? &chains_[i] : NULL;
+    }
+
+    /* Mute drops events at end-of-chain, not at the source: the
+       algorithm keeps evolving silently, so un-muting mid-piece rejoins
+       a living process rather than restarting a cold one.
+     *
+       Solo is the same gate from the other side: while any chain is
+       soloed, every chain that is not is muted. A chain both muted and
+       soloed stays muted. Neither is saved; a load clears both. */
+    void setMuted (size_t chain, bool muted);
+    void setSoloed (size_t chain, bool soloed);
+
+    /* Whether the mute and the solos let this chain be heard. The
+       arrangement's levels are applied on top, and are not asked. */
+    bool audible (const thcChain &c) const
+    {
+        return !c.muted && (soloCount_ == 0 || c.soloed);
+    }
+
+    /* ---- the arrangement (docs/GEN_FORMAT.md 5c) ----
+     *
+     * The sections, in the order they are played. They cycle for ever
+     * unless `endAfterSections' is set, which is the file's `section
+     * end;': the transport then stops itself once the last one is over.
+     *
+     * The gate sits where the mute sits -- at the end of the chain, not
+     * at the source -- so the generators go on evolving through a
+     * section that silences them, and a section that brings a chain
+     * back rejoins a living process. Which section an event belongs to
+     * is decided by its own `at' and not by when it was emitted, so a
+     * grammar that emits eight bars in one tick is gated bar by bar,
+     * exactly as xform::form is.
+     *
+     * A length in beats is converted through the tempo when it is read,
+     * so an arrangement written in bars holds at one tempo and drifts
+     * under a tempo change -- the same honest limit form has. */
+    void addSection (const thcSection &s);
+    void endAfterSections (bool end);
+
+    const std::vector<thcSection> &sections (void) const
+    {
+        return sections_;
+    }
+
+    bool endsAfterSections (void) const { return endAfter_; }
+
+    /* A chain's level in one section, changed while the piece plays:
+       what an arrangement edit does to the running piece, beside the
+       splice that writes it. 1 takes the chain out of the section. */
+    void setSectionLevel (size_t section, const std::string &chain,
+                          double level);
+
+    /* A chain's level in one section: 1 where the section does not name
+       it. */
+    double sectionLevelOf (size_t section, const std::string &chain) const;
+
+    /* Where one section sits, in transport seconds at the current
+       tempo: its length, and the whole arrangement's. Zero when the
+       piece has no sections. */
+    double sectionLength (const thcSection &s) const;
+    double sectionsLength (void) const;
+
+    /* Which section `at' falls in, or -1 for a piece with no sections
+       and for a time past the end of one that ends. Cycles otherwise. */
+    int sectionAt (double at) const;
+
+    /* ---- where the arrangement goes ----
+     *
+     * Written, the sections play in order and then go round from the
+     * first -- or from the one `section loop <name>;' names, so an
+     * intro is heard once -- and a `hold' section plays again until
+     * something moves the piece on.
+     *
+     * A cue is that something: the section to go to, and the grid it
+     * waits for, in beats from the top of the transport, or 0 for the
+     * end of the section playing. It is the game's hand on the music:
+     * what it asks lands on a line of the grid rather than mid-phrase,
+     * and from there the list runs as written again. Events emitted
+     * before the cue still obey it -- see sectionGate.
+     *
+     * Returns the transport time the cued section begins, or -1 for a
+     * section that does not exist. A rewind takes every cue back: what
+     * the piece says is what it plays from the top. */
+    double cueSection (size_t section, double gridBeats);
+
+    /* The section a knob names, cued whenever it moves: 1 is the first
+       section, 0 and anything past the last cue nothing. The file's
+       `cue @knob 1 bars;'. A chain may write the knob, which makes the
+       arrangement itself generative. NULL takes it off. */
+    void cueOnKnob (thArg *knob, double gridBeats);
+
+    /* `section loop <name>;': where the list goes round to. */
+    void   loopSectionsFrom (size_t section);
+    size_t loopsFrom (void) const { return loopFrom_; }
+
+    /* One section as it is played: where it starts, how long it lasts
+       and which it is. */
+    struct SectionSpan
+    {
+        double start, length;
+        int    section;
+    };
+
+    /* The span `at' falls in; false where sectionAt() is -1. */
+    bool sectionSpanAt (double at, SectionSpan &span) const;
+
+    /* Every span that starts before `until', in order -- what a lane can
+       draw. Cues made in the last eight seconds of the transport and
+       after are in it; older ones are forgotten (cueSection), so what is
+       drawn further back is the arrangement as written. A MIDI export
+       marks the sections as it plays them (thcMidiExport::markSection). */
+    std::vector<SectionSpan> sectionSpans (double until) const;
+
+    /* When a piece that ends is over: the transport time its last
+       section ends, as cued so far -- or as written, where `asWritten'
+       says, which is what a fresh load of the file would answer -- or
+       infinity for one that goes round or holds. */
+    double arrangementEnd (bool asWritten = false) const;
+
+    /* To the start of `section' as if the piece had been played straight
+       to it: seek() to its place in the first time through, with any
+       `hold' before it let go at its end, so a section behind a hold is
+       still somewhere a click can reach. */
+    void seekSection (size_t section);
+
+    /* seek() and seekSection() in pieces a host spreads over its windows:
+       begun, stepped `steps' of its 20 ms at a time until stepping says it
+       has got there, and ended. What they leave is what the one call
+       leaves, however many pieces it took; the transport is not to be
+       stepped in between. */
+    void seekBegin (double t);
+    void seekSectionBegin (size_t section);
+    bool seekStep (int steps);
+    void seekEnd (void);
+
+    /* Only effective before any stage exists: a seed that changed under
+       running instances would be a lie about what they were created
+       with. .gen files with a pinned seed call this first. */
+    void setMasterSeed (unsigned seed);
+    unsigned masterSeed (void) const { return masterSeed_; }
+
+    /* ---- an edit while playing ----
+     *
+     * A new text for the piece, applied at one transport time on every
+     * peer. What it keeps is decided by name: a chain whose stages all
+     * keep their chain and stage names in both texts, and whose text did
+     * not change, keeps its instances -- their state, their wakes, their
+     * bindings -- and everything else is built from the new text, with
+     * the seed the new text gives it. thcGenDiff decides which stages
+     * those are; this is the mechanism.
+     *
+     * A chain built again is played from its start up to the edit
+     * without a sound, and what the chain it replaces had composed for
+     * after the edit is not played: from the edit on, it plays what the
+     * new text loaded from the top would. A chain taken away is silent
+     * from the edit on.
+     *
+     * Two schedulers, because the new text has to be read before
+     * anything is taken away: a text that does not load changes nothing.
+     * The staged one is made by the host, handed to prepareEdit, loaded
+     * by an ordinary thcGenLoader, and then adopted:
+     *
+     *     thcScheduler next(synth);
+     *     live.prepareEdit(next, keepKnobValues);
+     *     next.setMasterSeed(seed);          // for an unpinned piece
+     *     if (loader.load(path, &next))
+     *         live.adopt(next, plan, why);
+     *
+     * A staged scheduler touches no channel: its instruments are
+     * recorded and not loaded, and adopt() loads the ones that changed.
+     * It builds its stages at the live transport's time, so a chain
+     * that starts after the edit waits for its start. And its knobs are
+     * the live ones, by name, so a kept stage's binding and a new
+     * stage's binding are the same knob; a knob whose declaration did
+     * not change keeps the value it has, and one whose declaration did
+     * takes the new text's.
+     */
+    void prepareEdit (thcScheduler &next,
+                      const std::set<std::string> &keepKnobValues);
+
+    bool staging (void) const { return staging_; }
+
+    struct EditPlan
+    {
+        /* (chain, stage) names whose instances survive the edit. */
+        std::set<std::pair<std::string, std::string> > keep;
+
+        /* Chains unchanged as a whole. A chain with embedded nodes keeps
+           its stages only when it is one of these, because what a stage
+           reads from a node is a pointer into the chain's node host, and
+           that host is kept or rebuilt whole. */
+        std::set<std::string> keepChains;
+
+        /* Files the edit changed besides the piece: an instrument whose
+           .dsp or effect is one of these is loaded again although its
+           declaration is the same. */
+        std::set<std::string> changedFiles;
+
+        /* The new text's tempo where its `tempo' line changed, else 0. */
+        double tempo = 0;
+    };
+
+    /* `next', loaded, becomes the piece, at the transport's time now.
+       Leaves `next' empty. False, having applied the edit anyway, when
+       an instrument would not load; `why' says which. */
+    bool adopt (thcScheduler &next, const EditPlan &plan, std::string &why);
+
+    thSynth *synth (void) const { return synth_; }
+
+    /* ---- transport ----
+     *
+     * now() freezes across pause; tempo changes take effect from the
+     * moment of the call (beat position is integrated, not derived, so
+     * clocked composers survive tempo automation). */
+    void   start (void);
+    void   stop (void);          /* pause; sounding notes get their offs */
+
+    /* A person's Stop: stop(), and then everything that is still sounding
+     * -- the releases those offs began, and every effect's tail -- brought
+     * down in TH_STOP_FADE_MS (thSynth::silence). stop() alone lets a piece
+     * ring out, which is what the transport stopping itself at `section
+     * end' wants and a renderer relies on; a stop button that left a
+     * minute-long reverb and fifteen-second releases sounding was not a
+     * stop. The tape is the same either way: the offs are delivered as
+     * stop() delivers them. */
+    void   halt (void);
+    void   reset (void);         /* rewind to 0 and reseed -- a replay   */
+    /* Every note a chain plays is due that much sooner; a tempo of
+       millions plays millions a second and a room waits on it. A tempo
+       past this, or not above 0, is ignored. */
+    static constexpr double MAX_TEMPO_BPM = 1000;
+    void   setTempo (double bpm);
+    double tempo (void) const { return tempo_; }
+
+    /* Where the transport is in beats, and how many beats make the bar the
+       piece's `meter' says (4 where it says none). */
+    double beat (void) const { return beat_; }
+    double meter (void) const { return meter_; }
+    void   setMeter (double beats) { meter_ = beats > 0 ? beats : 4; }
+
+    /* Does the tempo mean anything to this piece?
+     *
+     * It scales beat-valued durations and nothing else, so a piece whose
+     * every duration is written in seconds is one the tempo cannot
+     * touch -- which is most of them, and which the window had no way to
+     * know. Offering a control that does nothing is worse than offering
+     * none, and nudging one that then writes a `tempo' line into a file
+     * that never had one is worse again. */
+    bool usesBeats (void) const;
+    double now (void) const { return transportNow_; }
+    bool   running (void) const { return running_; }
+
+    /* One step of the app's ~20 ms timer, by however far thcMonotonicUs
+       moved since the last. Called while paused too, so composer_draw
+       views stay live; only the musical clock freezes. */
+    void tick (void);
+
+    /* Advance the musical clock by `dt' seconds without the app's timer:
+       the virtual-clock spelling of one tick, for harnesses.
+       Deterministic because everything below is keyed in transport time:
+       two renders with the same seed and the same step size deliver the
+       same stream, which is what makes a replay gate writable at all.
+       In the app the timer owns time and nothing calls this. */
+    void stepTransport (double dt);
+
+    /* stepTransport, with `mono' the thcMonotonicUs() the step
+       lands on: what tick does, and what stamps the events a
+       thcMidiOut is handed. A harness passes a clock of its own to read
+       the stamps back. */
+    void stepTransportAt (double dt, int64_t mono);
+
+    /* The same step, to an absolute transport time rather than by a
+       length. A host that knows where the transport should be -- the
+       browser's, which counts frames from an origin -- says so, instead
+       of adding up steps and drifting from it by a rounding error per
+       step; and a host that has to apply a command at an exact time
+       steps to that time, applies it, and steps on, which is what makes
+       "applied at `at' on every peer" the same on peers whose windows
+       are not aligned. A time at or before now is a step of nothing. */
+    void stepTransportTo (double t);
+
+    /* To transport time `t', from the top: the piece rewound and played
+       up to `t' without a sound, so every stage is where it would have
+       been had it been heard getting there -- which a generative piece
+       cannot be put any other way. Notes due at or after `t' play from
+       there; chanargs and structure edits on the way are applied. Keeps
+       playing if it was, and otherwise waits at `t'. */
+    void seek (double t);
+
+    /* `chain' composed again from what it now says, as an edit builds a
+       chain again: its instances made again from their stores, played
+       silently from its start up to now, and what it had composed for
+       after now not played. So a param set while it plays is heard now
+       rather than when the chain's next phrase begins, and a chain set
+       back to what it said plays what it played. Done before the
+       transport next moves, once however many of the chain's params were
+       set meanwhile. Not a chain played from a keyboard, or one with a
+       stage holding what its text does not.
+
+       `passing': a value a gesture passes through on its way to the one
+       it ends on. Only a chain that has composed further than a beat
+       ahead is composed again for one, and not more often than
+       PASSING_EVERY_SEC -- what the rest compose next hears it already,
+       and the whole chain played again for every value of a drag is more
+       than the drag is worth. */
+    void recompose (size_t chain, bool passing = false);
+
+    /* A hand moved `knob': every chain reading it, through a param or a
+       node, composed again (recompose), `passing' for a value a drag goes
+       on from. Not a chain writing it, which is part of the piece. */
+    void knobMoved (const thArg *knob, bool passing = true);
+
+    /* A gesture on a stage's picture, into its instance now. */
+    static void input (thcStage *s, const thcInputEvent &ev);
+
+    /* MIDI clock from where the transport is: Start at the top, or Song
+       Position and Continue. For a host that kept the clock from its
+       devices while it stepped the transport silently. */
+    void clockStart (void);
+
+    /* Route a live MIDI note into a chain's receive() path (Markov
+     * training, arpeggiators). Called from the m_sigNoteOn/Off hop --
+     * same thread, so it is a plain call into propagate(). On a stopped
+     * transport, whatever falls out of the chains is delivered
+     * immediately: keys pressed while paused should sound. */
+    void injectMidi (size_t chainIndex, const thcEvent &ev);
+
+    /* The `input midi;' route: hand the event to every chain that
+     * declared the input and whose sink channel matches the event's.
+     * What dispatchmidi (or anything else) calls when it does not know
+     * chain indices -- which is always. False where no chain took it. */
+    bool injectMidiEvent (const thcEvent &ev);
+
+    /* ---- for the tier-one piano roll ----
+     *
+     * Every delivered event, plus a copy of pending_ on demand. Same
+     * thread as the widget, no snapshotting. peekPending's vector is
+     * rebuilt per call and unordered (it mirrors a heap); the roll just
+     * wants to draw every entry, so order is not its business. */
+    /* One emission per delivered event, on the GUI thread, synchronous.
+     * BORROW, DO NOT KEEP: a chanarg event's name points into storage
+     * the scheduler releases when the emission returns, so a handler
+     * that wants the name beyond its own stack frame copies the string.
+     * The same borrow applies to peekPending()'s vector, which is
+     * rebuilt on every call. */
+    sigc::signal<void (const thcEvent &)> sigDelivered;
+    const std::vector<thcEvent> &peekPending (void) const;
+
+    /* Which chain made the event sigDelivered is emitting, by index, or
+       -1 for one no chain made (a key played straight onto a channel).
+       Meaningful only inside the emission.
+     *
+       A question rather than a field of the event, because thcEvent is
+       the plugins' ABI and the chain is the host's business. */
+    int deliveringChain (void) const { return deliveringChain_; }
+
+    /* The chain each entry of the last peekPending() came from, in the
+       same order: -1 where none did. */
+    const std::vector<int> &peekPendingChains (void) const
+    {
+        return peekChains_;
+    }
+
+    /* Does the patch on `channel' declare this knob? What the .gen
+       loader asks about a sink bound to one of the piece's own
+       instruments, where the graph is known and a typo is therefore
+       catchable instead of silent at delivery time. */
+    bool chanArgExists (int channel, const std::string &name) const;
+
+    /* The declared range of a patch chanarg, for anyone drawing its
+       values honestly -- the roll's strip normalizes by this instead of
+       assuming 0-1. False when the channel has no such arg or its range
+       is degenerate; the caller falls back to assuming. */
+    bool chanArgRange (int channel, const char *name,
+                       float &lo, float &hi) const;
+
+    /* Emitted by reset(): the transport has rewound to zero and every
+     * instance has been recreated. Anything keeping history keyed to
+     * transport time -- the piano roll's delivered notes -- must drop
+     * it, because time zero is about to mean a different piece (or the
+     * same piece from the top, which for a history is the same thing:
+     * notes stamped with times the transport is about to live through
+     * again would draw as a future that already happened). */
+    sigc::signal<void ()> sigReset;
+
+private:
+    double chainStartTime (const thcChain &chain) const;
+
+    /* The same declaration: what an edit leaves on its channel. */
+    static bool sameInstrument (const thcInstrument &a,
+                                const thcInstrument &b);
+    /* The values half of applyInstrument, on a channel whose graph is
+       already up. Split out so every refusal has one caller, and that
+       caller can take the graph back down. */
+    bool applyValues (const thcInstrument &inst, std::string &why);
+    bool writeValues (const thcInstrument &inst, std::string &why);
+
+    /* A chanarg by name, on a channel or on the mix. `channel < 0' is the
+       master effect's map, which is the one place in here that a negative
+       channel means something rather than being a mistake. */
+    thArg *findChanArg (int channel, const std::string &name);
+
+    /* The one way an instrument comes off a channel, so the first
+       attempt and every retry cannot drift apart. */
+    bool takeOff (const thcInstrument &inst);
+
+    /* One more go at the channels that would not let go. Called from
+       wherever the clock is driven -- the timer in the application,
+       stepTransport in a harness -- because that is the only thing that
+       reliably happens again after the ring was full. */
+    void retireStranded (void);
+
+    void queuePending (const thcEvent &ev, const std::string *nameOverride,
+                       int chain, thArg *knob = NULL);
+    void setKnobFrom (thArg *knob, const thcEvent &ev, int chain);
+
+    /* deliver(), saying which chain the event came from while it does. */
+    void deliverFrom (const thcEvent &ev, int chain);
+    void releaseHeld (int channel, int note, double at);
+    void endNote (int channel, int note, double at);
+    /* Every held note, or only those the chains in `chains' made. */
+    void flushHeld (const std::set<int> *chains = NULL);
+    /* The body of a step, once the clock has been moved: the stages, the
+       nodes, the deliveries and the offs, in that order. */
+    void runStep (void);
+    void runDueTicks (double now);
+
+    /* A chain made again while the piece plays, played silently from its
+       start up to now: see adopt(). */
+    void catchUp (size_t chain);
+
+    /* replays_[i] on for at most `budget' ticks, which it spends; true
+       once it has caught up. */
+    bool replayRun (size_t i, unsigned &budget);
+    struct Replay;
+    void landReplay (Replay &r);
+    bool landReplays (const std::function<bool (const Replay &)> &which);
+    void advanceTo (double t);
+    void dropReplays (long chain = -1);
+    void dropOldSounds (const Replay &r);
+    bool replaying (size_t chain) const;
+    bool wholeReplay (size_t chain) const;
+    double landingOf (size_t chain) const;
+    void remake (size_t chain, size_t stage);
+    void recomposeMarked (void);
+    void composeAgain (size_t chain, bool passing);
+
+    void deliverDue (double now);
+    void sendDueNoteOffs (double now);
+    void propagate (thcChain &c, size_t fromStage, const thcEvent &ev);
+
+    /* The knobs the section covering the transport sets, set when it is
+       not the one they were last set for: the stages due before the
+       section begins ticked first, as they read what came before it.
+       What a chain composed ahead is not composed again, as it is not
+       for a chain writing a knob: a seek, which composes nothing again,
+       has to hear what straight play does. */
+    void applySectionKnobs (void);
+    double knobSpanStart_ = -1;
+    int    knobSpanSection_ = -1;
+
+    /* What the section covering `at' does to this chain: 1 where there
+       are no sections, or where none of them names it. */
+    double sectionLevel (const thcChain &c, double at) const;
+
+    /* False drops the event; a note let through leaves at the
+       section's level. */
+    bool sectionGate (thcEvent &ev, int chain);
+
+    /* seek(), with the cues `keep' put back after the rewind. */
+    void seekWith (double t, const std::vector<std::pair<double, int> > &keep);
+    void seekWithBegin (double t,
+                        const std::vector<std::pair<double, int> > &keep);
+
+    /* Where seekSection goes, and the cues it keeps on the way. */
+    double sectionPlace (size_t section,
+                         std::vector<std::pair<double, int> > &keep) const;
+
+    /* Where a cue made now lands: cueSection's `gridBeats'. */
+    double cueTime (double gridBeats) const;
+
+    /* The cue knob, read once a step: a move cues what it names. */
+    void pollCueKnob (void);
+
+    void deliver (const thcEvent &ev);           /* -> synth addNote /
+                                                    chanarg, derive off  */
+    void flushNoteOffs (void);
+    double dropNoteOffs (int channel, int note, double struck);
+    void rearmStage (size_t chain, size_t stage);
+    unsigned stageSeed (size_t chain, size_t stage) const;
+
+    thSynth                 *synth_;
+    std::vector<thcChain>    chains_;
+    size_t                   soloCount_;   /* chains with `soloed' set */
+    std::vector<thcSection>  sections_;
+    bool                     endAfter_;   /* the file's `section end;'  */
+    size_t                   loopFrom_;   /* `section loop <name>;'      */
+
+    /* Cues made since the top: when each cued section begins and which
+       it is, in time order. Empty is the arrangement as written. */
+    std::vector<std::pair<double, int> > cues_;
+
+    thArg                   *cueKnob_;
+    double                   cueGrid_;
+    long                     cueKnobLast_; /* the section it named */
+
+    /* Piece knobs, owned here; and the signal connections that carry a
+       knob's movement to the params bound to it (param_changed forward
+       plus the THC_NEVER rearm). Dropped in clearChains.
+     *
+       Each connection remembers which channel it pushes into, or -1 for
+       the ones that drive a stage param and reach no channel at all.
+       That is there so a channel's bindings can be dropped on their own:
+       applying an instrument is no longer a once-per-load event -- a
+       swap applies one, and a rewind applies them all again -- and a
+       connection list that only ever grew meant a swapped-away
+       instrument went on driving the channel it used to be on, forever,
+       alongside the one that replaced it. */
+    struct KnobConn
+    {
+        int              channel;
+        sigc::connection conn;
+
+        /* The store it notifies, for a stage param's; NULL for a
+           channel's. What lets an edit drop the connections of the
+           stages it throws away and keep the rest. */
+        const thcParamStore *store;
+    };
+
+    std::map<std::string, thArg *>  knobs_;
+    std::vector<KnobConn>           knobConns_;
+
+    /* ---- a staged edit (prepareEdit, adopt) ----
+     *
+     * staging_: loads here touch no channel. lent_: the live knobs this
+     * one may hand out by name, and keepValues_ the ones whose value
+     * stays; a lent knob is the live scheduler's and is never deleted
+     * here. retired_: knobs an edit stopped declaring, kept alive until
+     * the piece goes, since a pending announcement may still hold one. */
+    bool                            staging_;
+    std::map<std::string, thArg *>  lent_;
+    std::set<std::string>           keepValues_;
+
+    /* A lent knob's value from a changed declaration, held until adopt():
+       the load may yet fail, and a text that does not load changes
+       nothing -- a knob's value included. */
+    std::map<std::string, float>    pendingValues_;
+    std::map<std::string, thArg *>  pendingMeta_;
+    std::vector<thArg *>            retired_;
+
+    /* Borrowed from the live scheduler by a staged one, so the stages
+       it builds are the live one's to keep: not deleted here. */
+    bool                            ownsControl_;
+    bool                            ownsAuditioner_;
+
+    /* Has the transport ever started? What decides whether an edit's new
+       stages are frozen, as start() freezes every stage: from then on a
+       rewind replays their load and not what came after. */
+    bool                            started_;
+
+    /* Every knob a chain writes, and the value the text declares for it.
+       A rewind puts it back there: a knob otherwise holds its place
+       across one, and a replay would begin wherever the chain left it. */
+    std::map<thArg *, float>        knobHome_;
+
+    /* Disconnect and forget every knob binding that pushes into this
+       channel. Called by applyValues before it wires the new set, which
+       is what makes applying an instrument idempotent. */
+    void dropKnobConns (int channel);
+
+    /* Which (channel, node, arg) a structure edit has touched, so a swap
+       on that channel can forget them and a reset knows there is
+       something to put back. The values are not kept: what a reset
+       restores is the *declaration*, and re-applying the instrument is
+       what does that. */
+    struct NodeArgEdit
+    {
+        int         channel;
+        std::string node, arg;
+    };
+
+    std::vector<NodeArgEdit> nodeArgs_;
+
+    /* Which instrument each channel is holding, for the channels a swap
+       has moved. A gen::swap knows only a list of names and a clock --
+       it cannot see what its sink's channel is playing -- so a list
+       starting with the instrument already there would rebuild the graph
+       into a copy of itself on the opening tick, for no change. This is where that is knowable. Cleared by a
+       rewind, which puts every declaration back. */
+    std::map<int, std::string> holding_;
+
+    /* Which channels a swap has disturbed, so a rewind knows what no
+       longer says what the file says.
+     *
+       Which, and not merely whether. Re-applying every declaration was
+       simpler to write and is not the same answer: applyInstrument goes
+       through the host's patch loader, which drops the channel and
+       re-parses the .dsp, so a rewind of a four-instrument piece with
+       one gen::swap in it threw away hand-tuned values and disarmed
+       probes on three channels nothing had touched -- and did it only
+       once a swap had happened to fire, so Rewind behaved differently
+       depending on how far the piece had got.
+
+       A channel goes in as the swap begins rather than when it
+       succeeds, because the graph goes up before the values are
+       checked: a refusal partway leaves the channel changed, and that
+       is exactly when a rewind has the most to put back. */
+    std::set<int> swapped_;
+
+    /* Each grown channel's graphs, the declared one's text first and the
+       one on the channel last, with the holds that keep the grown ones
+       loadable. A shrink goes back one; a swap, a rewind or another piece
+       forgets the lot. */
+    struct Growth
+    {
+        std::vector<std::string> texts;
+        std::vector<std::shared_ptr<void> > holds;
+
+        /* Beside each text: the edit that made it, in words, and how far
+           it was heard from a target, or NaN. */
+        std::vector<std::string> whats;
+        std::vector<double> levels;
+
+        std::vector<GrowthStep> log;
+
+        /* The next step's edits while the ear hears them against a
+           target: their tickets, -1 once answered, and their distances,
+           with the graph on the channel heard last. */
+        std::vector<std::string> options;
+        std::vector<std::string> optionWhats;
+        std::vector<std::string> tuned;     /* what the ear tuned each to */
+        std::vector<int> tickets;
+        std::vector<double> distances;
+
+        /* The GrowRequest ticket this channel waits on, or 0, and the
+           target and tuning its answer is to be heard with. */
+        unsigned int asked = 0;
+        std::string askTarget;
+        int askTune = 0;
+
+        /* Composer steps that came while an answer was awaited, to be
+           taken in order once it is in. */
+        struct Queued
+        {
+            bool shrink = false;
+            unsigned int choice = 0;
+            std::string kinds, target;
+            int listen = 0, tune = 0, depth = 0;
+
+            /* Or a node-arg edit, for the graph the step makes: taken on
+               it, as a host that grew at once took it. */
+            bool nodeArg = false;
+            std::string node, arg;
+            float value = 0;
+
+            /* Or a generation of the flock. */
+            bool graft = false;
+            GraftAsk ask;
+
+            /* Or a host's: growBackTo's `back', or putGraph's. */
+            int back = -1;
+            bool put = false, strict = false;
+            std::string graph, over;
+            PutDone done;
+        };
+
+        std::deque<Queued> queued;
+
+        /* The flock a grafting stage breeds, as NodeBreed saves it. */
+        std::string flock;
+    };
+
+    std::map<int, Growth> grown_;
+    Grower grower_;
+    Grafter grafter_;
+    GraftRequest graftRequest_;
+
+    /* A generation's champion on `channel', its flock now `flock'. */
+    bool placeChampion (int channel, Growth &g, const std::string &flock,
+                        const std::string &champion, size_t depth,
+                        std::string &why);
+    GrowRequest growRequest_;
+    unsigned int growTicket_ = 0;
+    thcAuditioner::Tuner tuner_;
+
+    /* growInstrument and tryGraph: one step up the channel's stack, to
+       `given' or to what the grower makes, or one back. */
+    bool stepGraph (int channel, bool shrink, const std::string *given,
+                    unsigned int choice, const std::string &kinds,
+                    const std::string &target, int listen, int tune,
+                    int depth, std::string &why);
+
+    /* `candidate' queued against `target' as hear() resolves it: an
+       instrument of the piece, or a sound file. */
+    int hearAgainst (const thcAuditioner::Instrument &candidate,
+                     const char *target, int tune = 0,
+                     const std::string &from = std::string());
+
+    /* The channel's stack, started from what it plays if it has none;
+       NULL with `why' for a channel nothing can grow on. */
+    Growth *growthOf (int channel, std::string &why);
+
+    /* `options' a grower made, onto the channel: the first, or with a
+       target the nearest as heard, now or once the answers are in. */
+    bool chooseAmong (int channel, Growth &g,
+                      const std::vector<std::string> &options,
+                      const std::vector<std::string> &whats,
+                      const std::string &target, int tune, std::string &why);
+
+    /* The nearest of `g''s heard edits, onto the channel. */
+    bool takeHeard (int channel, Growth &g, std::string &why);
+
+    /* The stack's one change: back to the level `backTo', or with
+       std::string::npos, `grown' pushed on top, made by `what'. Logged
+       as `step'. */
+    bool placeStep (int channel, size_t backTo, const std::string &grown,
+                    const std::string &what, GrowthStep step,
+                    std::string &why);
+
+    unsigned int growthSerial_ = 0;
+
+    /* Each of `options', a graph in `inst''s place, queued against
+       `target', the first `tuned' to be tuned for `tune' generations as
+       grown from `from': a ticket each, -1 for one that cannot be heard. */
+    std::vector<int> hearAll (const thcInstrument &inst,
+                              const std::vector<std::string> &options,
+                              const std::string &target, size_t tuned,
+                              int tune, const std::string &from);
+
+    /* `g''s answers that are in; true once all are. */
+    bool collect (Growth &g);
+
+    /* The hearing or the asking, and the steps queued behind it, given
+       up; or only the hearing, once its answer has been taken. */
+    void forgetHearing (Growth &g);
+    void doneHearing (Growth &g);
+
+    /* `channel''s queued steps, from the front, until one waits again. */
+    void runQueued (int channel);
+
+    /* A channel's growth, or every channel's for -1, tickets and all. */
+    void forgetGrowth (int channel);
+    void takeHeardGrowth (void);
+
+    /* `put' onto its channel and its values on it, or neither: what a swap
+       and a growth step both end in. */
+    bool putOn (const thcInstrument &put, std::string &why);
+
+    void forgetNodeArgs (int channel);
+
+    /* The control-rate synth every node host in this piece borrows: a
+       sample rate and a plugin manager, and nothing else. NULL until a
+       chain asks for nodes, so a piece without any pays nothing.
+       Destroyed after the chains that borrow it. */
+    thSynth *controlSynth_;
+
+    /* The ear behind every stage's thcAudition, made on the first stage
+       and shared: one private synth, one worker. NULL in a build with
+       no thread to render on, and then no stage is offered one. */
+    thcAuditioner *auditioner_;
+
+    /* The piece's instruments, and the host's way of loading one. A
+       vector rather than a map: declaration order is what the loader
+       allocates channels in, and what the editor draws. */
+    std::vector<thcInstrument> instruments_;
+
+    /* The piece's master effect. `effect' empty means it has none, which
+       is also what takes a previous piece's off. */
+    thcInstrument master_;
+    InstrumentLoader           loadDsp_;
+    InstrumentUnloader         unloadDsp_;
+    EffectLoader               loadEffect_;
+    ChannelTaken               taken_;
+
+    thcMidiOut                *midiOut_ = NULL;
+    bool                       overMidi_[16] = {};
+    std::string                midiWhy_[16];
+
+    /* A MIDI channel's chanargs during a seek: the last of each, sent
+       when the seek is over. */
+    std::map<std::pair<int, std::string>, double> seekControls_;
+
+    /* MIDI clock: the next tick to send, counted in 24ths of a beat from
+       the top, and the ticks between the beat a step started at and the
+       one it reached. */
+    double clockTick_ = 0;
+    bool   clocking (void) const;
+    void   clockTicks (void);
+    bool takeGraphOff (const thcInstrument &inst);
+
+    /* The wall-clock moment transportNow_ is, for stamping what goes to
+       midiOut_: set by tick before it steps. */
+    int64_t stampAt (double at) const;
+    int64_t                     stepMono_ = 0;
+    std::function<int64_t (double)> midiAt_;
+    std::function<int64_t (void)>   midiNow_;
+
+    /* Instruments whose channel would not go. Deliberately NOT cleared
+       by clearChains: they do not belong to the piece any more -- the
+       piece is gone and they are still sounding, which is precisely why
+       the record has to outlive it. The whole instrument rather than the
+       channel number, because retrying means calling the host's unloader
+       again and that takes one. */
+    std::vector<thcInstrument> stranded_;
+
+    /* transport */
+    bool     running_;
+    double   transportNow_;    /* integrated musical seconds             */
+    double   beat_;            /* beats at transportNow_                 */
+    double   meter_ = 4;       /* beats to the bar                       */
+
+    /* Where the tempo last changed, in seconds and in beats: beat_ is
+       worked out from there rather than added up a step at a time, so it
+       is the same number at the same time whatever the steps were -- a
+       stage an edit creates starts from it. */
+    double   tempoAt_;
+    double   beatAtTempo_;
+    double   tempo_;
+    int64_t   lastMono_;        /* thcMonotonicUs at last tick            */
+    unsigned masterSeed_;      /* stage seeds derive from this           */
+
+    /* seq is push order, Later's tie-break; see there. */
+    struct Wakeup  { double at; size_t chain, stage; unsigned long seq; };
+    /* `from' is when the note it ends was struck; see dropNoteOffs.
+       `chain', a held note's, is the chain that delivered it, or -1. */
+    struct NoteOff { double at; int channel, note; unsigned long seq;
+                     double from; int chain = -1; };
+
+    /* A queued event. The chanarg name a composer emitted is a pointer
+       into memory it owns and may rewrite on its next tick, so the copy
+       happens here, at the sink -- exactly what thcEventSink's contract
+       promises. shared_ptr for stable c_str storage across the heap's
+       copies, not for sharing. */
+    struct Pending
+    {
+        double   at;
+        thcEvent ev;
+        std::shared_ptr<std::string> chanargName;
+
+        /* The same copy-what-you-keep promise for a structure edit's
+           strings: an instrument's name, or a node's and its arg's. */
+        std::shared_ptr<std::string> text, text2;
+
+        /* Emission order, and the tie-break that makes two events at the
+           same instant come out the way they went in. See LaterPending. */
+        unsigned long seq;
+
+        int      chain;          /* which made it, or -1                */
+
+        thArg   *knob = NULL;    /* a knob sink's: set this, not a chanarg */
+    };
+
+    /* min-heaps kept as vectors with std::push_heap/pop_heap --
+     * priority_queue hides its container, and pending_ has to be
+     * iterable for peekPending.
+     *
+     * Ordered by time and then by push order. Which of two equal keys a
+     * heap gives up first is the standard library's to choose, and
+     * libstdc++ and libc++ choose differently: two stages due at the same
+     * instant woke in one order under one and the other order under the
+     * other, and a piece whose stages meet on a channel -- colony's
+     * reshape and the notes it reshapes -- composed a different piece
+     * from the same seed depending on which library it was built with.
+     * The wasm build, which is libc++, is how that came to light. */
+    struct Later
+    {
+        template <typename T>
+        bool operator() (const T &a, const T &b) const
+        {
+            return a.at != b.at ? a.at > b.at : a.seq > b.seq;
+        }
+    };
+
+    /* pending_ orders by time and then by emission.
+     *
+     * A heap does not preserve insertion order among equal keys, and a
+     * transformer that releases one chord and presses another emits the
+     * offs and the ons at the *same* instant -- that is what re-pressing
+     * a held root means. Popped in heap order, an on could be delivered
+     * before the off that was emitted ahead of it, and deliver() then
+     * ran addNote followed by delNote on the same pitch: the voice was
+     * created and immediately killed, and held_ kept an entry for a note
+     * nothing was playing. The sequence number costs a comparison and
+     * makes delivery order equal to emission order, which is what every
+     * plugin already assumes and what a replay needs anyway. */
+    struct LaterPending
+    {
+        bool operator() (const Pending &a, const Pending &b) const
+        {
+            return a.at != b.at ? a.at > b.at : a.seq > b.seq;
+        }
+    };
+
+    std::vector<Wakeup>  wakeups_;
+    std::vector<Pending> pending_;
+    unsigned long        pendingSeq_;   /* hands out Pending::seq       */
+    unsigned long        heapSeq_;      /* and Wakeup's and NoteOff's   */
+    std::vector<NoteOff> noteOffs_;
+
+    /* Notes delivered with duration <= 0: held until a THC_EV_NOTEOFF
+       releases them, or until stop()/clearChains flushes them -- a
+       pause must not hang a key any more than it hangs a note. */
+    std::vector<NoteOff> held_;      /* .at, .seq and .from unused       */
+
+    /* True while an injectMidi* call is propagating on a stopped
+       transport; what falls out of the chains is delivered immediately
+       rather than parked in pending_ behind a frozen clock: an arpeggio
+       on a stopped transport should still sound. */
+    bool injectingLive_;
+
+    mutable std::vector<thcEvent> peekCache_;
+    mutable std::vector<int>      peekChains_;
+
+    int deliveringChain_;
+
+    bool seeking_ = false;     /* seek() is playing ahead, silently      */
+
+    /* A seek in pieces (seekBegin): whether it was playing, where it is
+       going, and whether the ear was synchronous before it. */
+    bool   seekWas_ = false;
+    double seekTo_ = 0;
+    bool   seekWasSync_ = false;
+
+    /* seekSection() is replaying to a section the person chose: the cue
+       knob is followed but cues nothing, or a cue it makes on the way
+       would take back the ones that let go of the holds before it. */
+    bool cuesPinned_ = false;
+    bool catchingUp_ = false;  /* catchUp(): what is due before now goes */
+
+    /* catchUp's replays still under way (setReplayDeferred): each one's
+       chain, the wakes it has still to run, whether its nodes are a
+       kept history, and what it has composed so far, held until it has
+       caught up and then queued as one replay done in a single call
+       queues it. A chain recomposed plays what it had queued until then
+       (composeAgain), and that goes when the replay lands: the sounds it
+       queued before `oldBefore'. */
+    struct Replay
+    {
+        size_t chain;
+        std::vector<Wakeup> due;
+        bool kept;
+        std::vector<Pending> heard;
+        bool dropOld = false;
+        unsigned long oldBefore = 0;
+
+        /* As it all stood when it began: the transport, and whether the
+           chain was heard. And whether its stores and nodes are held. */
+        double now0, beat0, tempo0;
+        bool audible;
+        bool held = false;
+
+        /* A stage it cannot play again (unwritten): the chain starts from
+           where it lands instead, as made. */
+        bool bailed = false;
+
+        double landAt = -1;  /* setReplayLandAt's, or the host lands it */
+    };
+
+    std::vector<Replay> replays_;
+    Replay  *replay_ = NULL;    /* the one whose ticks are running */
+    bool     replayDeferred_ = false;
+    double   replayLandAt_ = -1;
+    /* recompose()'d under it: when, and where it was to land. */
+    std::map<size_t, std::pair<double, double>> landMarked_;
+    bool auditionSync_ = false;  /* setAuditionSynchronous's last word   */
+
+    /* recompose()'s chains, each with whether only values passing by
+       asked for it. */
+    std::map<size_t, bool> recompose_;
+    double passedAt_ = -1e9;  /* transport seconds of the last passing one */
+
+#ifdef __EMSCRIPTEN__
+    bool localEar_ = false;
+#else
+    bool localEar_ = true;
+#endif
+
+    /* The host's ear, and its answers by ticket, `in' once answered. */
+    struct EarAnswer
+    {
+        bool in = false;
+        bool ok = false;
+        double distance = 0;
+        std::string tuned;
+    };
+
+    EarRequest earRequest_;
+    std::map<int, EarAnswer> earAnswers_;
+    int earTicket_ = 0;
+
+    /* The names graphs have gone to the ear by, and those whose text has
+       gone with them already. */
+    std::map<std::string, std::string> earIds_;
+    std::set<std::string> earSent_;
+    std::string earGraph (const std::string &name, std::string &texts);
+
+    bool hasEar (void) const { return auditioner_ != NULL || earRequest_; }
+
+    /* thcAuditioner's three, to the auditioner here or the host's ear. */
+    int earHear (const thcAuditioner::Instrument &candidate,
+                 const std::string &targetKey,
+                 const thcAuditioner::Instrument *targetInstrument,
+                 const std::string &targetFile, int tune,
+                 const std::string &from);
+    int earHeard (int ticket, double *distance, std::string *tuned);
+    void earForget (int ticket);
+
+    /* While a knob sink's value is being set: its time, which is when a
+       sleeper it wakes is woken. The step's end would make that wake a
+       function of the step size. -1 otherwise. */
+    double knobWriteAt_ = -1;
+
+    /* Set by propagate() for the one call that carries an event past a
+       stage with no receive, so that stage is not lit as its source. */
+    bool passingThrough_;
+};
+
+#endif /* THCSCHEDULER_H */

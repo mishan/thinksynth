@@ -1,0 +1,1564 @@
+# Three-platform CI. See docs/PORTING.md.
+#
+# Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm, which has
+# no MSVC build, and reinforced by the eleven files in the tree that use
+# variable-length arrays.
+#
+# STATUS: all nine jobs are real gates and must stay green. Four of the nine
+# are the wasm gates, which share the one build job below them and run at
+# once on what it makes. What CI does not cover is that hosted runners have
+# no audio device, so the backends are only compiled and linked here, never
+# opened. All three platforms have been run and heard on real hardware; none
+# of that happened here.
+#
+# RtAudio and RtMidi are NOT installed from the system package manager on any
+# platform here. Ubuntu 24.04 does not carry librtaudio-dev, 22.04 carries
+# RtAudio 5.2 (the wrong API), and the Homebrew and MSYS2 spellings are
+# different again -- guessing at all three is what broke this workflow in the
+# first place. CMake fetches and statically links known-good 6.x instead, the
+# same way on every runner. Roughly half a minute per job, and deterministic.
+#
+# The gates are the headless harnesses, which need neither an audio device nor
+# (except on Linux, where the Gtk::Application is constructed before getopt) a
+# display.
+
+name: ci
+
+# Nothing here writes anything back: the jobs check out, build, test, and
+# upload artefacts, and upload-artifact does not go through GITHUB_TOKEN.
+# Declared at the workflow level so a job added later starts read-only and
+# has to ask, rather than inheriting whatever the repository default is.
+# release.yml needs contents: write and says so on its own, and so does
+# `pages' for what it needs.
+permissions:
+  contents: read
+
+on:
+  # Only master on push. `pull_request' already covers every topic branch,
+  # and listing them under `push' too is what made each job appear twice --
+  # once as (push) and once as (pull_request) -- since every branch in the
+  # porting stack has a PR open against the one below it.
+  push:
+    branches:
+      - master
+  # Only a PR into master: one stacked on another runs once the one under
+  # it merges and GitHub moves it onto master, rather than every PR of a
+  # stack running the whole workflow on each rebase.
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+# A second push supersedes the first; no point finishing a run nobody will
+# look at.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# No UNBUILT_PLUGINS here any more: which DSPs are eligible is decided by
+# cmake/RunHarness.cmake, which reads each file rather than matching names.
+
+jobs:
+  # What a change needs built. Anything but the docs -- the Markdown, the
+  # docs' pictures, TODO, AUTHORS and COPYING -- is code, and a change with
+  # none builds and tests nothing; anything outside wasm/ as well is the
+  # desktop's, and a change to the browser page alone skips the jobs that
+  # only build and test the desktop. Skipped, which a required check counts
+  # as passed. Three Markdown files are code all the same, because a build
+  # or a gate reads them: docs/NODES.md (dspnodes), gen/README.md (gencheck,
+  # gencatalogcheck) and docs/SDK.md (the SDK's package). A PR is held
+  # against its base and a push against the commit it moved the branch
+  # from; with neither -- a dispatch, a new branch -- everything builds.
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+      desktop: ${{ steps.diff.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            printf 'code=true\ndesktop=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files=$(git diff --name-only "$BASE" HEAD)
+          docs='\.md$|^docs/screenshots/|^(TODO|AUTHORS|COPYING)$'
+          gated='^(docs/NODES\.md|gen/README\.md|docs/SDK\.md)$'
+          built=$({ grep -vE "$docs" <<< "$files"; grep -E "$gated" <<< "$files"; } || true)
+          code=$(grep -q . <<< "$built" && echo true || echo false)
+          desktop=$(grep -qvE '^wasm/|^$' <<< "$built" && echo true || echo false)
+          printf 'code=%s\ndesktop=%s\n' "$code" "$desktop" >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: linux (gcc)
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    # Pinned, not ubuntu-latest: instrcount's baseline and corpushash.txt
+    # are this image's compiler and glibc, so a move to a new Ubuntu is a
+    # commit that records the new image's numbers rather than a gate that
+    # fails every PR.
+    runs-on: ubuntu-24.04
+
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Saved from master only: PRs restore master's cache, and a cache per PR
+      # run would evict it from the repository's 10 GB long before it helped.
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
+
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            libx11-dev libxcursor-dev libxext-dev libxrandr-dev \
+            libxtst-dev libdbus-1-dev \
+            valgrind xvfb
+
+      # localecheck wants a locale whose decimal separator is a comma, and
+      # the runner image has none; without one it skips. Checked here, so a
+      # locale that fails to generate is a failed step and not a quiet skip.
+      - name: A comma-decimal locale
+        timeout-minutes: 10
+        run: |
+          sudo apt-get install -y --no-install-recommends locales
+          sudo locale-gen de_DE.UTF-8
+          locale -a | grep -qix 'de_DE.utf8'
+
+      # Before Configure: scripts/CMakeLists.txt adds the mcp test, which
+      # drives mcp/server.mjs through its npm SDK, only where mcp/node_modules
+      # is there.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: npm ci (mcp)
+        working-directory: mcp
+        run: npm ci
+
+      # The audio plugins too (plugin/), and with them plugincheck and the
+      # two format validators; see docs/PLUGIN.md. Here and not on every
+      # job: the validators are Linux builds. Not every graph -- all 65 is
+      # half an hour of CPU -- but seven, each for a reason: juno, with the
+      # editor's tests; linn and cloud, which carry their samples; kit_hat,
+      # a drum; ebass and waveguide, whose tails run down into the
+      # subnormals the validators refuse; and the fixture outside dsp/,
+      # named by a path, with a sample in a folder and one in capitals.
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON \
+            "-DTHINK_PLUGIN_DSPS=juno;linn;cloud;kit_hat;ebass;waveguide;plugin/testdata/nested.dsp"
+
+      - name: Build
+        run: cmake --build build
+
+      # The Gtk::Application is created before getopt runs, so even -h needs a
+      # display. xvfb is the whole reason this is not a plain invocation. It
+      # was Gtk::Main before the gtkmm-4 port; the constraint is the same one.
+      - name: Smoke test
+        run: xvfb-run -a ./build/src/thinksynth -h
+
+      # Under xvfb because one gate -- editorcheck -- builds real widgets: a
+      # probe is a panel, a tap and a module instance at once, and NodeEditor
+      # is the only place the three meet. Everything else here is headless and
+      # does not care. editorcheck skips itself rather than failing where there
+      # is no display, so this is what makes it actually run.
+      #
+      # -j: the gates are independent processes and the runner has four
+      # cores. The two that build widgets are RUN_SERIAL in
+      # scripts/CMakeLists.txt, so they still run with the machine to
+      # themselves.
+      #
+      # instrcount holds a few instruments' instruction counts to
+      # scripts/instrcount.json. Counted under Valgrind rather than timed,
+      # because a runner's times move by several percent between runs and a
+      # count does not move at all, and rather than with perf, because these
+      # runners expose no hardware counters. Strict here: a toolchain the
+      # file has no counts for is a failure rather than the skip it is on a
+      # desktop, so a new compiler on the image cannot turn the gate off
+      # without anybody noticing. About ten seconds, beside the others.
+      # dsphash.reference is strict here for the same reason: it holds the
+      # corpus's sound bit for bit to scripts/corpushash.txt, which is this
+      # image's toolchain's, and skips on any other.
+      - name: Test
+        env:
+          THINK_INSTRCOUNT_STRICT: 1
+          THINK_CORPUSHASH_STRICT: 1
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
+
+      # ctest shows a passing test's output to nobody, and the margin under
+      # instrcount's limits is the number worth seeing on every run.
+      - name: Instruction counts
+        if: ${{ !cancelled() }}
+        run: '[ ! -f build/instrcount.txt ] || cat build/instrcount.txt'
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-linux-x86_64
+          path: |
+            build/package/*.tar.gz
+            build/package/*.zip
+            build/package/*.dmg
+          if-no-files-found: error
+
+  # libthink, the plugins and the composer host with THINK_GUI off, on an
+  # image that has nothing but what that build asks for. A glib, GTK or cairo
+  # include or link that creeps into the headless half fails here, because
+  # there is none to find.
+  headless:
+    name: linux without the GUI
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+
+    steps:
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build flex pkg-config \
+            libsigc++-3.0-dev
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DTHINK_GUI=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
+
+  # The GTK runtime data checks, beside the linux job rather than at the end
+  # of it: each reconfigures with THINK_BUNDLE_GTK and rebuilds, which was
+  # five of that job's eleven minutes, and none of it needs the linux job's
+  # tree or its tests.
+  gtk-data:
+    name: linux GTK runtime data
+    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: gtk-data
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
+
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb
+
+      # The bundled GTK data -- schemas, pixbuf loaders, icon themes -- exists
+      # for macOS and Windows, which are precisely the two platforms where it
+      # cannot be tested: CI has no machine without GTK on it, so a package
+      # that only works where it was built looks exactly like a good one.
+      #
+      # THINK_BUNDLE_GTK is therefore settable on Linux, where the mechanism
+      # is identical (Ubuntu's gdk-pixbuf is built -Drelocatable=false, the
+      # same as Homebrew's, so it takes the same substitution path as macOS),
+      # and this runs it with the system's own GTK data hidden.
+      - name: GTK runtime data
+        run: |
+          set -e
+          # THINK_PKG_DEPS as well, which on Linux is not what a package
+          # should be -- it drags the distribution's GTK in with it. It is on
+          # here because the dependency closure is otherwise code that only
+          # runs where nobody can watch it, and the thing it most recently got
+          # wrong was invisible on Linux for exactly that reason.
+          cmake -S . -B build -G Ninja \
+                -DTHINK_BUNDLE_GTK=ON -DTHINK_PKG_DEPS=ON \
+                -DCMAKE_INSTALL_PREFIX="$PWD/stage"
+          cmake --build build
+          cmake --install build
+
+          # librsvg is reachable only through a pixbuf loader, which is
+          # dlopen'd and so is in no target's link graph. It went missing from
+          # the macOS .app for precisely that reason, and the bundle looked
+          # complete without it.
+          ls stage/lib/librsvg* >/dev/null 2>&1 || {
+            echo "librsvg is not in the package: the loader closure is not"
+            echo "reaching modules again."
+            exit 1
+          }
+
+          # The negative control comes first and on purpose. A check that
+          # cannot fail is worse than no check, and the last two of these
+          # could not: GTK carries fallback icons in its own gresource, and
+          # gdk-pixbuf finds the system loader cache by a compiled-in path.
+          # So: hide the bundle, and -G must fail.
+          mv stage/share/thinksynth/share /tmp/hidden
+          if xvfb-run -a env XDG_DATA_DIRS=/nonexistent ./stage/bin/thinksynth -G
+          then
+            echo "-G passed with no bundled data and the system's hidden."
+            echo "It is not testing what it claims to test."
+            exit 1
+          fi
+          mv /tmp/hidden stage/share/thinksynth/share
+
+          # And the real one, from a directory the package was not built for,
+          # because relocating is the entire point: an .app gets dragged and a
+          # .zip gets unpacked wherever the user likes.
+          mv stage /tmp/relocated
+          xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/relocated/bin/thinksynth -G
+
+      # The Homebrew shape, which is not the Linux or MSYS2 shape and is what
+      # broke macOS: a keg holding schema XML but no compiled blob, with the
+      # icons and the pixbuf loaders belonging to other formulae. Faked here
+      # by pointing THINK_GTK_DATA_ROOTS at a directory built to look like
+      # one, so the compile-the-XML-ourselves path has run somewhere before a
+      # Mac runs it.
+      - name: GTK runtime data (unlinked-keg layout)
+        run: |
+          set -e
+          keg="$PWD/keg"
+          mkdir -p "$keg/share/glib-2.0/schemas" "$keg/share/icons" \
+                   "$keg/lib/gdk-pixbuf-2.0/2.10.0"
+          cp /usr/share/glib-2.0/schemas/*.xml "$keg/share/glib-2.0/schemas/"
+          cp -r /usr/share/icons/Adwaita "$keg/share/icons/"
+          cp /usr/lib/*/gdk-pixbuf-2.0/2.10.0/loaders.cache \
+             "$keg/lib/gdk-pixbuf-2.0/2.10.0/"
+          # The MIME database too: without it gdk-pixbuf cannot identify an
+          # SVG, and the keg would fail the SVG check for a reason that is
+          # about this fixture rather than about the code under test.
+          cp -r /usr/share/mime "$keg/share/"
+          test ! -e "$keg/share/glib-2.0/schemas/gschemas.compiled"
+
+          cmake -S . -B build -DTHINK_BUNDLE_GTK=ON \
+                              -DTHINK_GTK_DATA_ROOTS="$keg" \
+                              -DCMAKE_INSTALL_PREFIX="$PWD/kegstage"
+          cmake --build build
+          cmake --install build
+
+          # The schema whose absence aborts the process, in the blob we built.
+          # org.gtk.gtk4.*: GTK4 namespaces its schemas, and grepping for the
+          # GTK3 name finds GTK3 on a machine that has both.
+          strings kegstage/share/thinksynth/share/glib-2.0/schemas/gschemas.compiled \
+            | grep -q org.gtk.gtk4.Settings.FileChooser
+
+          mv kegstage /tmp/kegrelocated
+          xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/kegrelocated/bin/thinksynth -G
+
+  # The heavier jobs wait for the gcc build, so a push that breaks it
+  # holds a few runners rather than a dozen while other PRs queue. Two are
+  # exceptions, each a runner more on a broken push. The wasm build builds
+  # no faster than the gcc build does, and waiting for it put five minutes
+  # on every PR; the gates after it wait for both, so it is one runner and
+  # not six. And this one, the longest job there is: waiting made it the
+  # last to finish by five minutes.
+  asan:
+    name: linux asan + ubsan
+    timeout-minutes: 40
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: asan
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
+
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb
+
+      # See the linux job.
+      - name: A comma-decimal locale
+        timeout-minutes: 10
+        run: |
+          sudo apt-get install -y --no-install-recommends locales
+          sudo locale-gen de_DE.UTF-8
+          locale -a | grep -qix 'de_DE.utf8'
+
+      # THINK_SANITIZE applies the flags globally rather than per-target, so
+      # they reach libthink and all 62 plugins. An earlier round of
+      # measurements was worthless because they reached only the harness.
+      #
+      # Debug for the asserts, at -O1 rather than Debug's -O0: gencheck took
+      # 474 s at -O0 and 180 s at -O1 under the same sanitizers, and at -O0
+      # it was closing on its 900 s TIMEOUT. -O1 is what the ASan docs
+      # recommend; it keeps stack traces usable with the frame pointers
+      # THINK_SANITIZE already asks for.
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            "-DCMAKE_C_FLAGS_DEBUG=-O1 -g" \
+            "-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g" \
+            -DTHINK_SANITIZE=address,undefined
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        # Same reason as the linux job, and worth more here: editorcheck
+        # deliberately destroys the editor at the end, so the teardown order --
+        # stop the tick, close the instances, then unload the modules -- is
+        # exercised under ASan and nowhere else.
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
+
+  # The WebAssembly build, held against the native one. wasm/compare.mjs
+  # renders every seeded piece with scripts/genwav and with wasm/genwav.mjs:
+  # the tapes, the summaries and the exit statuses must be identical, and the
+  # audio may differ by one step in a sample -- libm is glibc's on one side
+  # and musl's on the other, and they disagree in the last bit now and then.
+  #
+  # What this catches is a piece that depends on which C++ library built it:
+  # a heap that breaks ties its own way, a distribution each library
+  # implements differently. Such a piece composes differently under libc++,
+  # which is macOS as well as wasm, and this is the one job that has both
+  # libraries in front of it at once.
+  #
+  # This was one job and is now six: a build, and five sets of gates that
+  # run at once on what it made. It was the slowest thing in this workflow
+  # by a factor of two, and compiling was a fifth of it -- the rest was
+  # fifteen independent test scripts run back to back on a four-core runner
+  # that spent most of the time idle. The gates need three trees between
+  # them and none of them writes one, so building once and handing the
+  # trees on is the whole of it.
+  wasm-build:
+    name: wasm (emscripten) build
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    # Pinned, with wasm-compare: the native tree built here is what the wasm
+    # module is held to, sample for sample, and GCC 15 on 26.04 renders 11
+    # pieces differently from the GCC 13 the comparison was settled on.
+    runs-on: ubuntu-24.04
+
+    env:
+      # Pinned: the comparison is only as repeatable as the compiler on the
+      # wasm side.
+      EMSDK_VERSION: 6.0.9
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: wasm-native
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
+
+      # The whole top-level configure runs for the native half, and it wants
+      # gtkmm, even though only the harness and the plugins are built. gtkmm
+      # brings cairo's headers too, which the wasm build compiles the drawing
+      # composers against.
+      #
+      # No pulseaudio here: the live-context tests are in the jam job, and
+      # this one opens nothing.
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev
+
+      # The module runs the same on 20, 22 and 24; pinned so that a change of
+      # runner image is not what moves the result.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Before the native build, not after it, which is not where it used to
+      # be. rollcheck -- the desktop half of the piano roll gate -- links
+      # cairo-canvas2d instead of cairo, so that what comes out of a draw is
+      # the list of ops the browser produces rather than pixels nothing can
+      # compare; that package comes from npm, and scripts/CMakeLists.txt
+      # skips the harness with a message where it is not there. Configured
+      # without it, this tree would build everything else and quietly not
+      # have the one binary a gate below needs.
+      #
+      # It is also what the browser build refuses to configure without, and
+      # what drawcheck.mjs's replayer is, so it was always going to be run
+      # in this job.
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
+      # genwav is the tape every piece gate is compared against; dspedit is
+      # the edit every node-editor gate is compared against; panelcheck is
+      # the parameter panel every row of the module's is compared against;
+      # patchcheck is the .patch every document the module writes is
+      # compared against; dspcatalog and gencheck are the two lists a
+      # chooser is drawn from, which the module reads out of its own copy of
+      # the same files; rollcheck is the piano roll's own drawing, op for
+      # op. All seven are what the browser build has to agree with.
+      #
+      # Named here as well as in the upload below, and that is the whole of
+      # the coupling: upload-artifact skips a path that is not there with a
+      # warning nobody reads, so a binary left out of this line arrives as a
+      # missing file in every gate job at once -- which is what
+      # wasm-trees's chmod is loud about.
+      #
+      # ccache on this half only; the emscripten builds below are not wrapped.
+      - name: Native build
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build \
+                --target genwav dspedit panelcheck patchcheck \
+                         dspcatalog gencheck rollcheck plugins
+
+      # Most of a gigabyte, so cached on the version.
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}
+
+      - name: Install emsdk
+        run: |
+          [ -d ~/emsdk ] || git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install "$EMSDK_VERSION"
+          ~/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: wasm build
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          emcmake cmake -S wasm -B build-wasm -G Ninja
+          cmake --build build-wasm
+
+      # The browser build: every plugin and every composer linked in rather
+      # than loaded, with the composer scheduler, for an AudioWorklet --
+      # and the room page, bundled.
+      - name: Browser build
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          emcmake cmake -S wasm/web -B build-web -G Ninja
+          cmake --build build-web
+
+      # And the packaged site, which is the thing a person actually loads.
+      # `dist' is an install of the tree above, and an install rule is a
+      # second, hand-kept list of what the site is made of -- dsp/samples
+      # fell through the gap between that list and dsp/index.json, and the
+      # page answered by playing its synthesized instruments and none of
+      # its sampled ones. distcheck.mjs holds the packaged tree against
+      # what its own indexes and pages ask for.
+      #
+      # Here rather than in a gate job below: `--install' needs the build
+      # tree's CMake state, and the artifact carries the site's files and
+      # not that.
+      - name: The packaged site has what it promises
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          cmake --build build-web --target dist
+          node wasm/web/distcheck.mjs
+
+      # The SDK (docs/SDK.md), packaged from the site above, for sdkcheck
+      # in the browser jobs.
+      - name: The SDK's package
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          cmake --build build-web --target sdk
+
+      # The site distcheck just passed, for `pages' below. Only from master:
+      # a pull request's build is not what the demo should be. The room
+      # page joins the relay the JAM_RELAY repository variable names
+      # (wss://..., docker/), or none.
+      - name: The demo's relay
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && vars.JAM_RELAY != ''
+        env:
+          JAM_RELAY: ${{ vars.JAM_RELAY }}
+        run: |
+          jq -n --arg relay "$JAM_RELAY" '{ relay: $relay }' > build-web/dist/config.json
+
+      # The sample packs, from the release scripts/packs.py names (made by
+      # the `sample packs' workflow, packs.yml), into the site's packs/,
+      # which the page downloads from when asked. Before that release is
+      # published the site keeps the empty index the build wrote.
+      - name: The sample packs
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        run: python3 scripts/packs.py fetch build-web/dist/packs --missing-ok
+
+      - name: The packaged site, for GitHub Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build-web/dist
+
+      # What the gates need and nothing else. The three build trees together
+      # are more than a gigabyte, almost all of it object files and CMake's
+      # own state; the binaries, the modules, the loadable plugins and the
+      # site come to about thirty megabytes packed. The .so files are named
+      # one directory down because `plugins/' itself is mostly the objects
+      # they were linked from.
+      #
+      # libthink.so.8 goes with the two binaries: they are linked against it
+      # and find it by a RUNPATH holding this build tree's absolute path.
+      # That path is the same on every runner in this workflow, so it
+      # resolves in the gate jobs -- but only if the library is there, and
+      # without it genwav and dspedit exit 127 before they do anything. It
+      # is a symlink to libthink.so.8.0, and upload-artifact follows it, so
+      # what arrives is a real file under the name the loader asks for.
+      - name: The built trees, for the gates
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-trees
+          retention-days: 1
+          path: |
+            build/scripts/genwav
+            build/scripts/dspedit
+            build/scripts/panelcheck
+            build/scripts/patchcheck
+            build/scripts/dspcatalog
+            build/scripts/gencheck
+            build/scripts/rollcheck
+            build/libthink/libthink.so.8
+            build/plugins/*/*.so
+            build-wasm/thinksynth.mjs
+            build-wasm/thinksynth.wasm
+            build-wasm/plugins/*/*.so
+            build-web/*.js
+            build-web/*.map
+            build-web/*.html
+            build-web/*.css
+            build-web/*.json
+            build-web/*.wasm
+            build-web/dsp
+            build-web/gen
+            build-web/patches
+            build-web/icons
+            build-web/packs
+            build-web/sdk
+            build-web/cairo2d/cairo2dtest.js
+            build-web/cairo2d/cairo2dtest.wasm
+
+  # Native genwav against wasm genwav, which is what this job set is named
+  # for. It is the one gate that needs the native plugins.
+  wasm-compare:
+    name: wasm (emscripten) against native
+    timeout-minutes: 20
+    # wasm-build's image, whose libraries its native tree was linked against.
+    runs-on: ubuntu-24.04
+    needs: [wasm-build, linux]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
+        with:
+          native: 'true'
+
+      - name: Compare
+        run: node wasm/compare.mjs --lsb 1 -k compare
+
+      # The piece that goes wrong on purpose, through both hosts. The shipped
+      # pieces under gen/ all render cleanly, so nothing above exercises the
+      # non-finite count or the exit 4 that goes with it -- and compare.mjs
+      # holds the summary lines and the exit statuses identical, which is
+      # exactly what a regression in tw_nonfinite or in genwav.mjs's status
+      # handling would break.
+      - name: The guard's piece, native against wasm
+        run: THINK_DSP_PATH=scripts/guard node wasm/compare.mjs -s 4 scripts/guard/nonfinite.gen
+
+      # The renders, so a difference can be listened to rather than only
+      # read about.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: wasm-compare
+          path: compare/
+
+  # The gates that drive the browser module from Node: every piece it
+  # composes, every picture it draws, and the editor model it builds.
+  wasm-pieces:
+    name: wasm (emscripten) pieces and draws
+    runs-on: ubuntu-latest
+    needs: [wasm-build, linux]
+
+    # See wasm-browsers: minutes, not hours.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
+        with:
+          native: 'true'
+
+      # cairo2d's replayer and drawcheck.mjs's `cairo-canvas2d' are both
+      # npm packages now, not files in this tree.
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
+      # The cairo stand-in, on its own terms: what each call records, and
+      # whether the opcodes written out in C and in JavaScript still agree.
+      # It comes from npm now, so this is the pinned copy being asked, not
+      # upstream's own CI being taken on trust. The module under test is
+      # built by wasm-build (wasm/web/CMakeLists.txt) and arrives with the
+      # trees; the replayer it is held against is in node_modules, which is
+      # why this job runs npm ci above.
+      - name: cairo2d
+        run: |
+          node build-web/cairo2d/cairo2dtest.js
+          node wasm/web/node_modules/cairo-canvas2d/test/replaytest.mjs \
+              build-web/cairo2d/cairo2dtest.js
+
+      # Every shipped patch, loaded and played through the module.
+      - name: Browser build, played from Node
+        run: node wasm/web/check.mjs
+
+      # A live input through the module: the shipped fx/vocoder-mic.dsp loaded,
+      # a known capture fed through tw_capture the way the worklet feeds a
+      # quantum, and the four things that have to hold -- silence where nothing
+      # is captured, the capture heard and not heard early, the frames handed
+      # over in order, and a graph asking for no live input rendering bit for
+      # bit the same while one is being fed. scripts/dspcapture is the same
+      # promises natively; this is them through the browser build.
+      - name: A live input, through the module
+        run: node wasm/web/miccheck.mjs
+
+      # The tape gate, without a browser: every seeded piece composed by this
+      # module at four steps, against the tape genwav.mjs delivers out of
+      # the Node module. The wasm-against-wasm gate and the step-invariance
+      # gate in one. Then every shipped piece played the way the page plays
+      # it, held to a peak -- a tape says what was composed and not whether
+      # any of it was audible.
+      #
+      # It shards itself across the cores by default; every line names the
+      # shard that wrote it.
+      - name: Every seeded piece, against genwav; and every piece audible
+        run: node wasm/web/piececheck.mjs
+
+      # Every picture in every shipped piece, and the composer canvas
+      # around them, drawn through the module and replayed: the draws are
+      # in the browser build now, and what they produce is a list of ops
+      # rather than pixels. Each list has to be walkable by the arity
+      # table alone and known to replay.js op for op, and every composer
+      # that says it draws has to have drawn something somewhere in the
+      # corpus.
+      - name: Every picture in every piece, and the canvas around them
+        run: node wasm/web/drawcheck.mjs
+
+      # The node editor's model, through the module: every shipped .dsp
+      # built into a graph, the palette of plugins this module was compiled
+      # with, and an edit of each patch held against the one
+      # scripts/dspedit makes natively -- byte for byte, because a .dsp
+      # somebody changes in a browser is a .dsp somebody else opens in the
+      # editor.
+      - name: The node editor's model, against the desktop's
+        run: node wasm/web/nodecheck.mjs build-web build
+
+      # The piano roll: half of what it draws is the scheduler's pending
+      # queue -- what the piece has already decided and not yet played --
+      # which is why the page's old roll, drawn from a tape, could not show
+      # it at all. The native harness asserts that the future half is in the
+      # list; then the same seeded piece is played to the same instant in
+      # both builds, drawn the same number of times at the same size, and
+      # the two lists of ops are compared word for word. One class compiled
+      # twice, one picture.
+      - name: The piano roll, and the browser's against the desktop's
+        run: |
+          THINK_DSP_PATH=dsp build/scripts/rollcheck -p build/plugins/ \
+              gen/belfry.gen
+          node wasm/web/rollcheck.mjs build-web build
+
+      # A parameter panel is described once (src/PanelModel.h) and rendered
+      # twice, and the point of describing it once is that the two
+      # renderings are of the same thing. Nothing enforces that by itself:
+      # both builds compile the same sources, and a rule that quietly
+      # depended on the width of a long, on a compiler's idea of a double or
+      # on which order a map iterated in would diverge without either side
+      # noticing. So the same fixture is loaded natively and in the module
+      # and the two descriptions are compared byte for byte.
+      - name: The parameter panel, against the desktop's
+        run: node wasm/web/panelcheck.mjs build-web build
+
+      # And the list both shells choose a graph from: every shipped .dsp's
+      # title, description and kind, read out of the header by the module
+      # and by the native harness, and diffed byte for byte. One reading of
+      # the headers, or this fails -- which is the gate the .patch format
+      # did not have while it was being read two different ways.
+      - name: The DSP catalog, against the desktop's
+        run: node wasm/web/dspcatalogcheck.mjs build-web build
+
+      # The same for the pieces: every shipped .gen's title, description and
+      # section, read through thcGenEdit by the module and by the native
+      # harness, and diffed. The sections are in the files now, so the page's
+      # menu and the Composer's Open are one list rather than two.
+      - name: The piece catalog, against the Composer's
+        run: node wasm/web/gencatalogcheck.mjs build-web build
+
+      # And the .patch format, for the same reason and with more history
+      # behind it: the page used to carry its own parser, and the two
+      # readings had drifted -- an `effect' line was dropped on the floor
+      # here and nowhere else. Every awkward fixture is read natively and
+      # in the module and the two documents compared byte for byte, and
+      # then a shipped patch is actually put on a channel.
+      - name: The .patch format, against the desktop's
+        run: node wasm/web/patchcheck.mjs build-web build
+
+  # The pages' panes, which need nothing built.
+  #
+  # The tiler is mullion's, from npm, and tested there; what is left here
+  # is how these two pages declare their panes, and that is text. It is
+  # the first thing in the run to say whether a default layout still fits.
+  # wasm-browsers keeps what only the real pages can say -- two wasm
+  # canvases whose frame loops the layout turns off, popovers beside a
+  # node graph, the room's own catalog.
+  catalog:
+    name: the panes each page declares
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The two pages' panes, which are written down twice on purpose: the
+      # markup says what a pane is and each page's script says which of
+      # them it has and where they go. Neither can be derived from the
+      # other, so what nothing catches by itself is the two drifting
+      # apart. No browser, no build and no node_modules -- it reads them
+      # as text.
+      - name: The panes each page declares, against the panes it lists
+        working-directory: wasm/web
+        run: node catalogcheck.mjs
+
+  # The page and the worklet, in the two engines the page has to work in.
+  #
+  # One runner per engine for browsertest.mjs, the bulk of the job: every
+  # seeded piece at two windows, and the two engines were sharing four cores.
+  # The page's own gates after it drive both engines in one script each and
+  # are under a minute together, so they run on the chromium leg only.
+  wasm-browsers:
+    name: wasm (emscripten) in ${{ matrix.browser }}
+    runs-on: ubuntu-latest
+    needs: [wasm-build, linux]
+
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+
+    # Everything here is minutes, so an hour means something is wedged rather
+    # than slow. Without this a hang runs to GitHub's six-hour default, which
+    # is what a live AudioContext with no audio backend did once: the job said
+    # nothing, cost everything, and looked exactly like a slow one. Each step
+    # that installs from a package mirror has ten minutes of its own, so a
+    # stalled mirror fails there and says so; the job's limit leaves room for
+    # a slow one on top of the tests' quarter hour.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # A sound card, of sorts. browsertest.mjs is offline throughout and wants
+      # none -- but mictest.mjs cannot be: a MediaStreamAudioSourceNode is the
+      # one node an OfflineAudioContext will not make, so asking for a
+      # microphone means asking for a real-time context. Chromium falls back to
+      # a null sink by itself; Firefox's AudioContext.resume() never resolves
+      # without a backend, and an unresolved promise inside page.evaluate has
+      # no timeout of its own. Same module and same reasoning as the jam job,
+      # which needs one for jamtest's two live peers.
+      #
+      # The chromium leg only: browsertest.mjs is offline, and mictest.mjs
+      # runs there.
+      - name: Install dependencies
+        timeout-minutes: 10
+        if: matrix.browser == 'chromium'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+
+      - name: An audio sink for the live-context tests
+        if: matrix.browser == 'chromium'
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=mictest
+          pactl set-default-sink mictest
+          pactl info
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
+
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
+      # Both engines on the chromium leg, for the page's gates below it.
+      - name: Playwright's browsers
+        timeout-minutes: 10
+        working-directory: wasm/web
+        run: >-
+          npx playwright install --with-deps
+          ${{ matrix.browser == 'chromium' && 'chromium firefox' || 'firefox' }}
+
+      # browsertest.mjs plays a phrase through the worklet in Chromium and
+      # in Firefox and holds each against the module run directly, to the
+      # bit, then runs the same piece comparison through the worklet at a
+      # window of 256 and of 128. That is the plumbing between page,
+      # worklet and module -- the messages, the stamps, the quanta -- in
+      # the two engines the page has to work in, one per leg.
+      - name: Browser build, in ${{ matrix.browser }}
+        working-directory: wasm/web
+        env:
+          BROWSERS: ${{ matrix.browser }}
+        run: node browsertest.mjs ../../build-web ../../build-wasm
+
+      # A live input in real browsers, which is the half miccheck.mjs cannot
+      # see. Two legs: a known capture connected to the worklet's own input on
+      # an OfflineAudioContext and held against the Node render to the bit, in
+      # both engines; then getUserMedia itself, answered by Chromium's fake
+      # device reading a generated wav and by Firefox's fake tone, asked only
+      # whether the microphone reached the vocoder.
+      - name: A live input, in browsers
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node mictest.mjs ../../build-web
+
+      # The solo page itself, which nothing above opens: the octave, the
+      # sliders a piece's knobs are drawn as, the channel's parameter panel
+      # and a computer key held and let go. Both pages share keyboard.js and
+      # panel.js, so this is where a change to either shows up first. Then
+      # the composer view,
+      # which has a whole second engine behind it: the picture arrives
+      # from the mirror worker and is replayed, a stage is enlarged, a
+      # drag on it leaves as a command and comes back as a board that
+      # has changed, and a number typed into a stage's params popover
+      # leaves the same way and comes back in the description.
+      - name: The page's keys, knobs, parameters and composer view
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node pagetest.mjs ../../build-web
+
+      # The SDK as a game uses it, from its package alone: every note the
+      # worklet plays was announced by the look-ahead, through a mute, an
+      # unmute and a stage put in and taken out, each on the SDK's line.
+      - name: The SDK announces what it plays
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node sdkcheck.mjs ../../build-web/sdk
+
+      # And the page tiled: every pane adopted into a layout and every one
+      # of them put back where it was when the window narrows, which is
+      # the claim that lets the harness above go on running against the
+      # document it was written for. Then the frame loop, which is what a
+      # tiler is worth on a page with two wasm canvases in it: a pane
+      # nobody is looking at asks the mirror for nothing.
+      - name: The page, tiled
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node panecheck.mjs ../../build-web
+
+      # Who has the computer keyboard: the letters are the instrument, and
+      # every control on the page is something that would rather have them.
+      # A list chosen from used to keep them until something else was
+      # clicked, which is a keyboard that stops working for no reason a
+      # person can see. No module and no build directory -- keyboard.js and
+      # keyfocus.js on a page of controls, clicked and tabbed at.
+      - name: Who has the keyboard
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node keycheck.mjs
+
+      # The chat box against a relay the script plays: a slow echo, a
+      # refusal, no connection.
+      - name: The chat box
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node chatcheck.mjs
+
+      # The page as an installed app. Everything above serves http, where
+      # the page does not register its service worker, so this is the one
+      # run with it: Chromium's installability check, the page loaded and
+      # the synth started with the network gone, and a new sw.js installed,
+      # waiting, and activated on the next load.
+      - name: Installed, offline, and updated
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node pwatest.mjs ../../build-web
+
+  # Two peers agreeing on one piece: the mirror, the protocol, the relay,
+  # and two real browsers in one room.
+  # The room without a browser: the scripts that drive the module and the
+  # relay from Node. Apart from the browsers below so the two run at once;
+  # one after the other they were the slowest job in this workflow.
+  wasm-peers:
+    name: wasm (emscripten) peers in Node
+    runs-on: ubuntu-latest
+    needs: [wasm-build, linux]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
+
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
+      # The mirror: the module twice in one process, one rendering and one
+      # with a synth that never renders, both fed the same messages through
+      # the same handler, the second stepped to the frame the first's tape
+      # batch reached. One tape, for every seeded piece -- and the mirror
+      # dropped nothing and made no sound. Then every piece with a picture
+      # that is a control, clicked: by script and through the canvas, each
+      # time one tape between the two and not the untouched one.
+      - name: A mirror composes what the worklet composes
+        run: node wasm/web/mirrortest.mjs
+
+      # The room's first gate, without a browser: two peers in one process at
+      # different windows and rates, on a network of made-up delay and
+      # loss, composing every seeded piece from stamped commands -- one
+      # tape between them, and genwav's tape under the same commands.
+      - name: Two peers, one tape
+        run: node wasm/web/protocoltest.mjs
+
+      # The relay, driven from Node by the clients the page will be:
+      # presence, seats, the clock, signalling, the relayed fallback, and
+      # the shared document reaching two providers.
+      - name: The relay
+        working-directory: wasm/web
+        run: node relaytest.mjs
+
+      # The relay's accounts over HTTP, on a clock the script turns: keys,
+      # handles, sessions, passkeys from a software authenticator, the
+      # limits and the admin commands.
+      - name: Accounts
+        working-directory: wasm/web
+        run: node accountstest.mjs
+
+  wasm-jam:
+    name: wasm (emscripten) two peers
+    runs-on: ubuntu-latest
+    needs: [wasm-build, linux]
+
+    # See wasm-browsers: minutes, not hours.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        timeout-minutes: 10
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+
+      # A sound card, of sorts, for jamtest below. It opens a live
+      # AudioContext in both browsers, because two peers agreeing on a
+      # clock is the thing under test and an offline context has no clock
+      # -- and a runner has no audio device at all. Chromium falls back to
+      # a null sink by itself; Firefox's AudioContext.resume() never
+      # resolves without a backend, so Start never returns and the page
+      # waits for ever with nothing to say about why. One null sink is
+      # enough: nothing here listens to anything.
+      - name: An audio sink for the live-context tests
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=jamtest
+          pactl set-default-sink jamtest
+          pactl info
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        timeout-minutes: 10
+        with:
+          native: 'true'
+
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
+      # The room's second gate: a Chromium page and a Firefox page in one
+      # room on a relay, each with a live AudioContext, one pressing Play, a
+      # knob moved from each side, and one tape between them -- genwav's,
+      # under the same commands. Live, because two peers agreeing on a clock
+      # is the thing under test.
+      #
+      # Then the composer view's: a second room on a piece whose picture is
+      # a control, where one page plays and the other paints a line across
+      # gen::life's board with a pointer while the first types a number into
+      # a stage's params popover. One tape between the two -- which is what
+      # says both stamped commands landed at the same transport time on both
+      # peers -- and not the tape of the run nobody touched. And then the
+      # .dsp canvas: one
+      # page types a number into a node, and the file in both documents is
+      # the one native NodeEdit writes -- which is why the build job builds
+      # dspedit.
+      - name: Playwright's browsers
+        timeout-minutes: 10
+        working-directory: wasm/web
+        run: npx playwright install --with-deps chromium firefox
+
+      - name: Two browsers, one room
+        working-directory: wasm/web
+        run: node jamtest.mjs ../../build-web ../../build-wasm ../../build
+
+  # The demo: master's browser build, at https://mishan.github.io/thinksynth/.
+  # It deploys what wasm-build packaged rather than building again, and only
+  # once every gate that runs the module has passed on it -- the native
+  # jobs say nothing about the site, so a macOS failure does not hold it
+  # back. The repository's Pages source must be set to GitHub Actions.
+  #
+  # Its config.json names the relay JAM_RELAY does, if any.
+  pages:
+    name: the site, to GitHub Pages
+    timeout-minutes: 15
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    needs: [wasm-build, wasm-compare, wasm-pieces, wasm-browsers, wasm-peers,
+            wasm-jam]
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  # The room relay's image (docker/relay.Dockerfile): built and joined on
+  # every run, published to ghcr.io from master for the host to pull.
+  relay:
+    name: the relay's image
+    timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: docker build -f docker/relay.Dockerfile -t thinksynth-relay .
+
+      # A room joined, not just the health line: that one answers before
+      # a room has been seeded from the image's gen/ and dsp/.
+      # Twice: as it starts with nothing set, and with CORS_ORIGIN, which
+      # is what turns its accounts on (and opens its database), and
+      # PASSKEY_RP_ID, its passkeys.
+      - name: It seeds and welcomes a room
+        run: |
+          join() {
+            docker exec "$1" node --input-type=module -e "
+              import WebSocket from 'ws';
+              const ws = new WebSocket('ws://127.0.0.1:8787/room/ci');
+              ws.on('open', () => ws.send(JSON.stringify(
+                  { type: 'hello', name: 'ci', protocol: 1, tickets: true })));
+              ws.on('message', (m) => {
+                  const d = JSON.parse(m);
+                  console.log(JSON.stringify(d));
+                  process.exit(d.type === 'welcome' && d.piece ? 0 : 1);
+              });
+              ws.on('error', (e) => { console.error(e.message); process.exit(1); });
+              setTimeout(() => process.exit(1), 10000);"
+          }
+          docker run -d --init --name relay -p 127.0.0.1:8787:8787 thinksynth-relay
+          docker run -d --init --name accounts -p 127.0.0.1:8788:8787 \
+            -e CORS_ORIGIN=https://pages.example.org \
+            -e PASSKEY_RP_ID=pages.example.org thinksynth-relay
+          for i in $(seq 30); do curl -fs 127.0.0.1:8787/ && curl -fs 127.0.0.1:8788/ && break; sleep 1; done
+          curl -fs 127.0.0.1:8787/ | jq -e '.accounts == false and .passkeys == null'
+          curl -fs 127.0.0.1:8788/ | jq -e '.accounts == true and .passkeys == "pages.example.org"'
+          join relay
+          join accounts
+          docker logs relay
+          docker logs accounts
+
+      - name: Publish
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" |
+            docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for tag in latest ${{ github.sha }}; do
+            docker tag thinksynth-relay ghcr.io/mishan/thinksynth-relay:$tag
+            docker push ghcr.io/mishan/thinksynth-relay:$tag
+          done
+
+  macos:
+    name: macos (clang, arm64)
+    timeout-minutes: 40
+    needs: [linux, changes]
+    if: needs.changes.outputs.desktop == 'true'
+    # Sequoia rather than Sonoma, and the version is the whole point of the
+    # line. Homebrew bottles per macOS release and drops the oldest as it
+    # goes: as of 2026-09-19 glib, glibmm, gtk4, gtkmm4 and pangomm have
+    # arm64_sequoia and arm64_tahoe bottles and no arm64_sonoma one. A
+    # macos-14 runner therefore *compiles* the whole GTK stack, which turned
+    # a five-minute install step into three quarters of an hour of building
+    # dependencies before the first line of ours.
+    #
+    # Nothing announces this; the job just gets slower. When it does again,
+    # check which tags the formulae still carry --
+    #
+    #     curl -s https://formulae.brew.sh/api/formula/gtk4.json |
+    #         python3 -c 'import json,sys;
+    #         print(sorted(json.load(sys.stdin)["bottle"]["stable"]["files"]))'
+    #
+    # -- and move this label to one they cover.
+    runs-on: macos-15
+
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: macos
+          max-size: 500M
+          save: ${{ github.event_name == 'push' }}
+
+      - name: Install dependencies
+        run: |
+          brew update
+          # No jack: RtAudio and RtMidi are built with CoreAudio/CoreMIDI
+          # only on macOS, and having Homebrew JACK present is what produced
+          # `ld: library jack not found' -- RtAudio detected it and exported a
+          # bare -ljack with no -L to go with it.
+          #
+          # adwaita-icon-theme and librsvg are named explicitly rather than
+          # left to come in behind gtkmm. The first CI run to reach -G said
+          # "svg absent", which means no librsvg: without it the bundled
+          # Adwaita is a directory of SVGs nothing can read.
+          brew install cmake ninja pkg-config flex gtkmm4 \
+                       adwaita-icon-theme librsvg
+
+      # Apple ships flex 2.5.35 in /usr/bin, and Homebrew's is keg-only, so
+      # it has to be put on PATH explicitly. This catches everyone exactly
+      # once.
+      - name: Put Homebrew flex first
+        run: |
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+
+      - name: Check tool versions
+        run: |
+          flex --version
+          # The two that skewed apart and took the job with them. Printed
+          # here so that the next time Homebrew moves one of them without
+          # the other, the log says which rather than leaving Configure to
+          # report it as a missing gtkmm.
+          brew list --versions glib glibmm gtk4 gtkmm4
+          pkg-config --modversion glib-2.0 glibmm-2.68 gtkmm-4.0
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: ./build/src/thinksynth.app/Contents/MacOS/thinksynth -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 600 -j "$(sysctl -n hw.ncpu)"
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      # Against the installed .app, not the build tree. The first run of this
+      # tested the build tree and duly reported "none (system GTK)", which is
+      # true and useless -- nothing is bundled until it is installed.
+      #
+      # This cannot show independence from Homebrew's GTK, because the runner
+      # has it and there is no machine here that does not. What it does show
+      # is that the .app carries the data and finds it after being moved,
+      # which is the half that is ours.
+      - name: GTK runtime data
+        run: |
+          set -e
+          cmake --install build --prefix "$PWD/stage"
+          mv stage /tmp/relocated
+          app=/tmp/relocated/thinksynth.app/Contents/MacOS/thinksynth
+          "$app" -G | tee /tmp/gtk.txt
+          if grep -q '^bundled GTK data: none' /tmp/gtk.txt; then
+            echo "the .app did not find the data installed into it"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-macos-arm64
+          path: |
+            build/package/*.tar.gz
+            build/package/*.zip
+            build/package/*.dmg
+          if-no-files-found: error
+
+  windows:
+    name: windows (mingw-w64, ucrt64)
+    timeout-minutes: 45
+    needs: [linux, changes]
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    # ccache from ucrt64 rather than hendrikmuhs/ccache-action, whose
+    # Windows binary is not on the msys2 shell's PATH.
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 500M
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          # flex comes from the msys repo; everything else is the ucrt64
+          # toolchain.
+          install: >-
+            flex
+          #
+          # adwaita-icon-theme and librsvg named explicitly, for the reason
+          # given in the macOS job: without librsvg there is no SVG loader,
+          # and a bundled Adwaita is SVG.
+          #
+          # gtkmm-4.0, not gtkmm4. The short name exists but is a virtual
+          # package, so pacman offers the providers and waits for a choice --
+          # which in CI is "Enter a selection (default=all): error: target not
+          # found".
+          #
+          # Every comment here is outside the block below, and has to be. That
+          # `>-' makes what follows a folded scalar: it has no comment syntax,
+          # so a `#' line inside it is not a comment, it is more package names.
+          # pacboy duly asked for mingw-w64-ucrt-x86_64-The,
+          # mingw-w64-ucrt-x86_64-short, mingw-w64-ucrt-x86_64-name, and so on
+          # through the whole sentence.
+          pacboy: >-
+            toolchain:p
+            ccache:p
+            cmake:p
+            ninja:p
+            pkgconf:p
+            gtkmm-4.0:p
+            adwaita-icon-theme:p
+            librsvg:p
+
+      # cairo 1.18.6 (in ucrt64 since 2026-09-21) aborts the process shortly
+      # after anything draws text. It moved the Direct2D factory that the
+      # DirectWrite path needs into per-thread data, and that data is set up
+      # from a TLS callback registered by placing a pointer in `.CRT$XLD'.
+      # For MSVC that macro also emits `/INCLUDE:_tls_used', which forces the
+      # linker to write a TLS directory; the GCC branch of the same macro has
+      # no equivalent, and nothing else in the library references TLS. So the
+      # DLL ucrt64 ships has entry 9 of its PE data directory -- Thread
+      # Storage -- at 0/0, and the callback never runs:
+      #
+      #     objdump -p ucrt64/bin/libcairo-2.dll | grep 'Entry 9'
+      #     Entry 9 0000000000000000 00000000 Thread Storage Directory
+      #
+      # 1.18.4 reads 0000000000110780 00000028 there. It used _Thread_local,
+      # which pulled a TLS directory in as a side effect and made the callback
+      # fire; dropping that is what took the callback with it.
+      #
+      # cairo_win32_thread_data_initialize is therefore never called, the
+      # thread-data array keeps the element size of zero it was born with,
+      # and its second growth asks realloc for zero bytes. UCRT frees the
+      # block and hands back NULL for that, which cairo reads as out of
+      # memory and answers with a bare abort() -- exit code 0xc0000409, and
+      # no output at all, because a fail-fast does not flush stdio.
+      #
+      # visualcheck is what catches it: every visual module labels itself,
+      # and it is the only gate here that drives cairo with no toolkit in
+      # between. Nothing about it is headless, though. A Windows build
+      # against 1.18.6 would abort the first time a meter drew its numbers.
+      #
+      # Drop this once ucrt64 ships a cairo whose libcairo-2.dll has a TLS
+      # directory; the objdump line above is the whole test.
+      - name: Hold cairo where drawing text does not abort
+        run: |
+          set -e
+          pacman -U --noconfirm \
+            https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-cairo-1.18.4-4-any.pkg.tar.zst
+
+      # The mingw-w64 runtime at r426. With r495 (crt, headers and
+      # winpthreads, 2026-10-17) dspmidi hangs, past its own 30 s watchdog,
+      # until ctest kills it at the 900 s TIMEOUT -- on master as on any
+      # branch. r426 passes it in 0.1 s. The range between them rewrote winpthreads' nanosleep and
+      # clock_nanosleep, which std::this_thread::sleep_for calls; the exact
+      # fault is not pinned down. Drop this once a newer ucrt64 runtime
+      # passes dspmidi.
+      - name: Hold the mingw-w64 runtime where dspmidi finishes
+        run: |
+          set -e
+          r=https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64
+          pacman -U --noconfirm \
+            $r-crt-14.0.0.r426.g4564ee4b5-1-any.pkg.tar.zst \
+            $r-headers-14.0.0.r426.g4564ee4b5-1-any.pkg.tar.zst \
+            $r-libwinpthread-14.0.0.r426.g4564ee4b5-2-any.pkg.tar.zst \
+            $r-winpthreads-14.0.0.r426.g4564ee4b5-2-any.pkg.tar.zst
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.run_id }}
+          restore-keys: ccache-windows-
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push'
+        with:
+          path: .ccache
+          key: ccache-windows-${{ github.run_id }}
+
+      # Redirected, and the output checked rather than just the exit status.
+      # thinksynth.exe is a GUI-subsystem program now -- so that launching it
+      # does not open a terminal -- and a GUI-subsystem program prints into
+      # nothing unless it attaches to a console or is redirected. `-h' exiting
+      # 0 while printing nowhere would look exactly like success.
+      #
+      # Redirection is the case that works either way: the shell hands over a
+      # real handle, so gthAttachConsole leaves it alone and stdio goes to the
+      # file whether or not a console was there to attach to.
+      - name: Smoke test
+        run: |
+          ./build/src/thinksynth.exe -h > smoke.txt 2>&1
+          cat smoke.txt
+          grep -q "Usage:" smoke.txt
+
+
+      # Exit 127 from a .exe that plainly exists means the loader could not
+      # resolve one of its imports: MSYS2 turns STATUS_DLL_NOT_FOUND into
+      # ENOENT, so bash reports "No such file or directory" for the .exe
+      # itself and returns 127. `ldd' names the DLL, which is the one thing
+      # the failure does not say.
+      - name: What could not be loaded
+        if: failure()
+        run: |
+          ls -l build/src build/libthink build/scripts
+          ldd build/src/thinksynth.exe || true
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
+
+      # The installed tree, not the build tree -- see the macOS job.
+      - name: GTK runtime data
+        run: |
+          set -e
+          # pwd -W, not $PWD: CMake here is a native Windows build and does
+          # not know what /d/a/... means.
+          cmake --install build --prefix "$(pwd -W)/stage"
+          mv stage /tmp/relocated
+          /tmp/relocated/thinksynth.exe -G | tee /tmp/gtk.txt
+          if grep -q '^bundled GTK data: none' /tmp/gtk.txt; then
+            echo "the package did not find the data installed into it"
+            exit 1
+          fi
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-windows-x86_64
+          path: |
+            build/package/*.tar.gz
+            build/package/*.zip
+            build/package/*.dmg
+          if-no-files-found: error

@@ -1,0 +1,141 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+#include "think.h"
+
+#define SQR(x) (x*x)
+
+/* filt::ink and filt::resgrav shipped with this same description. This one is
+   ink's gravity with the step put through a shaper first -- same spring, and
+   the description says so in ink's own word for it. */
+static const char desc[] = "`INK Filter`  Gravity-based low pass, shaped";
+thPlugin::State    mystate = thPlugin::ACTIVE;
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+enum { OUT_ARG,OUT_ACCEL,INOUT_LAST,IN_ARG,IN_CUTOFF,IN_RES,IN_SHAPER };
+
+std::atomic<int> args[IN_SHAPER + 1];
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+    args[OUT_ACCEL] = plugin->regArg("aout", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ACCEL],
+                       "The filter's velocity, band-pass-ish");
+    plugin->setArgUnits(args[OUT_ACCEL], "full scale");
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
+    args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* filt::ink's spring: the state matrix has determinant res and trace
+       res + 1 - res*cutoff*cutoff, so it holds together for 0 <= res < 1 and
+       cutoff*cutoff < 2(1 + res)/res. The cutoff bound moves with res, which
+       is why only the part that does not is written on the knob. */
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a spring constant, not hertz");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "spring constant");
+    args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; 1 is the edge of the stable region");
+    plugin->setArgRange(args[IN_RES], 0, 1);
+    args[IN_SHAPER] = plugin->regArg("shaper", thPlugin::ARG_IN);
+    /* The step is multiplied by (1 - abs(step)/2)^shaper. */
+    plugin->setArgDesc(args[IN_SHAPER],
+                       "How hard a large step is squashed; 0 is not at all");
+    plugin->setArgUnits(args[IN_SHAPER], "exponent");
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    float *out;
+    float *aout;
+    float *out_last;
+//    float *out_last_accel = new float[1];
+    thArg *in_arg, *in_cutoff, *in_res, *in_shaper;
+    thArg *out_arg, *out_accel;
+    thArg *inout_last;
+    unsigned int i;
+    float in, last, diff, accel;
+
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out_accel = mod->getArg(node, args[OUT_ACCEL]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+
+    last = (*inout_last)[0];
+    accel = (*inout_last)[1];
+    out_last = inout_last->allocate(2);
+
+    out = out_arg->allocate(windowlen);
+    aout = out_accel->allocate(windowlen);
+
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    in_res = mod->getArg(node, args[IN_RES]);
+    in_shaper = mod->getArg(node, args[IN_SHAPER]);
+
+    for(i=0;i<windowlen;i++) {
+        in = (*in_arg)[i];
+        diff = in - last;
+        //printf("diff: %f \tperc: %f \tlast: %f \t%f\n\nres: %f \tcut: %f\n\n", diff, diff/TH_RANGE, last, accel, (*in_res)[i], (*in_cutoff)[i]);
+        if(fabs(diff) > TH_RANGE) { /* damn unstable filters */
+            diff = TH_RANGE * (diff > 0 ? 1 : -1);
+        }
+        diff *= 1-pow(fabs(diff/TH_RANGE), (*in_shaper)[i]);
+
+        //        diff *= 1-SQR((diff/(TH_RANGE+1))); /* My special blend of herbs and spices */
+        accel += diff*SQR((*in_cutoff)[i]);
+        accel *= (*in_res)[i];
+        
+        /* was abs((int)accel): casting an already-diverged float to int is
+           itself undefined, and abs(INT_MIN) has no result. Stay in float. */
+        if(fabs(accel) > TH_RANGE) { /* more instability protection */
+            accel = 0;
+            last = 0;
+        }
+
+        last += accel;
+
+        aout[i] = accel;
+
+        out[i] = last;
+    }
+
+    out_last[0] = last;
+    out_last[1] = accel;
+
+    return 0;
+}

@@ -1,0 +1,232 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <math.h>
+
+#include "think.h"
+
+#define SQR(x) ((x)*(x))
+
+/* Partials whose wavelength and gain are kept from one sample to the next;
+   any past these are worked out every sample, so the state has a fixed
+   size. */
+#define MULTIWAVE_KEPT 64
+
+/* Not parabolas, and not the same plugin as osc::multisined, which shipped
+   with this same description. */
+static const char desc[] = "Sums sines in a series";
+thPlugin::State    mystate = thPlugin::ACTIVE;
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+/* ModuleLoad() invokes this function with a pointer to the plugin
+ * instance. */
+enum { IN_WAVES,OUT_ARG,OUT_SYNC,INOUT_LAST,INOUT_FREQ,IN_FREQ,IN_AMP,IN_PITCHMUL,IN_PITCHADD,IN_AMPMUL,IN_AMPADD };
+
+std::atomic<int> args[IN_AMPADD + 1];
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    args[IN_WAVES] = plugin->regArg("waves", thPlugin::ARG_IN);
+    plugin->setArgStep(args[IN_WAVES], 1);
+    /* `(int)(*in_waves)[0]' -- a count of oscillators, read once per window
+       from sample 0 and used to size the state, so modulating it is not a
+       thing this does. */
+    plugin->setArgDesc(args[IN_WAVES], "How many sines to sum");
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* The sum of `waves' sines, so it runs past full scale as they add. */
+    plugin->setArgDesc(args[OUT_ARG], "The sum of the partials");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+    args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
+    /* Sized every window and never written -- see the callback. Declared so
+       that a .dsp wiring it gets a window of zeroes rather than one value. */
+    plugin->setArgDesc(args[OUT_SYNC], "Allocated but never written");
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+    args[INOUT_FREQ] = plugin->regArg("freqbuffer", thPlugin::ARG_STATE);
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency of the first partial");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
+    args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMP], "Peak amplitude of the first partial");
+    plugin->setArgRange(args[IN_AMP], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_AMP], "full scale");
+    /* The plugin already had this default, written where nothing
+       could read it: `if (amp_max == 0) amp_max = TH_MAX;' */
+    plugin->setArgDefault(args[IN_AMP], TH_MAX);
+
+    /* Partial j runs at `freq * pitchmul^j + pitchadd*j' and at
+       `amp * (ampmul^j + ampadd*j)'. So pitchmul 2 is the octave series and
+       an ampmul under 1 rolls the partials off. */
+    args[IN_PITCHMUL] = plugin->regArg("pitchmul", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PITCHMUL],
+                       "Partial j is this to the power of j times freq");
+    plugin->setArgUnits(args[IN_PITCHMUL], "ratio");
+    args[IN_PITCHADD] = plugin->regArg("pitchadd", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PITCHADD],
+                       "...plus this times j, so partials can be inharmonic");
+    plugin->setArgUnits(args[IN_PITCHADD], "Hz");
+    args[IN_AMPMUL] = plugin->regArg("ampmul", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMPMUL],
+                       "Partial j is this to the power of j times amp");
+    plugin->setArgUnits(args[IN_AMPMUL], "ratio");
+    args[IN_AMPADD] = plugin->regArg("ampadd", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMPADD], "...plus this times j");
+    plugin->setArgUnits(args[IN_AMPADD], "ratio");
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    int i, j;
+    float *out;
+    float *out_last;
+    float wfreq;
+    double wavelength, freq;
+    float amp_max;
+    float pitchmul, pitchadd, ampmul, ampadd;
+    int waves;
+    thArg *in_freq, *in_amp, *in_waves, *in_pitchmul, *in_pitchadd, *in_ampmul, *in_ampadd;
+    thArg *out_arg, *out_sync;
+    thArg *inout_last, *inout_freq;
+    
+    in_waves = mod->getArg(node, args[IN_WAVES]);
+    waves = (int)(*in_waves)[0];
+    
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out_sync = mod->getArg(node, args[OUT_SYNC]);
+    /* Output a 1 when the wave begins its cycle */
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+    out_last = inout_last->allocate(waves);
+
+    /* Both of these are called for the allocate, not for the pointer.
+       `freqbuffer' is sized and never filled, and `sync' is sized and
+       never written -- but a .dsp may still wire `sync' up, and an arg
+       left at length 1 is not the same thing as a zeroed window. */
+    inout_freq = mod->getArg(node, args[INOUT_FREQ]);
+    inout_freq->allocate(waves);
+
+    out_sync->allocate(windowlen);
+
+    out = out_arg->allocate(windowlen);
+
+    in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_amp = mod->getArg(node, args[IN_AMP]);
+    in_pitchmul = mod->getArg(node, args[IN_PITCHMUL]);
+    in_pitchadd = mod->getArg(node, args[IN_PITCHADD]);
+    in_ampmul = mod->getArg(node, args[IN_AMPMUL]);
+    in_ampadd = mod->getArg(node, args[IN_AMPADD]);
+
+    /* pow() is most of what a partial costs, and the args it reads seldom
+       move inside a window. So each partial's wavelength and gain are kept
+       until an arg they depend on differs from the last sample's, and
+       pitchmul^j until pitchmul does, since freq may sweep under a fixed
+       pitchmul. */
+    const int kept = waves < MULTIWAVE_KEPT ? waves : MULTIWAVE_KEPT;
+    double keptPitchpow[MULTIWAVE_KEPT];
+    double keptLength[MULTIWAVE_KEPT], keptGain[MULTIWAVE_KEPT];
+    double keptFreq = 0;
+    float keptPitchmul = 0, keptPitchadd = 0;
+    float keptAmpmul = 0, keptAmpadd = 0;
+
+    auto partialLength = [&](int n, double pitchpow) {
+        wfreq = freq * pitchpow + (pitchadd * n);
+        return samples / thBoundFreq(wfreq, samples);
+    };
+    auto partialGain = [&](int n) { return pow(ampmul, n) + (ampadd * n); };
+
+    for(i = 0; i < (int)windowlen; i++) {
+        //wavelength = TH_SAMPLE/(*in_freq)[i];
+        freq = (*in_freq)[i];
+        amp_max = (*in_amp)[i];
+        if(amp_max == 0) {
+          amp_max = TH_MAX;
+        }
+
+        pitchmul = (*in_pitchmul)[i];
+        pitchadd = (*in_pitchadd)[i];
+        ampmul = (*in_ampmul)[i];
+        ampadd = (*in_ampadd)[i];
+
+        const bool newPitchmul = i == 0 || pitchmul != keptPitchmul;
+
+        if (newPitchmul)
+        {
+            for (j = 1; j < kept; j++)
+                keptPitchpow[j] = pow(pitchmul, j);
+            keptPitchmul = pitchmul;
+        }
+
+        if (newPitchmul || freq != keptFreq || pitchadd != keptPitchadd)
+        {
+            for (j = 1; j < kept; j++)
+                keptLength[j] = partialLength(j, keptPitchpow[j]);
+            keptFreq = freq;
+            keptPitchadd = pitchadd;
+        }
+
+        if (i == 0 || ampmul != keptAmpmul || ampadd != keptAmpadd)
+        {
+            for (j = 1; j < kept; j++)
+                keptGain[j] = partialGain(j);
+            keptAmpmul = ampmul;
+            keptAmpadd = ampadd;
+        }
+
+        wavelength = samples / thBoundFreq(freq, samples);
+        out[i] = sin(2 * M_PI * out_last[0]/wavelength) * amp_max;
+        if(++(out_last[0]) > wavelength)
+            out_last[0] = 0;
+
+        for(j = 1; j < waves; j++)
+        {
+            double gain;
+
+            if (j < kept)
+            {
+                wavelength = keptLength[j];
+                gain = keptGain[j];
+            }
+            else
+            {
+                wavelength = partialLength(j, pow(pitchmul, j));
+                gain = partialGain(j);
+            }
+
+            out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * gain);
+            if(++(out_last[j]) > wavelength)
+                out_last[j] = 0;
+        }
+    }
+/*    node->SetArg("out", out, windowlen);
+    last[0] = position;
+    node->SetArg("last", (float*)last, 1);
+*/    
+    return 0;
+}

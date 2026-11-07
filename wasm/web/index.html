@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>thinksynth</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#241c3a">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="panes.css">
+</head>
+<body data-unstarted>
+<!-- The chrome: the title, what to play, the transport, and whatever the
+     page has to say about it. One strip and not four lines of them,
+     because tiled the window's height is the layout's and every line
+     spent up here is a line the panes below do not get -- which is why
+     the status sits beside the controls rather than over them, and why
+     Start goes once there is a synth to have started. It is what a
+     Gtk::HeaderBar is on the desktop. -->
+<header class="row" id="chrome">
+  <!-- A phone's menu: what the header and the row of closed panes over
+       the layout would take height for, a tap away (the dialog below).
+       Shown only on a phone (main.js). -->
+  <button id="menubutton" hidden aria-label="Menu" aria-haspopup="dialog"
+          aria-controls="menu">&#9776;</button>
+
+  <h1>thinksynth</h1>
+
+  <!-- Where it comes from, and the browser's Install offered as a button:
+       Chromium's own is an icon in the address bar that is easy to miss.
+       Shown only where the browser will install it (offline.js). And a
+       new version, when one is ready and was not taken at load because
+       something had been started. -->
+  <span id="site" class="group">
+    <a id="source" href="https://github.com/mishan/thinksynth"
+       title="The source, on GitHub" aria-label="GitHub"><svg
+       viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor"
+       d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span class="sourceword">The source, on GitHub</span></a>
+    <button id="install" hidden>Install</button>
+    <button id="update" hidden title="A new version is ready">Update</button>
+  </span>
+
+  <button id="start">Start</button>
+
+  <label><span class="say">Play</span> <select id="mode">
+    <option value="seq">a sequence</option>
+    <option value="band">a band</option>
+    <option value="patch">a patch</option>
+    <option value="grow">a patch, growing</option>
+    <option value="piece">a piece</option>
+  </select></label>
+
+  <!-- The live input: what the machine is hearing, into whatever graph asked
+       for it. See wasm/web/mic.js. Hidden until what is in play reads the
+       live input: see showLiveIn in main.js. -->
+  <span id="livein" class="group" hidden>
+    <button id="mic" disabled>Live in</button>
+    <span id="miclevel" class="hint level"></span>
+    <span id="micstatus" class="hint"></span>
+  </span>
+
+  <!-- What is in play names a sample pack that is not downloaded yet:
+       see showPackNeed in main.js. -->
+  <span id="packneed" class="group" hidden>
+    <span id="packneedtext" class="hint"></span>
+    <button id="packget">Download</button>
+  </span>
+
+  <!-- Patch mode: one .dsp, played from the keyboard. -->
+  <span id="patchmode" class="group">
+    <label><span class="say">Patch</span> <select id="patch"></select></label>
+  </span>
+
+  <!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
+       keyboard still plays, into whatever chains asked for `input midi'.
+
+       What this holds is the chrome of that mode -- which piece to play,
+       and nothing else. What it used to wrap are panes now, below, each
+       hidden by its own `hidden' in the other mode rather than by this
+       going away, and the transport is its own strip beside it. -->
+  <span id="piecemode" class="group" hidden>
+    <label><span class="say">Piece</span> <select id="piece"></select></label>
+    <button id="browsepieces" aria-haspopup="dialog">Browse&hellip;</button>
+  </span>
+
+  <!-- The transport, which belongs to neither of those and to both: a
+       sequence and a piece are the same scheduler on the same clock, and
+       the only mode with nothing to start is the one playing a single
+       graph from the keys. -->
+  <span id="transport" class="group">
+    <button id="play" disabled>Play</button>
+    <button id="stop" disabled>Stop</button>
+    <button id="rewind" disabled>Rewind</button>
+
+    <!-- Beats per minute, over the range the desktop's spinner offers.
+         Offered only where it means something: the tempo scales
+         beat-valued durations and nothing else, so on a piece written
+         entirely in seconds it is a control that does nothing, and the
+         title says so and points at the one beside it. -->
+    <label id="tempolabel">Tempo
+      <input id="tempo" type="number" min="20" max="300" step="1"
+             value="120" disabled></label>
+
+    <!-- And how fast the clock runs, which every piece has: it turns the
+         transport itself rather than scaling beats, so a piece written
+         entirely in seconds moves with it. The readout is beside the
+         slider because a slider with no number on it is a control you
+         cannot come back to. -->
+    <label id="speedlabel">Speed
+      <input id="speed" type="range" min="0.25" max="4" step="0.05"
+             value="1" disabled>
+      <span id="speedis">1.00&times;</span></label>
+
+    <span id="clock">0:00.0</span>
+
+    <!-- On a phone the speed and the clock fold behind this, since the
+         strip is a row of the little height there is. Shown only there
+         (style.css). -->
+    <button id="more" aria-expanded="false" aria-label="Speed and clock"
+            title="Speed and clock">&hellip;</button>
+  </span>
+
+  <!-- The piece's text as a document: undone, redone, kept on disk and
+       opened from it. -->
+  <span id="document" class="group">
+    <button id="undo" disabled title="Undo (Ctrl+Z)">Undo</button>
+    <button id="redo" disabled title="Redo (Ctrl+Shift+Z)">Redo</button>
+    <button id="openpiece" disabled title="Open a .gen file">Open</button>
+    <button id="savepiece" title="Download the piece as a .gen file">Save</button>
+    <input id="openfile" type="file" accept=".gen,text/plain" hidden>
+  </span>
+
+  <span id="status" role="status">Press Start, then play.</span>
+</header>
+
+<main>
+
+<!-- What the piece says about itself, when it is a piece that is playing
+     and it says anything. Out of the piece section and into a line of its
+     own, which is a line it takes only when it has something in it. -->
+<p id="about" hidden></p>
+
+<!-- Every piece in the menu with what it says about itself, which the
+     menu's options say only in a title. -->
+<dialog id="piecebrowser" aria-labelledby="piecebrowsertitle">
+  <div class="browsehead">
+    <span id="piecebrowsertitle" class="browsetitle">Pieces</span>
+    <button id="piecebrowserclose" aria-label="Close">&times;</button>
+  </div>
+  <input id="piecefilter" type="search" placeholder="Filter"
+         aria-label="Filter the pieces">
+  <div id="piecelist"></div>
+</dialog>
+
+<!-- The phone's menu, from the left. What the tiler has put away is listed
+     in #menupanes (mullion's `drawer'); the source link and the Install
+     and Update buttons are moved in from the header when there is a
+     menu. -->
+<dialog id="menu" aria-label="Menu">
+  <div class="menuhead">
+    <span class="menutitle">thinksynth</span>
+    <button id="menuclose" aria-label="Close menu">&times;</button>
+  </div>
+
+  <h2>Closed panes</h2>
+  <div id="menupanes">
+    <p class="hint menunone">None: every pane is open.</p>
+  </div>
+  <button id="menureset">Reset layout</button>
+
+  <div id="menusite"></div>
+</dialog>
+
+<!-- Where the tiler puts the panes below, when there is a tiler. Empty
+     and invisible otherwise, and the page is the document it has always
+     been: panes.js adopts what is marked `data-pane' and puts every one
+     of them back where it was when the layout goes away. -->
+<div id="panes"></div>
+
+<!-- The piano roll: every chain's output on one timeline, the past left
+     of the now-line and the *scheduled future* ghosted to the right of
+     it -- what the piece has already decided and not yet played. It is
+     the desktop's roll, compiled to wasm and drawn by the mirror, which
+     is where the scheduler holding that future is. Drag it to scrub back
+     through what has been played, double-click to go back to live, and
+     the wheel changes how much time is on screen. -->
+<div id="roll" class="canvasview rollview" data-pane-off
+     data-pane data-pane-title="Piano roll" data-pane-min="320">
+  <canvas id="rollcanvas" tabindex="0" role="img"
+          aria-label="Piano roll: the notes played, and those to come"></canvas>
+</div>
+
+<!-- The piece as tracks: one row per gen::grid, each one that plugin's
+     own drawing at the pane's width, with the channel it is heard on
+     beside it. Click a cell to put a note there, again to accent it,
+     again to clear it; drag to draw a run, and the other button erases.
+
+     What a click reaches is not the picture in front of you but a
+     command, applied at its time here and on every peer -- the same path
+     the composer canvas's gestures take, and the reason what you drew
+     appears a moment later. -->
+<!-- The band: the piece as players, each steered by a pad, an octave,
+     another take, keeping the take and a rest (bandview.js). -->
+<section id="bandview" data-pane-off
+         data-pane data-pane-title="The band" data-pane-min="320">
+  <div class="row bandbar">
+    <button id="bandnew" title="A beat, a bass and keys to start from">New band</button>
+    <button id="bandphrase" title="Play a phrase, and a band joins it">Start from a phrase</button>
+    <button id="bandadd" title="Another player, from an idea">+ Add a player</button>
+    <span id="bandkey" class="group">Key
+      <select id="bandroot" aria-label="Root"></select>
+      <select id="bandmood" aria-label="Mood"></select></span>
+    <label class="group energy">Energy
+      <input id="bandenergy" type="range" min="0" max="1" step="0.05"
+             value="0.5"></label>
+    <button id="bandrecord" class="record" aria-pressed="false">&#9679; Record</button>
+  </div>
+  <div id="bandtakes" hidden></div>
+  <div id="bandphrasebox" role="group" aria-label="Start from a phrase" hidden>
+    <p>Play a phrase on the keys: <kbd>Z</kbd>&ndash;<kbd>/</kbd> on a
+      computer keyboard, the on-screen keys, or a MIDI keyboard. The hat
+      counts the beat. Then keep the last
+      <select id="bandphrasebars" aria-label="Bars to keep">
+        <option value="1">bar</option>
+        <option value="2" selected>2 bars</option>
+        <option value="4">4 bars</option>
+      </select>
+      you played, and a band joins it in its key.</p>
+    <button id="bandphraseuse">Use it</button>
+    <button id="bandphrasecancel">Close</button>
+  </div>
+  <div id="bandgallery" hidden></div>
+  <div id="bandscenes" class="row bandscenes" role="group" aria-label="Scenes"></div>
+  <p id="bandhint" class="hint"></p>
+  <div id="players"></div>
+</section>
+
+<section id="seqview" data-pane-off
+         data-pane data-pane-title="Sequencer" data-pane-min="320">
+  <div id="tracks"></div>
+  <p id="seqhint" class="hint"></p>
+</section>
+
+<!-- The piece's picture: one row per chain, its stages with each
+     composer's own drawing inside its box, the sinks in their channel's
+     colour. It is the desktop's composer canvas, compiled to wasm and
+     drawn by a second scheduler in a worker that is fed the same
+     messages the worklet is fed. Double- click a stage whose picture is
+     a control -- a Life board, a CA's present row -- to enlarge it,
+     then paint on it; Escape puts it back. What a gesture reaches is
+     not the picture in front of you but a command, applied at its time
+     in the piece here and on every peer, which is why what you painted
+     appears a moment later. -->
+<details id="composerview" open data-pane-off
+         data-pane data-pane-min="360">
+  <summary>The piece</summary>
+  <div id="composerscroll" class="canvasview">
+    <canvas id="composer" tabindex="0"></canvas>
+  </div>
+
+  <!-- Which stages can be painted on, and what is being painted on
+       now: one menu, however many there are. The canvas enlarges a stage
+       on a double-click and puts it back on Escape; the menu is the same
+       two things for a finger, and it is what says a picture is a
+       control at all. -->
+  <div class="row" id="composertools">
+    <select id="composerpaint" aria-label="Paint on a picture"
+            hidden></select>
+    <button id="collapseall">Collapse</button>
+    <button id="expandall">Expand</button>
+    <label class="hint"><input type="checkbox" id="rollbychain">
+      Roll by chain</label>
+  </div>
+  <p id="composerstatus" class="hint"></p>
+</details>
+
+<div id="knobs" data-pane-off
+     data-pane data-pane-title="The piece's knobs" data-pane-min="240"></div>
+
+<!-- What each channel this piece touches sounds like: its own
+     instruments, the channels its sinks name and left to the reader, the
+     channels it takes `input midi' on, and wherever the keys are aimed.
+     A channel the piece named and put nothing on is filled from the
+     defaults the desktop's first run uses, so the piece sounds the same
+     here in any order of clicks; one the piece aimed itself says so and
+     has nothing to choose.
+
+     Channel numbers here are the file's, 1-16, since that is what a
+     person reading the piece's comment will be looking for; the engine
+     counts them one lower and nothing outside it needs to know. The
+     keys' selector counts the same way, for the same reason. It is in
+     this box rather than beside the keys because where the keys are
+     aimed is a line in this list. -->
+<section id="channelbox" data-pane-off
+         data-pane data-pane-title="Channels" data-pane-min="260">
+  <div class="row">
+    <label>Keys into channel <select id="keychan"></select></label>
+  </div>
+
+  <div id="channels"></div>
+</section>
+
+<!-- The instrument's parameters: the panel the desktop has had for twenty
+     years and this page has never had at all. A patch's controls could be
+     set by a .patch file and by the node editor, and not by a person.
+
+     What a row is -- its label, what it is worth in the unit it was
+     written in, how many decimals are worth showing, whether it is a
+     slider or a list of named values, which group it belongs to -- is the
+     module's answer and not this page's (src/PanelModel.h). The desktop
+     draws the same answer with gtkmm; panel.js draws it here. -->
+<details id="paramview" open
+         data-pane data-pane-title="Patch params" data-pane-min="280">
+  <summary>The instrument's parameters</summary>
+  <div class="row">
+    <label>Channel <select id="paramchan"></select></label>
+    <span id="paramwhat" class="hint"></span>
+  </div>
+
+  <!-- The patches that are for the graph on this channel. A .patch is a
+       .dsp and a column of values over its knobs, so this is where one
+       belongs: a preset over the controls it sets, and not a second
+       instrument menu beside the one that chose the instrument. Hidden
+       for a graph nobody has saved a patch for. -->
+  <div class="row" id="presetrow" hidden>
+    <label>Patch <select id="parampatch"></select></label>
+  </div>
+
+  <div id="params"></div>
+</details>
+
+<!-- The instrument as a graph: the desktop's node editor, with its
+     canvas, its layout and its writer compiled to wasm and run in this
+     page's own instance of the module. In patch mode it edits the .dsp in
+     the box below and reloads it, so an edit is heard at once; in piece
+     mode it edits one of the piece's instruments, which the piece
+     source's Load edits plays. Right-click a node's output to watch it
+     with a meter or a scope. -->
+<details id="nodeview"
+         data-pane data-pane-title="Patch graph" data-pane-min="400">
+  <summary>The instrument, as a graph</summary>
+  <div class="row">
+    <label>File <select id="nodefile"></select></label>
+    <label>Add <select id="nodepalette"></select></label>
+    <button id="nodeadd">Add node</button>
+    <button id="nodefit">Fit</button>
+    <span id="nodeselected"></span>
+  </div>
+  <!-- Said instead of an empty menu over a blank canvas when what is
+       playing has no graph of its own here (nodeview.js, offer). -->
+  <p id="nodeempty" hidden>No graph to edit: what is playing
+    uses only the shipped patches. Play a patch, or a piece with
+    instruments of its own, to edit one here.</p>
+  <div id="nodescroll" class="canvasview">
+    <canvas id="nodecanvas" tabindex="0" role="img"
+            aria-label="The graph, as nodes and wires"></canvas>
+  </div>
+  <!-- The graph without the canvas: its nodes to choose, and the chosen
+       one's wires, to cut, make and watch (nodeview.js). -->
+  <details id="nodeoutline">
+    <summary>Nodes and wires, as a list</summary>
+    <ul id="nodelist" aria-label="Nodes"></ul>
+    <div id="nodewiring"></div>
+  </details>
+  <div id="nodeparams"></div>
+</details>
+
+<!-- The instrument, in both modes. Drawn to fit whatever width there is;
+     main.js says how many octaves that comes to. -->
+<section id="keyboard"
+         data-pane data-pane-title="Keys" data-pane-min="280">
+  <div class="row">
+    <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
+    <span id="range"></span>
+    <button id="up" class="octave" aria-label="An octave up">&#9654;</button>
+
+    <!-- Whether a letter is a note at the moment, which it is unless
+         something was tabbed to or is being typed into (keyfocus.js).
+         Empty the rest of the time: the ordinary state is not worth a
+         word, and a line that is always there is one nobody reads. -->
+    <span id="keysstate" class="hint" aria-live="polite"></span>
+
+    <!-- A MIDI keyboard onto the same keys, on the same channel (midi.js).
+         Offered once the synth has started. -->
+    <button id="midi" disabled>MIDI in</button>
+    <span id="midistatus" class="hint"></span>
+
+    <!-- A piece's MIDI instruments onto devices (midiout.js): where each
+         plays is chosen on its channel's row, and the delay moves every
+         message after its note to line a device up with the synth. -->
+    <button id="midiout" disabled>MIDI out</button>
+    <label class="hint">delay
+      <input id="midioutdelay" type="number" min="0" max="500" step="1"
+             value="0"> ms</label>
+    <span id="midioutstatus" class="hint"></span>
+    <!-- A check per output for MIDI clock, on a line of its own so the
+         status beside the button cannot move it. -->
+    <div id="midiclock"></div>
+  </div>
+  <svg id="keys" role="application" aria-label="Keyboard"></svg>
+  <p class="hint">
+    Touch or click the keys. From a computer keyboard,
+    <kbd>Z</kbd>&ndash;<kbd>/</kbd> is an octave and a bit from C with the
+    black keys on the row above, <kbd>Q</kbd>&ndash;<kbd>P</kbd> the octave
+    above that, and <kbd>-</kbd> and <kbd>=</kbd> move both.
+    A MIDI keyboard plays them too, after <em>MIDI in</em>.
+  </p>
+</section>
+
+<!-- The source, and the button that plays what is in it. Picking a patch
+     above fills this box and loads it; editing the box does neither until
+     this is pressed, which is what the button is for and why it sits here
+     rather than beside the menu it was mistaken for a part of. -->
+<details id="patchsource"
+         data-pane data-pane-min="320">
+  <summary>Patch source (.dsp)</summary>
+  <source-box id="dsp" syntax="dsp" label="Patch source"></source-box>
+  <div class="row">
+    <button id="load" disabled>Load edits</button>
+    <span class="hint">Plays the .dsp in the box above.</span>
+    <label class="numbered"><input type="checkbox"> Line numbers</label>
+  </div>
+</details>
+
+<!-- A patch, growing: one edit at a time, or a search toward another
+     patch's sound or a recording's, every graph on the way kept in a list
+     to go back to and the keys always playing the one chosen (growui.js).
+     What the list's chosen graph is, is the patch source's text. -->
+<section id="growview" data-pane-off
+         data-pane data-pane-title="Grow" data-pane-min="300">
+  <div class="row">
+    <button id="growstep" disabled
+            title="One random edit to the graph playing">Grow</button>
+    <label><input type="checkbox" name="growkind" value="splice" checked>
+      splice</label>
+    <label><input type="checkbox" name="growkind" value="modulate" checked>
+      modulate</label>
+    <label><input type="checkbox" name="growkind" value="voice" checked>
+      voice</label>
+  </div>
+  <ol id="growlist" class="growlist" aria-label="Graphs"></ol>
+  <div class="row">
+    <label>Toward <select id="growtoward" disabled></select></label>
+    <input id="growsound" type="file" accept=".wav,audio/wav" hidden>
+    <select id="growhow" disabled aria-label="Search">
+      <option value="0">Tune: its constants</option>
+      <option value="1">Tune and grow: its shape too</option>
+    </select>
+  </div>
+  <div class="row">
+    <button id="growgo" disabled>Evolve</button>
+    <button id="growstop" disabled>Cancel</button>
+    <button id="growtarget" disabled aria-pressed="false"
+            title="Play the target instead of the graph chosen, until pressed again">Hear target</button>
+    <button id="growkeep" disabled
+            title="Download the graph chosen as a .dsp file">Keep</button>
+  </div>
+  <canvas id="growplot" width="320" height="80" hidden aria-hidden="true"></canvas>
+  <div id="growstate" class="hint"></div>
+</section>
+
+<details id="piecesource" data-pane-off
+         data-pane data-pane-min="320">
+  <summary>Piece source (.gen)</summary>
+  <source-box id="gen" syntax="gen" label="Piece source"></source-box>
+  <div class="row">
+    <button id="loadpiece" disabled>Load edits</button>
+    <span class="hint">Loads the .gen in the box above.</span>
+    <label class="numbered"><input type="checkbox"> Line numbers</label>
+  </div>
+  <!-- The piece's effect on the mix: its `effect' statement, written into
+       the box above and loaded, as a channel's is chosen on its patch. -->
+  <div class="row">
+    <label>Effect on the mix <select id="pieceeffect" disabled></select></label>
+  </div>
+  <!-- The piece being played, composed offline into a .mid with the seed
+       it plays with (thcMidiExport). A piece whose arrangement ends goes
+       to its end; the length is for one that does not. -->
+  <div class="row">
+    <button id="exportmidi" disabled>Export MIDI</button>
+    <label class="hint">length
+      <input id="exportlength" type="number" min="1" max="3600" step="1"
+             value="120"> s</label>
+    <span id="exportstatus" class="hint"></span>
+  </div>
+  <!-- Evolve toward: one of the piece's instruments searched toward
+       another's sound or a recording's, in workers of the page's own
+       (evolve.js), what it finds heard on its channel and then kept into
+       the piece or discarded. -->
+  <fieldset id="evolve">
+    <legend>Evolve toward</legend>
+    <div class="row">
+      <label>Instrument <select id="evolvewhat" disabled></select></label>
+      <label>toward <select id="evolvetoward" disabled></select></label>
+      <input id="evolvesound" type="file" accept=".wav,audio/wav" hidden>
+      <select id="evolvehow" aria-label="Search" disabled>
+        <option value="0">Tune: its constants</option>
+        <option value="1">Tune and grow: its shape too</option>
+      </select>
+    </div>
+    <div class="row">
+      <button id="evolvego" disabled>Start</button>
+      <button id="evolvestop" disabled>Cancel</button>
+      <button id="evolvehear" disabled
+              title="Put the nearest graph found so far on the instrument's channel">Listen</button>
+      <button id="evolvekeep" disabled
+              title="Write the result into the piece as the instrument's dsp { }">Keep</button>
+      <button id="evolvedrop" disabled
+              title="Put back the graph the instrument had before the search">Discard</button>
+    </div>
+    <canvas id="evolveplot" width="320" height="80" hidden aria-hidden="true"></canvas>
+    <div id="evolvestate" class="hint"></div>
+  </fieldset>
+</details>
+
+<!-- Recorded instruments, downloaded when asked and kept (packs.js). -->
+<section id="packs" data-pane-off
+         data-pane data-pane-title="Sample packs" data-pane-min="280">
+  <p class="hint">Recorded instruments, public domain (CC0). Each is
+    downloaded once and kept in this browser, offline too.</p>
+  <ul id="packlist"></ul>
+  <p id="packsnone" class="hint" hidden>This copy of the page offers
+    none.</p>
+</section>
+
+<details id="detail"
+         data-pane data-pane-title="Debug" data-pane-min="240">
+  <summary>What the browser reports</summary>
+  <pre id="latency"></pre>
+  <pre id="log"></pre>
+</details>
+
+</main>
+
+<!-- What a stage's params handle asks for, and what a right-click on a
+     port offers: placed in page coordinates beside whatever asked for
+     them, so where they sit in the document says nothing -- except that
+     being after every pane is what keeps them over one. -->
+<div id="composerparams" class="popover" hidden></div>
+<div id="nodemenu" class="popover" role="dialog" hidden></div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

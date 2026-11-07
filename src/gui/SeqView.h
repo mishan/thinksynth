@@ -1,0 +1,187 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ */
+
+#ifndef SEQ_VIEW_H
+#define SEQ_VIEW_H
+
+#include <functional>
+#include <string>
+#include <vector>
+
+#include <gtkmm.h>
+
+#include "thcGenEdit.h"
+
+class thcScheduler;
+struct thcStage;
+
+/* The piece as tracks: one row per `gen::grid' stage, each drawn by the
+ * plugin's own composer_draw at the pane's full width and clicked through
+ * its composer_input.
+ *
+ * The web page's sequencer pane (wasm/web/seqview.js), on the desktop's
+ * terms: the scheduler is in this process, so a draw is a call into the
+ * plugin with the widget's cairo, and a gesture reaches the plugin at
+ * once, as it does on the Composer canvas.
+ *
+ * A track is as tall as its grid has rows -- `rows' is a param, so it is
+ * read from the live stage on every tick rather than remembered. Nothing
+ * here decides what a click means: the pointer's position goes to the
+ * plugin in the coordinates it drew with, and the plugin inverts its own
+ * arithmetic.
+ */
+class SeqView : public Gtk::ScrolledWindow
+{
+public:
+    SeqView (void);
+
+    /* The piece, after a load or a reload: the tracks are rebuilt. NULL
+       for either empties the pane. */
+    void setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched);
+
+    /* A frame: every track redrawn and its height checked against its
+       grid's `rows'. The Composer's draw timer calls it while the pane is
+       in view. */
+    void tick (void);
+
+    /* The headings again: what plays a channel can change without the
+       piece reloading, when somebody loads a patch onto it. */
+    void refresh (void);
+
+    /* Whether a track that plays one of the piece's instruments offers to
+     * change it: a button naming the graph, in place of the name. On in
+     * the sequence, where choosing what plays a track is the point, and
+     * off for a piece, whose instruments are its author's -- the same
+     * rule the web page's tracks follow.
+     *
+     * `title' turns a .dsp's file name into what the button says. */
+    void setChoosing (bool on,
+                      std::function<std::string (const std::string &)> title =
+                          nullptr);
+
+    /* A track's button was pressed: choose a graph for the instrument
+       the track at doc chain `chain', doc stage `stage' plays, which is
+       playing `dsp' now. */
+    sigc::signal<void (size_t, size_t, std::string)> &signal_choose (void)
+    {
+        return choose_;
+    }
+
+    /* The graph track `i' plays, when it plays one of the piece's
+       instruments; empty otherwise. */
+    std::string trackDsp (size_t i) const
+    {
+        return i < tracks_.size() ? tracks_[i].dsp : std::string();
+    }
+
+    /* The chooser on track `i', or NULL where there is none. */
+    Gtk::Button *trackChooser (size_t i) const
+    {
+        return i < tracks_.size() ? tracks_[i].pick : NULL;
+    }
+
+    size_t trackCount (void) const { return tracks_.size(); }
+
+    /* The channel track `i' is heard on, 0-15, or -1. */
+    int trackChannel (size_t i) const
+    {
+        return i < tracks_.size() ? tracks_[i].channel : -1;
+    }
+
+    /* The grid of track `i', for its size. NULL out of range. */
+    Gtk::DrawingArea *trackArea (size_t i) const
+    {
+        return i < tracks_.size() ? tracks_[i].area : NULL;
+    }
+
+    /* A gesture on track `i', at (x, y) in its own pixels: a
+       thcInputType, and the button the press came down with. What the
+       drag controller calls, and what a harness presses with. The end
+       of a gesture is signal_edited's to announce. */
+    void input (size_t i, int type, double x, double y, int button);
+
+    /* A key on track `i', as the track's key controller has it: the
+       cursor moved, or a gesture at its cell. True if it was the track's.
+       What a harness presses with, too. */
+    bool key (size_t i, guint keyval, Gdk::ModifierType state);
+
+    /* Track `i''s cells as the grid writes them, "" out of range. */
+    std::string trackCells (size_t i) const;
+
+    /* What track `i' says of its cursor's cell: "C4, step 5: note". */
+    std::string trackSaid (size_t i) const;
+
+    /* A gesture on a track has ended: the stage at doc chain `chain',
+       doc stage `stage' was edited. */
+    sigc::signal<void (size_t, size_t)> &signal_edited (void)
+    {
+        return edited_;
+    }
+
+protected:
+    struct Track
+    {
+        size_t chain;           /* the chain, in doc and scheduler order */
+        size_t docStage;        /* the stage in the document            */
+        int    liveStage;       /* and in the scheduler's list          */
+        int    channel;         /* 0-15, or -1 for a chain with no sink */
+        std::string name;       /* the chain's                          */
+        std::string dsp;        /* its instrument's graph, or empty     */
+
+        Gtk::DrawingArea *area;
+        Gtk::Label *what;
+        Gtk::Button *pick;      /* while choosing, for an instrument    */
+
+        int rows;               /* what the height was last fitted to   */
+        int button;             /* the press's, while a drag is on      */
+        int curRow = 0;         /* the keys' cell, the top row 0        */
+        int curStep = 0;
+    };
+
+    thcStage *stageOf (const Track &t) const;
+
+    /* The height a track wants for `rows' rows of its grid. */
+    static int heightFor (int rows);
+    int rowsOf (const Track &t) const;
+    int stepsOf (const Track &t) const;
+
+    /* A press at step `from' of row `row', a drag through `through', and
+       a release at the last of them, at the cells' middles. */
+    void gesture (size_t i, int button, int row, int from,
+                  const std::vector<int> &through);
+
+    /* What is on a track's channel, in the words its heading wants. */
+    std::string describe (const Track &t) const;
+
+    void draw (size_t i, const Cairo::RefPtr<Cairo::Context> &cr, int w,
+               int h);
+    void say (void);
+
+    const thcGenEdit::Doc *doc_;
+    thcScheduler *sched_;
+
+    std::vector<Track> tracks_;
+
+    Gtk::Box box_{Gtk::Orientation::VERTICAL};
+    Gtk::Box list_{Gtk::Orientation::VERTICAL};
+    Gtk::Label hint_;
+
+    bool choosing_ = false;
+    std::function<std::string (const std::string &)> title_;
+
+    sigc::signal<void (size_t, size_t)> edited_;
+    sigc::signal<void (size_t, size_t, std::string)> choose_;
+};
+
+#endif /* SEQ_VIEW_H */

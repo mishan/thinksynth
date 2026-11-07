@@ -1,0 +1,147 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef TH_NODE_H
+#define TH_NODE_H 1
+
+#include "thExport.h"
+
+class THINK_API thNode {
+public:
+    thNode (const string &name, thPlugin *thplug);
+    thNode (const thNode &copyNode);
+    ~thNode (void);
+
+    void setName (const string &name) { nodeName_ = name; };
+    string name (void) const { return nodeName_; }
+
+    thArg *setArg (const string &name, float value);
+    thArg *setArg (const string &name, const float *value, int len);
+    thArg *setArg (const string &name, const string &node,
+                   const string &value);
+    thArg *setArg (const string &name, const string &chanarg);
+
+    /* The quoted-name case, which needs a name of its own because the
+       one above already takes two strings and means a chanarg
+       reference. See thArg::ARG_TEXT. */
+    thArg *setTextArg (const string &name, const string &text);
+
+    int addArgToIndex (thArg *arg);
+
+    void setArgCount (int argcnt) { argCount_ = argcnt; };
+    int argCount (void) const { return argCount_; };
+
+    /* Returned by reference: these are walked once per node per window on the
+       audio thread, and copying the container there allocates. */
+    const thArgMap &args (void) const { return args_; }
+
+    /* NB: deliberately not args_[name] -- map::operator[] inserts a NULL entry
+       on every miss, which both allocates on the audio thread and pollutes the
+       map with NULLs that every iteration site then has to guard against. */
+    thArg *getArg (const string &name) const {
+        const thArgMap::const_iterator i = args_.find(name);
+        if (i != args_.end()) return i->second;
+        return NULL;
+    };
+    /* Bounded by argsize_ as well as argCount_. They agree in every ordinary
+       run, but growArgIndex() can fail and leave argCount_ ahead of the array
+       it counts, and a copied node sets argCount_ before copyArgs() has
+       rebuilt the index at all. Reading a slot that does not exist is not
+       worth saving a comparison over. */
+    thArg *getArg (int index) const {
+        if (index < 0 || index >= argCount_ || index >= argsize_) return NULL;
+        if (argindex_ == NULL) return NULL;
+        return argindex_[index];
+    };
+
+    void printArgs (void);
+
+    void setId (int newid) { id_ = newid; }
+    int id (void) const { return id_; }
+
+    bool recalc (void) const { return recalc_; }
+    void setRecalc (bool state) { recalc_ = state; }
+
+    void addChild(thNode *node) { children_.push_back(node); }
+    void addParent(thNode *node) { parents_.push_back(node); }
+
+    const thNodeList &children (void) const { return children_; }
+    const thNodeList &parents (void) const { return parents_; }
+
+    void setPlugin (thPlugin *plug) { plugin_ = plug; initSmoothing(); }
+    thPlugin *plugin (void) const { return plugin_; }
+
+    void copyArgs (const thArgMap &args);
+
+    /* GUI thread. Every arg back to its counterpart on `proto', the node
+       this one was copied from; see thSynthTree::restore. False, with
+       some args restored and some not, if the two no longer have the same
+       args -- a name looked up on the copy and invented there, say. */
+    bool restore (const thNode &proto);
+    void process (void);
+
+    /* One arg the plugin asked the engine to smooth: where the glide is,
+       and the window of it handed to the plugin while it moves. See
+       thPlugin::setArgSmooth and thSynthTree::smoothArgs. */
+    struct Smooth {
+        int index;
+        float ms, y;
+        bool primed;
+        bool control;   /* fed by a knob; see thSynthTree::feedOf */
+        thArg *ramp;
+    };
+
+    std::vector<Smooth> &smoothing (void) { return smooth_; }
+
+    /* The ramp standing in for arg `index' this window, or NULL. */
+    thArg *smoothed (int index) const {
+        for (int k = 0; k < smoothLive_; k++)
+            if (smooth_[live_[k]].index == index)
+                return smooth_[live_[k]].ramp;
+        return NULL;
+    }
+
+    void setSmoothLive (int k) { live_[smoothLive_++] = k; }
+    void clearSmoothLive (void) { smoothLive_ = 0; }
+    void initSmoothing (void);
+private:
+    /* Makes `slots' a valid subscript count for argindex_, growing it in
+       ARGCHUNK steps. Returns false, and leaves the array exactly as it was,
+       if the allocation fails. */
+    bool growArgIndex (int slots);
+
+    thArgMap args_;
+
+    thArg **argindex_;
+    int argCount_;
+    int argsize_;
+
+    thNodeList parents_, children_;
+    thPlugin *plugin_;
+
+    string nodeName_;
+    bool recalc_;
+
+    int id_;  /* id used as an index for thArg pointers */
+
+    std::vector<Smooth> smooth_;
+    std::vector<int>    live_;
+    int                 smoothLive_;
+};
+
+#endif /* TH_NODE_H */

@@ -1,0 +1,1698 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include "config.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+#include <algorithm>
+
+#include <algorithm>
+
+#include "think.h"
+#include "thUnits.h"
+
+thSynthTree::thSynthTree (const string &name, thSynth *synth)
+{
+    ionode_ = NULL;
+    nodeindex_ = NULL;   /* the destructor delete[]s this */
+    name_ = name;
+    nodecount_ = 0;
+    made_ = NULL;
+    beatsAt_ = 120;
+    inLoop_ = false;
+
+    synth_ = synth;
+}
+
+thSynthTree::thSynthTree (const thSynthTree &oldtree)
+{
+    ionode_ = NULL;
+    nodeindex_ = NULL;   /* the destructor delete[]s this */
+    nodecount_ = oldtree.nodeCount();
+    made_ = NULL;
+    beatsAt_ = 120;
+    inLoop_ = false;
+    name_ = oldtree.name();
+    desc_ = oldtree.desc();
+    synth_ = oldtree.synth();
+
+    thNode *oldionode = oldtree.IONode();
+
+    /* A tree whose .dsp never declared an `io' node, or whose parse failed
+       partway, has no ionode. Copying it yields an empty tree rather than a
+       NULL dereference; callers check IONode() before using the result. */
+    if (oldionode == NULL) {
+        fprintf(stderr,
+                "thSynthTree: cannot copy tree '%s': it has no io node\n",
+                name_.c_str());
+        return;
+    }
+
+    thNode *newnode = new thNode(*oldionode);
+
+    newNode(newnode, false);
+    ionode_ = newnode;
+
+    copyHelper(oldionode);
+}
+
+thSynthTree::~thSynthTree ()
+{
+    delete [] nodeindex_;   /* delete[] on NULL is a no-op */
+    nodeindex_ = NULL;
+
+    DestroyMap(nodes_);
+
+    /* chanargs_ was never freed -- every `@foo = ...' in every .dsp leaked a
+       thArg, once per load. */
+    DestroyMap(chanargs_);
+
+    /* Empty after desugarExprs(). Not empty when a parse failed partway, which
+       is the path that has to free them. */
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+        thExprFree(pendingExprs_[i].expr);
+}
+
+/* Bounds-checked accessor for the node index. Ids come out of parsed .dsp
+   files and out of arg pointers that may never have been resolved, so they
+   cannot be trusted as raw array subscripts. */
+thNode *thSynthTree::nodeAt (int id) const
+{
+    if (nodeindex_ == NULL || id < 0 || id >= nodecount_) {
+        return NULL;
+    }
+
+    return nodeindex_[id];
+}
+
+void thSynthTree::copyHelper (thNode *parentnode)
+{
+    thNode *data, *newnode;
+    const thNodeList &children = parentnode->children();
+
+    if (children.empty() == false)
+    {
+        for (thNodeList::const_iterator i = children.begin();
+             i != children.end(); i++)
+        {
+            data = *i;
+
+            if (data == NULL)
+            {
+                continue;
+            }
+
+            if (findNode(data->name()) == NULL)
+            {
+                newnode = new thNode(*data);
+                newNode(newnode, false);
+                copyHelper(data);
+            }
+        }
+    }
+}
+
+thArg *thSynthTree::getArg (const string &nodename, const string &argname)
+{
+    /* was nodes_.find(name_) -- looked up the tree's own name, so this overload
+       always resolved to the wrong node (or to none at all). */
+    NodeMap::const_iterator i = nodes_.find(nodename);
+
+    if (i == nodes_.end())
+    {
+        printf("WARNING!!  Trying to get args from nonexistant node %s\n",
+               nodename.c_str());
+        return NULL;
+    }
+
+    return getArg(i->second, argname);
+}
+
+/* Follow pointers and return a thArg of a float string */
+thArg *thSynthTree::getArg (thNode *node, const string &argname)
+{
+    thArg *args;
+    string argpointname;
+
+    if (node == NULL)
+    {
+        return NULL;
+    }
+
+    args = node->getArg(argname);
+
+    /* If the arg doesnt exist, make it a 0 */
+    if (args == NULL)
+    {
+        args = node->setArg(argname, 0);
+    }
+
+    while (args && (args->type() == thArg::ARG_POINTER) && node)
+    {
+        /* Recurse through the list of pointers until we get a real value. */
+        thNode *next = nodeAt(args->nodePtrId());
+
+        if (next == NULL)
+        {
+            printf("WARNING!!  Arg %s in node %s points at node id %d, which "
+                   "does not exist\n", args->name().c_str(),
+                   node->name().c_str(), args->nodePtrId());
+            return NULL;
+        }
+
+        node = next;
+
+        argpointname = args->argPtrName(); /* the arg this arg points to */
+        args = node->getArg(args->argPtrId());
+        /* If the arg doesnt exist, make it a 0 */
+        if (args == NULL)
+        {
+            args = node->setArg(argpointname, 0);
+        }
+    }   /* Maybe also add some kind of infinite-loop checking thing? */
+
+    if (args && args->type() == thArg::ARG_CHANNEL)
+    {
+        args = args->argPtr();
+    }
+
+    return args;
+}
+
+thArg *thSynthTree::getArg (thNode *node, int argindex)
+  /* Follow pointers and return a thArg of a float string */
+{
+    thArg *args;
+
+    if (node == NULL)
+    {
+        return NULL;
+    }
+
+    if ((args = node->smoothed(argindex)) != NULL)
+        return args;
+
+    args = node->getArg(argindex);
+
+    if (args && args->type() == thArg::ARG_CHANNEL)
+    {
+        args = args->argPtr();
+    }
+
+    while (args && (args->type() == thArg::ARG_POINTER) && node)
+    {
+        thNode *next = nodeAt(args->nodePtrId());
+
+        if (next == NULL)
+        {
+            printf("ERROR!  INDEXED ARG POINTS TO NODE ID %d, WHICH DOES NOT "
+                   "EXIST!\n", args->nodePtrId());
+            return NULL;
+        }
+
+        node = next;
+        args = node->getArg(args->argPtrId());
+
+        if (args == NULL)
+        {
+            printf("ERROR!  INDEXED NODE POINTS TO NOWHERE!\n");
+        }
+    }   /* Maybe also add some kind of infinite-loop checking thing? */
+
+    return args;
+}
+
+void thSynthTree::newNode (thNode *node, bool set_id)
+{
+    if (set_id)
+        node->setId(nodecount_++);
+
+    nodes_[node->name()] = node;
+}
+
+void thSynthTree::setIONode (const string &name)
+{
+    NodeMap::const_iterator i = nodes_.find (name);
+
+    if (i == nodes_.end())
+    {
+        printf ("thSynthTree::setIONode: ionode is NULL\n");
+        return;
+    }
+
+    ionode_ = i->second;
+}
+
+void thSynthTree::printIONode (void)
+{
+    if (ionode_ == NULL) {
+        return;
+    }
+
+    ionode_->printArgs();
+}
+
+void thSynthTree::setChanArg (thArg *arg)
+{
+    if (arg == NULL) {
+        return;
+    }
+
+    thArg *oldArg = chanargs_[arg->name()];
+
+    /* Guard self-assignment: deleting oldArg and then storing it back would
+       leave a dangling pointer in the map. */
+    if (oldArg == arg)
+    {
+        return;
+    }
+
+    if (oldArg)
+    {
+        /* A second `@a = ...' for the same name replaces the first, and
+           anything parked against the first is now aimed at freed memory.
+           Only reachable between the parse and foldUnits(), and only from
+           a file that declares one control twice -- but a use-after-free
+           that needs a typo to reach is still a use-after-free. */
+        for (size_t i = 0; i < unitFolds_.size(); )
+        {
+            if (unitFolds_[i].arg == oldArg)
+                unitFolds_.erase(unitFolds_.begin() + i);
+            else
+                i++;
+        }
+
+        delete oldArg;
+    }
+
+    chanargs_[arg->name()] = arg;
+}
+
+/* See thUnitFold in the header for why the fold waits. */
+void thSynthTree::deferUnitFold (thArg *arg, thUnitFold::Field field,
+                                 float literal, const string &units,
+                                 thNode *node)
+{
+    if (arg == NULL || !thUnitIsFolded(units))
+        return;
+
+    thUnitFold f;
+
+    f.arg = arg;
+    f.node = node;
+    f.field = field;
+    f.literal = literal;
+    f.units = units;
+
+    unitFolds_.push_back(f);
+}
+
+void thSynthTree::foldUnits (long sampleRate, double bpm)
+{
+    beatsAt_ = bpm;
+
+    for (size_t i = 0; i < unitFolds_.size(); i++)
+    {
+        const thUnitFold &f = unitFolds_[i];
+        const float folded = (float)thFoldUnit(f.literal, f.units, sampleRate,
+                                               bpm);
+
+        if (f.units == "beats")
+        {
+            thBeatFold b;
+
+            b.node = f.node ? f.node->name() : string();
+            b.arg = f.arg->name();
+            b.field = f.field;
+            beatFolds_.push_back(b);
+        }
+
+        switch (f.field)
+        {
+        case thUnitFold::VALUE:
+            f.arg->setValue(folded);
+            break;
+
+        case thUnitFold::MIN:
+            f.arg->setMin(folded);
+            break;
+
+        case thUnitFold::MAX:
+            f.arg->setMax(folded);
+            break;
+
+        case thUnitFold::STEP:
+            /* `true' because only the file ever reaches here -- the deferral
+               is made from a grammar action -- and typeChanArgs must still
+               leave an author's step alone afterwards. */
+            f.arg->setStep(folded, true);
+            break;
+        }
+    }
+
+    /* Cleared, not kept: this is what makes a second call a no-op rather
+       than a second fold. */
+    unitFolds_.clear();
+}
+
+void thSynthTree::followTempo (const string &chanarg, bool beats)
+{
+    for (size_t i = 0; i < beatFolds_.size(); i++)
+    {
+        if (beatFolds_[i].node.empty() && beatFolds_[i].arg == chanarg &&
+            beatFolds_[i].field == thUnitFold::VALUE)
+        {
+            if (!beats)
+                beatFolds_.erase(beatFolds_.begin() + i);
+
+            return;
+        }
+    }
+
+    if (beats)
+    {
+        thBeatFold b;
+
+        b.arg = chanarg;
+        b.field = thUnitFold::VALUE;
+        beatFolds_.push_back(b);
+    }
+}
+
+/* See the header. */
+void thSynthTree::prepare (bool voice)
+{
+    if (synth_ == NULL)
+        return;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+        if (i->second != NULL && i->second->plugin() != NULL)
+            i->second->plugin()->prepare(i->second, this,
+                                         synth_->getSampleRate(), voice);
+}
+
+void thSynthTree::retempo (double bpm, const thArgMap &chanargs)
+{
+    if (beatFolds_.empty() || bpm == beatsAt_ || bpm <= 0)
+        return;
+
+    const double ratio = beatsAt_ / bpm;
+
+    for (size_t i = 0; i < beatFolds_.size(); i++)
+    {
+        const thBeatFold &b = beatFolds_[i];
+        thArg *arg = NULL;
+
+        if (b.node.empty())
+        {
+            thArgMap::const_iterator c = chanargs.find(b.arg);
+
+            arg = (c == chanargs.end()) ? NULL : c->second;
+        }
+        else if (thNode *n = findNode(b.node))
+            arg = n->getArg(b.arg);
+
+        if (arg == NULL)
+            continue;
+
+        switch (b.field)
+        {
+        case thUnitFold::VALUE:
+            /* A value only: an arg since wired to a node has nothing of
+               its own to scale. */
+            if (arg->type() == thArg::ARG_VALUE)
+                arg->setValue((float)((*arg)[0] * ratio));
+            break;
+
+        case thUnitFold::MIN:
+            arg->setMin((float)(arg->min() * ratio));
+            break;
+
+        case thUnitFold::MAX:
+            arg->setMax((float)(arg->max() * ratio));
+            break;
+
+        case thUnitFold::STEP:
+            arg->setStep((float)(arg->step() * ratio), true);
+            break;
+        }
+    }
+
+    beatsAt_ = bpm;
+}
+
+void thSynthTree::deferExpr (thNode *node, const string &arg,
+                             thExprNode *expr)
+{
+    if (node == NULL || expr == NULL)
+    {
+        thExprFree(expr);
+        return;
+    }
+
+    dropExpr(node, arg);
+
+    thPendingExpr p;
+
+    p.node = node;
+    p.arg = arg;
+    p.expr = expr;
+
+    pendingExprs_.push_back(p);
+}
+
+void thSynthTree::dropExpr (thNode *node, const string &arg)
+{
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+    {
+        if (pendingExprs_[i].node == node && pendingExprs_[i].arg == arg)
+        {
+            thExprFree(pendingExprs_[i].expr);
+            pendingExprs_.erase(pendingExprs_.begin() + i);
+            return;
+        }
+    }
+}
+
+/* See the declaration. The three things an arg can already be, which is the
+   point -- nothing about the graph an expression becomes is new. */
+struct thSynthTree::ExprRef
+{
+    enum { VALUE, NODE, CHAN } kind;
+
+    float  value;
+    string node, arg;
+
+    ExprRef (void) : kind(VALUE), value(0) { }
+};
+
+void thSynthTree::applyRef (thNode *target, const string &arg,
+                            const ExprRef &r)
+{
+    /* setIndex(-1) for the same reason every grammar action does it: the
+       index belongs to buildArgMap, which has not run yet. */
+    switch (r.kind)
+    {
+    case ExprRef::VALUE:
+        target->setArg(arg, r.value)->setIndex(-1);
+        break;
+
+    case ExprRef::NODE:
+        target->setArg(arg, r.node, r.arg)->setIndex(-1);
+        break;
+
+    case ExprRef::CHAN:
+        target->setArg(arg, r.node)->setIndex(-1);
+        break;
+    }
+}
+
+/* One subexpression into one node, depth first, so `(a + b) * c' numbers the
+   add #1 and the mul #2 -- the order the arithmetic happens in. */
+bool thSynthTree::emitExpr (const thExprNode *e, const string &base,
+                            int &serial, ExprRef &out)
+{
+    if (e == NULL)
+        return false;
+
+    switch (e->kind)
+    {
+    case thExprNode::CONST:
+        out.kind = ExprRef::VALUE;
+        out.value = e->value;
+        return true;
+
+    case thExprNode::NODEREF:
+        out.kind = ExprRef::NODE;
+        out.node = e->node;
+        out.arg = e->arg;
+        return true;
+
+    case thExprNode::CHANREF:
+        out.kind = ExprRef::CHAN;
+        out.node = e->name;
+        return true;
+
+    case thExprNode::OP:
+    case thExprNode::CALL:
+        break;
+    }
+
+    /* Which plugin, how many args and what they are called: thExpr answers
+       it for both desugars, so a .dsp and a .gen cannot come to spell the
+       same operator differently. */
+    const char *path;
+    const char *argname[3];
+    int arity;
+
+    if (!thExprPlugin(e, path, arity, argname))
+    {
+        if (e->kind == thExprNode::OP)
+            fprintf(stderr, "thSynthTree: no node for operator '%c'\n",
+                    (char)e->op);
+        else
+            fprintf(stderr, "thSynthTree: no node for '%s()'\n",
+                    e->name.c_str());
+
+        return false;
+    }
+
+    thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
+    thPlugin *plug = pm ? pm->getOrLoadPlugin(path) : NULL;
+
+    if (plug == NULL)
+    {
+        fprintf(stderr, "thSynthTree: could not load plugin '%s', which "
+                        "'%s' needs\n", path, base.c_str());
+        return false;
+    }
+
+    /* Children first, so a subexpression's node exists before the node that
+       reads it -- and so the numbering reads bottom up. */
+    ExprRef kid[3];
+
+    for (int i = 0; i < arity; i++)
+        if (!emitExpr(e->kids[i], base, serial, kid[i]))
+            return false;
+
+    /* `#' cannot appear in a .dsp node name -- the lexer starts a comment on
+       one -- so a synthesised node can never collide with an authored one,
+       and anything printing a graph says where this one came from. */
+    char suffix[24];
+
+    snprintf(suffix, sizeof(suffix), "#%d", ++serial);
+
+    thNode *n = new thNode(base + suffix, plug);
+
+    newNode(n, true);
+
+    if (made_ != NULL)
+        made_->push_back(n->name());
+
+    for (int i = 0; i < arity; i++)
+        applyRef(n, argname[i], kid[i]);
+
+    out.kind = ExprRef::NODE;
+    out.node = n->name();
+    out.arg = "out";
+
+    return true;
+}
+
+bool thSynthTree::desugarExprs (void)
+{
+    bool ok = true;
+
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+    {
+        const thPendingExpr &p = pendingExprs_[i];
+
+        if (p.node == NULL)
+            continue;
+
+        thExprBox box;
+
+        box.node = p.node->name();
+        box.arg = p.arg;
+        box.text = thExprText(p.expr);
+
+        thExprLeaves(p.expr, box.leaves);
+
+        ExprRef r;
+        int serial = 0;
+
+        made_ = &box.made;
+
+        const bool built = emitExpr(p.expr, box.node + "." + box.arg, serial,
+                                    r);
+
+        made_ = NULL;
+
+        if (built)
+        {
+            applyRef(p.node, p.arg, r);
+            exprBoxes_.push_back(box);
+        }
+        else
+            ok = false;
+    }
+
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+        thExprFree(pendingExprs_[i].expr);
+
+    pendingExprs_.clear();
+
+    return ok;
+}
+
+const thExprBox *thSynthTree::exprBoxMaking (const string &name) const
+{
+    for (size_t i = 0; i < exprBoxes_.size(); i++)
+        for (size_t k = 0; k < exprBoxes_[i].made.size(); k++)
+            if (exprBoxes_[i].made[k] == name)
+                return &exprBoxes_[i];
+
+    return NULL;
+}
+
+/* True for what a host writes a sample per sample of: in<N>, side<N>,
+   live<N>, send<N> and the pedal. Not `say', which is a list. */
+static bool isStreamInput (const string &name)
+{
+    static const char *const prefixes[] = { INPUTPREFIX, SIDEPREFIX,
+                                            LIVEPREFIX, SENDPREFIX };
+
+    if (name == PEDALARG)
+        return true;
+
+    for (size_t p = 0; p < sizeof(prefixes) / sizeof(prefixes[0]); p++)
+    {
+        const size_t n = strlen(prefixes[p]);
+
+        if (name.size() > n && name.compare(0, n, prefixes[p]) == 0 &&
+            name.find_first_not_of("0123456789", n) == string::npos)
+            return true;
+    }
+
+    return false;
+}
+
+/* Where a pointer ends, through the io node's pointers as getArg goes:
+   the node and the index of the arg on it. */
+thNode *thSynthTree::pointerEnd (const thArg *a, int *index)
+{
+    thNode *node = NULL;
+
+    while (a && a->type() == thArg::ARG_POINTER)
+    {
+        node = nodeAt(a->nodePtrId());
+
+        if (node == NULL)
+            return NULL;
+
+        *index = a->argPtrId();
+        a = node->getArg(*index);
+    }
+
+    return node;
+}
+
+/* The nodes a node reads, with a read through an io arg that points on
+   at a node counted as reading that node. */
+void thSynthTree::readsOf (thNode *node, std::vector<thNode *> &out)
+{
+    out.clear();
+
+    const thArgMap &args = node->args();
+
+    for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
+    {
+        int index = -1;
+        thNode *end = pointerEnd(i->second, &index);
+
+        if (end && end != ionode_ &&
+            std::find(out.begin(), out.end(), end) == out.end())
+            out.push_back(end);
+    }
+}
+
+/* Tarjan's strongly connected components over what each node reads. A
+   component of more than one node, or of one that reads itself, is a
+   loop. */
+void thSynthTree::findLoops (thNode *node, std::map<thNode *, int> &order,
+                             std::map<thNode *, int> &low,
+                             std::vector<thNode *> &stack, int &counter)
+{
+    order[node] = low[node] = ++counter;
+    stack.push_back(node);
+
+    std::vector<thNode *> reads;
+
+    readsOf(node, reads);
+
+    bool self = false;
+
+    for (size_t k = 0; k < reads.size(); k++)
+    {
+        thNode *next = reads[k];
+
+        self = self || next == node;
+
+        if (order[next] == 0)
+        {
+            findLoops(next, order, low, stack, counter);
+            low[node] = std::min(low[node], low[next]);
+        }
+        else if (std::find(stack.begin(), stack.end(), next) != stack.end())
+            low[node] = std::min(low[node], order[next]);
+    }
+
+    if (low[node] != order[node])
+        return;
+
+    Loop loop;
+
+    for (thNode *n = NULL; n != node; )
+    {
+        n = stack.back();
+        stack.pop_back();
+        loop.nodes.push_back(n);
+    }
+
+    if (loop.nodes.size() > 1 || self)
+        loops_.push_back(loop);
+}
+
+/* What a loop reads from outside it, and what it writes. */
+void thSynthTree::prepareLoop (Loop &loop)
+{
+    for (size_t k = 0; k < loop.nodes.size(); k++)
+    {
+        thNode *node = loop.nodes[k];
+        thPlugin *plug = node->plugin();
+
+        loopOf_[node->id()] = (int)(&loop - &loops_[0]);
+
+        if (std::find(activelist_.begin(), activelist_.end(), node) ==
+            activelist_.end())
+            activelist_.push_back(node);
+
+        for (int i = 0; plug && i < plug->argCount(); i++)
+        {
+            thArg *a = node->getArg(i);
+
+            if (a && a->type() == thArg::ARG_VALUE &&
+                plug->getArgDir(i) == thPlugin::ARG_OUT)
+                loop.outs.push_back(a);
+        }
+    }
+
+    for (size_t k = 0; k < loop.nodes.size(); k++)
+    {
+        const thArgMap &args = loop.nodes[k]->args();
+
+        for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
+        {
+            int index = -1;
+            thNode *end = pointerEnd(i->second, &index);
+            thArg *a = end ? end->getArg(index) : NULL;
+
+            if (a == NULL || a->type() != thArg::ARG_VALUE ||
+                std::find(loop.nodes.begin(), loop.nodes.end(), end) !=
+                    loop.nodes.end() ||
+                std::find(loop.ins.begin(), loop.ins.end(), a) !=
+                    loop.ins.end())
+                continue;
+
+            const bool stream = end == ionode_ ? isStreamInput(a->name()) :
+                end->plugin() &&
+                end->plugin()->getArgDir(index) == thPlugin::ARG_OUT;
+
+            if (stream)
+                loop.ins.push_back(a);
+        }
+    }
+
+    loop.filled.assign(loop.outs.size(), 0);
+    loop.handed.assign(loop.ins.size(), 0);
+
+    const unsigned int windowlen = synth_ ? synth_->getWindowlen() : 0;
+
+    loop.inData.reserve(loop.ins.size() * windowlen);
+    loop.outData.reserve(loop.outs.size() * windowlen);
+}
+
+/* A window of a loop, one sample at a time.
+ *
+ * What the loop reads from outside it runs first, a window at once, and
+ * is handed in a sample at a time; what its nodes write is filled in
+ * with the samples it held, one after another, once the window is done,
+ * for whatever reads it after -- the host, a probe or a node downstream.
+ * `entry' is the node the walk reached the loop at.
+ * In between, every plugin on the loop runs with a window of one, which
+ * windowlencheck holds to sounding the same as any other. */
+void thSynthTree::runLoop (Loop &loop, thNode *entry, unsigned int windowlen)
+{
+    for (size_t k = 0; k < loop.nodes.size(); k++)
+    {
+        const thNodeList &children = loop.nodes[k]->children();
+
+        loop.nodes[k]->setRecalc(false);
+
+        for (thNodeList::const_iterator i = children.begin();
+             i != children.end(); ++i)
+            if (*i && (*i)->recalc() && loopOf(*i) != loopOf(loop.nodes[k]))
+                processHelper(windowlen, *i);
+    }
+
+    /* Last window left each output a window long. Inside the loop it is
+       one sample again, the last, which is what a node reading it round
+       the loop wants. */
+    for (size_t k = 0; k < loop.outs.size(); k++)
+    {
+        thArg *t = loop.outs[k];
+
+        if (loop.filled[k] && t->len() > 1)
+        {
+            const float last = (*t)[t->len() - 1];
+
+            t->allocate(1)[0] = last;
+        }
+    }
+
+    loop.inData.resize(loop.ins.size() * windowlen);
+    loop.outData.resize(loop.outs.size() * windowlen);
+
+    /* One that holds a single value already holds it at every sample. */
+    for (size_t k = 0; k < loop.ins.size(); k++)
+    {
+        loop.handed[k] = loop.ins[k]->len() > 1;
+
+        if (loop.handed[k])
+        {
+            loop.ins[k]->getBuffer(&loop.inData[k * windowlen], windowlen);
+            loop.ins[k]->allocate(1);
+        }
+    }
+
+    inLoop_ = true;
+
+    for (unsigned int s = 0; s < windowlen; s++)
+    {
+        for (size_t k = 0; k < loop.ins.size(); k++)
+            if (loop.handed[k])
+                loop.ins[k]->values()[0] = loop.inData[k * windowlen + s];
+
+        for (size_t k = 0; k < loop.nodes.size(); k++)
+            loop.nodes[k]->setRecalc(true);
+
+        /* In where the walk came in, so the read that closes the loop
+           is the one it comes round to, as it would be without one. */
+        processHelper(1, entry);
+
+        for (size_t k = 0; k < loop.nodes.size(); k++)
+            if (loop.nodes[k]->recalc())
+                processHelper(1, loop.nodes[k]);
+
+        for (size_t k = 0; k < loop.outs.size(); k++)
+            loop.outData[k * windowlen + s] = (*loop.outs[k])[0];
+    }
+
+    inLoop_ = false;
+
+    for (size_t k = 0; k < loop.ins.size(); k++)
+        if (loop.handed[k])
+            memcpy(loop.ins[k]->allocate(windowlen),
+                   &loop.inData[k * windowlen], windowlen * sizeof(float));
+
+    /* Only what a window of one left a sample long: a plugin that sizes
+       an output some other way sized it for itself. */
+    for (size_t k = 0; k < loop.outs.size(); k++)
+    {
+        loop.filled[k] = loop.outs[k]->len() == 1;
+
+        if (loop.filled[k])
+            memcpy(loop.outs[k]->allocate(windowlen),
+                   &loop.outData[k * windowlen], windowlen * sizeof(float));
+    }
+}
+
+uint32_t thSynthTree::seed (void) const
+{
+    return synth_ ? synth_->seed() : 0;
+}
+
+uint32_t thSynthTree::seedGeneration (void) const
+{
+    return synth_ ? synth_->seedGeneration() : 0;
+}
+
+void thSynthTree::process (unsigned int windowlen)
+{
+    thPlugin *plug = NULL;
+
+    if (ionode_ == NULL) {
+        return;
+    }
+
+    const thNodeList &children = ionode_->children();
+
+    ionode_->setRecalc(false);
+
+    for (thNodeList::const_iterator i = children.begin(); i != children.end();i++)
+    {
+        if (*i && (*i)->recalc() == true) {
+            processHelper(windowlen, *i);
+        }
+    }
+
+    if ((plug = ionode_->plugin())) {
+        plug->fire(ionode_, this, windowlen, synth_->getSampleRate());
+    }
+}
+
+/* See the header. */
+void thSynthTree::markAllNodes (void)
+{
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+        if (i->second != NULL)
+            i->second->setRecalc(true);
+}
+
+/* See the header. */
+thArg *thSynthTree::resolveIOArg (int index)
+{
+    if (ionode_ == NULL || index < 0)
+    {
+        return NULL;
+    }
+
+    thArg *arg = getArg(ionode_, index);
+
+    if (arg && arg->type() == thArg::ARG_CHANNEL)
+    {
+        arg = arg->argPtr();
+    }
+
+    return arg;
+}
+
+/* See the header. in0 and not in<N> for any N: a graph that declares in1 and
+   not in0 is a graph with a typo in it, and one that declares neither is an
+   instrument. */
+bool thSynthTree::takesInput (void) const
+{
+    if (ionode_ == NULL)
+    {
+        return false;
+    }
+
+    string name = INPUTPREFIX;
+
+    name += '0';
+
+    return ionode_->getArg(name) != NULL;
+}
+
+void thSynthTree::processHelper (unsigned int windowlen, thNode *node)
+{
+    if (node == NULL) {
+        return;
+    }
+
+    if (!inLoop_ && loopOf(node) >= 0)
+    {
+        runLoop(loops_[loopOf(node)], node, windowlen);
+        return;
+    }
+
+    const thNodeList &children = node->children();
+
+    node->setRecalc(false);
+
+    for (thNodeList::const_iterator i = children.begin(); i != children.end();i++)
+    {
+        if (*i && (*i)->recalc() == true) {
+            processHelper(windowlen, *i);
+        }
+    }
+
+    /* FIRE! -- the grammar permits nodes with no plugin, so this can be NULL */
+    thPlugin *plug = node->plugin();
+
+    if (plug && !node->smoothing().empty())
+        smoothArgs(node, windowlen);
+
+    if (plug) {
+        plug->fire(node, this, windowlen, synth_->getSampleRate());
+    }
+}
+
+/* What the plugin sees of each arg it asked to have smoothed, this window.
+ *
+ * An arg a knob feeds -- a chanarg, or arithmetic on chanargs, numbers
+ * and the note -- moves a window at a time, in steps; it is run through a
+ * one-pole toward each new value, a sample at a time, and the plugin is
+ * handed the glide. Once the glide arrives the arg is handed over as it
+ * is again, so a knob at rest costs nothing. Anything a signal reaches
+ * passes untouched, however long its window: at a window of one an
+ * envelope is one value long too. A voice's first window starts where
+ * the arg is. */
+void thSynthTree::smoothArgs (thNode *node, unsigned int windowlen)
+{
+    std::vector<thNode::Smooth> &sm = node->smoothing();
+
+    node->clearSmoothLive();
+
+    for (size_t k = 0; k < sm.size(); k++)
+    {
+        thNode::Smooth &s = sm[k];
+        thArg *raw = getArg(node, s.index);
+
+        if (!s.control || raw == NULL || raw->len() != 1)
+            continue;
+
+        const float x = (*raw)[0];
+
+        if (!s.primed || !thIsFinite(x) || !thIsFinite(s.y))
+        {
+            s.y = x;
+            s.primed = true;
+            s.ramp->allocate(windowlen);
+        }
+
+        if (s.y == x)
+            continue;
+
+        thGlide(s.ramp->allocate(windowlen), windowlen, s.y, x, s.ms,
+                synth_->getSampleRate());
+
+        node->setSmoothLive((int)k);
+    }
+}
+
+/* What feeds `a', an arg on `owner': a signal (0), only numbers and the
+   note (1), or a chanarg with nothing but those and arithmetic besides
+   (2), which is a knob and is what smoothArgs glides. A number alone is
+   not: a host may write a stream into one a window at a time, and at a
+   window of one that looks like a knob being turned every sample. `seen'
+   remembers nodes; one still being looked at, as a loop's are, is a
+   signal. */
+int thSynthTree::feedOf (thNode *owner, const thArg *a,
+                         std::map<thNode *, int> &seen)
+{
+    if (a == NULL)
+        return 1;
+
+    switch (a->type())
+    {
+    case thArg::ARG_CHANNEL:
+        return 2;
+    case thArg::ARG_NOTE:
+    case thArg::ARG_TEXT:
+        return 1;
+    case thArg::ARG_VALUE:
+        return owner == ionode_ && isStreamInput(a->name()) ? 0 : 1;
+    case thArg::ARG_POINTER:
+        break;
+    }
+
+    thNode *node = nodeAt(a->nodePtrId());
+
+    if (node == ionode_)
+        return feedOf(ionode_, ionode_->getArg(a->argPtrId()), seen);
+
+    if (node == NULL)
+        return 0;
+
+    std::map<thNode *, int>::const_iterator i = seen.find(node);
+
+    if (i != seen.end())
+        return i->second;
+
+    thPlugin *plug = node->plugin();
+
+    seen[node] = 0;
+
+    if (plug == NULL || plug->state() != thPlugin::PASSIVE)
+        return 0;
+
+    int feed = 1;
+    const thArgMap &args = node->args();
+
+    for (thArgMap::const_iterator j = args.begin(); j != args.end(); ++j)
+    {
+        if (j->second == NULL ||
+            plug->getArgDir(j->second->index()) != thPlugin::ARG_IN)
+            continue;
+
+        const int f = feedOf(node, j->second, seen);
+
+        if (f == 0)
+            return 0;
+
+        feed = std::max(feed, f);
+    }
+
+    seen[node] = feed;
+
+    return feed;
+}
+
+/* reset the recalc flag for nodes with active plugins */
+void thSynthTree::setActiveNodes(void)
+{
+    for (thNodeList::const_iterator i = activelist_.begin();
+         i != activelist_.end(); ++i)
+    {
+        thNode *data = *i;
+
+        if (data && data->recalc() == false)
+        {
+            data->setRecalc(true);
+            setActiveNodesHelper(data);
+        }
+    }
+}
+
+void thSynthTree::setActiveNodesHelper(thNode *node)
+{
+    const thNodeList &parents = node->parents();
+    thNode *data;
+
+    for (thNodeList::const_iterator i = parents.begin(); i != parents.end(); i++)
+    {
+        data = *i;
+
+        if (data && data->recalc() == false)
+        {
+            data->setRecalc(true);
+            setActiveNodesHelper(data);
+        }
+    }
+}
+
+/* What an arg the file never mentioned holds.
+ *
+ * Zero, but for the 14 args whose callback substitutes something else for a
+ * zero per sample -- `if (amp_max == 0) amp_max = TH_MAX', `if (mul) freq *=
+ * mul', `if (p == 0) peak = TH_MAX'. setArgDefault() transcribes those, so
+ * loading the declaration here puts the number the callback runs on where a
+ * probe and a tooltip can see it.
+ *
+ * Sound is unchanged exactly because a declared default is a transcription:
+ * `amp = 0' and no `amp' line reach the loop as the same value either way.
+ * NodeEdit::disconnect() depends on that too -- it rewrites an arg to `= 0'
+ * rather than deleting the line. scripts/argtype renders all three spellings.
+ *
+ * Inputs only: an output or ARG_STATE arg is allocated and overwritten on the
+ * first window.
+ */
+static float argDefault (const thPlugin *plugin, int index)
+{
+    if (plugin->getArgDir(index) != thPlugin::ARG_IN)
+        return 0;
+
+    if (!plugin->argHasDefault(index))
+        return 0;
+
+    return plugin->getArgDefault(index);
+}
+
+void thSynthTree::buildArgMap (void)
+{
+    thNode *curnode;  /* current node and arg in the loops */
+    thArg *curarg;
+    thPlugin *plugin;
+
+    int index;
+    int registeredargs = 0;
+
+    int k;
+
+    /* for every node in the thSynthTree */
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
+    {
+        curnode = i->second;
+
+        if (!curnode)
+        {
+            fprintf(stderr, "thSynthTree::BuildArgMap: curnode points to NULL\n");
+            continue;
+        }
+
+/* XXXXXXXXXXXXXX: RIGHT NOW the parser indexes the nodes as it reads them, it
+should not do this.  Until that is fixed (won't take long) we set the counter
+to 0 here and set the index of each node to -1 when it is first created. */
+        curnode->setArgCount(0);
+
+        /* first, set up the args that the plugin registered */
+        plugin = curnode->plugin(); /* get the node's plugin */
+        if (plugin != NULL) /* don't do this for nodes with no plugin */
+        {
+            registeredargs = plugin->argCount();
+
+            if (registeredargs == 0)
+            {
+                printf("WARNING: Node %s has registered 0 args.  It is probably doing things the old, slow way.  (%s)\n",
+                       curnode->name().c_str(),
+                       curnode->plugin()->path().c_str());
+            }
+            else
+            {
+                for (k = 0; k < registeredargs; k++)
+                {
+                    curarg = curnode->getArg(plugin->getArgName(k));
+                    /* if the arg does not exist, set it to what the plugin
+                       says an unwritten one holds */
+                    if (curarg == NULL)
+                    {
+                        curarg = curnode->setArg(plugin->getArgName(k),
+                                                 argDefault(plugin, k));
+                    }
+                    else
+                    {
+                        index = curnode->addArgToIndex(curarg);
+                        curarg->setIndex(index);
+                    }
+
+                }
+            }
+        }
+
+        const thArgMap &argiterator = curnode->args();
+
+        /* We don't need any of this because now the index is assigned via SetArg */
+        /* for each thArg inside each thNode inside the thSynthTree */
+        for (thArgMap::const_iterator j = argiterator.begin();
+             j != argiterator.end(); j++)
+        {
+            curarg = j->second;
+
+            if (curarg == NULL)
+            {
+                fprintf(stderr, "thSynthTree::BuildArgMap: curarg points to NULL\n");
+            }
+            else
+            {
+                if (curarg->index() < 0) /* has not been indexed yet */
+                {
+                    /* add the node to the index */
+                    index = curnode->addArgToIndex(curarg);
+                    curarg->setIndex(index);
+                }
+            }
+        }
+    }
+}
+
+/* A control is a `@name' block; a type is something a plugin knows about its
+ * own arg. Nothing joins the two but the wire between them -- `in1 = @blim' --
+ * so the type has to travel along it.
+ *
+ * A pass over the tree rather than a lookup at the point of use, because the
+ * answer depends on *every* consumer and not on whichever one asks first. 197
+ * of the 206 controls in the corpus drive exactly one parameter, but nine drive
+ * several, and a control feeding both a waveform selector and a mixer gain
+ * cannot become a list of six names without losing the ability to say 0.35 to
+ * the mixer.
+ *
+ * So a control is typed only by unanimous agreement, and a consumer that says
+ * nothing disagrees with one that does. "No opinion" is an opinion -- that this
+ * is an ordinary continuous number -- and it is the one held by every arg of
+ * every plugin that has not been taught otherwise.
+ *
+ * Runs after buildArgMap(), which is what makes a node arg's index equal to the
+ * plugin's registration index for it. That correspondence is already
+ * load-bearing: it is how every plugin's own `mod->getArg(node, args[IN_FREQ])'
+ * finds anything. This rides on existing structure rather than on a
+ * coincidence.
+ */
+void thSynthTree::typeChanArgs (void)
+{
+    struct Typing {
+        float step;
+        vector<string> names;
+        bool conflict;
+
+        Typing (void) : step(0), conflict(false) {}
+    };
+
+    map<string, Typing> typing;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
+    {
+        thNode *curnode = i->second;
+
+        if (curnode == NULL)
+            continue;
+
+        thPlugin *plugin = curnode->plugin();
+
+        const thArgMap &nodeargs = curnode->args();
+
+        for (thArgMap::const_iterator j = nodeargs.begin();
+             j != nodeargs.end(); j++)
+        {
+            thArg *curarg = j->second;
+
+            if (curarg == NULL || curarg->type() != thArg::ARG_CHANNEL)
+                continue;
+
+            /* What this consumer has to say. The io node has no plugin, and an
+               arg no plugin registered has no index into one; both are
+               consumers with no opinion, which is an answer here rather than a
+               reason to skip them. */
+            float step = 0;
+            vector<string> names;
+
+            if (plugin)
+            {
+                const int idx = curarg->index();
+
+                if (idx >= 0 && idx < plugin->argCount())
+                {
+                    step = plugin->getArgStep(idx);
+                    names = plugin->getArgValues(idx);
+                }
+            }
+
+            const string &control = curarg->argPtrName();
+
+            map<string, Typing>::iterator seen = typing.find(control);
+
+            if (seen == typing.end())
+            {
+                Typing t;
+
+                t.step = step;
+                t.names = names;
+
+                typing[control] = t;
+            }
+            else if (seen->second.step != step || seen->second.names != names)
+            {
+                seen->second.conflict = true;
+            }
+        }
+    }
+
+    for (map<string, Typing>::const_iterator t = typing.begin();
+         t != typing.end(); t++)
+    {
+        if (t->second.conflict)
+            continue;
+
+        if (t->second.step == 0 && t->second.names.empty())
+            continue;               /* nothing anyone had an opinion about */
+
+        thArg *chanarg = getChanArg(t->first);
+
+        if (chanarg == NULL)
+            continue;
+
+        /* The file has the last word. `@x.step' and `@x.values' are the
+           author's override, and an author who has said what a control is does
+           not want it worked out again from the other end. */
+        if (chanarg->typedByFile())
+            continue;
+
+        chanarg->setStep(t->second.step);
+
+        if (!t->second.names.empty())
+            chanarg->setValueNames(t->second.names);
+    }
+}
+
+void thSynthTree::setPointers (void)
+{
+    thNode *node;     /* for referencing nodes that curnode points to */
+    thNode *curnode;  /* current node and arg in the loops */
+    thArg *arg;
+    thArg *curarg;
+
+    /* for every node in the thSynthTree */
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
+    {
+        curnode = i->second;
+        if (!curnode)
+        {
+            fprintf(stderr,
+                    "thSynthTree::setPointers: curnode points to NULL\n");
+            continue;
+        }
+
+        const thArgMap &argiterator = curnode->args();
+
+        /* for each thArg inside each thNode inside the thSynthTree */
+        for (thArgMap::const_iterator j = argiterator.begin();
+             j != argiterator.end(); j++)
+        {
+            curarg = j->second;
+
+            if (curarg == NULL)
+            {
+                fprintf(stderr, "thSynthTree::setPointers: curarg points to NULL\n");
+            }
+
+            /* if the thArg is a pointer, set argPointNodeID to the node's ID */
+            if (curarg && curarg->type() == thArg::ARG_POINTER)
+            {
+                node = findNode(curarg->nodePtrName());
+
+                if (node == NULL)
+                {
+                    printf("setPointers: Node %s not found!!\n",
+                           curarg->nodePtrName().c_str());
+                }
+                else
+                {
+                    string argPtrName = curarg->argPtrName();
+
+                    arg = node->getArg(argPtrName);
+
+                    /* if the arg does not exist, set it to 0 */
+                    if (arg == NULL)
+                    {
+                        /* setArg() already inserts into the node's arg map and
+                           assigns an index. The old `node->args()[...] = arg'
+                           here wrote into a by-value copy and was a no-op. */
+                        arg = node->setArg(argPtrName, 0);
+                    }
+
+                    curarg->setNodePtrId(node->id());
+                    curarg->setArgPtrId(arg->index());
+                }
+            }
+        }
+    }
+}
+
+void thSynthTree::buildNodeIndex (void)
+{
+    thNode *curnode;
+
+    /* buildSynthTree() can run more than once over a tree's lifetime. */
+    delete [] nodeindex_;
+    nodeindex_ = NULL;
+
+    if (nodecount_ <= 0)
+    {
+        return;
+    }
+
+    /* Value-initialised: not every slot gets filled. The copy constructor only
+       walks nodes reachable from the ionode, so unreachable ids leave holes,
+       and those holes get dereferenced from the audio thread. */
+    nodeindex_ = new thNode*[nodecount_]();
+
+    /* for every node in the thSynthTree */
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
+    {
+        curnode = i->second;
+
+        if (curnode == NULL)
+        {
+            fprintf(stderr,
+                    "thSynthTree::buildNodeIndex: curnode points to NULL\n");
+            continue;
+        }
+
+        if (curnode->id() < 0 || curnode->id() >= nodecount_)
+        {
+            fprintf(stderr,
+                    "thSynthTree::buildNodeIndex: node '%s' has id %d, outside "
+                    "the index of %d nodes\n", curnode->name().c_str(),
+                    curnode->id(), nodecount_);
+            continue;
+        }
+
+        /* set the index to point to the thNode */
+        nodeindex_[curnode->id()] = curnode;
+    }
+}
+
+void thSynthTree::buildSynthTree (void)
+{
+    buildNodeIndex();  /* set up the index of thNodes */
+
+    if (ionode_ == NULL)
+    {
+        fprintf(stderr,
+                "thSynthTree::buildSynthTree: tree '%s' has no io node\n",
+                name_.c_str());
+        return;
+    }
+
+    /* We don't want to recalc the root if something points here */
+    ionode_->setRecalc(true);
+
+    buildSynthTreeHelper2(ionode_->args(), ionode_);
+
+    std::map<thNode *, int> order, low;
+    std::vector<thNode *> stack;
+    int counter = 0;
+
+    loops_.clear();
+    loopOf_.assign(nodecount_ > 0 ? nodecount_ : 0, -1);
+
+    for (const thNodeList::value_type &n : ionode_->children())
+        if (n && n != ionode_ && order[n] == 0)
+            findLoops(n, order, low, stack, counter);
+
+    for (size_t k = 0; k < loops_.size(); k++)
+        prepareLoop(loops_[k]);
+
+    std::map<thNode *, int> seen;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+    {
+        if (i->second == NULL)
+            continue;
+
+        std::vector<thNode::Smooth> &sm = i->second->smoothing();
+
+        for (size_t k = 0; k < sm.size(); k++)
+            sm[k].control = feedOf(i->second,
+                                   i->second->getArg(sm[k].index), seen) == 2;
+    }
+}
+
+/* A knob can move under a sounding note, so arithmetic on one has to run
+   every window like an active node, or the note keeps the value the
+   knob had when it started. */
+static bool readsChanArg (const thNode *node)
+{
+    const thArgMap &args = node->args();
+
+    for (thArgMap::const_iterator i = args.begin(); i != args.end(); ++i)
+        if (i->second && i->second->type() == thArg::ARG_CHANNEL)
+            return true;
+
+    return false;
+}
+
+int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)
+{
+    thNode *currentnode = nodeAt(nodeid);
+
+    if (currentnode == NULL)
+        return 1;
+
+    if (currentnode->recalc() == true)
+        return(1);  /* This node has already been processed */
+
+    /* This node has now been marked as processed */
+    currentnode->setRecalc(true);
+
+    /* The grammar permits nodes with no plugin, so this can be NULL. */
+    thPlugin *plug = currentnode->plugin();
+
+    if (plug && (plug->state() == thPlugin::ACTIVE ||
+                 readsChanArg(currentnode)))
+        activelist_.push_back(currentnode);
+
+    buildSynthTreeHelper2(currentnode->args(), currentnode);
+
+    return 0;
+}
+
+void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
+                                        thNode *currentnode)
+{
+    const thArg *data;
+    thNode *node;
+
+    for (thArgMap::const_iterator i = argtree.begin(); i != argtree.end(); i++)
+    {
+        data = i->second;
+
+        if (data == NULL)
+        {
+            fprintf(stderr, "thSynthTree::buildSynthTreeHelper2: data points to NULL\n");
+        }
+
+        if (data && data->type() == thArg::ARG_POINTER)
+        {
+            node = nodeAt(data->nodePtrId());
+
+            if (node == NULL)
+            {
+                /* This used to print and then dereference anyway. An arg can
+                   point at a node that setPointers() failed to resolve, so the
+                   edge simply gets dropped. */
+                printf("CRITICAL: Node %s not found -- dropping the edge from "
+                       "%s->%s\n", data->nodePtrName().c_str(),
+                       currentnode->name().c_str(), data->name().c_str());
+                continue;
+            }
+
+            currentnode->addChild(node);
+            node->addParent(currentnode);
+
+            /* Don't do the same node over and over */
+            if (node->recalc() == false)
+            {
+                buildSynthTreeHelper(currentnode, data->nodePtrId());
+            }
+        }
+    }
+}
+
+/* See the header. A copy holds the nodes reachable from the io node, under
+   the prototype's ids; the prototype may hold more. */
+bool thSynthTree::restore (const thSynthTree &proto)
+{
+    if (ionode_ == NULL || nodecount_ != proto.nodeCount())
+        return false;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
+    {
+        thNode *node = i->second;
+
+        if (node == NULL)
+            continue;
+
+        const thNode *from = proto.nodeAt(node->id());
+
+        if (from == NULL || from->name() != i->first ||
+            !node->restore(*from))
+            return false;
+
+        node->setRecalc(true);
+    }
+
+    return true;
+}
+
+void thSynthTree::listNodes(void)
+{
+    for (NodeMap::const_iterator i = nodes_.begin();
+        i != nodes_.end(); i++)
+    {
+        if (i->second == NULL) {
+            continue;
+        }
+
+        printf("%s:  %s\n", name_.c_str(), i->second->name().c_str());
+    }
+}

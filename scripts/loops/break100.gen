@@ -1,0 +1,43 @@
+# A bar of break at 100, played on the kit graphs, for dsp/samples/: what
+# osc::stretch is shown with, and something a piece can loop at any tempo
+# without the drums changing pitch. makekit.sh renders it twice and keeps
+# the second bar, so the first bar's tails are under it as they will be
+# when it wraps.
+
+name "break100";
+author "thinksynth";
+description "One bar of break at 100 BPM, for dsp/samples/loop_break100.wav.";
+
+tempo 100;
+seed 1;
+
+instrument kick  { dsp "kit_kick.dsp";  amp = 60; };
+instrument snare { dsp "kit_snare.dsp"; amp = 60; };
+instrument hat   { dsp "kit_hat.dsp";   amp = 40; };
+
+chain kick {
+    stage src gen::lsystem {
+        axiom = "F_rr rrFr rrFr rrrr";
+        depth = 0;  notes = "C2";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 100;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::lsystem {
+        axiom = "rrrr F_rr rrr<F rr>F_";
+        depth = 0;  notes = "D2";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 105;  accent = 40;
+    };
+    sink { instrument = snare; };
+};
+
+chain hat {
+    stage src gen::lsystem {
+        axiom = "FrF<F FrF<F FrF<F Fr>FF";
+        depth = 0;  notes = "F#2";
+        step = 0.25 beats;  hold = 0.1 beats;  vel = 60;  accent = 25;
+    };
+    sink { instrument = hat; };
+};

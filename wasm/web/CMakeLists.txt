@@ -1,0 +1,719 @@
+# thinksynth for the browser: libthink, every DSP plugin and every composer,
+# with the composer host, linked into one wasm module for an AudioWorklet,
+# and the page that plays it: the synth in a tab, and then the piece in a
+# tab, which is the scheduler running in the worklet too (docs/JAM.md).
+#
+#   source ~/emsdk/emsdk_env.sh
+#   emcmake cmake -S wasm/web -B build-web
+#   cmake --build build-web -j
+#   node wasm/web/serve.mjs            and open http://localhost:8080/
+#
+# The Node build in wasm/ loads plugins as side modules through dlopen. A
+# worklet has no loader and no files, so here every plugin is compiled in
+# (cmake/ThinkPlugin.cmake) and found through a table instead
+# (THINK_STATIC_PLUGINS, libthink/thDynLib.h). Everything else -- libthink's
+# sources, the plugin list, sigc++, config.h -- is wasm/'s, from
+# ../cmake/ThinkEmscripten.cmake.
+#
+# What comes out, in the build directory, is the whole site: index.html,
+# main.js, worklet.js, thinkweb.js and .wasm, the shipped .dsp, .gen and
+# .patch files the page offers, each directory with an index.json listing
+# it, and jam.html with its bundled jam.js -- the room page -- and the solo
+# page's bundled editor, sourcebox.js: the two things here with npm
+# dependencies (`npm ci' in this directory, once). And
+# manifest.json and sw.js, which make the solo page an installable app
+# that plays offline, and keep both pages on one build.
+#
+# The build directory can be served as it is, and `serve.mjs' does. For
+# putting it somewhere else there is
+#
+#   cmake --build build-web --target dist
+#
+# which installs the site, and nothing but the site, into build-web/dist/
+# with every file 644 and every directory 755, removing what was there
+# first. A copy of the build directory is not that: it carries the object
+# files and CMake's own state, and a copy keeps each file's mode from the
+# source tree, so a .dsp that is 640 there is 640 on the server and a 403
+# to the browser.
+#
+# Every module served is a .js, the wasm's glue included: a .mjs is a
+# module to a browser only if the server calls it JavaScript, and the
+# common mime.types files do not, so a .mjs on a stock nginx is served as
+# application/octet-stream and refused by Chrome (Firefox loads it with a
+# warning, which is how that stays unnoticed on one browser). .js is in
+# every mime.types there is.
+
+cmake_minimum_required(VERSION 3.20)
+
+project(thinksynth VERSION 0.1 LANGUAGES C CXX)
+
+get_filename_component(THINK_TOP "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+
+# This directory's ThinkPlugin.cmake ahead of wasm/'s, and wasm/cmake/ for
+# what the two builds share.
+list(PREPEND CMAKE_MODULE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
+
+# What a composer may export, and the prototype the generated table declares
+# each by -- `@' is where the name goes. Said here rather than in
+# ThinkPlugin.cmake because the table is written here and the list has to
+# reach both; plugins/ is a subdirectory and inherits it.
+#
+# composer_draw is among them now. It used to be the one export that could
+# not come this way -- a worklet has no canvas and there was no cairo to
+# link -- and what changed is cairo-canvas2d, which is cairo's API over a
+# display list the page replays. The composers draw through that,
+# unchanged.
+set(THINK_COMPOSER_EXPORTS init create tick receive param_changed input
+                           capture destroy draw)
+
+set(THINK_COMPOSER_PROTO_init          "int @ (thcComposerInfo *)")
+set(THINK_COMPOSER_PROTO_create        "void *@ (const thcParams *)")
+set(THINK_COMPOSER_PROTO_tick
+    "double @ (void *, const thcTransport *, thcEventSink *)")
+set(THINK_COMPOSER_PROTO_receive
+    "void @ (void *, const thcEvent *, thcEventSink *)")
+set(THINK_COMPOSER_PROTO_param_changed "void @ (void *, int)")
+set(THINK_COMPOSER_PROTO_input         "void @ (void *, const thcInputEvent *)")
+set(THINK_COMPOSER_PROTO_capture       "const char *@ (void *, int)")
+set(THINK_COMPOSER_PROTO_draw
+    "void @ (void *, cairo_t *, double, double)")
+set(THINK_COMPOSER_PROTO_destroy       "void @ (void *)")
+
+# And what a visual module may export, with the same treatment: a probe's
+# display is a module like any other (src/thVisual.h), and the page opens
+# one per armed probe.
+set(THINK_VISUAL_EXPORTS init open feed draw close cleanup)
+
+set(THINK_VISUAL_PROTO_init    "int @ (thVisual *)")
+set(THINK_VISUAL_PROTO_open    "void *@ (thVisual *, unsigned int)")
+set(THINK_VISUAL_PROTO_feed    "int @ (void *, const float *, unsigned int)")
+set(THINK_VISUAL_PROTO_draw    "int @ (void *, cairo_t *, int, int)")
+set(THINK_VISUAL_PROTO_close   "void @ (void *)")
+set(THINK_VISUAL_PROTO_cleanup "void @ (thVisual *)")
+
+# cairo, for the composers' draws and for the canvases later, as a display
+# list the page replays on a Canvas2D. It is cairo-canvas2d, from npm, and
+# thinksynth uses it the way anyone would: the package on the include
+# path, and nothing of this tree on its.
+#
+# Both halves come from the one package because they have to agree. The
+# opcodes are written down twice -- once in cairo2d.h, once in replay.js
+# -- and they carry the arity, so a header a version away from its
+# replayer does not fail to load, it reads operands as opcodes and draws
+# rubbish from the changed op onwards. One version number is what stops
+# that, and it is the lockfile's.
+#
+# Its test is built here because this is the build with a node beside it,
+# and CI runs it -- against the pinned copy, which is the one that matters
+# to this build rather than whatever upstream's own CI last saw.
+set(CAIRO2D "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/cairo-canvas2d")
+
+if(NOT EXISTS "${CAIRO2D}/CMakeLists.txt")
+  message(FATAL_ERROR
+      "cairo-canvas2d is not installed: run `npm ci` in wasm/web first.\n"
+      "The composers' cairo comes from npm, so the browser build needs "
+      "node_modules before it can configure.")
+endif()
+
+# The tiler: mullion, from npm, and the same arrangement as the replayer
+# below -- copied in beside the pages under the names they load it by.
+set(MULLION "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/mullion/src")
+
+if(NOT EXISTS "${MULLION}/panes.js")
+  message(FATAL_ERROR
+      "mullion is not installed: run `npm ci` in wasm/web first.")
+endif()
+
+set(CAIRO2D_TESTS ON CACHE BOOL "" FORCE)
+add_subdirectory("${CAIRO2D}" cairo2d)
+
+include(ThinkEmscripten)
+
+# Plugins come out of a table rather than off the disk. PUBLIC, because the
+# table's type is declared behind the same macro and the generated table
+# below has to see it.
+target_compile_definitions(think_objects PUBLIC THINK_STATIC_PLUGINS)
+
+# ---------------------------------------------------------------------------
+# The table
+# ---------------------------------------------------------------------------
+
+# What cmake/ThinkStatic.cmake recorded as plugins/CMakeLists.txt ran: every
+# DSP plugin, composer and visual, one row each. The composers' and the
+# visuals' rows are declared from the export lists and prototypes above.
+think_static_registry("${PROJECT_BINARY_DIR}/static/registry.cpp")
+
+get_property(STATIC_SOURCES GLOBAL PROPERTY THINK_STATIC_SOURCES)
+
+# ---------------------------------------------------------------------------
+# The module
+# ---------------------------------------------------------------------------
+
+# The composer host is ../cmake/ThinkEmscripten.cmake's list, shared with
+# the Node build. Nothing calls the scheduler's tick here: the audio clock
+# steps it rather than the main thread (docs/JAM.md). The composer canvas is the desktop's, compiled
+# again here: one drawing, one behaviour, two shells. CanvasContent is its
+# base; what it draws through is cairo2d's cairomm face, and what it never
+# sees is a toolkit -- the first Gtk:: that got into either would fail this
+# build, which is the guard the split exists for. The piano roll is the same
+# move for the pane below it: RollCanvas is the desktop's widget with the
+# widget taken off, and the page's second, smaller drawing of the same event
+# stream went with it.
+#
+# PanelModel and ArgPanel are the same move for a parameter panel: what a
+# control is, in as many words as it takes and none of them a widget
+# (src/PanelModel.h). The guard is this line -- they are built here, and
+# nothing here links a toolkit.
+#
+# PatchFile and PatchApply are the same move again, for what a .patch means:
+# the format, and the order a document goes onto a channel in. patch.js used
+# to hold a second reading of both, and the two had drifted -- a channel
+# effect was dropped on the floor here and nowhere else. Neither file knows
+# what a fetch is; the page hands text in. PatchSet is the slots the two
+# shells keep them in -- sixteen documents, a dirty flag and a generation --
+# so the page can say what is on a channel and whether it has been edited,
+# which is a thing the desktop has always been able to say.
+add_library(thinkweb_parts OBJECT
+    ${STATIC_SOURCES}
+    "${PROJECT_BINARY_DIR}/static/registry.cpp"
+    "${THINK_TOP}/src/gthSynthSource.cpp"
+    "${THINK_TOP}/src/thVisual.cpp"
+    "${THINK_TOP}/src/CanvasContent.cpp"
+    "${THINK_TOP}/src/ComposerCanvas.cpp"
+    "${THINK_TOP}/src/RollCanvas.cpp"
+    "${THINK_TOP}/src/NodeCanvas.cpp"
+    "${THINK_TOP}/src/NodeGraph.cpp"
+    "${THINK_TOP}/src/NodeEdit.cpp"
+    "${THINK_TOP}/src/NodeLayout.cpp"
+    "${THINK_TOP}/src/NodeCatalog.cpp"
+    "${THINK_TOP}/src/NodeMutate.cpp"
+    "${THINK_TOP}/src/NodeEvolve.cpp"
+    "${THINK_TOP}/src/NodeBreed.cpp"
+    "${THINK_TOP}/src/DspCatalog.cpp"
+    "${THINK_TOP}/src/GenCatalog.cpp"
+    "${THINK_TOP}/src/PanelModel.cpp"
+    "${THINK_TOP}/src/ArgPanel.cpp"
+    "${THINK_TOP}/src/KnobPanel.cpp"
+    "${THINK_TOP}/src/PatchFile.cpp"
+    "${THINK_TOP}/src/PatchApply.cpp"
+    "${THINK_TOP}/src/PatchSet.cpp"
+    "${THINK_TOP}/src/NodePanel.cpp"
+    "${THINK_TOP}/src/StagePanel.cpp"
+    ${THINK_COMPOSERHOST_SOURCES}
+    twdraw.cpp
+    thinknode.cpp)
+
+set(THINKWEB_INCLUDES
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${THINK_TOP}/wasm"
+    "${THINK_TOP}"
+    "${THINK_TOP}/src")
+
+target_include_directories(thinkweb_parts PRIVATE ${THINKWEB_INCLUDES})
+target_link_libraries(thinkweb_parts PRIVATE think_objects think_loader sigc
+                      cairo2d)
+
+add_executable(thinkweb thinkweb.cpp)
+target_include_directories(thinkweb PRIVATE ${THINKWEB_INCLUDES})
+target_link_libraries(thinkweb PRIVATE thinkweb_parts think_objects
+                      think_loader sigc cairo2d)
+
+# .js, not Emscripten's .mjs, for the reason at the top; EXPORT_ES6 below
+# is what makes it a module, whatever it is called.
+set_target_properties(thinkweb PROPERTIES SUFFIX ".js")
+
+# web for the worklet, node for the tests that drive the same module
+# directly. The worklet is handed the .wasm's bytes and instantiates the
+# module from them (instantiateWasm, in worklet.js; host.js says why bytes
+# and not a compiled module), so nothing here fetches.
+target_link_options(thinkweb PRIVATE
+    -sMODULARIZE=1
+    -sEXPORT_ES6=1
+    -sEXPORT_NAME=createThinkWeb
+    -sENVIRONMENT=web,node
+    -sALLOW_MEMORY_GROWTH=1
+    -sSTACK_SIZE=1MB
+    -sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString,HEAPF32,HEAPF64,HEAP32,HEAPU32,HEAPU8)
+
+# The same module again, for an Evolve toward search where the browser can
+# suspend one on a promise (JSPI): the search waits on the page's listener
+# workers for each generation's scores (thinkweb.cpp, twScoreAll; evolve.js).
+# Its own module, so that the one every page plays through needs nothing a
+# browser without JSPI lacks.
+add_executable(thinkevolve thinkweb.cpp)
+target_compile_definitions(thinkevolve PRIVATE TW_SCORE_ELSEWHERE)
+target_include_directories(thinkevolve PRIVATE ${THINKWEB_INCLUDES})
+target_link_libraries(thinkevolve PRIVATE thinkweb_parts think_objects
+                      think_loader sigc cairo2d)
+set_target_properties(thinkevolve PROPERTIES SUFFIX ".js")
+target_link_options(thinkevolve PRIVATE
+    -sMODULARIZE=1
+    -sEXPORT_ES6=1
+    -sEXPORT_NAME=createThinkEvolve
+    -sENVIRONMENT=web,worker
+    -sALLOW_MEMORY_GROWTH=1
+    -sSTACK_SIZE=1MB
+    -sJSPI=1
+    -sJSPI_EXPORTS=tw_evolve
+    -sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString,HEAPU8)
+
+# ---------------------------------------------------------------------------
+# The site
+# ---------------------------------------------------------------------------
+
+# The page and its scripts, copied beside the module so the build directory
+# is a site on its own: serve it, or put it anywhere that serves files.
+#
+set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
+                keyfocus.js panel.js patch.js host.js worklet.js
+                engine.js mic.js midi.js midiout.js midioutui.js clock.js
+                mirror.js ear.js evolve.js evolveui.js growui.js bandchords.js
+                bandideas.js bandkey.js bandview.js canvasview.js composerview.js
+                seqview.js nodeview.js rollview.js tapediff.js offline.js
+                layouts.js packs.js takes.js manifest.json
+                silent.js horizon.js lookahead.js thinksynth.js)
+set(SITE_OUTPUTS "")
+
+foreach(f IN LISTS SITE_SOURCES)
+  get_filename_component(name "${f}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${CMAKE_CURRENT_SOURCE_DIR}/${f}" "${PROJECT_BINARY_DIR}/${name}"
+      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/${name}")
+endforeach()
+
+# tape.mjs is wasm/'s, not this directory's: the worklet reads the tape out
+# of the heap with the same code genwav.mjs does, which is what makes
+# comparing the two tapes a claim about the piece (wasm/twevent.h). It
+# keeps its name there, where Node reads it, and is served as tape.js.
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/tape.js"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs" "${PROJECT_BINARY_DIR}/tape.js"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/tape.js")
+
+# And the replayer, which is cairo-canvas2d's: the other half of the cairo
+# stand-in the module draws through, and the only part of it that is
+# JavaScript. It keeps its name here, where the page loads it by name, and
+# is served beside the page that replays with it.
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/replay.js"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CAIRO2D}/replay.js"
+            "${PROJECT_BINARY_DIR}/replay.js"
+    DEPENDS "${CAIRO2D}/replay.js")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/replay.js")
+
+# And the tiler, which is mullion's, under the names it has there.
+foreach(name panes.js panes.css popover.js)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${MULLION}/${name}" "${PROJECT_BINARY_DIR}/${name}"
+      DEPENDS "${MULLION}/${name}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/${name}")
+endforeach()
+
+# The shipped DSPs -- dsp/*.dsp -- and the list the page's menu is filled
+# from. Patch mode plays one of these directly; a piece's instruments and a
+# .patch's `dsp' line are both looked up among them. This glob skipped the
+# effects/, noargs/ and old/ drawers for years while the desktop install
+# shipped them; the drawers have since gone, so the two agree by there being
+# nothing left to disagree about.
+file(GLOB SHIPPED_DSP "${THINK_TOP}/dsp/*.dsp")
+list(SORT SHIPPED_DSP)
+
+set(dsp_names "")
+
+foreach(f IN LISTS SHIPPED_DSP)
+  get_filename_component(name "${f}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/dsp/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${f}" "${PROJECT_BINARY_DIR}/dsp/${name}"
+      DEPENDS "${f}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/dsp/${name}")
+  list(APPEND dsp_names "\"${name}\"")
+endforeach()
+
+# The effect graphs -- dsp/fx/*.dsp -- go into the same list, as
+# `fx/<name>', which is how a piece's `effect' clause spells them and how
+# the loader looks them up under dsp/. The page hands every name in the
+# list to the worklet, so an effect reaches the module the way an
+# instrument does; what treats the list as playable patches -- the patch
+# menu, check.mjs -- skips the `fx/' entries, since an effect is not a
+# note-playing graph (docs/DSP_FORMAT.md, "An effect graph").
+file(GLOB SHIPPED_FX "${THINK_TOP}/dsp/fx/*.dsp")
+list(SORT SHIPPED_FX)
+
+foreach(f IN LISTS SHIPPED_FX)
+  get_filename_component(name "${f}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/dsp/fx/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${f}" "${PROJECT_BINARY_DIR}/dsp/fx/${name}"
+      DEPENDS "${f}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/dsp/fx/${name}")
+  list(APPEND dsp_names "\"fx/${name}\"")
+endforeach()
+
+# And the kit -- dsp/samples/*.wav -- as `samples/<name>', which is how
+# osc::sample's `file' arg is looked up (thUtil::findDataFile under
+# `samples/'). They go in the same list for the same reason the effect
+# graphs do: the page hands every name in it to the worklet, and a
+# worklet cannot fetch. What differs is that these are bytes rather than
+# text, so main.js fetches them as ArrayBuffers and hands them over
+# through tw_sample rather than tw_instrument, and everything that treats
+# the list as playable patches skips them along with the `fx/' entries.
+#
+# The wavs in dsp/samples/ are committed. The `kit' target rewrites them
+# (scripts/makekit.sh renders the tree's own drum graphs) only when asked,
+# so the glob sees whatever the tree holds.
+file(GLOB SHIPPED_SAMPLES "${THINK_TOP}/dsp/samples/*.wav")
+list(SORT SHIPPED_SAMPLES)
+
+foreach(f IN LISTS SHIPPED_SAMPLES)
+  get_filename_component(name "${f}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/dsp/samples/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${f}" "${PROJECT_BINARY_DIR}/dsp/samples/${name}"
+      DEPENDS "${f}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/dsp/samples/${name}")
+  list(APPEND dsp_names "\"samples/${name}\"")
+endforeach()
+
+list(JOIN dsp_names ", " dsp_names)
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/dsp/index.json"
+     CONTENT "[${dsp_names}]\n")
+
+# The shipped pieces, and their list. The page offers these; the worklet
+# hands the .dsp files above to the module before it loads one, since an
+# instrument is a .dsp looked up by name and a worklet cannot fetch.
+file(GLOB SHIPPED_GEN "${THINK_TOP}/gen/*.gen")
+list(SORT SHIPPED_GEN)
+
+set(gen_names "")
+
+foreach(f IN LISTS SHIPPED_GEN)
+  get_filename_component(name "${f}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/gen/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${f}" "${PROJECT_BINARY_DIR}/gen/${name}"
+      DEPENDS "${f}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/gen/${name}")
+  list(APPEND gen_names "\"${name}\"")
+endforeach()
+
+list(JOIN gen_names ", " gen_names)
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/gen/index.json"
+     CONTENT "[${gen_names}]\n")
+
+# The shipped patches, the whole tree -- a .patch lives in a drawer named
+# for what it is, `leads/SuperRes.patch', and the relative name is the name
+# the desktop's thinkrc uses and the one the index lists. Recursive, unlike
+# the .dsp glob above, because for these the drawers are the content.
+#
+# What the page does with them: a piece that names a channel and declares
+# no instrument for it is asking the reader to aim it, and the page aims it
+# at gthPrefs.cpp's first-run patch for that channel (patch.js). The .dsp a
+# patch names is one of the ones copied above; nothing here fetches a .dsp
+# of its own.
+file(GLOB_RECURSE SHIPPED_PATCH RELATIVE "${THINK_TOP}/patches"
+     "${THINK_TOP}/patches/*.patch")
+
+# A .patch loose at the top of the tree is not one of the shipped sounds:
+# patches/test.patch is a 2004 fixture by J. Random Hacker, and offering it
+# in the page's menus as a bare "test" above the drawers is the same kind of
+# noise dsp/'s old drawers were. The drawer is the content here, so the top
+# level is what gets dropped rather than what gets kept -- which is the
+# opposite of how it went for the DSPs, where the drawers were what went and
+# the top level is what stayed.
+list(FILTER SHIPPED_PATCH EXCLUDE REGEX "^[^/]+$")
+list(SORT SHIPPED_PATCH)
+
+set(patch_names "")
+
+foreach(rel IN LISTS SHIPPED_PATCH)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/patches/${rel}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${THINK_TOP}/patches/${rel}"
+              "${PROJECT_BINARY_DIR}/patches/${rel}"
+      DEPENDS "${THINK_TOP}/patches/${rel}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/patches/${rel}")
+  list(APPEND patch_names "\"${rel}\"")
+endforeach()
+
+list(JOIN patch_names ", " patch_names)
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/patches/index.json"
+     CONTENT "[${patch_names}]\n")
+
+# The room page's script is bundled: it has an editor, a CRDT and a
+# provider, which come from node_modules and go nowhere a browser could
+# fetch them from. The solo page's code editor, sourcebox.js, is bundled
+# the same way by the same run. Both pages need it, so esbuild is as
+# required as the packages above.
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/esbuild")
+  message(FATAL_ERROR
+      "The pages' editors are bundled with esbuild, from npm: run `npm ci' "
+      "in ${CMAKE_CURRENT_SOURCE_DIR} and configure again.")
+endif()
+
+# package-lock.json among the dependencies because the bundles contain
+# what it pins: a dependency bumped without it here would rebuild nothing
+# and serve the old editor.
+set(BUNDLE_SOURCES jam.js chat.js room.js mesh.js editor.js doc.js clock.js
+                   account.js accountui.js confusables.js
+                   commands.js host.js keyboard.js panel.js patch.js mic.js
+                   midi.js midiout.js midioutui.js ../tape.mjs
+                   canvasview.js composerview.js nodeview.js rollview.js
+                   tapediff.js offline.js layouts.js sourcebox.js seqview.js
+                   packs.js evolveui.js
+                   thinklang.js bundle.mjs package-lock.json)
+set(BUNDLE_DEPENDS "")
+
+foreach(f IN LISTS BUNDLE_SOURCES)
+  list(APPEND BUNDLE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
+endforeach()
+
+add_custom_command(
+    OUTPUT "${PROJECT_BINARY_DIR}/jam.js" "${PROJECT_BINARY_DIR}/sourcebox.js"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
+            "${PROJECT_BINARY_DIR}"
+    DEPENDS ${BUNDLE_DEPENDS}
+    COMMENT "Bundling the room page and the solo page's editor")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js"
+                         "${PROJECT_BINARY_DIR}/sourcebox.js")
+
+# For dist below. The maps go too: they are fetched only when somebody
+# opens the devtools, and a phone is where that somebody most wants them.
+set(BUNDLE_DIST_FILES "${PROJECT_BINARY_DIR}/jam.js"
+                      "${PROJECT_BINARY_DIR}/jam.js.map"
+                      "${PROJECT_BINARY_DIR}/sourcebox.js"
+                      "${PROJECT_BINARY_DIR}/sourcebox.js.map")
+
+# Where the relay is, for a site served from anywhere. serve.mjs --relay
+# answers this itself; a static host edits the file.
+if(NOT EXISTS "${PROJECT_BINARY_DIR}/config.json")
+  file(WRITE "${PROJECT_BINARY_DIR}/config.json" "{ \"relay\": null }\n")
+endif()
+
+# The install icons: the application's SVG, and the PNGs scripts/make-icons.py
+# renders from it for the browsers that want a bitmap. manifest.json names
+# all three.
+set(SITE_ICONS "${THINK_TOP}/data/org.thinksynth.thinksynth.svg=icon.svg"
+               "${CMAKE_CURRENT_SOURCE_DIR}/icons/icon-192.png=icon-192.png"
+               "${CMAKE_CURRENT_SOURCE_DIR}/icons/icon-512.png=icon-512.png")
+set(DIST_ICON_FILES "")
+
+foreach(pair IN LISTS SITE_ICONS)
+  string(REPLACE "=" ";" pair "${pair}")
+  list(GET pair 0 from)
+  list(GET pair 1 name)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/icons/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${from}" "${PROJECT_BINARY_DIR}/icons/${name}"
+      DEPENDS "${from}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/icons/${name}")
+  list(APPEND DIST_ICON_FILES "${PROJECT_BINARY_DIR}/icons/${name}")
+endforeach()
+
+# The service worker, which keeps the site for offline use
+# (serviceworker.js). What it keeps is every file here either page can
+# load: everything above, the room page's two included, plus the module
+# and the indexes, which are not custom command outputs. precache.mjs
+# hashes them into sw.js, so a build that changes one is a new version to
+# a browser.
+set(PRECACHE_FILES ${SITE_OUTPUTS})
+list(APPEND PRECACHE_FILES
+    "${PROJECT_BINARY_DIR}/thinkweb.js"
+    "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+    "${PROJECT_BINARY_DIR}/thinkevolve.js"
+    "${PROJECT_BINARY_DIR}/thinkevolve.wasm"
+    "${PROJECT_BINARY_DIR}/dsp/index.json"
+    "${PROJECT_BINARY_DIR}/gen/index.json"
+    "${PROJECT_BINARY_DIR}/patches/index.json")
+list(JOIN PRECACHE_FILES "\n" precache_list)
+
+# What sw.js is rebuilt on is the same list less the .wasm files, which
+# each link writes beside its .js without Ninja knowing it has a rule:
+# named here, a fresh tree stops with "no known rule to make it". The .js
+# is written by the same link, so depending on it covers both.
+set(PRECACHE_DEPENDS ${PRECACHE_FILES})
+list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+                                   "${PROJECT_BINARY_DIR}/thinkevolve.wasm")
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/precache.list"
+     CONTENT "${precache_list}\n")
+
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
+            "${PROJECT_BINARY_DIR}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
+            "${PROJECT_BINARY_DIR}/precache.list"
+    DEPENDS ${PRECACHE_DEPENDS} thinkweb thinkevolve
+            "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
+            "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
+            "${PROJECT_BINARY_DIR}/precache.list"
+    COMMENT "Writing the service worker")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/sw.js")
+
+add_custom_target(site ALL DEPENDS ${SITE_OUTPUTS})
+
+# ---------------------------------------------------------------------------
+# dist
+# ---------------------------------------------------------------------------
+
+# The site, installed: the files a server needs and no others, each with
+# the mode a web server can read whatever the source tree's was. The
+# install rules use the prefix as the site root, so
+# `cmake --install build-web --prefix DIR' puts index.html at DIR/index.html.
+# The dist target below is that, into build-web/dist/, after removing
+# whatever an earlier dist left, so a stale file cannot ride along.
+
+set(SITE_FILE_MODE OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+set(CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE
+    GROUP_READ GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE)
+
+# The pages, their scripts and the bundle, from the build directory, since
+# that is where the copies and the bundles are.
+set(DIST_ROOT_FILES "")
+foreach(f IN LISTS SITE_SOURCES)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_ROOT_FILES "${PROJECT_BINARY_DIR}/${name}")
+endforeach()
+list(APPEND DIST_ROOT_FILES
+    "${PROJECT_BINARY_DIR}/tape.js"
+    "${PROJECT_BINARY_DIR}/replay.js"
+    "${PROJECT_BINARY_DIR}/panes.js"
+    "${PROJECT_BINARY_DIR}/panes.css"
+    "${PROJECT_BINARY_DIR}/popover.js"
+    ${BUNDLE_DIST_FILES}
+    "${PROJECT_BINARY_DIR}/config.json"
+    "${PROJECT_BINARY_DIR}/sw.js"
+    "$<TARGET_FILE:thinkweb>"
+    "${PROJECT_BINARY_DIR}/thinkweb.wasm"
+    "$<TARGET_FILE:thinkevolve>"
+    "${PROJECT_BINARY_DIR}/thinkevolve.wasm")
+
+install(FILES ${DIST_ROOT_FILES} DESTINATION . PERMISSIONS ${SITE_FILE_MODE})
+install(FILES ${DIST_ICON_FILES} DESTINATION icons PERMISSIONS ${SITE_FILE_MODE})
+
+# The shipped patches and pieces, from the build directory's copies, with
+# their index.json: what the page's menus are filled from.
+set(DIST_DSP_FILES "${PROJECT_BINARY_DIR}/dsp/index.json")
+foreach(f IN LISTS SHIPPED_DSP)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_DSP_FILES "${PROJECT_BINARY_DIR}/dsp/${name}")
+endforeach()
+install(FILES ${DIST_DSP_FILES} DESTINATION dsp PERMISSIONS ${SITE_FILE_MODE})
+
+set(DIST_FX_FILES "")
+foreach(f IN LISTS SHIPPED_FX)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_FX_FILES "${PROJECT_BINARY_DIR}/dsp/fx/${name}")
+endforeach()
+install(FILES ${DIST_FX_FILES} DESTINATION dsp/fx PERMISSIONS ${SITE_FILE_MODE})
+
+# And the kit. dsp/index.json names these the same way it names a graph, so
+# the page asks the server for every one of them whatever is installed --
+# and fetch() does not reject on a 404, so a missing wav arrives as the
+# error page's bytes and osc::sample is handed something that is not a
+# RIFF. Nothing throws; the instruments that play a recording just stop
+# making a sound, which is a long way to look from the symptom.
+set(DIST_SAMPLE_FILES "")
+foreach(f IN LISTS SHIPPED_SAMPLES)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_SAMPLE_FILES "${PROJECT_BINARY_DIR}/dsp/samples/${name}")
+endforeach()
+
+if(DIST_SAMPLE_FILES)
+  install(FILES ${DIST_SAMPLE_FILES}
+          DESTINATION dsp/samples PERMISSIONS ${SITE_FILE_MODE})
+endif()
+
+set(DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/index.json")
+foreach(f IN LISTS SHIPPED_GEN)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/${name}")
+endforeach()
+install(FILES ${DIST_GEN_FILES} DESTINATION gen PERMISSIONS ${SITE_FILE_MODE})
+
+# And the patches: one install rule per drawer, since a destination is one
+# directory, and an explicit list rather than the directory the build made.
+# Installing that directory would be shorter and would also carry a stale
+# file -- copy_if_different adds and never removes, so a .patch that has
+# been renamed, or dropped from the glob as patches/test.patch was, sits
+# there until somebody deletes the build directory. `the files a server
+# needs and no others' has to mean the list, not the leftovers.
+install(FILES "${PROJECT_BINARY_DIR}/patches/index.json"
+        DESTINATION patches PERMISSIONS ${SITE_FILE_MODE})
+
+set(DIST_PATCH_DIRS "")
+foreach(rel IN LISTS SHIPPED_PATCH)
+  get_filename_component(dir "${rel}" DIRECTORY)
+  list(APPEND DIST_PATCH_DIRS "${dir}")
+endforeach()
+list(REMOVE_DUPLICATES DIST_PATCH_DIRS)
+
+foreach(dir IN LISTS DIST_PATCH_DIRS)
+  set(DIST_PATCH_FILES "")
+
+  foreach(rel IN LISTS SHIPPED_PATCH)
+    get_filename_component(d "${rel}" DIRECTORY)
+
+    if(d STREQUAL dir)
+      list(APPEND DIST_PATCH_FILES "${PROJECT_BINARY_DIR}/patches/${rel}")
+    endif()
+  endforeach()
+
+  install(FILES ${DIST_PATCH_FILES}
+          DESTINATION "patches/${dir}" PERMISSIONS ${SITE_FILE_MODE})
+endforeach()
+
+# The sample packs' index, empty: the deploy builds the packs into
+# dist/packs/ with scripts/packs.py, index and all, after this. Here so a
+# build without them answers the page's question rather than 404ing it, and
+# not precached, because the service worker would go on answering with the
+# copy it had after a deploy added packs.
+file(WRITE "${PROJECT_BINARY_DIR}/packs/index.json" "[]\n")
+install(FILES "${PROJECT_BINARY_DIR}/packs/index.json"
+        DESTINATION packs PERMISSIONS ${SITE_FILE_MODE})
+
+set(DIST_DIR "${PROJECT_BINARY_DIR}/dist")
+
+add_custom_target(dist
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${DIST_DIR}"
+    COMMAND "${CMAKE_COMMAND}" --install "${PROJECT_BINARY_DIR}"
+            --prefix "${DIST_DIR}"
+    COMMENT "Packaging the site into ${DIST_DIR}"
+    VERBATIM)
+add_dependencies(dist site thinkweb thinkevolve)
+
+# The SDK (docs/SDK.md): the modules a page that is not this one needs,
+# the module itself, and the graphs and samples a piece may name, as one
+# directory a game serves or installs as a package. Copied from the site
+# above rather than built again, so the two cannot differ.
+set(SDK_DIR "${PROJECT_BINARY_DIR}/sdk")
+set(SDK_FILES thinksynth.js host.js horizon.js lookahead.js silent.js
+              engine.js worklet.js mirror.js ear.js evolve.js tape.js
+              thinkweb.js thinkweb.wasm thinkevolve.js thinkevolve.wasm)
+list(TRANSFORM SDK_FILES PREPEND "${PROJECT_BINARY_DIR}/")
+configure_file(sdk/package.json.in "${PROJECT_BINARY_DIR}/sdk.package.json"
+               @ONLY)
+
+add_custom_target(sdk
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${SDK_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${SDK_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy ${SDK_FILES} "${SDK_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${PROJECT_BINARY_DIR}/dsp" "${SDK_DIR}/dsp"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${PROJECT_BINARY_DIR}/gen" "${SDK_DIR}/gen"
+    COMMAND "${CMAKE_COMMAND}" -E copy
+            "${PROJECT_BINARY_DIR}/sdk.package.json"
+            "${SDK_DIR}/package.json"
+    COMMAND "${CMAKE_COMMAND}" -E copy
+            "${THINK_TOP}/docs/SDK.md" "${SDK_DIR}/README.md"
+    COMMENT "Packaging the SDK into ${SDK_DIR}"
+    VERBATIM)
+add_dependencies(sdk site thinkweb thinkevolve)

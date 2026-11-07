@@ -1,0 +1,787 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * dspnodes -- docs/NODES.md, from the plugins themselves.
+ *
+ *     scripts/dspnodes -p plugins/ -o docs/NODES.md
+ *     scripts/dspnodes -p plugins/ -c docs/NODES.md      # the CI gate
+ *     scripts/dspnodes -p plugins/ --json                 # for a program
+ *
+ * What a plugin's args are, what they are measured in and what range they
+ * accept lives in the plugin -- setArgDesc, setArgRange, setArgUnits,
+ * setArgDefault, setArgValues. Nothing collected it, so the only way to learn
+ * that filt::moog wants a cutoff from 0 to 1 while filt::res2pole2 wants
+ * hertz was to read both callbacks.
+ *
+ * The catalogue walk is the palette's (NodeCatalog), so the reference covers
+ * exactly what the editor offers, and the metadata is read straight off
+ * thPlugin. Hand-writing any of it would put a second copy beside the first
+ * and let them drift; instead `-c' diffs the committed file against a fresh
+ * one, and the build fails if they differ.
+ *
+ * Exit status is 0, 1 for a comparison that failed or a file that could not be
+ * written, 2 for bad usage.
+ */
+
+#include "config.h"
+
+#include <locale.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "think.h"
+
+#include "JsonOut.h"
+#include "NodeCatalog.h"
+
+/* A cell's worth of float: %g, and nothing at all for an arg that declared
+   none. */
+static std::string
+number (float v)
+{
+    char buf[32];
+
+    snprintf(buf, sizeof(buf), "%g", v);
+
+    return buf;
+}
+
+/* `|' ends a cell, so an arg description containing one would rewrite the
+   table. None does; escaping it is a line against the day one does. */
+static std::string
+cell (const std::string &s)
+{
+    std::string out;
+
+    for (size_t i = 0; i < s.size(); i++)
+    {
+        if (s[i] == '|')
+            out += '\\';
+
+        out += s[i];
+    }
+
+    return out;
+}
+
+static const char *
+dirName (thPlugin::ArgDir d)
+{
+    switch (d)
+    {
+        case thPlugin::ARG_OUT:   return "out";
+        case thPlugin::ARG_STATE: return "state";
+        default:                  return "in";
+    }
+}
+
+/* One plugin's section. */
+static void
+writePlugin (std::ostream &o, const std::string &spelling, thPlugin *p)
+{
+    o << "### " << spelling << "\n\n";
+
+    if (p == NULL)
+    {
+        o << "Does not load.\n\n";
+        return;
+    }
+
+    if (!p->desc().empty())
+        o << cell(p->desc()) << "\n\n";
+
+    if (p->argCount() == 0)
+    {
+        o << "No args.\n\n";
+        return;
+    }
+
+    o << "| Arg | Dir | Description | Default | Range | Units | Values |\n";
+    o << "|---|---|---|---|---|---|---|\n";
+
+    for (int k = 0; k < p->argCount(); k++)
+    {
+        std::string range;
+
+        if (p->argHasRange(k))
+            range = number(p->getArgMin(k)) + " to " + number(p->getArgMax(k));
+
+        std::string values;
+
+        const vector<string> &names = p->getArgValues(k);
+
+        for (size_t i = 0; i < names.size(); i++)
+        {
+            if (names[i].empty())
+                continue;   /* an index the plugin does not implement */
+
+            if (!values.empty())
+                values += ", ";
+
+            values += number((float)i) + " = " + cell(names[i]);
+        }
+
+        o << "| `" << p->getArgName(k) << "` "
+          << "| " << dirName(p->getArgDir(k)) << " "
+          << "| " << cell(p->getArgDesc(k)) << " "
+          << "| " << (p->argHasDefault(k) ? number(p->getArgDefault(k)) : "")
+          << " | " << range
+          << " | " << cell(p->getArgUnits(k))
+          << " | " << values << " |\n";
+    }
+
+    o << "\n";
+}
+
+static bool
+writeReference (std::ostream &o, const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    thPluginManager *pm = synth.getPluginManager();
+
+    if (pm == NULL)
+        return false;
+
+    NodeCatalog cat;
+
+    if (cat.scan(pm->pluginPath()) == 0)
+        return false;
+
+    o << "# Node reference\n"
+         "\n"
+         "Every plugin the build makes, and what each of its args is for.\n"
+         "\n"
+         "**Generated by `scripts/dspnodes`.** Do not edit: run\n"
+         "`cmake --build build --target nodes` after changing any of a\n"
+         "plugin's `setArgDesc`, `setArgRange`, `setArgUnits`,\n"
+         "`setArgDefault` or `setArgValues` calls, or its `setDesc`. CI\n"
+         "regenerates it and fails if the two differ, so the reference\n"
+         "cannot go stale.\n"
+         "\n"
+         "**Dir** is `in` for an arg a .dsp may write or wire, `out` for one\n"
+         "the plugin writes, and `state` for scratch it keeps between windows\n"
+         "-- a delay line's ring, an envelope's position. State is listed for\n"
+         "completeness; it is not a port and nothing may wire it.\n"
+         "\n"
+         "**Default** is what the callback treats a 0 in that arg as meaning,\n"
+         "where it treats one specially at all. **Range** is the span the\n"
+         "callback is defined over, which for a filter is the span its\n"
+         "coefficients stay stable across -- not a control's travel, which is\n"
+         "the .dsp's business. An empty cell is a plugin that has not said.\n"
+         "\n"
+         "The composer modules under `plugins/composer` and the visualizers\n"
+         "under `plugins/visual` are not nodes and are not here; see\n"
+         "docs/GEN_FORMAT.md and docs/VISUALIZERS.md.\n"
+         "\n";
+
+    for (size_t c = 0; c < cat.categories().size(); c++)
+    {
+        const std::string &category = cat.categories()[c];
+
+        if (!NodeCatalog::isNodeCategory(category))
+            continue;
+
+        const vector<NodeCatalog::Entry> &list = cat.inCategory(category);
+
+        o << "## " << category << "\n\n";
+
+        for (size_t e = 0; e < list.size(); e++)
+        {
+            const std::string path = category + "/" + list[e].name;
+
+            writePlugin(o, list[e].spelling, pm->getOrLoadPlugin(path));
+        }
+    }
+
+    return true;
+}
+
+/* The same walk and the same facts as the reference, for a program that
+   writes graphs: a node per entry, its args with what the table shows. */
+static bool
+writeJson (std::string &o, const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    thPluginManager *pm = synth.getPluginManager();
+    NodeCatalog cat;
+
+    if (pm == NULL || cat.scan(pm->pluginPath()) == 0)
+        return false;
+
+    o += '[';
+
+    for (size_t c = 0; c < cat.categories().size(); c++)
+    {
+        const std::string &category = cat.categories()[c];
+
+        if (!NodeCatalog::isNodeCategory(category))
+            continue;
+
+        const vector<NodeCatalog::Entry> &list = cat.inCategory(category);
+
+        for (size_t e = 0; e < list.size(); e++)
+        {
+            thPlugin *p = pm->getOrLoadPlugin(category + "/" + list[e].name);
+
+            if (p == NULL)
+                continue;
+
+            if (o.size() > 1)
+                o += ',';
+
+            o += "{\"node\":";
+            jsonString(o, list[e].spelling);
+            o += ",\"description\":";
+            jsonString(o, p->desc());
+            o += ",\"args\":[";
+
+            for (int k = 0; k < p->argCount(); k++)
+            {
+                o += k ? ",{\"name\":" : "{\"name\":";
+                jsonString(o, p->getArgName(k));
+                o += ",\"dir\":";
+                jsonString(o, dirName(p->getArgDir(k)));
+                o += ",\"description\":";
+                jsonString(o, p->getArgDesc(k));
+
+                if (p->argHasDefault(k))
+                {
+                    o += ",\"default\":";
+                    jsonNumber(o, p->getArgDefault(k));
+                }
+
+                if (p->argHasRange(k))
+                {
+                    o += ",\"min\":";
+                    jsonNumber(o, p->getArgMin(k));
+                    o += ",\"max\":";
+                    jsonNumber(o, p->getArgMax(k));
+                }
+
+                if (!p->getArgUnits(k).empty())
+                {
+                    o += ",\"units\":";
+                    jsonString(o, p->getArgUnits(k));
+                }
+
+                const vector<string> &names = p->getArgValues(k);
+
+                if (!names.empty())
+                {
+                    o += ",\"values\":{";
+
+                    bool first = true;
+
+                    for (size_t i = 0; i < names.size(); i++)
+                        if (!names[i].empty())
+                        {
+                            o += first ? "" : ",";
+                            jsonString(o, std::to_string(i));
+                            o += ':';
+                            jsonString(o, names[i]);
+                            first = false;
+                        }
+
+                    o += '}';
+                }
+
+                o += '}';
+            }
+
+            o += "]}";
+        }
+    }
+
+    o += ']';
+
+    return true;
+}
+
+/* Carriage returns out.
+ *
+ * GitHub's Windows runners set core.autocrlf, so the committed file arrives
+ * there with CRLF while this generator writes LF -- and the comparison then
+ * failed on line 1, printing two copies of "# Node reference" and calling them
+ * different. .gitattributes pins docs/NODES.md to LF, which fixes it for a fresh
+ * checkout; this fixes it for a tree that predates that line. The same two
+ * belts the artwork wears, for the same reason. */
+static std::string
+unixEndings (const std::string &s)
+{
+    std::string out;
+
+    out.reserve(s.size());
+
+    for (size_t i = 0; i < s.size(); i++)
+        if (s[i] != '\r')
+            out += s[i];
+
+    return out;
+}
+
+/* The gate: the committed file against a fresh one, with the first line they
+   part at, because "they differ" is not something anyone can act on. */
+static int
+compare (const std::string &fresh, const std::string &path)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+
+    if (!in)
+    {
+        printf("FAIL  %s: cannot read it\n", path.c_str());
+        return 1;
+    }
+
+    std::ostringstream buf;
+
+    buf << in.rdbuf();
+
+    const std::string committed = unixEndings(buf.str());
+
+    if (committed == fresh)
+    {
+        printf("ok    %s matches the plugins\n", path.c_str());
+        return 0;
+    }
+
+    std::istringstream a(committed), b(fresh);
+    std::string la, lb;
+    int line = 1;
+
+    while (std::getline(a, la) && std::getline(b, lb) && la == lb)
+        line++;
+
+    /* Lengths as well as text. Two lines that print the same and compare
+       differently is exactly what brought this function here, and a reader
+       with no way to see it spent the time twice. */
+    printf("FAIL  %s is out of date at line %d\n"
+           "      committed: %s   (%zu bytes)\n"
+           "      plugins:   %s   (%zu bytes)\n"
+           "      run `cmake --build <build> --target nodes'\n",
+           path.c_str(), line, la.c_str(), la.size(), lb.c_str(), lb.size());
+
+    return 1;
+}
+
+/* A number as a .dsp writes one: no exponent, which its grammar has none
+   of. */
+static std::string
+plain (float v)
+{
+    char buf[64];
+
+    snprintf(buf, sizeof(buf), "%.9f", v);
+
+    std::string s = buf;
+
+    s.erase(s.find_last_not_of('0') + 1);
+
+    if (s.back() == '.')
+        s.pop_back();
+
+    return s;
+}
+
+/* The first line of every graph -g writes, and the only .dsp files it will
+   delete: pointed at a directory of somebody's own graphs, it refuses. */
+static const char GRAPH_MARK[] = "# Written by dspnodes -g; written again "
+                                 "on every run.";
+
+/* Where an input that declares neither a range nor a default is swept,
+   by what it says it measures: wide enough to reach where a node does
+   something odd, 0 among it, since 0 is where an envelope's segment
+   divides. One that says nothing is swept over 0 to 1. */
+static const struct { const char *units; float min, max; } BY_UNITS[] = {
+    { "Hz", 0, 20000 },          { "samples", 0, 48000 },
+    { "seconds", 0, 10 },        { "MIDI note", 0, 127 },
+    { "ratio", 0, 8 },           { "dB", -60, 24 },
+    { "cents", -1200, 1200 },    { "semitones", -24, 24 },
+    { "octaves", -4, 4 },        { "exponent", 0, 8 },
+    { "radians", -7, 7 },        { "bits", 1, 24 },
+    { "fraction of the rate", 0, 0.5 },
+};
+
+/* An input a node documents as non-finite at 0, and what it is held at
+   instead: x/0 is the guard's own deliberate NaN (scripts/guard), and
+   every expression's `/'. */
+static const struct { const char *node, *arg, *value; } HELD[] = {
+    { "math::div", "in1", "1" },
+};
+
+/* A graph per node for dspsweep to drive (scripts/CMakeLists.txt,
+ * plugsweep), every input of it one of:
+ *
+ *   a signal -- `full scale' over -1 to 1 or no range, or no units and
+ *     named like one (in, in0, side, mod, fm) -- fed a saw at the note;
+ *   a file, named `file' -- a shipped sample;
+ *   a list of values -- a control over every index;
+ *   anything else -- a control over its declared range; with none, from 0
+ *     to four times its default, or by its units (BY_UNITS) with none of
+ *     that either.
+ *
+ * dspsweep then moves each control to its ends and three points between,
+ * one at a time. A fifth of what a palette offers is in no shipped graph,
+ * so without these nothing would ever have run it. A node that does not
+ * load is a failure, not a node left out. */
+static bool
+writeGraphs (const std::string &dir, const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    thPluginManager *pm = synth.getPluginManager();
+    NodeCatalog cat;
+
+    if (pm == NULL || cat.scan(pm->pluginPath()) == 0)
+        return false;
+
+    /* Fresh, so a graph for a node since taken out is not swept as though
+       it were still there; but only what this wrote. */
+    std::error_code ec;
+
+    std::filesystem::create_directories(dir, ec);
+
+    for (const auto &f : std::filesystem::directory_iterator(dir, ec))
+    {
+        if (f.path().extension() != ".dsp")
+            continue;
+
+        std::ifstream in(f.path());
+        std::string first;
+
+        std::getline(in, first);
+        in.close();
+
+        if (first != GRAPH_MARK)
+        {
+            printf("FAIL  %s was not written by -g; not writing graphs "
+                   "beside it\n", f.path().string().c_str());
+            return false;
+        }
+
+        if (!std::filesystem::remove(f.path(), ec))
+        {
+            printf("FAIL  cannot remove %s\n", f.path().string().c_str());
+            return false;
+        }
+    }
+
+    bool ok = true;
+
+    for (size_t c = 0; c < cat.categories().size(); c++)
+    {
+        const std::string &category = cat.categories()[c];
+
+        if (!NodeCatalog::isNodeCategory(category))
+            continue;
+
+        const vector<NodeCatalog::Entry> &list = cat.inCategory(category);
+
+        for (size_t e = 0; e < list.size(); e++)
+        {
+            const std::string &spelling = list[e].spelling;
+            thPlugin *p = pm->getOrLoadPlugin(category + "/" + list[e].name);
+            int out = -1;
+
+            if (p == NULL)
+            {
+                printf("FAIL  %s does not load\n", spelling.c_str());
+                ok = false;
+                continue;
+            }
+
+            for (int k = 0; k < p->argCount() && out < 0; k++)
+                if (p->getArgDir(k) == thPlugin::ARG_OUT)
+                    out = k;
+
+            if (out < 0)
+            {
+                printf("skip  %s: no output to hear\n", spelling.c_str());
+                continue;
+            }
+
+            std::ostringstream controls, wires;
+
+            for (int k = 0; k < p->argCount(); k++)
+            {
+                if (p->getArgDir(k) != thPlugin::ARG_IN)
+                    continue;
+
+                const std::string &name = p->getArgName(k);
+                const std::string &units = p->getArgUnits(k);
+                const bool ranged = p->argHasRange(k);
+                const bool defaulted = p->argHasDefault(k);
+                const float lo = ranged ? p->getArgMin(k) : 0;
+                const float hi = ranged ? p->getArgMax(k) : 0;
+                const char *held = NULL;
+
+                for (const auto &h : HELD)
+                    if (spelling == h.node && name == h.arg)
+                        held = h.value;
+
+                if (held != NULL)
+                {
+                    wires << "    " << name << " = " << held << ";\n";
+                    continue;
+                }
+
+                if (name.rfind("file", 0) == 0)
+                {
+                    wires << "    " << name << " = \"kick909.wav\";\n";
+                    continue;
+                }
+
+                const bool signal =
+                    (units == "full scale" && (!ranged || (lo < 0 && hi > 0))) ||
+                    (units.empty() && !ranged && !defaulted &&
+                     (name.rfind("in", 0) == 0 || name == "side" ||
+                      name == "mod" || name == "fm"));
+
+                if (signal)
+                {
+                    wires << "    " << name << " = src->out;\n";
+                    continue;
+                }
+
+                const vector<string> &values = p->getArgValues(k);
+                float min = lo, max = hi;
+
+                if (!values.empty())
+                {
+                    min = 0;
+                    max = (float)values.size() - 1;
+                }
+                else if (!ranged && defaulted && p->getArgDefault(k) != 0)
+                {
+                    min = std::min(0.0f, 4 * p->getArgDefault(k));
+                    max = std::max(0.0f, 4 * p->getArgDefault(k));
+                }
+                else if (!ranged)
+                {
+                    min = 0;
+                    max = 1;
+
+                    for (const auto &u : BY_UNITS)
+                        if (units == u.units)
+                        {
+                            min = u.min;
+                            max = u.max;
+                        }
+                }
+
+                const float d = defaulted && p->getArgDefault(k) >= min &&
+                                p->getArgDefault(k) <= max
+                    ? p->getArgDefault(k) : (min + max) / 2;
+
+                /* Prefixed: a channel replaces a chan arg named as one of
+                   its own, amp or SusPedal, and leaks the graph's. */
+                const std::string knob = "k_" + name;
+
+                controls << "@" << knob << " = " << plain(d) << ";\n"
+                         << "@" << knob << ".widget = 1;\n"
+                         << "@" << knob << ".min = " << plain(min) << ";\n"
+                         << "@" << knob << ".max = " << plain(max) << ";\n";
+                wires << "    " << name << " = @" << knob << ";\n";
+            }
+
+            std::string file = spelling;
+
+            for (char &ch : file)
+                if (ch == ':')
+                    ch = '_';
+
+            std::ofstream o((dir + "/" + file + ".dsp").c_str(),
+                            std::ios::binary | std::ios::trunc);
+
+            o << GRAPH_MARK << "\n"
+              << "name \"" << spelling << "\";\n\n"
+              << controls.str() << "\n"
+              << "node ionode {\n    channels = 1;\n    out0 = n->"
+              << p->getArgName(out) << ";\n};\n\n"
+              << "node pitch misc::midi2freq {\n    note = ionode->note;\n"
+              << "};\n\n"
+              << "node src osc::simple {\n    freq = pitch->out;\n"
+              << "    waveform = 1;\n};\n\n"
+              << "node n " << spelling << " {\n" << wires.str()
+              << "};\n\nio ionode;\n";
+
+            if (!o)
+            {
+                printf("FAIL  cannot write %s\n", file.c_str());
+                ok = false;
+            }
+        }
+    }
+
+    return ok;
+}
+
+static void
+usage (const char *argv0)
+{
+    printf("usage: %s [-p PATH] [-o FILE | -c FILE | --json | -g DIR]\n"
+           "\n"
+           "  -p, --plugin-path PATH  where to find plugin .so files\n"
+           "  -o, --output FILE       write the reference here (default "
+           "stdout)\n"
+           "  -c, --check FILE        compare FILE against a fresh one and "
+           "fail if they differ\n"
+           "      --json              every node and its args, as JSON\n"
+           "  -g, --graphs DIR        a .dsp per node in DIR, for dspsweep\n",
+           argv0);
+}
+
+int
+main (int argc, char **argv)
+{
+    /* Every number below goes out through "%g", which follows LC_NUMERIC.
+     *
+     * A C++ program starts in the C locale unless something calls setlocale,
+     * and nothing here does -- so the committed file and a fresh one agree
+     * today by accident rather than by decision. Pinning it says which:
+     * docs/NODES.md is compared byte for byte by a ctest, and a comma decimal
+     * separator would fail that for everybody in Europe the first time this
+     * gained a dependency that localises. src/main.cpp pins the same thing
+     * for the same reason, and its comment is the long version. */
+    setlocale(LC_NUMERIC, "C");
+
+    std::string pluginPath = PLUGIN_PATH;
+    std::string outFile, checkFile;
+    bool json = false;
+    std::string graphDir;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--plugin-path"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            pluginPath = argv[i];
+        }
+        else if (!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            outFile = argv[i];
+        }
+        else if (!strcmp(argv[i], "--json"))
+            json = true;
+        else if (!strcmp(argv[i], "-g") || !strcmp(argv[i], "--graphs"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            graphDir = argv[i];
+        }
+        else if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--check"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            checkFile = argv[i];
+        }
+        else
+        {
+            usage(argv[0]);
+            return !strcmp(argv[i], "-h") || !strcmp(argv[i], "--help") ? 0 : 2;
+        }
+    }
+
+    if ((!outFile.empty() && !checkFile.empty()) ||
+        (!graphDir.empty() && (json || !outFile.empty() ||
+                               !checkFile.empty())))
+    {
+        usage(argv[0]);
+        return 2;
+    }
+
+    if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
+        pluginPath += '/';
+
+    if (!graphDir.empty())
+    {
+        if (!writeGraphs(graphDir, pluginPath))
+        {
+            printf("FAIL  cannot write graphs to %s\n", graphDir.c_str());
+            return 1;
+        }
+
+        return 0;
+    }
+
+    if (json)
+    {
+        std::string out;
+
+        if (!writeJson(out, pluginPath))
+        {
+            printf("FAIL  no plugins under %s\n", pluginPath.c_str());
+            return 1;
+        }
+
+        puts(out.c_str());
+        return 0;
+    }
+
+    std::ostringstream text;
+
+    if (!writeReference(text, pluginPath))
+    {
+        printf("FAIL  no plugins under %s\n", pluginPath.c_str());
+        return 1;
+    }
+
+    if (!checkFile.empty())
+        return compare(text.str(), checkFile);
+
+    if (outFile.empty())
+    {
+        fputs(text.str().c_str(), stdout);
+        return 0;
+    }
+
+    /* Through a temporary and a rename, so an interrupted regeneration cannot
+       leave the committed reference half-written. */
+    const std::string tmp = outFile + ".new";
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << text.str();
+
+        if (!out)
+        {
+            printf("FAIL  cannot write %s\n", tmp.c_str());
+            return 1;
+        }
+    }
+
+    if (!thUtil::replaceFile(tmp, outFile))
+    {
+        printf("FAIL  cannot replace %s\n", outFile.c_str());
+        return 1;
+    }
+
+    printf("wrote %s\n", outFile.c_str());
+
+    return 0;
+}

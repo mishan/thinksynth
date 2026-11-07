@@ -1,0 +1,2847 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ */
+
+#include "config.h"
+
+#include <stdio.h>
+
+#include <algorithm>
+#include <cmath>
+
+#include "think.h"
+
+/* M_PI is not in C++ and UCRT hides it; thMath.h is the one place that
+ * knows that. See its header for why there are two answers and not one. */
+#include "thMath.h"
+
+#include "thcPlugin.h"
+#include "thcScheduler.h"
+#include "ComposerCanvas.h"
+
+#include "gui-util.h"
+
+/* Row and box geometry. A chain reads left to right at one size; the
+ * canvas scrolls rather than shrinks, because a stage box exists to
+ * hold a legible composer_draw and a 40-pixel euclid ring is not one. */
+static const double M        = 8;    /* outer margin                    */
+static const double ROW_GAP  = 16;
+static const double LABEL_W  = 104;  /* the chain's name column         */
+static const double STAGE_W  = 104;
+static const double STAGE_H  = 88;
+static const double SINK_W   = 76;
+static const double GHOST_W  = 30;
+static const double ARROW_W  = 22;
+static const double TITLE_H  = 15;
+
+/* The params handle in a stage box's title bar. */
+static const double TWISTY   = 9;
+
+/* How long an activity flash takes to fade, in transport seconds. Longer
+ * than a beat's subdivision at most tempos, so a light is caught by the
+ * frames drawn between two events -- the browser's are a tape batch
+ * behind the ear. */
+static const double FLASH_S  = 0.5;
+
+/* A collapsed chain: a row this tall, its stages and sinks pills. */
+static const double ROW_SMALL_H  = 30;
+static const double PILL_W       = 70;
+static const double PILL_SINK_W  = 52;
+static const double PILL_H       = 24;
+static const double PILL_ARROW_W = 12;
+
+/* The disclosure triangle in a chain's name box, which collapses it. */
+static const double DISCLOSE     = 9;
+
+/* The arrangement lane: a block per section, as wide as it is long at
+ * the scale that makes the whole arrangement about LANE_W, and never
+ * narrower than LANE_COL_MIN; under the blocks a row per chain. */
+static const double LANE_W       = 640;
+static const double LANE_COL_MIN = 34;
+static const double LANE_HEAD_H  = 18;
+static const double LANE_ROW_H   = 13;
+static const double LANE_GAP     = 2;
+
+/* Columns of chains, when the view is wide enough for more than one. */
+static const double COLUMN_GAP   = 28;
+static const int    COLUMNS_MAX  = 6;
+
+/* A probe's panel. */
+static const double PROBE_W  = 260;
+static const double PROBE_H  = 96;
+
+/* The mute, solo and freeze buttons along the foot of a chain's name
+ * box. */
+static const int    CHIPS    = 3;
+static const double CHIP_W   = 22;
+static const double CHIP_H   = 16;
+static const double CHIP_GAP = 4;
+
+/* The canvas background, named because the boxes have to repaint it: a
+ * box is opaque, so that a wire running behind it is behind it. */
+static const double BG_R = 0.09, BG_G = 0.09, BG_B = 0.11;
+
+/* A knob node. Wider than it is tall because what it holds is a name and
+ * a track, and shorter than a stage box because it has no picture. Six
+ * to a row: past that the lane is wider than any chain and the wires all
+ * come from off to the right. */
+static const double KNOB_W   = 118;
+static const double KNOB_H   = 38;
+static const double KNOB_GAP = 10;
+static const int    KNOB_COLS = 6;
+
+/* How near a knob's port counts as on it. Four pixels of circle is what
+ * is drawn; nine is what answers, because it is a drag handle and a
+ * handle you have to be accurate about is one nobody finds twice. */
+static const double PORT_GRAB = 9;
+
+ComposerCanvas::ComposerCanvas (void)
+    : doc_(NULL), sched_(NULL), laneY_(0), laneRight_(0), fitWidth_(0),
+      columns_(1),
+      chainHues_(false),
+      feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
+      wireX_(0), wireY_(0), dragBox_(-1), dragDx_(0), dropAt_(-1)
+{
+}
+
+
+/* The laid-out rows, plus a margin so the rightmost ghost box does not
+   sit against the edge. Zero before the first rebuild, which the base
+   reads as "nothing to size to" and leaves alone. */
+void
+ComposerCanvas::contentExtent (double &w, double &h) const
+{
+    w = h = 0;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if (boxes_[i].x + boxes_[i].w > w)
+            w = boxes_[i].x + boxes_[i].w;
+
+        if (boxes_[i].y + boxes_[i].h > h)
+            h = boxes_[i].y + boxes_[i].h;
+    }
+
+    w = std::max(w, laneRight_);
+
+    if (w > 0) w += 12;
+    if (h > 0) h += 12;
+}
+
+void
+ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
+{
+    doc_ = doc;
+    sched_ = sched;
+
+    /* The levels the file wrote other than 1, 0 and 0.5, which a click on
+       the lane steps back to. */
+    laneWritten_.clear();
+
+    for (size_t si = 0; sched_ != NULL && si < sched_->sections().size();
+         si++)
+        for (const auto &l : sched_->sections()[si].levels)
+            if (l.second != 0 && l.second != 0.5 && l.second != 1)
+                laneWritten_[{ si, l.first }] = l.second;
+
+    dragBox_ = -1;
+    dropAt_ = -1;
+    feeding_ = false;
+    dragKnob_ = -1;
+    wireFrom_ = -1;
+
+    rebuild();
+    contentResized();
+
+    /* A reload rebuilds every instance, so the enlarged stage is a new
+       object at the same address in the piece -- or gone, if the edit
+       removed it. Checked rather than assumed: enlargedStage() looks it
+       up through the scheduler every time, and this is where a stage
+       that no longer exists stops being shown. */
+    if (enlarged_.kind == Selection::STAGE && enlargedStage() == NULL)
+        setEnlarged(Selection());
+
+    /* A probe goes with its stage, found by name in the new piece, or
+       goes. */
+    if (probe_.kind == Selection::STAGE)
+    {
+        Selection found;
+
+        for (size_t ci = 0; doc_ != NULL && ci < doc_->chains.size(); ci++)
+            if (doc_->chains[ci].name == probeChain_)
+                for (size_t si = 0; si < doc_->chains[ci].stages.size(); si++)
+                    if (doc_->chains[ci].stages[si].name == probeStage_)
+                    {
+                        found.kind = Selection::STAGE;
+                        found.chain = ci;
+                        found.index = si;
+                    }
+
+        probe_ = found;
+    }
+
+    /* The selection may name things the new piece does not have. */
+    if (sel_.kind != Selection::NONE && sel_.kind != Selection::ADD_CHAIN)
+    {
+        /* A knob is indexed into the piece's knobs, not into a chain --
+           and it leaves `chain' at zero, which the chain test below
+           would have read as "the first chain", quietly keeping a knob
+           selected in a piece that no longer has it. */
+        bool ok = doc_ != NULL;
+
+        if (ok && sel_.kind == Selection::KNOB)
+            ok = sel_.index < doc_->knobs.size();
+        else if (ok)
+            ok = sel_.chain < doc_->chains.size();
+
+        if (ok && sel_.kind == Selection::STAGE)
+            ok = sel_.index < doc_->chains[sel_.chain].stages.size();
+
+        if (ok && sel_.kind == Selection::SINK)
+            ok = sel_.index < doc_->chains[sel_.chain].sinks.size();
+
+        if (!ok)
+        {
+            sel_ = Selection();
+            sigSelection.emit(sel_);
+        }
+    }
+
+    requestRedraw();
+}
+
+void
+ComposerCanvas::select (const Selection &sel)
+{
+    if (sel == sel_)
+        return;
+
+    sel_ = sel;
+    sigSelection.emit(sel_);
+    requestRedraw();
+}
+
+/* One chain's row, laid out with its top-left at (x, y): the name, the
+ * stages, the sinks and the ghosts that add to them -- or, collapsed, the
+ * name and a small pill for each stage and sink. Appended to `out'; the
+ * row's width is returned and its height left in `h'. */
+double
+ComposerCanvas::layoutRow (size_t ci, double x0, double y, double &h,
+                           std::vector<Box> &out) const
+{
+    const thcGenEdit::Chain &chain = doc_->chains[ci];
+    const bool small = collapsed_.count(chain.name) != 0;
+    const double rowH = small ? ROW_SMALL_H : STAGE_H;
+    const double stageW = small ? PILL_W : STAGE_W;
+    const double sinkW = small ? PILL_SINK_W : SINK_W;
+    const double boxH = small ? PILL_H : STAGE_H;
+    const double boxY = y + (rowH - boxH) / 2;
+    const double arrow = small ? PILL_ARROW_W : ARROW_W;
+    thcChain *live = sched_ ? sched_->chain(ci) : NULL;
+    double x = x0;
+
+    h = rowH;
+
+    {
+        Box b;
+
+        b.what.kind = Selection::CHAIN;
+        b.what.chain = ci;
+        /* Collapsed, M, S and F move up beside the name, and the box is
+           wider by them so the name keeps its room. */
+        b.x = x; b.y = y; b.h = rowH;
+        b.w = small ? LABEL_W + CHIPS * (CHIP_W + CHIP_GAP) : LABEL_W;
+        b.title = chain.name;
+        b.sub = chain.inputMidi ? "midi in" : "";
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = false;
+        out.push_back(b);
+        x += b.w + arrow;
+    }
+
+
+    for (size_t si = 0; si < chain.stages.size(); si++)
+    {
+        Box b;
+
+        b.what.kind = Selection::STAGE;
+        b.what.chain = ci;
+        b.what.index = si;
+        b.x = x; b.y = boxY; b.w = stageW; b.h = boxH;
+        b.title = small ? chain.stages[si].plugin
+                        : chain.stages[si].category + "::" +
+                          chain.stages[si].plugin;
+        b.sub = small ? "" : chain.stages[si].name;
+        b.channel = -1;
+        b.ghost = false;
+
+        /* Through liveIndex: a dsp stage is a stage in the file and
+           nothing in the scheduler's list, so the two stopped being
+           indexable by the same number. A node box gets a NULL live,
+           which is right -- it has no thcStage, and every reader here
+           already guards for one. */
+        const int at = thcGenEdit::liveIndex(chain, si);
+
+        b.live = live != NULL && at >= 0 &&
+                 (size_t)at < live->stages.size()
+            ? live->stages[at].get() : NULL;
+
+        out.push_back(b);
+        x += stageW + arrow;
+    }
+
+    /* The ghosts are for building a chain, which a collapsed one is not
+       being: it is put away to make room. */
+    if (!small)
+    {
+        Box b;
+
+        b.what.kind = Selection::ADD_STAGE;
+        b.what.chain = ci;
+        b.what.index = chain.stages.size();
+        b.x = x; b.y = y + (STAGE_H - GHOST_W) / 2;
+        b.w = GHOST_W; b.h = GHOST_W;
+        b.title = "+";
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = true;
+        out.push_back(b);
+        x += GHOST_W + ARROW_W;
+    }
+
+    for (size_t ki = 0; ki < chain.sinks.size(); ki++)
+    {
+        Box b;
+
+        b.what.kind = Selection::SINK;
+        b.what.chain = ci;
+        b.what.index = ki;
+        b.x = x; b.y = boxY; b.w = sinkW; b.h = boxH;
+
+        char t[24];
+
+        /* A sink bound to one of the piece's own instruments wears its
+           name, not the number underneath it: the number is an
+           allocation nobody chose, and "ch 3" says nothing about what is
+           on channel 3 -- which was the whole complaint the instrument
+           block answers. The hue still comes from the channel, because
+           the roll draws notes in it and the two pictures have to
+           agree. */
+        int channel = chain.sinks[ki].channel;
+
+        if (!chain.sinks[ki].knob.empty())
+        {
+            b.title = "@" + chain.sinks[ki].knob;
+            channel = 0;
+        }
+        else if (!chain.sinks[ki].instrument.empty())
+        {
+            const thcInstrument *inst = sched_
+                ? sched_->instrument(chain.sinks[ki].instrument) : NULL;
+
+            b.title = chain.sinks[ki].instrument;
+            channel = inst != NULL ? inst->channel + 1 : 0;
+        }
+        else
+        {
+            snprintf(t, sizeof(t), "ch %d", channel);
+            b.title = t;
+        }
+
+        b.sub = small ? ""
+            : !chain.sinks[ki].knob.empty() ? "knob"
+            : chain.sinks[ki].chanarg.empty()
+                ? "notes" : "@" + chain.sinks[ki].chanarg;
+        b.live = NULL;
+        b.channel = channel;
+        b.ghost = false;
+        out.push_back(b);
+        x += sinkW + (small ? 4 : 8);
+    }
+
+    if (!small)
+    {
+        Box b;
+
+        b.what.kind = Selection::ADD_SINK;
+        b.what.chain = ci;
+        b.what.index = chain.sinks.size();
+        b.x = x; b.y = y + (STAGE_H - GHOST_W) / 2;
+        b.w = GHOST_W; b.h = GHOST_W;
+        b.title = "+";
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = true;
+        out.push_back(b);
+        x += GHOST_W;
+    }
+
+    return x - x0;
+}
+
+/* How many columns the chains go in, and which chain starts each: the most
+ * columns whose widths fit `avail' side by side, the chains kept in file
+ * order down each column and split where the columns come out nearest the
+ * same height. One column when nothing more fits, or when there is no
+ * width to fit to. */
+static std::vector<size_t>
+columnStarts (const std::vector<double> &w, const std::vector<double> &h,
+              double avail, double gap)
+{
+    const size_t n = w.size();
+    std::vector<size_t> best(1, 0);
+
+    if (n < 2 || avail <= 0)
+        return best;
+
+    double total = 0;
+
+    for (size_t i = 0; i < n; i++)
+        total += h[i];
+
+    for (size_t k = std::min(n, (size_t)COLUMNS_MAX); k >= 2; k--)
+    {
+        /* Greedy against the even share: a column closes once it has
+           reached its share, or when the chains left are only enough to
+           give each remaining column one. */
+        std::vector<size_t> starts(1, 0);
+        double filled = 0, colH = 0;
+
+        for (size_t i = 0; i < n; i++)
+        {
+            const size_t colsLeft = k - starts.size();
+            const size_t rowsLeft = n - i;
+
+            /* `filled' is every row before this one: the row starts the
+               next column when its middle would be past this column's
+               share. */
+            if (colH > 0 && colsLeft > 0 &&
+                (filled + h[i] / 2 > total * starts.size() / k ||
+                 rowsLeft <= colsLeft))
+            {
+                starts.push_back(i);
+                colH = 0;
+            }
+
+            colH += h[i];
+            filled += h[i];
+        }
+
+        if (starts.size() != k)
+            continue;
+
+        double width = 0;
+
+        for (size_t c = 0; c < k; c++)
+        {
+            const size_t a = starts[c];
+            const size_t b = c + 1 < k ? starts[c + 1] : n;
+            double colW = 0;
+
+            for (size_t i = a; i < b; i++)
+                colW = std::max(colW, w[i]);
+
+            width += colW + (c > 0 ? gap : 0);
+        }
+
+        if (width <= avail)
+            return starts;
+    }
+
+    return best;
+}
+
+/* Lay every clickable box out, once per piece and again when a row is
+ * collapsed or the view's width changes the columns; drawing and hit
+ * testing both read the result, so they cannot disagree about where
+ * things are. */
+void
+ComposerCanvas::rebuild (void)
+{
+    /* A knob box let go of a moment ago is holding its value for the
+       commands its drag sent; a layout in that moment keeps the hold. */
+    std::vector<Box> knobsWere;
+
+    for (const Box &b : boxes_)
+        if (b.what.kind == Selection::KNOB)
+            knobsWere.push_back(b);
+
+    boxes_.clear();
+    rowX_.clear();
+    rowY_.clear();
+    rowH_.clear();
+    heads_.clear();
+    cells_.clear();
+    laneRight_ = 0;
+    laneTotal_ = 0;
+
+    if (doc_ == NULL)
+        return;
+
+    double y = M;
+
+    /* The knob lane, across the top.
+     *
+       Above the chains rather than beside them because a knob feeds
+       stages anywhere in the piece, and a wire that drops down past the
+       chain names reads as "this reaches all of these" -- a left-hand
+       column would have every wire crossing every chain's label. */
+    for (size_t ki = 0; ki < doc_->knobs.size(); ki++)
+    {
+        const thcGenEdit::Knob &k = doc_->knobs[ki];
+
+        Box b;
+
+        b.what.kind = Selection::KNOB;
+        b.what.index = ki;
+        b.x = M + (ki % KNOB_COLS) * (KNOB_W + KNOB_GAP);
+        b.y = y + (ki / KNOB_COLS) * (KNOB_H + KNOB_GAP);
+        b.w = KNOB_W;
+        b.h = KNOB_H;
+        b.title = k.label.empty() ? k.name : k.label;
+        b.sub = "@" + k.name;
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = false;
+
+        /* The live value, because a knob that has been dragged is not
+           where the file last saw it -- and the node is a control, so it
+           has to show what the piece is actually hearing. */
+        thArg *arg = sched_ ? sched_->knob(k.name) : NULL;
+
+        b.kv  = arg != NULL ? (*arg)[0] : k.value;
+        b.kLive = b.kv;
+        b.kHold = 0;
+
+        if (ki < knobsWere.size() && knobsWere[ki].kHold > 0 &&
+            knobsWere[ki].title == b.title)
+        {
+            b.kv = knobsWere[ki].kv;
+            b.kLive = knobsWere[ki].kLive;
+            b.kHold = knobsWere[ki].kHold;
+        }
+        b.klo = arg != NULL ? arg->min() : (k.hasMin ? k.min : 0);
+        b.khi = arg != NULL ? arg->max() : (k.hasMax ? k.max : 1);
+
+        if (b.khi <= b.klo)
+        {
+            b.klo = 0;
+            b.khi = 1;
+        }
+
+        boxes_.push_back(b);
+
+        if (ki + 1 == doc_->knobs.size())
+            y = b.y + KNOB_H + ROW_GAP;
+    }
+
+    /* The arrangement, when the piece has one: under the knobs, above
+       the chains, as wide as its sections are long. */
+    if (layoutLane(y))
+        y += LANE_HEAD_H + LANE_GAP +
+             doc_->chains.size() * (LANE_ROW_H + LANE_GAP) + ROW_GAP;
+
+    /* Each chain's row laid out once at the origin, to be measured, and
+       then the columns chosen from what was measured. */
+    const size_t n = doc_->chains.size();
+    std::vector<std::vector<Box> > rows(n);
+    std::vector<double> widths(n), heights(n);
+
+    for (size_t ci = 0; ci < n; ci++)
+    {
+        double h = 0;
+
+        widths[ci] = layoutRow(ci, 0, 0, h, rows[ci]);
+        heights[ci] = h + ROW_GAP;
+    }
+
+    /* The room the columns have: the view, less the margin they start
+       at and the one contentExtent() adds past the last. */
+    const std::vector<size_t> starts =
+        columnStarts(widths, heights, fitWidth_ - M - 12, COLUMN_GAP);
+
+    columns_ = starts.size();
+
+    double colX = M, bottom = y;
+
+    for (size_t c = 0; c < starts.size(); c++)
+    {
+        const size_t a = starts[c];
+        const size_t b = c + 1 < starts.size() ? starts[c + 1] : n;
+        double rowTop = y, colW = 0;
+
+        for (size_t ci = a; ci < b; ci++)
+        {
+            rowX_.push_back(colX);
+            rowY_.push_back(rowTop);
+            rowH_.push_back(heights[ci] - ROW_GAP);
+
+            for (Box &box : rows[ci])
+            {
+                box.x += colX;
+                box.y += rowTop;
+                boxes_.push_back(box);
+            }
+
+            colW = std::max(colW, widths[ci]);
+            rowTop += heights[ci];
+        }
+
+        bottom = std::max(bottom, rowTop);
+        colX += colW + COLUMN_GAP;
+    }
+
+    {
+        Box b;
+
+        b.what.kind = Selection::ADD_CHAIN;
+        b.x = M; b.y = bottom; b.w = LABEL_W + 36; b.h = 26;
+        b.title = "+ chain";
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = true;
+        boxes_.push_back(b);
+    }
+
+    /* The size follows from the boxes -- contentExtent() reads them --
+       and SetPiece tells the shell through contentResized(). This used
+       to also set the drawing area's content size, unzoomed, which was
+       a second answer to the same question. */
+}
+
+const ComposerCanvas::Box *
+ComposerCanvas::hit (double x, double y) const
+{
+    for (size_t i = boxes_.size(); i-- > 0; )
+        if (x >= boxes_[i].x && x <= boxes_[i].x + boxes_[i].w &&
+            y >= boxes_[i].y && y <= boxes_[i].y + boxes_[i].h)
+            return &boxes_[i];
+
+    return NULL;
+}
+
+static void
+roundedRect (const Cairo::RefPtr<Cairo::Context> &cr, double x, double y,
+             double w, double h, double r)
+{
+    cr->begin_new_sub_path();
+    cr->arc(x + w - r, y + r, r, -M_PI / 2, 0);
+    cr->arc(x + w - r, y + h - r, r, 0, M_PI / 2);
+    cr->arc(x + r, y + h - r, r, M_PI / 2, M_PI);
+    cr->arc(x + r, y + r, r, M_PI, 3 * M_PI / 2);
+    cr->close_path();
+}
+
+/* Toy-API text, truncated to fit -- a canvas box is not a place for
+ * Pango machinery, and every string here is a short identifier. */
+static void
+fitText (const Cairo::RefPtr<Cairo::Context> &cr, std::string text,
+         double x, double y, double maxW)
+{
+    Cairo::TextExtents ext;
+
+    cr->get_text_extents(text, ext);
+
+    while (!text.empty() && ext.width > maxW)
+    {
+        text.resize(text.size() - 1);
+        cr->get_text_extents(text, ext);
+    }
+
+    cr->move_to(x, y);
+    cr->show_text(text);
+}
+
+/* A knob node: the name, the value, and the track that sets it, with a
+ * port on the bottom edge for wires to leave from. */
+void
+ComposerCanvas::drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
+                          const Box &box, bool selected) const
+{
+    roundedRect(cr, box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1, 5);
+    cr->set_source_rgb(0.16, 0.15, 0.10);
+    cr->fill_preserve();
+    cr->set_line_width(selected ? 2 : 1);
+    cr->set_source_rgba(1.0, 0.85, 0.3, selected ? 0.95 : 0.4);
+    cr->stroke();
+
+    cr->set_font_size(10);
+    cr->set_source_rgba(1, 1, 1, 0.85);
+    fitText(cr, box.title, box.x + 8, box.y + 14, box.w - 52);
+
+    char v[32];
+
+    snprintf(v, sizeof(v), "%.3g", box.kv);
+
+    Cairo::TextExtents ext;
+
+    cr->get_text_extents(v, ext);
+    cr->set_source_rgba(1.0, 0.9, 0.5, 0.9);
+    cr->move_to(box.x + box.w - 8 - ext.width, box.y + 14);
+    cr->show_text(v);
+
+    double x0, x1, ty;
+
+    knobTrackRect(box, x0, x1, ty);
+
+    const double t = box.khi > box.klo
+        ? std::clamp((box.kv - box.klo) / (box.khi - box.klo), 0.0, 1.0)
+        : 0.0;
+
+    cr->set_line_width(3.0);
+    cr->set_line_cap(Cairo::Context::LineCap::ROUND);
+
+    cr->set_source_rgba(1, 1, 1, 0.14);
+    cr->move_to(x0, ty);
+    cr->line_to(x1, ty);
+    cr->stroke();
+
+    cr->set_source_rgba(1.0, 0.85, 0.3, 0.75);
+    cr->move_to(x0, ty);
+    cr->line_to(x0 + (x1 - x0) * t, ty);
+    cr->stroke();
+
+    cr->set_line_cap(Cairo::Context::LineCap::BUTT);
+
+    cr->set_source_rgba(1.0, 0.92, 0.6, 0.95);
+    cr->arc(x0 + (x1 - x0) * t, ty, 3.5, 0, 2 * M_PI);
+    cr->fill();
+
+    /* The port. Bigger than it needs to look, because it is a drag
+       target and a three-pixel drag target is a decoration. */
+    double px, py;
+
+    knobPortAt(box, px, py);
+
+    cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
+    cr->arc(px, py, 4, 0, 2 * M_PI);
+    cr->fill();
+}
+
+/* One curve per binding, plus the one being dragged.
+ *
+ * Faint by default and bright at either end of the selection: a piece
+ * with four knobs and twenty bound params has twenty wires, and twenty
+ * bright wires is a ball of wool. Selecting a knob or a stage is how you
+ * ask which of them are yours. */
+void
+ComposerCanvas::drawWires (const Cairo::RefPtr<Cairo::Context> &cr) const
+{
+    cr->set_line_width(1.4);
+
+    eachWire([&](const Box &kb, const Box &st, const std::string &)
+    {
+        double x0, y0;
+
+        knobPortAt(kb, x0, y0);
+
+        const double x1 = st.x;
+        const double y1 = st.y + st.h / 2;
+
+        const bool lit = sel_.kind != Selection::NONE &&
+            (sel_ == kb.what || sel_ == st.what);
+
+        cr->set_source_rgba(1.0, 0.85, 0.3, lit ? 0.8 : 0.22);
+
+        /* Down out of the port and in from the left, rather than down
+           into the top.
+         *
+           Into the top looked tidier on one chain and was unreadable on
+           seven: every wire ran vertically down the column the stage
+           boxes are in, so a knob feeding the seventh chain drew a line
+           through the six above it. The left edge is the side the flow
+           arrives on, the boxes are opaque, and the space between the
+           chain names and the stages is empty -- so the wires run in the
+           gap and appear where they arrive. */
+        const double bend = std::max(20.0, (y1 - y0) * 0.35);
+
+        cr->move_to(x0, y0);
+        cr->curve_to(x0, y0 + bend, x1 - 26, y1 - bend / 2, x1 - 4, y1);
+        cr->stroke();
+
+        cr->arc(x1 - 3, y1, 2.2, 0, 2 * M_PI);
+        cr->fill();
+    });
+
+    /* The wire in flight, dashed so that it reads as a proposal. */
+    if (wireFrom_ >= 0 && (size_t)wireFrom_ < boxes_.size())
+    {
+        double x0, y0;
+
+        knobPortAt(boxes_[wireFrom_], x0, y0);
+
+        std::vector<double> dashes = { 4.0, 3.0 };
+
+        cr->set_dash(dashes, 0);
+        cr->set_source_rgba(1.0, 0.9, 0.5, 0.9);
+        cr->move_to(x0, y0);
+        cr->line_to(wireX_, wireY_);
+        cr->stroke();
+        cr->unset_dash();
+    }
+}
+
+void
+ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
+                         const Box &box, bool selected) const
+{
+    if (box.what.kind == Selection::KNOB)
+    {
+        drawKnob(cr, box, selected);
+        return;
+    }
+
+    if (box.ghost)
+    {
+        std::vector<double> dashes = { 3.0, 3.0 };
+
+        cr->set_source_rgba(1, 1, 1, selected ? 0.7 : 0.3);
+        cr->set_line_width(1);
+        cr->set_dash(dashes, 0);
+        roundedRect(cr, box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1, 5);
+        cr->stroke();
+        cr->unset_dash();
+
+        cr->set_font_size(14);
+        Cairo::TextExtents ext;
+        cr->get_text_extents(box.title, ext);
+        cr->move_to(box.x + (box.w - ext.width) / 2 - ext.x_bearing,
+                    box.y + (box.h + ext.height) / 2);
+        cr->show_text(box.title);
+        return;
+    }
+
+    if (box.what.kind == Selection::CHAIN)
+    {
+        const bool muted = mixFlag(box.what.chain, false);
+        const bool soloed = mixFlag(box.what.chain, true);
+
+        /* The chain's own hue, when the roll beside this is coloring
+           notes by chain: the legend that tells which notes are whose. */
+        if (chainHues_)
+        {
+            double r, g, b;
+
+            gthChannelColor((int)box.what.chain, r, g, b);
+            cr->set_source_rgba(r, g, b, 0.9);
+            cr->rectangle(box.x - 5, box.y + 4, 3, box.h - 8);
+            cr->fill();
+        }
+
+        const bool small = box.h < STAGE_H;
+
+        /* The disclosure triangle: pointing down while the row is open,
+           right while it is collapsed. */
+        {
+            double dx, dy, ds;
+
+            discloseRect(box, dx, dy, ds);
+            cr->set_source_rgba(1, 1, 1, 0.5);
+
+            if (small)
+            {
+                cr->move_to(dx + ds * 0.25, dy);
+                cr->line_to(dx + ds, dy + ds / 2);
+                cr->line_to(dx + ds * 0.25, dy + ds);
+            }
+            else
+            {
+                cr->move_to(dx, dy + ds * 0.25);
+                cr->line_to(dx + ds, dy + ds * 0.25);
+                cr->line_to(dx + ds / 2, dy + ds);
+            }
+
+            cr->close_path();
+            cr->fill();
+        }
+
+        const double titleX = box.x + DISCLOSE + 6;
+
+        /* Collapsed, the name shares one line with M, S and F. */
+        const double titleW = small
+            ? box.w - DISCLOSE - 8 - CHIPS * (CHIP_W + CHIP_GAP)
+            : box.w - DISCLOSE - 8;
+
+        cr->set_source_rgba(1, 1, 1, chainAudible(box.what.chain)
+                                         ? 0.85 : 0.35);
+        cr->set_font_size(12);
+        fitText(cr, box.title, titleX, box.y + (small ? 19 : 16), titleW);
+
+        cr->set_font_size(9);
+        cr->set_source_rgba(1, 1, 1, 0.4);
+
+        if (small)
+            ;
+        else if (muted)
+            fitText(cr, "muted", titleX, box.y + 30, titleW);
+        else if (!chainAudible(box.what.chain))
+            fitText(cr, "another is soloed", titleX, box.y + 30, titleW);
+        else if (!box.sub.empty())
+            fitText(cr, box.sub, titleX, box.y + 30, titleW);
+
+        /* M and S, lit while set: red for a mute, green for a solo; and
+           F, which freezes, and so is never lit. */
+        for (int which = 0; which < CHIPS; which++)
+        {
+            const bool on = which == 0 ? muted : which == 1 && soloed;
+            double cx, cy, cw, ch;
+
+            chipRect(box, which, cx, cy, cw, ch);
+            roundedRect(cr, cx + 0.5, cy + 0.5, cw - 1, ch - 1, 3);
+
+            if (on)
+            {
+                if (which == 0)
+                    cr->set_source_rgba(0.90, 0.35, 0.30, 0.85);
+                else
+                    cr->set_source_rgba(0.40, 0.80, 0.45, 0.85);
+
+                cr->fill_preserve();
+            }
+
+            cr->set_source_rgba(1, 1, 1, on ? 0.0 : 0.3);
+            cr->set_line_width(1);
+            cr->stroke();
+
+            const char *label = which == 0 ? "M" : which == 1 ? "S" : "F";
+            Cairo::TextExtents ext;
+
+            cr->set_font_size(10);
+            cr->get_text_extents(label, ext);
+            cr->set_source_rgba(on ? BG_R : 1, on ? BG_G : 1, on ? BG_B : 1,
+                                on ? 1.0 : 0.55);
+            cr->move_to(cx + (cw - ext.width) / 2 - ext.x_bearing,
+                        cy + (ch - ext.height) / 2 - ext.y_bearing);
+            cr->show_text(label);
+        }
+
+        if (selected)
+        {
+            cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
+            cr->set_line_width(1.5);
+            roundedRect(cr, box.x + 0.5, box.y + 0.5, box.w - 1,
+                        box.h - 1, 5);
+            cr->stroke();
+        }
+
+        return;
+    }
+
+    /* Stage and sink boxes share the body; sinks wear their channel. */
+    double r = 1, g = 1, b = 1;
+    bool isSink = box.what.kind == Selection::SINK;
+
+    /* The box carries the file's number, 1-16; gthChannelColor speaks the
+       engine's, 0-15, and the piano roll draws delivered notes with it.
+       Off by one here would give every sink its neighbour's colour.
+     *
+       Ranged rather than merely non-negative, because this draws what
+       `describe' read and describe reports a file as written -- and a
+       file is only sometimes one the loader accepted. parseWork keeps
+       the window up after a failed load so the error can be read and the
+       piece edited, so a `channel = 0' left over from the old numbering
+       reaches here, and `>= 0' let it through as channel -1: a hue no
+       real channel has, on a sink that is not going to play. Out of
+       range now draws in the neutral colour a stage does, which is the
+       honest picture of a sink that names nothing. */
+    if (isSink && box.channel >= 1 && box.channel <= TH_MIDI_CHANNELS)
+        gthChannelColor(box.channel - 1, r, g, b);
+
+    /* Opaque, in two coats: the background colour so that wires passing
+       behind the box are hidden by it, then the tint that says what kind
+       of box this is. Before, the tint was the only fill and every wire
+       to a stage below showed straight through every stage above it. */
+    roundedRect(cr, box.x, box.y, box.w, box.h, 5);
+    cr->set_source_rgb(BG_R, BG_G, BG_B);
+    cr->fill_preserve();
+    cr->set_source_rgba(r, g, b, isSink ? 0.13 : 0.07);
+    cr->fill();
+
+    if (selected)
+    {
+        cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
+        cr->set_line_width(1.5);
+    }
+    else
+    {
+        cr->set_source_rgba(r, g, b, isSink ? 0.6 : 0.25);
+        cr->set_line_width(1);
+    }
+
+    roundedRect(cr, box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1, 5);
+    cr->stroke();
+
+    /* A collapsed chain's pill has its name in the middle, clear of the
+       light and the handle. */
+    const bool pill = box.h < STAGE_H;
+
+    cr->set_source_rgba(1, 1, 1, 0.8);
+    cr->set_font_size(10);
+    fitText(cr, box.title, box.x + 4,
+            pill ? box.y + box.h / 2 + 4 : box.y + 11,
+            pill && box.what.kind == Selection::STAGE && box.live != NULL
+                ? box.w - 30 : box.w - 8);
+
+    cr->set_source_rgba(1, 1, 1, 0.45);
+    cr->set_font_size(9);
+    fitText(cr, box.sub, box.x + 4, box.y + box.h - 4, box.w - 8);
+
+    /* The handle that opens the stage's params.
+     *
+       Three little sliders rather than a disclosure triangle, because
+       nothing here expands: the params come up in a popover beside the
+       box. A triangle would promise the box was about to grow, which is
+       what the first version of this did and what made a chain of open
+       boxes unreadable. */
+    if (box.what.kind == Selection::STAGE && box.live != NULL)
+    {
+        double tx, ty, ts;
+
+        twistyRect(box, tx, ty, ts);
+
+        cr->set_line_width(1.0);
+        cr->set_source_rgba(1, 1, 1, 0.45);
+
+        for (int i = 0; i < 3; i++)
+        {
+            const double ly = ty + ts * (0.2 + 0.3 * i);
+
+            cr->move_to(tx, ly);
+            cr->line_to(tx + ts, ly);
+            cr->stroke();
+
+            cr->arc(tx + ts * (i == 1 ? 0.65 : 0.3), ly, 1.4, 0, 2 * M_PI);
+            cr->fill();
+        }
+    }
+
+    /* The stage's activity light, beside the handle: lit as an event
+       comes out of it, and fading. A transformer whose input arrow
+       lights and whose light does not is one dropping what it is
+       given. */
+    if (box.what.kind == Selection::STAGE && box.live != NULL)
+    {
+        const double lit = flash(box.live->lastOut);
+
+        cr->arc(box.x + box.w - TWISTY - 11, box.y + TITLE_H / 2, 2.5, 0,
+                2 * M_PI);
+        cr->set_source_rgba(0.45 + 0.55 * lit, 0.85 + 0.15 * lit,
+                            0.5 + 0.5 * lit, 0.15 + 0.85 * lit);
+        cr->fill();
+    }
+
+    /* The algorithm's face: composer_draw inside the box, on instance
+       state -- same thread, same story as the old draw strip, better
+       address. Without one, the first authored params stand in. */
+    double bodyY = box.y + TITLE_H;
+    double bodyH = box.h - TITLE_H - 12;
+
+    if (pill)
+        ;
+    else if (box.live != NULL && box.live->plugin->hasDraw())
+    {
+        cr->save();
+        cr->rectangle(box.x + 2, bodyY, box.w - 4, bodyH);
+        cr->clip();
+        cr->translate(box.x + 2, bodyY);
+        box.live->plugin->draw(box.live->state, cr->cobj(),
+                               box.w - 4, bodyH);
+        cr->restore();
+    }
+    else if (box.what.kind == Selection::STAGE && doc_ != NULL)
+    {
+        const thcGenEdit::Stage &st =
+            doc_->chains[box.what.chain].stages[box.what.index];
+
+        cr->set_source_rgba(1, 1, 1, 0.4);
+        cr->set_font_size(8);
+
+        for (size_t i = 0; i < st.params.size() && i < 4; i++)
+            fitText(cr, st.params[i].name + " " + st.params[i].valueText,
+                    box.x + 4, bodyY + 10 + i * 11, box.w - 8);
+    }
+
+    /* A chain the mute or the solos silence is drawn behind a veil of
+       the background: still running, as its pictures show, and not
+       heard. */
+    if (!chainAudible(box.what.chain))
+    {
+        roundedRect(cr, box.x, box.y, box.w, box.h, 5);
+        cr->set_source_rgba(BG_R, BG_G, BG_B, 0.55);
+        cr->fill();
+    }
+}
+
+/* The box for a stage, or NULL. Not `hit', which answers about a point;
+ * this answers about a position in the piece. */
+const ComposerCanvas::Box *
+ComposerCanvas::boxFor (size_t chain, size_t stage) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+        if (boxes_[i].what.kind == Selection::STAGE &&
+            boxes_[i].what.chain == chain && boxes_[i].what.index == stage)
+            return &boxes_[i];
+
+    return NULL;
+}
+
+/* The knob node's value track: the full width under its name, inset so
+ * the ends are reachable without hitting the box edge. */
+void
+ComposerCanvas::knobTrackRect (const Box &b, double &x0, double &x1,
+                               double &y)
+{
+    x0 = b.x + 8;
+    x1 = b.x + b.w - 8;
+    y  = b.y + b.h - 11;
+}
+
+/* The output port, on the bottom edge, where wires leave from. */
+void
+ComposerCanvas::knobPortAt (const Box &b, double &x, double &y)
+{
+    x = b.x + b.w - 12;
+    y = b.y + b.h;
+}
+
+/* Which knob node's port a point is on, or -1.
+ *
+ * A scan rather than a question about the box under the point, because
+ * the port straddles the box's bottom edge and half of it is therefore
+ * over whatever is below. Generous on purpose: it is a drag handle, and
+ * PORT_GRAB is the radius that makes it one. */
+int
+ComposerCanvas::knobPortAt (double x, double y) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if (boxes_[i].what.kind != Selection::KNOB)
+            continue;
+
+        double px, py;
+
+        knobPortAt(boxes_[i], px, py);
+
+        if ((x - px) * (x - px) + (y - py) * (y - py) <=
+            PORT_GRAB * PORT_GRAB)
+            return (int)i;
+    }
+
+    return -1;
+}
+
+const ComposerCanvas::Box *
+ComposerCanvas::knobBox (const std::string &name) const
+{
+    if (doc_ == NULL)
+        return NULL;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if (boxes_[i].what.kind != Selection::KNOB ||
+            boxes_[i].what.index >= doc_->knobs.size())
+            continue;
+
+        if (doc_->knobs[boxes_[i].what.index].name == name)
+            return &boxes_[i];
+    }
+
+    return NULL;
+}
+
+/* Every binding in the piece, as a pair of boxes.
+ *
+ * Read out of the live stages rather than out of the doc, because the
+ * live stage is what a binding actually is: `params.knobBinding(i)' is
+ * the pointer the scheduler will read through, and a doc that said
+ * `@density' for a param the loader refused would draw a wire nothing
+ * travels down. The doc is the spelling; this is the connection. */
+void
+ComposerCanvas::eachWire (const std::function<void (const Box &,
+                                                    const Box &,
+                                                    const std::string &)>
+                          &fn) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        const Box &st = boxes_[i];
+
+        if (st.what.kind != Selection::STAGE || st.live == NULL)
+            continue;
+
+        for (int pi = 0; pi < st.live->plugin->paramCount(); pi++)
+        {
+            thArg *bound = st.live->params.knobBinding(pi);
+
+            if (bound == NULL)
+                continue;
+
+            const Box *kb = knobBox(bound->name());
+
+            if (kb == NULL)
+                continue;
+
+            const thcPlugin::ParamInfo *info =
+                st.live->plugin->paramInfo(pi);
+
+            fn(*kb, st, info != NULL ? info->name : std::string());
+        }
+    }
+
+    /* And the knobs that drive a dsp node's arg.
+     *
+     * A node box has no thcStage behind it, so the loop above cannot
+     * see these -- and a knob whose only job is the depth of an LFO
+     * would have drawn as a slider wired to nothing, which is what the
+     * canvas is for saying it is not. The node host knows; it is asked
+     * per layout, like everything else here. */
+    if (doc_ == NULL || sched_ == NULL)
+        return;
+
+    for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+    {
+        thcChain *live = sched_->chain(ci);
+
+        if (live == NULL || !live->nodes)
+            continue;
+
+        const std::vector<thcNodeHost::KnobUse> uses = live->nodes->knobUses();
+
+        for (size_t u = 0; u < uses.size(); u++)
+        {
+            const Box *kb = knobBox(uses[u].knob);
+            const Box *nb = NULL;
+
+            for (size_t b = 0; b < boxes_.size() && nb == NULL; b++)
+                if (boxes_[b].what.kind == Selection::STAGE &&
+                    boxes_[b].what.chain == ci &&
+                    boxes_[b].what.index < doc_->chains[ci].stages.size() &&
+                    doc_->chains[ci].stages[boxes_[b].what.index].name ==
+                        uses[u].node)
+                    nb = &boxes_[b];
+
+            if (kb != NULL && nb != NULL)
+                fn(*kb, *nb, uses[u].arg);
+        }
+    }
+}
+
+bool
+ComposerCanvas::knobTrack (const std::string &name, double &x0, double &x1,
+                           double &y) const
+{
+    const Box *b = knobBox(name);
+
+    if (b == NULL)
+        return false;
+
+    knobTrackRect(*b, x0, x1, y);
+
+    x0 *= zoom();
+    x1 *= zoom();
+    y  *= zoom();
+
+    return true;
+}
+
+bool
+ComposerCanvas::knobPort (const std::string &name, double &x,
+                          double &y) const
+{
+    const Box *b = knobBox(name);
+
+    if (b == NULL)
+        return false;
+
+    knobPortAt(*b, x, y);
+
+    x *= zoom();
+    y *= zoom();
+
+    return true;
+}
+
+/* A box in shell pixels, which is what a popover wants to point at. */
+CanvasRect
+ComposerCanvas::boxRect (const Box &b) const
+{
+    return CanvasRect((int)(b.x * zoom()), (int)(b.y * zoom()),
+                      (int)(b.w * zoom()), (int)(b.h * zoom()));
+}
+
+bool
+ComposerCanvas::stageRect (size_t chain, size_t stage,
+                           CanvasRect &at) const
+{
+    const Box *b = boxFor(chain, stage);
+
+    if (b == NULL)
+        return false;
+
+    at = boxRect(*b);
+
+    return true;
+}
+
+bool
+ComposerCanvas::paramsHandle (size_t chain, size_t stage,
+                              double &x, double &y) const
+{
+    const Box *b = boxFor(chain, stage);
+
+    if (b == NULL || b->live == NULL)
+        return false;
+
+    double tx, ty, ts;
+
+    twistyRect(*b, tx, ty, ts);
+
+    x = (tx + ts / 2) * zoom();
+    y = (ty + ts / 2) * zoom();
+
+    return true;
+}
+
+void
+ComposerCanvas::pressAt (double sx, double sy, int button, int nPress)
+{
+    onPressed(nPress, sx, sy, button);
+}
+
+void
+ComposerCanvas::motionTo (double sx, double sy)
+{
+    onMotion(sx, sy);
+}
+
+void
+ComposerCanvas::releaseAt (double sx, double sy, int button)
+{
+    onReleased(1, sx, sy, button);
+}
+
+void
+ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
+                      int width, int height)
+{
+    cr->set_source_rgb(BG_R, BG_G, BG_B);
+    cr->paint();
+
+    if (doc_ == NULL)
+        return;
+
+    /* Everything below is drawn in the coordinates rebuild() laid the
+       boxes out in; the zoom is one transform at the top rather than a
+       multiply on every number. Ctrl+wheel drives it, and the scrolled
+       window this lives in does the scrolling. */
+    cr->scale(zoom(), zoom());
+
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+
+    /* One stage, filling everything. Drawn instead of the rows rather
+       than over them: the point of enlarging is room, and a hundred-pixel
+       box behind a Life board would only be something to misclick. */
+    if (thcStage *big = enlargedStage())
+    {
+        double rx, ry, rw, rh;
+
+        enlargedRect(rx, ry, rw, rh);
+
+        std::string label = "stage " + std::to_string(enlarged_.index) +
+            " of " + doc_->chains[enlarged_.chain].name;
+
+        if (big->plugin->hasInput())
+            label += "  --  click to change it, Escape to go back";
+        else
+            label += "  --  Escape to go back";
+
+        cr->set_source_rgba(1, 1, 1, 0.55);
+        cr->set_font_size(11);
+        cr->move_to(rx, ry - 6);
+        cr->show_text(label);
+
+        cr->set_source_rgba(1, 1, 1, 0.06);
+        cr->rectangle(rx, ry, rw, rh);
+        cr->fill();
+
+        cr->save();
+        cr->rectangle(rx, ry, rw, rh);
+        cr->clip();
+        cr->translate(rx, ry);
+        big->plugin->draw(big->state, cr->cobj(), rw, rh);
+        cr->restore();
+
+        return;
+    }
+
+    /* A knob moved from elsewhere -- the knob strip, a MIDI controller,
+       a peer -- is followed here, by taking the live value when it
+       changes. Not while a box is being dragged, which shows the drag;
+       and not for a moment after, while the commands the drag sent are
+       still arriving -- a browser's land a window or a room's lead
+       later, and the box would walk back through them. It holds until
+       the live value reaches it, or for a second's worth of frames. */
+    for (size_t i = 0; sched_ != NULL && i < boxes_.size(); i++)
+    {
+        Box &b = boxes_[i];
+
+        if (b.what.kind != Selection::KNOB ||
+            b.what.index >= doc_->knobs.size())
+            continue;
+
+        thArg *arg = sched_->knob(doc_->knobs[b.what.index].name);
+
+        if (arg == NULL)
+            continue;
+
+        const double live = (*arg)[0];
+
+        if ((int)i == dragKnob_)
+            b.kLive = live;
+        else if (b.kHold > 0)
+        {
+            if (std::fabs(live - b.kv) < 1e-6 || --b.kHold == 0)
+            {
+                b.kHold = 0;
+                b.kv = b.kLive = live;
+            }
+        }
+        else if (live != b.kLive)
+            b.kv = b.kLive = live;
+    }
+
+    /* A tempo change moves the lengths of sections written in beats
+       against those written in seconds: the blocks follow. */
+    if (!heads_.empty() && sched_ != NULL &&
+        std::fabs(sched_->sectionsLength() - laneTotal_) > 1e-9)
+        layoutLane(laneY_);
+
+    /* The arrangement first, so the wires from the knobs above it to the
+       stages below cross over it -- the one being pulled included. */
+    drawLane(cr);
+
+    /* Wires under the arrows, and both under the boxes. */
+    drawWires(cr);
+
+    /* Arrows first, boxes over them. Each one lights as an event goes
+       along it: out of the stage it leaves, or into the stage it enters
+       where the one it leaves has no live stage behind it. The arrows
+       into the sinks light when the chain is heard, and red when what
+       reached the end was dropped by the mute, a solo or the
+       arrangement. */
+    for (size_t i = 0; i + 1 < boxes_.size(); i++)
+    {
+        const Box &a = boxes_[i];
+        const Box &b = boxes_[i + 1];
+
+        if (a.what.kind == Selection::ADD_CHAIN ||
+            b.what.kind == Selection::ADD_CHAIN)
+            continue;
+
+        /* Knob nodes are not in anyone's chain; their connections are
+           wires, drawn separately. Skipped by name rather than by the
+           chain test below, which they would pass by accident -- a knob
+           box leaves `what.chain' at its default of zero, which is also
+           the first chain. */
+        if (a.what.kind == Selection::KNOB ||
+            b.what.kind == Selection::KNOB)
+            continue;
+
+        if (a.what.chain != b.what.chain)
+            continue;
+
+        /* Consecutive boxes in one row: draw the flow between them,
+           except into the trailing ghosts. */
+        if (b.ghost)
+            continue;
+
+        double y = rowY_[a.what.chain] + rowH_[a.what.chain] / 2;
+        double x0 = a.x + a.w, x1 = b.x;
+        double lit = 0;
+        bool gated = false;
+        const thcChain *live =
+            sched_ != NULL ? sched_->chain(a.what.chain) : NULL;
+
+        if (b.what.kind == Selection::SINK)
+        {
+            /* By the kind the sink takes: notes, or values -- a chanarg's
+               or a knob's. */
+            const thcGenEdit::Sink *sk = doc_ != NULL &&
+                b.what.chain < doc_->chains.size() &&
+                b.what.index < doc_->chains[b.what.chain].sinks.size()
+                    ? &doc_->chains[b.what.chain].sinks[b.what.index] : NULL;
+            const int kind = sk != NULL &&
+                (!sk->chanarg.empty() || !sk->knob.empty()) ? 1 : 0;
+
+            if (live != NULL)
+            {
+                const double drop = flash(live->lastGated[kind]);
+
+                lit = flash(live->lastHeard[kind]);
+
+                if (drop > lit)
+                {
+                    lit = drop;
+                    gated = true;
+                }
+            }
+        }
+        else if (a.what.kind == Selection::STAGE && a.live != NULL)
+            lit = flash(a.live->lastOut);
+        else if (b.what.kind == Selection::STAGE && b.live != NULL)
+            lit = flash(b.live->lastIn);
+
+        if (gated)
+            cr->set_source_rgba(0.90, 0.35, 0.30, 0.25 + 0.7 * lit);
+        else
+            cr->set_source_rgba(1, 1, 1, 0.25 + 0.7 * lit);
+
+        cr->set_line_width(1 + 1.5 * lit);
+        cr->move_to(x0 + 2, y);
+        cr->line_to(x1 - 4, y);
+        cr->stroke();
+        cr->move_to(x1 - 3, y);
+        cr->line_to(x1 - 8, y - 3.5);
+        cr->line_to(x1 - 8, y + 3.5);
+        cr->close_path();
+        cr->fill();
+    }
+
+    int dragged = -1;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if ((int)i == dragBox_)
+        {
+            dragged = (int)i;
+            continue;                    /* drawn last, floating         */
+        }
+
+        drawBox(cr, boxes_[i], boxes_[i].what == sel_);
+    }
+
+    if (dragged >= 0)
+    {
+        /* The insertion caret, then the box in flight. */
+        if (dropAt_ >= 0)
+        {
+            const Box &d = boxes_[dragged];
+            size_t ci = d.what.chain;
+            double cx = rowX_[ci] + LABEL_W + ARROW_W +
+                dropAt_ * (STAGE_W + ARROW_W) - ARROW_W / 2;
+
+            cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
+            cr->set_line_width(2);
+            cr->move_to(cx, rowY_[ci] - 4);
+            cr->line_to(cx, rowY_[ci] + rowH_[ci] + 4);
+            cr->stroke();
+        }
+
+        Box floating = boxes_[dragged];
+
+        floating.x += dragDx_;
+        drawBox(cr, floating, true);
+    }
+
+    drawProbe(cr);
+}
+
+/* ---- the enlarged view, and gestures that reach a plugin -------------- */
+
+void
+ComposerCanvas::twistyRect (const Box &b, double &x, double &y, double &s)
+{
+    s = TWISTY;
+    x = b.x + b.w - TWISTY - 3;
+    y = b.y + (TITLE_H - TWISTY) / 2;
+}
+
+void
+ComposerCanvas::chipRect (const Box &b, int which, double &x, double &y,
+                          double &w, double &h)
+{
+    w = CHIP_W;
+    h = CHIP_H;
+
+    /* Collapsed, at the right of the name's one line; open, along the
+       foot of the box. */
+    if (b.h < STAGE_H)
+    {
+        x = b.x + b.w - (CHIPS - which) * (CHIP_W + CHIP_GAP);
+        y = b.y + (b.h - CHIP_H) / 2;
+    }
+    else
+    {
+        x = b.x + 2 + which * (CHIP_W + CHIP_GAP);
+        y = b.y + b.h - CHIP_H - 4;
+    }
+}
+
+void
+ComposerCanvas::discloseRect (const Box &b, double &x, double &y, double &s)
+{
+    s = DISCLOSE;
+    x = b.x + 2;
+    y = b.y + (b.h < STAGE_H ? (b.h - DISCLOSE) / 2 : 8);
+}
+
+bool
+ComposerCanvas::chainCollapsed (size_t chain) const
+{
+    return doc_ != NULL && chain < doc_->chains.size() &&
+           collapsed_.count(doc_->chains[chain].name) != 0;
+}
+
+void
+ComposerCanvas::setChainCollapsed (size_t chain, bool on)
+{
+    if (doc_ == NULL || chain >= doc_->chains.size() ||
+        chainCollapsed(chain) == on)
+        return;
+
+    if (on)
+        collapsed_.insert(doc_->chains[chain].name);
+    else
+        collapsed_.erase(doc_->chains[chain].name);
+
+    /* A collapsed row has no "+" boxes, so a selected one is not there
+       to be selected: the chain is, instead. */
+    if (on && sel_.chain == chain &&
+        (sel_.kind == Selection::ADD_STAGE ||
+         sel_.kind == Selection::ADD_SINK))
+    {
+        Selection s;
+
+        s.kind = Selection::CHAIN;
+        s.chain = chain;
+        select(s);
+    }
+
+    relayout();
+}
+
+void
+ComposerCanvas::renameCollapsed (const std::string &was,
+                                 const std::string &now)
+{
+    if (collapsed_.erase(was) != 0)
+        collapsed_.insert(now);
+}
+
+void
+ComposerCanvas::setAllCollapsed (bool on)
+{
+    if (doc_ == NULL)
+        return;
+
+    collapsed_.clear();
+
+    if (on)
+        for (const thcGenEdit::Chain &c : doc_->chains)
+            collapsed_.insert(c.name);
+
+    /* As for one chain: a selected "+" box goes with its row's. */
+    if (on && (sel_.kind == Selection::ADD_STAGE ||
+               sel_.kind == Selection::ADD_SINK))
+    {
+        Selection s;
+
+        s.kind = Selection::CHAIN;
+        s.chain = sel_.chain;
+        select(s);
+    }
+
+    relayout();
+}
+
+bool
+ComposerCanvas::discloseAt (size_t chain, double &x, double &y) const
+{
+    for (const Box &b : boxes_)
+        if (b.what.kind == Selection::CHAIN && b.what.chain == chain)
+        {
+            double dx, dy, ds;
+
+            discloseRect(b, dx, dy, ds);
+            x = (dx + ds / 2) * zoom();
+            y = (dy + ds / 2) * zoom();
+            return true;
+        }
+
+    return false;
+}
+
+/* The layout again, for a change in what it is laid out from -- a row
+   collapsed, the view's width -- and the shell told the new size. */
+void
+ComposerCanvas::relayout (void)
+{
+    rebuild();
+    contentResized();
+    requestRedraw();
+}
+
+bool
+ComposerCanvas::fitColumns (void)
+{
+    double vx = 0, vy = 0, vw = 0, vh = 0;
+
+    if (!shellViewport(vx, vy, vw, vh) || vw < 1)
+        return false;
+
+    /* In the drawing's own units: a view zoomed out has room for more. */
+    const double w = vw / zoom();
+
+    /* A little wider is the same width: a scrollbar going away as the
+       drawing changes height is not a reason to lay out again. Any
+       narrower is, or the last column is under the edge. */
+    if (w >= fitWidth_ && w - fitWidth_ < 24)
+        return false;
+
+    fitWidth_ = w;
+
+    const size_t was = columns_;
+
+    rebuild();
+
+    if (columns_ == was)
+        return false;
+
+    contentResized();
+    requestRedraw();
+    return true;
+}
+
+double
+ComposerCanvas::flash (double t) const
+{
+    if (sched_ == NULL || t < 0 || !sched_->running())
+        return 0.0;
+
+    const double d = sched_->now() - t;
+
+    if (d < 0 || d > FLASH_S)
+        return 0.0;
+
+    /* Slow off the top and quick at the end, so a light reads as lit
+       for most of its fade. */
+    const double f = d / FLASH_S;
+
+    return 1.0 - f * f;
+}
+
+/* The lane's blocks and cells, from `y' down: a block per section, as wide
+ * as it is long at the scale that makes the arrangement about LANE_W.
+ * False, and nothing laid out, for a piece with no sections. Again from
+ * draw() when a tempo change has moved the sections' lengths, which does
+ * not change the lane's height. */
+bool
+ComposerCanvas::layoutLane (double y)
+{
+    heads_.clear();
+    cells_.clear();
+    laneRight_ = 0;
+    laneTotal_ = 0;
+
+    if (sched_ == NULL || doc_ == NULL || sched_->sections().empty() ||
+        sched_->sectionsLength() <= 0)
+        return false;
+
+    const std::vector<thcSection> &secs = sched_->sections();
+    const double scale = LANE_W / sched_->sectionsLength();
+    double x = M + LABEL_W + 8;
+
+    for (size_t si = 0; si < secs.size(); si++)
+    {
+        const double w =
+            std::max(LANE_COL_MIN, sched_->sectionLength(secs[si]) * scale);
+
+        heads_.push_back({ x, y, w - LANE_GAP, LANE_HEAD_H });
+
+        for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+            cells_.push_back({ si, ci, x,
+                               y + LANE_HEAD_H + LANE_GAP +
+                                   ci * (LANE_ROW_H + LANE_GAP),
+                               w - LANE_GAP, LANE_ROW_H });
+
+        x += w;
+    }
+
+    laneRight_ = x;
+    laneY_ = y;
+    laneTotal_ = sched_->sectionsLength();
+
+    return true;
+}
+
+double
+ComposerCanvas::laneLevel (size_t section, size_t chain) const
+{
+    return sched_ != NULL && doc_ != NULL && chain < doc_->chains.size()
+        ? sched_->sectionLevelOf(section, doc_->chains[chain].name) : 1.0;
+}
+
+/* The arrangement: the sections as blocks, the one playing lit, and a
+ * row per chain with its level in each -- full as written, empty where
+ * it is silent, and the number where it is anything else. A line where
+ * the transport is. */
+void
+ComposerCanvas::drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const
+{
+    if (heads_.empty() || sched_ == NULL || doc_ == NULL)
+        return;
+
+    const std::vector<thcSection> &secs = sched_->sections();
+    const double bottom = cells_.empty() ? laneY_ + LANE_HEAD_H
+        : cells_.back().y + cells_.back().h;
+
+    cr->set_source_rgb(BG_R, BG_G, BG_B);
+    cr->rectangle(M, laneY_ - 2, laneRight_ - M + 2, bottom - laneY_ + 4);
+    cr->fill();
+
+    const bool going = sched_->running() || sched_->now() > 0;
+    const int playing = going ? sched_->sectionAt(sched_->now()) : -1;
+
+    cr->set_font_size(9);
+
+    for (size_t si = 0; si < heads_.size() && si < secs.size(); si++)
+    {
+        const LaneRect &h = heads_[si];
+
+        roundedRect(cr, h.x, h.y, h.w, h.h, 3);
+
+        if ((int)si == playing)
+            cr->set_source_rgba(1.0, 0.85, 0.3, 0.35);
+        else
+            cr->set_source_rgba(1, 1, 1, 0.08);
+
+        cr->fill();
+        cr->set_source_rgba(1, 1, 1, 0.75);
+        fitText(cr, secs[si].hold ? secs[si].name + " (hold)"
+                                  : secs[si].name,
+                h.x + 3, h.y + 12, h.w - 6);
+    }
+
+    /* The chain names, beside their rows. */
+    for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+    {
+        const double ry = laneY_ + LANE_HEAD_H + LANE_GAP +
+                          ci * (LANE_ROW_H + LANE_GAP);
+
+        cr->set_source_rgba(1, 1, 1, chainAudible(ci) ? 0.6 : 0.3);
+        fitText(cr, doc_->chains[ci].name, M + 2, ry + 10, LABEL_W - 4);
+    }
+
+    for (const LaneCell &c : cells_)
+    {
+        if (c.section >= secs.size() || c.chain >= doc_->chains.size())
+            continue;
+
+        const double level = laneLevel(c.section, c.chain);
+        double r = 1, g = 1, b = 1;
+
+        if (chainHues_)
+            gthChannelColor((int)c.chain, r, g, b);
+
+        roundedRect(cr, c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1, 2);
+
+        if (level > 0)
+        {
+            cr->set_source_rgba(r, g, b,
+                                0.12 + 0.4 * std::min(level, 1.5) / 1.5);
+            cr->fill_preserve();
+        }
+
+        cr->set_source_rgba(1, 1, 1, level > 0 ? 0.0 : 0.18);
+        cr->set_line_width(1);
+        cr->stroke();
+
+        if (level != 0 && level != 1)
+        {
+            char t[16];
+
+            snprintf(t, sizeof(t), "%g", level);
+            cr->set_source_rgba(1, 1, 1, 0.85);
+            fitText(cr, t, c.x + 3, c.y + 10, c.w - 6);
+        }
+    }
+
+    /* Where the transport is, in the section it is in: the blocks are
+       each as wide as they are long only down to their minimum, so the
+       line is placed within its own block rather than on one scale. */
+    thcScheduler::SectionSpan span;
+
+    if (playing >= 0 && (size_t)playing < heads_.size() &&
+        sched_->sectionSpanAt(sched_->now(), span))
+    {
+        /* As the arrangement is playing it, which a loop, a hold or a
+           cue has made something other than the list laid end to end. */
+        const double f = span.length > 0
+            ? std::clamp((sched_->now() - span.start) / span.length, 0.0,
+                         1.0)
+            : 0.0;
+        const LaneRect &h = heads_[playing];
+        const double px = h.x + f * h.w;
+
+        cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
+        cr->set_line_width(1.5);
+        cr->move_to(px, laneY_ - 1);
+        cr->line_to(px, bottom + 1);
+        cr->stroke();
+    }
+}
+
+bool
+ComposerCanvas::sectionHead (size_t section, double &x, double &y) const
+{
+    if (section >= heads_.size())
+        return false;
+
+    x = (heads_[section].x + heads_[section].w / 2) * zoom();
+    y = (heads_[section].y + heads_[section].h / 2) * zoom();
+
+    return true;
+}
+
+bool
+ComposerCanvas::sectionCell (size_t section, size_t chain, double &x,
+                             double &y) const
+{
+    for (const LaneCell &c : cells_)
+        if (c.section == section && c.chain == chain)
+        {
+            x = (c.x + c.w / 2) * zoom();
+            y = (c.y + c.h / 2) * zoom();
+            return true;
+        }
+
+    return false;
+}
+
+/* The arrows a probe can go on, each by the stage whose output it
+ * carries: an arrow out of a stage, and the arrow into a chain's sinks,
+ * which carries its last stage's. `fn' gets the arrow's ends and middle
+ * height; returning true stops the walk. */
+void
+ComposerCanvas::eachArrow (const std::function<bool (const Selection &,
+                                                      double, double,
+                                                      double)> &fn) const
+{
+    for (size_t i = 0; i + 1 < boxes_.size(); i++)
+    {
+        const Box &a = boxes_[i];
+        const Box &b = boxes_[i + 1];
+
+        if (a.what.kind == Selection::KNOB || b.ghost ||
+            a.what.chain != b.what.chain || a.what.kind == Selection::CHAIN ||
+            (a.what.kind != Selection::STAGE &&
+             a.what.kind != Selection::ADD_STAGE))
+            continue;
+
+        /* Into the sinks from the "+": the last stage with a live one. */
+        Selection from;
+        const Box *src = &a;
+
+        for (size_t k = i + 1; src->what.kind != Selection::STAGE ||
+                               src->live == NULL; )
+        {
+            if (k == 0)
+            {
+                src = NULL;
+                break;
+            }
+
+            k--;
+            src = &boxes_[k];
+
+            if (src->what.chain != a.what.chain ||
+                src->what.kind == Selection::CHAIN)
+            {
+                src = NULL;
+                break;
+            }
+        }
+
+        if (src == NULL)
+            continue;
+
+        from.kind = Selection::STAGE;
+        from.chain = src->what.chain;
+        from.index = src->what.index;
+
+        const double y = rowY_[a.what.chain] + rowH_[a.what.chain] / 2;
+
+        if (fn(from, a.x + a.w, b.x, y))
+            return;
+    }
+}
+
+bool
+ComposerCanvas::arrowAt (double x, double y, Selection &out) const
+{
+    bool found = false;
+
+    eachArrow([&](const Selection &from, double x0, double x1, double ay)
+    {
+        if (x >= x0 - 2 && x <= x1 + 2 && std::fabs(y - ay) <= 8)
+        {
+            out = from;
+            found = true;
+        }
+
+        return found;
+    });
+
+    return found;
+}
+
+bool
+ComposerCanvas::probeArrow (size_t chain, size_t stage, double &x,
+                            double &y) const
+{
+    bool found = false;
+
+    eachArrow([&](const Selection &from, double x0, double x1, double ay)
+    {
+        if (from.chain == chain && from.index == stage)
+        {
+            x = (x0 + x1) / 2 * zoom();
+            y = ay * zoom();
+            found = true;
+        }
+
+        return found;
+    });
+
+    return found;
+}
+
+void
+ComposerCanvas::setProbe (const Selection &at)
+{
+    probe_ = at;
+    probeChain_.clear();
+    probeStage_.clear();
+
+    /* By name as well, so a reload that moves the stage -- a reorder, a
+       stage added before it -- moves the probe with it. */
+    if (probe_.kind == Selection::STAGE && doc_ != NULL &&
+        probe_.chain < doc_->chains.size() &&
+        probe_.index < doc_->chains[probe_.chain].stages.size())
+    {
+        probeChain_ = doc_->chains[probe_.chain].name;
+        probeStage_ = doc_->chains[probe_.chain].stages[probe_.index].name;
+    }
+
+    requestRedraw();
+}
+
+/* A probe: the last three seconds and the next one of what the probed
+ * stage let out, as bars on a small roll under its arrow -- and, where
+ * the stage is a transformer, what went into it, outlined behind them. So
+ * what a swing or a humanize did is a bar beside its outline, what a
+ * chance dropped is an outline with no bar, and a transposition is a bar
+ * above its outline. */
+/* Where a probe's panel goes: under its arrow's row, clamped to the
+ * drawing's width, and above the row where below would run off the
+ * drawing's foot. The arrow's middle comes back too. False when the probe
+ * hangs from nothing drawn. */
+bool
+ComposerCanvas::probeRect (double &px, double &py, double &w, double &h,
+                           double &ax, double &ay) const
+{
+    if (probe_.kind != Selection::STAGE || doc_ == NULL ||
+        probe_.chain >= rowY_.size())
+        return false;
+
+    bool placed = false;
+
+    eachArrow([&](const Selection &from, double x0, double x1, double y)
+    {
+        if (from == probe_ && !placed)
+        {
+            ax = (x0 + x1) / 2;
+            ay = y;
+            placed = true;
+        }
+
+        return placed;
+    });
+
+    if (!placed)
+        return false;
+
+    double cw = 0, ch = 0;
+
+    contentExtent(cw, ch);
+
+    w = PROBE_W;
+    h = PROBE_H;
+    px = std::max(M, std::min(ax - w / 2, cw - w - M));
+    py = rowY_[probe_.chain] + rowH_[probe_.chain] + 4;
+
+    if (py + h > ch - M)
+        py = std::max(M, rowY_[probe_.chain] - h - 4);
+
+    return true;
+}
+
+void
+ComposerCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const
+{
+    if (probe_.kind != Selection::STAGE || sched_ == NULL || doc_ == NULL ||
+        probe_.chain >= doc_->chains.size())
+        return;
+
+    double px, py, W, H, ax, ay;
+
+    thcChain *live = sched_->chain(probe_.chain);
+    const int at = thcGenEdit::liveIndex(doc_->chains[probe_.chain],
+                                         probe_.index);
+
+    if (!probeRect(px, py, W, H, ax, ay) || live == NULL || at < 0 ||
+        (size_t)at >= live->stages.size())
+        return;
+
+    /* What went into the stage, where it takes notes: its own record of
+       them, so a note that only passed the stage before it is here too,
+       and so is one played into it live. */
+    const thcStage *st = live->stages[at].get();
+    const std::deque<thcPlayed> *before =
+        st->plugin->hasReceive() ? &st->in : NULL;
+    const double TITLE = 14;
+    const double now = sched_->now();
+    const double t0 = now - 3, t1 = now + 1;
+
+    roundedRect(cr, px, py, W, H, 5);
+    cr->set_source_rgb(0.13, 0.13, 0.16);
+    cr->fill_preserve();
+    cr->set_source_rgba(1.0, 0.85, 0.3, 0.8);
+    cr->set_line_width(1);
+    cr->stroke();
+
+    /* And the arrow it hangs from, lit. */
+    cr->move_to(ax, py > ay ? ay + 4 : ay - 4);
+    cr->line_to(ax, py > ay ? py : py + H);
+    cr->stroke();
+
+    cr->set_font_size(9);
+    cr->set_source_rgba(1, 1, 1, 0.75);
+    fitText(cr, "out of " + doc_->chains[probe_.chain].stages[probe_.index]
+                                .plugin +
+                (before != NULL ? "  (outlines: what went in)" : ""),
+            px + 6, py + 11, W - 12);
+
+    int lo = 128, hi = -1;
+
+    auto span = [&](const std::deque<thcPlayed> &notes)
+    {
+        for (const thcPlayed &p : notes)
+            if (p.at + std::max(p.duration, 0.05) >= t0 && p.at <= t1)
+            {
+                lo = std::min(lo, p.note);
+                hi = std::max(hi, p.note);
+            }
+    };
+
+    span(st->out);
+
+    if (before != NULL)
+        span(*before);
+
+    const double gx = px + 6, gy = py + TITLE + 2;
+    const double gw = W - 12, gh = H - TITLE - 8;
+
+    if (hi < lo)
+    {
+        cr->set_source_rgba(1, 1, 1, 0.4);
+        fitText(cr, "nothing in these four seconds", gx, gy + gh / 2, gw);
+        return;
+    }
+
+    lo -= 1;
+    hi += 1;
+
+    const double laneH = gh / (hi - lo + 1);
+    auto xOf = [&](double t) { return gx + (t - t0) / (t1 - t0) * gw; };
+
+    auto bars = [&](const std::deque<thcPlayed> &notes, bool outline)
+    {
+        for (const thcPlayed &p : notes)
+        {
+            const double a = p.at, b = p.at + std::max(p.duration, 0.05);
+
+            if (b < t0 || a > t1)
+                continue;
+
+            const double x0 = std::max(gx, xOf(a));
+            const double x1 = std::min(gx + gw, xOf(b));
+            const double y = gy + (hi - p.note) * laneH;
+
+            cr->rectangle(x0 + 0.5, y + 0.5, std::max(x1 - x0, 2.0) - 1,
+                          std::max(laneH - 1, 1.5));
+
+            if (outline)
+            {
+                cr->set_source_rgba(1, 1, 1, 0.45);
+                cr->set_line_width(1);
+                cr->stroke();
+            }
+            else
+            {
+                cr->set_source_rgba(1.0, 0.85, 0.3,
+                                    0.35 + 0.6 * p.velocity / 127.0);
+                cr->fill();
+            }
+        }
+    };
+
+    if (before != NULL)
+        bars(*before, true);
+
+    bars(st->out, false);
+
+    /* Now. */
+    cr->set_source_rgba(1, 1, 1, 0.5);
+    cr->move_to(xOf(now), gy);
+    cr->line_to(xOf(now), gy + gh);
+    cr->stroke();
+}
+
+bool
+ComposerCanvas::mixFlag (size_t chain, bool solo) const
+{
+    const thcChain *c = sched_ != NULL ? sched_->chain(chain) : NULL;
+
+    return c != NULL && (solo ? c->soloed : c->muted);
+}
+
+bool
+ComposerCanvas::chainAudible (size_t chain) const
+{
+    const thcChain *c = sched_ != NULL ? sched_->chain(chain) : NULL;
+
+    return c == NULL || sched_->audible(*c);
+}
+
+bool
+ComposerCanvas::chainChip (size_t chain, int which, double &x,
+                           double &y) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        const Box &b = boxes_[i];
+
+        if (b.what.kind != Selection::CHAIN || b.ghost ||
+            b.what.chain != chain)
+            continue;
+
+        double cx, cy, cw, ch;
+
+        chipRect(b, which, cx, cy, cw, ch);
+        x = (cx + cw / 2) * zoom();
+        y = (cy + ch / 2) * zoom();
+        return true;
+    }
+
+    return false;
+}
+
+thcStage *
+ComposerCanvas::enlargedStage (void) const
+{
+    if (enlarged_.kind != Selection::STAGE || sched_ == NULL)
+        return NULL;
+
+    thcChain *c = sched_->chain(enlarged_.chain);
+
+    if (c == NULL || doc_ == NULL || enlarged_.chain >= doc_->chains.size())
+        return NULL;
+
+    /* Through liveIndex, like every other crossing from the document to
+       the scheduler. A Selection carries the *file's* stage number, and
+       a dsp node is a stage in the file and nothing in the scheduler's
+       list -- so read raw, this enlarged whichever composer happened to
+       sit at that index in the shorter list, and handed its
+       composer_input the clicks meant for another one. With a node
+       ahead of the only drawable stage in a chain it ran off the end
+       instead, and the mode drew nothing at all. */
+    const int at = thcGenEdit::liveIndex(doc_->chains[enlarged_.chain],
+                                         enlarged_.index);
+
+    if (at < 0 || (size_t)at >= c->stages.size())
+        return NULL;
+
+    thcStage *s = c->stages[at].get();
+
+    return (s != NULL && s->plugin->hasDraw()) ? s : NULL;
+}
+
+bool
+ComposerCanvas::enlargedArea (double &x, double &y, double &w,
+                              double &h) const
+{
+    /* About the view, not about the picture. enlargedStage() also asks
+       whether the stage exports composer_draw, which is the right
+       question for whether to draw anything and the wrong one here: the
+       rectangle is where the picture *would* go, and that is geometry a
+       harness can check on any piece rather than only on one whose first
+       stage happens to have a face. */
+    if (enlarged_.kind != Selection::STAGE)
+        return false;
+
+    enlargedRect(x, y, w, h);
+
+    return true;
+}
+
+void
+ComposerCanvas::enlargedRect (double &x, double &y, double &w,
+                              double &h) const
+{
+    const double pad = 8;
+    const double head = 18;          /* room for the label above it     */
+
+    /* The part of the canvas that can be seen, in the same coordinates
+       everything else here uses.
+     *
+       The shell's own size is the whole drawing, not the view: this
+       canvas sizes itself to the scaled content and lives in a
+       scroller, so a piece of eight chains makes the widget eight
+       chains tall. Laying the enlarged stage out in that put it at the
+       top of the content rather than in front of the person -- fine
+       while scrolled to the origin, and off-screen the moment they were
+       not, with a plugin handed a rectangle far larger than anything
+       visible. */
+    double vx, vy, vw, vh;
+
+    visibleRect(vx, vy, vw, vh);
+
+    x = vx + pad;
+    y = vy + pad + head;
+    w = vw - 2 * pad;
+    h = vh - 2 * pad - head;
+
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+}
+
+void
+ComposerCanvas::setEnlarged (const Selection &sel)
+{
+    if (enlarged_ == sel)
+        return;
+
+    enlarged_ = sel;
+    feeding_ = false;
+
+    sigEnlarged.emit(enlarged_);
+    requestRedraw();
+}
+
+/* The one place a gesture becomes a plugin's business.
+ *
+ * Only in the enlarged view, and only for a module that exports
+ * composer_input. The coordinates handed over are the plugin's own --
+ * the same origin and the same size composer_draw was last given -- so
+ * a plugin maps a click by inverting the arithmetic it drew with, and
+ * never has to know that a canvas exists. */
+bool
+ComposerCanvas::feedInput (thcInputType type, double x, double y,
+                           int button)
+{
+    thcStage *s = enlargedStage();
+
+    if (s == NULL || !s->plugin->hasInput())
+        return false;
+
+    double rx, ry, rw, rh;
+
+    enlargedRect(rx, ry, rw, rh);
+
+    /* A release ends the gesture wherever it lands, held to the picture's
+       edge: a plugin keeping a grab, or a host writing an edit when the
+       gesture ends, must hear it. Anything else outside is not for it. */
+    if (type == THC_IN_RELEASE)
+    {
+        x = std::clamp(x, rx, rx + rw - 1e-6);
+        y = std::clamp(y, ry, ry + rh - 1e-6);
+    }
+    else if (x < rx || y < ry || x >= rx + rw || y >= ry + rh)
+        return false;
+
+    thcInputEvent ev;
+
+    ev.type = type;
+    ev.x = x - rx;
+    ev.y = y - ry;
+    ev.w = rw;
+    ev.h = rh;
+    ev.button = button;
+
+    /* Whoever is listening decides when the plugin hears it; with nobody
+       listening it hears it now. See sigInput. */
+    if (sigInput.empty())
+        thcScheduler::input(s, ev);
+    else
+        sigInput.emit(enlarged_.chain, enlarged_.index, ev);
+
+    requestRedraw();
+
+    return true;
+}
+
+void
+ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
+{
+    /* Every gesture arrives in widget pixels and everything below thinks
+       in the laid-out coordinates the boxes were placed in. One
+       conversion at the door, so nothing further in has to remember
+       which of the two it is holding. */
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
+    pressX_ = x;
+    pressY_ = y;
+
+    /* A press the plugin takes is not a selection and not the start of
+       a drag: the canvas gets out of the way entirely while someone is
+       drawing on a board. */
+    if (feedInput(THC_IN_PRESS, x, y, button))
+    {
+        feeding_ = true;
+        feedButton_ = button;
+        return;
+    }
+
+    /* A probe's panel lies over whatever is under it, and a press on it
+       is for it: it puts the probe away. */
+    {
+        double px, py, pw, ph, ax, ay;
+
+        if (enlarged_.kind == Selection::NONE &&
+            probeRect(px, py, pw, ph, ax, ay) && x >= px && x <= px + pw &&
+            y >= py && y <= py + ph)
+        {
+            setProbe(Selection());
+            return;
+        }
+    }
+
+    const Box *box = hit(x, y);
+
+    /* A section's block: the transport to where it begins, heard from
+       there as if it had been played to it (thcScheduler::seek). */
+    if (button == 1 && nPress == 1 && enlarged_.kind == Selection::NONE &&
+        sched_ != NULL)
+        for (size_t si = 0; si < heads_.size(); si++)
+        {
+            const LaneRect &h = heads_[si];
+
+            if (x < h.x || x > h.x + h.w || y < h.y || y > h.y + h.h)
+                continue;
+
+            sigSeekSection.emit(si);
+            return;
+        }
+
+    /* An arrow: a probe on it, or off it again. Arrows are not boxes, so
+       only where no box was hit; once per click, so a double-click is not
+       on and off again. */
+    if (box == NULL && button == 1 && nPress == 1 &&
+        enlarged_.kind == Selection::NONE)
+    {
+        Selection at;
+
+        if (arrowAt(x, y, at))
+        {
+            setProbe(at == probe_ ? Selection() : at);
+            return;
+        }
+    }
+
+    /* A cell of the arrangement: that chain in that section, its level
+       stepped round as written (1), silent (0) and half (0.5). */
+    if (button == 1 && enlarged_.kind == Selection::NONE && sched_ != NULL)
+        for (const LaneCell &c : cells_)
+            if (x >= c.x && x <= c.x + c.w && y >= c.y && y <= c.y + c.h &&
+                c.chain < doc_->chains.size())
+            {
+                /* Round as written (1), silent, half -- and back to the
+                   level the file had, where it had one of its own, so a
+                   click never loses what somebody wrote. */
+                const double now = laneLevel(c.section, c.chain);
+                const auto was = laneWritten_.find(
+                    { c.section, doc_->chains[c.chain].name });
+                const bool own = was != laneWritten_.end();
+                double next;
+
+                if (now == 1)
+                    next = 0;
+                else if (now == 0)
+                    next = 0.5;
+                else if (now == 0.5 && own)
+                    next = was->second;
+                else
+                    next = 1;
+
+                sigSectionLevel.emit(c.section, c.chain, next);
+                return;
+            }
+
+    /* A knob's output port, before the hit test gets a say.
+     *
+       The port is centred on the box's bottom edge, so half of it is
+       outside the box -- and `hit' stops at the edge, so a press on the
+       lower half found no box at all and the branch below never ran.
+       The target that was described as generous was in fact half of a
+       small circle, and which half depended on nothing the user could
+       see. Scanned directly instead, over the knob boxes, so the whole
+       circle answers. */
+    if (button == 1 && nPress == 1)
+    {
+        const int k = knobPortAt(x, y);
+
+        if (k >= 0)
+        {
+            select(boxes_[k].what);
+            wireFrom_ = k;
+            wireX_ = x;
+            wireY_ = y;
+            requestRedraw();
+            return;
+        }
+    }
+
+    /* A chain's disclosure triangle: collapsed to one short line, or
+       opened again. A view setting, like the zoom -- nothing is sent,
+       and the file does not change. */
+    if (box != NULL && box->what.kind == Selection::CHAIN && !box->ghost &&
+        button == 1 && enlarged_.kind == Selection::NONE)
+    {
+        double dx, dy, ds;
+
+        discloseRect(*box, dx, dy, ds);
+
+        if (x >= dx - 4 && x <= dx + ds + 4 && y >= dy - 4 &&
+            y <= dy + ds + 4)
+        {
+            setChainCollapsed(box->what.chain,
+                              !chainCollapsed(box->what.chain));
+            return;
+        }
+    }
+
+    /* A chain's mute or solo button. Neither selects the chain: they
+       are played, like a mixer's, while whatever is selected stays so.
+       Every press toggles, a double-click's second included, so two
+       quick clicks are two toggles and not one and a selection. Not in
+       the enlarged view, which hides the rows the buttons are on. */
+    if (box != NULL && box->what.kind == Selection::CHAIN && !box->ghost &&
+        button == 1 && sched_ != NULL && enlarged_.kind == Selection::NONE)
+    {
+        for (int which = 0; which < CHIPS; which++)
+        {
+            double cx, cy, cw, ch;
+
+            chipRect(*box, which, cx, cy, cw, ch);
+
+            if (x < cx || x > cx + cw || y < cy || y > cy + ch)
+                continue;
+
+            /* F is an action, not a flag: once per click, so a
+               double-click is not two frozen chains. */
+            if (which == 2)
+            {
+                if (nPress == 1)
+                    sigFreeze.emit(box->what.chain);
+
+                return;
+            }
+
+            const bool on = !mixFlag(box->what.chain, which == 1);
+
+            if (which == 0)
+                sigMute.emit(box->what.chain, on);
+            else
+                sigSolo.emit(box->what.chain, on);
+
+            return;
+        }
+    }
+
+    /* The params handle, before anything else a press on a stage box
+       could mean: it sits inside the box's title bar, so a selection or
+       a drag would otherwise swallow it.
+     *
+       The stage is selected on the way, so the Selection pane and the
+       popover are talking about the same thing -- opening a stage's
+       params while the panel still shows the previous one would be two
+       answers to the same question on screen at once. */
+    if (box != NULL && box->what.kind == Selection::STAGE &&
+        box->live != NULL && nPress == 1 && button == 1)
+    {
+        double tx, ty, ts;
+
+        twistyRect(*box, tx, ty, ts);
+
+        if (x >= tx - 3 && x <= tx + ts + 3 &&
+            y >= ty - 3 && y <= ty + ts + 3)
+        {
+            select(box->what);
+            sigParams.emit(box->what.chain, box->what.index,
+                           boxRect(*box));
+            return;
+        }
+    }
+
+    /* A knob node's track sets the value; anywhere else on it selects
+       it. (The port was taken above, before the hit test.) */
+    if (box != NULL && box->what.kind == Selection::KNOB && button == 1)
+    {
+        double x0, x1, ty;
+
+        knobTrackRect(*box, x0, x1, ty);
+
+        if (y >= ty - 7 && y <= ty + 7 && x >= x0 - 6 && x <= x1 + 6)
+        {
+            select(box->what);
+            dragKnob_ = (int)(box - &boxes_[0]);
+            onMotion(sx, sy);       /* jump to where it was pressed     */
+            return;
+        }
+    }
+
+    /* Double-click enlarges a stage that has a picture, and a second
+       one puts it back -- the same gesture both ways, because a mode
+       you can enter and not leave is worse than no mode. */
+    if (nPress >= 2)
+    {
+        if (enlarged_.kind != Selection::NONE)
+        {
+            setEnlarged(Selection());
+            return;
+        }
+
+        if (box != NULL && box->what.kind == Selection::STAGE &&
+            box->live != NULL && box->live->plugin->hasDraw())
+        {
+            setEnlarged(box->what);
+            takeFocus();
+            return;
+        }
+    }
+
+    /* While enlarged, a click that missed the picture leaves the mode.
+       Clicking the surround to get out is what every enlarged view in
+       every program does. */
+    if (enlarged_.kind != Selection::NONE)
+    {
+        setEnlarged(Selection());
+        return;
+    }
+
+    select(box != NULL ? box->what : Selection());
+}
+
+void
+ComposerCanvas::onReleased (int, double sx, double sy, int)
+{
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
+    /* The committing emit. Everything during the drag was live feedback;
+       this is the one the window turns into a line in the file. */
+    if (dragKnob_ >= 0)
+    {
+        if ((size_t)dragKnob_ < boxes_.size() && doc_ != NULL &&
+            boxes_[dragKnob_].what.index < doc_->knobs.size())
+            sigKnob.emit(doc_->knobs[boxes_[dragKnob_].what.index].name,
+                         boxes_[dragKnob_].kv, true);
+
+        if ((size_t)dragKnob_ < boxes_.size())
+            boxes_[dragKnob_].kHold = 60;
+
+        dragKnob_ = -1;
+        return;
+    }
+
+    /* A wire let go of. On a stage it is a binding waiting for a param
+       to be named; anywhere else it is a wire the user thought better
+       of, which is what dropping on empty canvas ought to mean. */
+    if (wireFrom_ >= 0)
+    {
+        const int from = wireFrom_;
+        const Box *over = hit(x, y);
+
+        wireFrom_ = -1;
+        requestRedraw();
+
+        if (over != NULL && over->what.kind == Selection::STAGE &&
+            over->live != NULL && doc_ != NULL &&
+            (size_t)from < boxes_.size() &&
+            boxes_[from].what.index < doc_->knobs.size())
+            sigBindKnob.emit(doc_->knobs[boxes_[from].what.index].name,
+                             over->what.chain, over->what.index,
+                             boxRect(*over));
+
+        return;
+    }
+
+    if (!feeding_)
+        return;
+
+    /* The button the gesture began with, not whichever one the
+       controller reports now: a release that named a different button
+       than its press would be a pair no plugin could match up. */
+    feedInput(THC_IN_RELEASE, x, y, feedButton_);
+    feeding_ = false;
+
+    if (enlarged_.kind == Selection::STAGE)
+        sigGestureEnd.emit(enlarged_.chain, enlarged_.index);
+}
+
+void
+ComposerCanvas::onMotion (double sx, double sy)
+{
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
+    if (dragKnob_ >= 0 && (size_t)dragKnob_ < boxes_.size())
+    {
+        Box &b = boxes_[dragKnob_];
+
+        double x0, x1, ty;
+
+        knobTrackRect(b, x0, x1, ty);
+
+        double t = x1 > x0 ? (x - x0) / (x1 - x0) : 0.0;
+
+        t = std::clamp(t, 0.0, 1.0);
+
+        b.kv = b.klo + (b.khi - b.klo) * t;
+
+        if (doc_ != NULL && b.what.index < doc_->knobs.size())
+            sigKnob.emit(doc_->knobs[b.what.index].name, b.kv, false);
+
+        requestRedraw();
+        return;
+    }
+
+    if (wireFrom_ >= 0)
+    {
+        wireX_ = x;
+        wireY_ = y;
+        requestRedraw();
+        return;
+    }
+
+    if (feeding_)
+        feedInput(THC_IN_DRAG, x, y, feedButton_);
+}
+
+/* Escape leaves the enlarged view. A canvas that fills itself with one
+   stage and offers no way back is a trap. */
+bool
+ComposerCanvas::keyPressed (Key key)
+{
+    if (key == KEY_ESCAPE && enlarged_.kind != Selection::NONE)
+    {
+        setEnlarged(Selection());
+        return true;
+    }
+
+    if (key == KEY_ESCAPE && probe_.kind != Selection::NONE)
+    {
+        setProbe(Selection());
+        return true;
+    }
+
+    return false;
+}
+
+void
+ComposerCanvas::onDragBegin (double sx, double sy)
+{
+    dragBox_ = -1;
+    dragDx_ = 0;
+    dropAt_ = -1;
+
+    /* Not while someone is painting on a plugin's picture, working a
+       knob or pulling a wire, and not in the enlarged view at all --
+       there are no stage boxes to move. */
+    if (feeding_ || dragKnob_ >= 0 || wireFrom_ >= 0 ||
+        enlarged_.kind != Selection::NONE)
+        return;
+
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
+    const Box *box = hit(x, y);
+
+    /* Not a collapsed chain's pills, which are too small to carry and
+       sit where the full boxes' slots are not. */
+    if (box != NULL && box->what.kind == Selection::STAGE &&
+        box->h >= STAGE_H)
+        dragBox_ = (int)(box - &boxes_[0]);
+}
+
+void
+ComposerCanvas::onDragUpdate (double dx, double)
+{
+    if (dragBox_ < 0)
+        return;
+
+    /* A gesture's offset is in widget pixels and everything it is about
+       to be compared against -- the box's x, the slot width -- is in
+       laid-out ones. Dividing rather than calling toContent because this
+       is a delta and not a point: an origin has no place in it. */
+    dragDx_ = dx / zoom();
+
+    /* Which slot would this land in? The box's center, in stage-slot
+       units, clamped to the chain's stages. */
+    const Box &d = boxes_[dragBox_];
+    size_t ci = d.what.chain;
+    size_t nStages = doc_->chains[ci].stages.size();
+    double center = d.x + dragDx_ + d.w / 2;
+    double first = rowX_[ci] + LABEL_W + ARROW_W;
+    int slot = (int)std::lround((center - first) / (STAGE_W + ARROW_W));
+
+    dropAt_ = std::clamp(slot, 0, (int)nStages - 1);
+
+    /* No caret while the drop would change nothing. */
+    if (std::abs(dragDx_) < 6 || dropAt_ == (int)d.what.index)
+        dropAt_ = -1;
+
+    requestRedraw();
+}
+
+void
+ComposerCanvas::onDragEnd (double, double)
+{
+    if (dragBox_ >= 0 && dropAt_ >= 0 &&
+        dropAt_ != (int)boxes_[dragBox_].what.index)
+        sigMoveStage.emit(boxes_[dragBox_].what.chain,
+                          (int)boxes_[dragBox_].what.index, dropAt_);
+
+    dragBox_ = -1;
+    dragDx_ = 0;
+    dropAt_ = -1;
+    requestRedraw();
+}

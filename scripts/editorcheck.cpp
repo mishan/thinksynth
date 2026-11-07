@@ -1,0 +1,1241 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * editorcheck -- does arming a probe in the editor actually put samples on the
+ *                screen?
+ *
+ * dspprobe proves the tap sums the right buffer. visualcheck proves a module
+ * survives what it is handed and draws deterministically. dspgraph proves a
+ * panel lands where it should. Nothing so far joins them up, and the joining
+ * is where a probe becomes three things at once -- a Box in the graph, a slot
+ * in the engine, an instance of a module -- held together by NodeEditor and by
+ * nothing else.
+ *
+ * So this drives the real editor: opens a .dsp on a live channel, arms a
+ * probe through the same call the menu makes, plays a chord, pumps the main
+ * loop so the frame tick runs, and then asks the module what it saw. If any
+ * link in that chain is wrong the meter reads silence, which is exactly the
+ * failure a screenshot would not show.
+ *
+ * A subclass, because arming and the probe list are the editor's own business
+ * and there is no reason to widen them for a test. Protected is the access
+ * level that means "and for anything that is a NodeEditor", which this is.
+ *
+ * NEEDS A DISPLAY, like canvasbench and unlike everything else here: it builds
+ * real widgets. Run it under xvfb-run on a headless box. It is a gate all the
+ * same -- what it covers is not otherwise covered -- so it is in the ctest
+ * list, guarded by whether a display can be had.
+ *
+ *   xvfb-run -a ./build/scripts/editorcheck -p build/plugins/ dsp/ts1.dsp
+ */
+
+#include "config.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <vector>
+
+#include <gtkmm.h>
+
+#include "think.h"
+#include "NodeGraph.h"
+#include "gui/NodeEditor.h"
+#include "gui/ArgPanelView.h"
+#include "gui/PanelView.h"
+#include "gui/NodeParamsView.h"
+
+/* Picked up automatically by LeakSanitizer, the same way visualcheck and
+ * dspstress supply theirs -- so this stays a real gate under CI's
+ * ASAN_OPTIONS=detect_leaks=1 rather than needing an environment variable
+ * nobody will remember.
+ *
+ * Building a GTK window means initialising fontconfig and, under Xvfb, Mesa's
+ * EGL. Both keep global caches they never free: 1.8MB in 44008 allocations
+ * here, every one of them inside those two libraries and none reachable from
+ * anything in this tree. Suppressed by module rather than by turning leak
+ * detection off, so a real leak in NodeEditor -- an instance not closed, a
+ * module not unloaded -- still fails the run. Verified by leaking one on
+ * purpose.
+ */
+extern "C" const char *__lsan_default_suppressions (void)
+{
+    return "leak:libfontconfig\n"
+           "leak:libEGL\n"
+           "leak:libGLX\n"
+           "leak:libglapi\n"
+           "leak:swrast\n"
+           "leak:libgallium\n";
+}
+
+namespace {
+
+int failures = 0;
+int checks = 0;
+
+void ok (bool cond, const char *fmt, ...)
+#ifdef __GNUC__
+    __attribute__((format(printf, 2, 3)))
+#endif
+;
+
+void ok (bool cond, const char *fmt, ...)
+{
+    checks++;
+
+    if (cond)
+        return;
+
+    va_list ap;
+
+    va_start(ap, fmt);
+    printf("FAIL  ");
+    vprintf(fmt, ap);
+    printf("\n");
+    va_end(ap);
+
+    failures++;
+}
+
+/* The way in. Nothing here does anything the menu does not; it only reaches
+   the same calls without a pointer. */
+class TestEditor : public NodeEditor {
+public:
+    TestEditor (thSynth *synth) : NodeEditor(synth) { }
+
+    using NodeEditor::armProbe;
+    using NodeEditor::disarmProbe;
+    using NodeEditor::probes_;
+    using NodeEditor::visuals_;
+    using NodeEditor::graph;
+    using NodeEditor::reload;
+    using NodeEditor::onProbeActivated;
+    using NodeEditor::paintEnlarged;
+    using NodeEditor::enlarged_;
+    using NodeEditor::probeTick_;
+    using NodeEditor::showPanels;
+    using NodeEditor::paletteShown;
+    using NodeEditor::paramsShown;
+    using NodeEditor::onSave;
+    using NodeEditor::listBtn_;
+    using NodeEditor::listed_;
+    using NodeEditor::boxList_;
+    using NodeEditor::wiring_;
+
+    /* The box index of the first probe panel, or -1. */
+    int firstPanel (void) const
+    {
+        for (size_t b = 0; b < graph().boxes().size(); b++)
+            if (graph().boxes()[b].isProbe)
+                return (int)b;
+
+        return -1;
+    }
+
+    /* Save is a button handler with no return value; this is the same write
+       path, reporting whether it worked. */
+    bool save (void)
+    {
+        string why;
+
+        return writeAll(why) && copyFile(workFile(), sourceFile());
+    }
+
+    const string &sourceFile (void) const { return filename(); }
+    string workFile (void) const { return work(); }
+
+    /* How many panels the graph is carrying. */
+    int panels (void) const
+    {
+        int n = 0;
+
+        for (size_t b = 0; b < graph().boxes().size(); b++)
+            if (graph().boxes()[b].isProbe)
+                n++;
+
+        return n;
+    }
+};
+
+void pump (double seconds)
+{
+    const std::chrono::steady_clock::time_point until =
+        std::chrono::steady_clock::now() +
+        std::chrono::milliseconds((int)(seconds * 1000));
+
+    while (std::chrono::steady_clock::now() < until)
+    {
+        while (Glib::MainContext::get_default()->pending())
+            Glib::MainContext::get_default()->iteration(false);
+
+        Glib::usleep(1000);
+    }
+}
+
+/* The peak the meter is showing, read back out of the module by drawing it and
+   looking at the pixels.
+ *
+ * Deliberately not by reaching into the module's state, which the ABI does not
+ * expose and should not: what is being checked is that something arrived and
+ * was drawn, and the pixels are the only honest evidence of that. A silent
+ * meter draws its bar at zero width, so any non-background pixel in the bar's
+ * row means the chain delivered. */
+bool drewSomething (thVisual *v, void *inst)
+{
+    Cairo::RefPtr<Cairo::ImageSurface> a =
+        Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32, 128, 24);
+    Cairo::RefPtr<Cairo::ImageSurface> b =
+        Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32, 128, 24);
+
+    /* Against a fresh instance rather than against "not blank": the frame, the
+       knee tick and the text are drawn whatever the signal is, so a picture is
+       never blank and comparing to blank would pass on silence. What says
+       something arrived is that this instance draws differently from one that
+       has been fed nothing. */
+    void *fresh = v->open(TH_DEFAULT_SAMPLES);
+
+    {
+        Cairo::RefPtr<Cairo::Context> cr = Cairo::Context::create(a);
+
+        v->draw(inst, cr->cobj(), 128, 24);
+    }
+
+    {
+        Cairo::RefPtr<Cairo::Context> cr = Cairo::Context::create(b);
+
+        v->draw(fresh, cr->cobj(), 128, 24);
+    }
+
+    v->close(fresh);
+
+    a->flush();
+    b->flush();
+
+    const int stride = a->get_stride();
+
+    return memcmp(a->get_data(), b->get_data(), (size_t)stride * 24) != 0;
+}
+
+/* Every Gtk::Scale under `w', depth first. */
+void collectScales (Gtk::Widget *w, std::vector<Gtk::Scale *> &out)
+{
+    if (w == NULL)
+        return;
+
+    Gtk::Scale *scale = dynamic_cast<Gtk::Scale *>(w);
+
+    if (scale != NULL)
+        out.push_back(scale);
+
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        collectScales(c, out);
+}
+
+/* Every widget of one type under `w', depth first. */
+template <typename T>
+void collectWidgets (Gtk::Widget *w, std::vector<T *> &out)
+{
+    if (w == NULL)
+        return;
+
+    T *found = dynamic_cast<T *>(w);
+
+    if (found != NULL)
+        out.push_back(found);
+
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        collectWidgets<T>(c, out);
+}
+
+/* PanelView over a thPanel built by hand, rather than by a provider.
+ *
+ * Everything else here draws a panel some provider filled in, and a provider
+ * uses thPanelBuilder, which keeps a panel's rows and its groupOrder in step
+ * and only ever makes the two kinds of row ArgPanel has. setPanel is public
+ * and takes neither of those for granted, so the cases a provider cannot
+ * currently produce are checked at that boundary instead of left until some
+ * later provider produces one. */
+void checkPanelViewRows (void)
+{
+    thPanel panel;
+
+    thPanelRow loose;
+
+    loose.kind = thPanelRow::SLIDER;
+    loose.id = "a";
+    loose.label = "A";
+    loose.lo = 0;
+    loose.hi = 1;
+    loose.step = 0.0001;
+    loose.decimals = 4;
+    loose.value = 0.25;
+
+    thPanelRow grouped = loose;
+
+    grouped.id = "b";
+    grouped.label = "B";
+    grouped.group = "Nowhere";
+
+    thPanelRow words;
+
+    words.kind = thPanelRow::TEXT;
+    words.id = "c";
+    words.label = "C";
+    words.text = "c4 e4 g4";
+
+    panel.rows.push_back(loose);
+    panel.rows.push_back(grouped);
+    panel.rows.push_back(words);
+
+    /* `Nowhere' deliberately left out of groupOrder: a row is drawn for what
+       it carries, not for what some other list remembers about it. Drawing
+       only the groups named there loses the row silently -- indexOf still
+       finds it and setValue still writes to it, and it is on no screen. */
+    Gtk::Window *win = new Gtk::Window();
+    PanelView *view = Gtk::manage(new PanelView);
+
+    view->setPanel(panel);
+
+    win->set_child(*view);
+    win->set_default_size(500, 300);
+    win->set_visible(true);
+
+    pump(0.3);
+
+    std::vector<Gtk::Scale *> scales;
+    std::vector<Gtk::Entry *> entries;
+
+    collectWidgets<Gtk::Scale>(view, scales);
+    collectWidgets<Gtk::Entry>(view, entries);
+
+    ok(scales.size() == 2,
+       "a row whose group is not in groupOrder is drawn anyway (%zu sliders)",
+       scales.size());
+
+    /* One Entry and not three: a GTK4 SpinButton is not one, so the only
+       plain box on this panel is the text row's. */
+    ok(entries.size() == 1, "and the text row got a box (%zu)",
+       entries.size());
+
+    int edits = 0;
+
+    view->signal_edited().connect(
+        [&](const string &, const string &) { edits++; });
+
+    view->setValue("b", 0.75);
+
+    pump(0.2);
+
+    ok(fabs(scales[1]->get_value() - 0.75) < 1e-4,
+       "a value pushed into that row reaches its slider (%f)",
+       scales[1]->get_value());
+
+    /* A string row is set with the string. Spelling a double into it is what
+       setValue would have had to do, and a note set is not a number. */
+    view->setText("c", "d4 f4 a4");
+
+    pump(0.2);
+
+    Gtk::Entry *box = entries.empty() ? NULL : entries[0];
+
+    ok(box != NULL && box->get_text() == "d4 f4 a4",
+       "and a text row takes the words it is given (%s)",
+       box ? box->get_text().c_str() : "(no box)");
+
+    ok(edits == 0,
+       "and none of that came back round as an edit (%d)", edits);
+
+    win->set_visible(false);
+    delete win;
+}
+
+/* The parameter panel over a channel *effect's* chanargs.
+ *
+ * A channel has two chanarg maps, and one lookup reaches both: thSynth::
+ * getChanArg reads `fx.delay' as the effect's. So the patch page draws the
+ * second map with the same widget as the first, differing by the prefix its
+ * lookups carry -- and the way that fails is silently, with a slider that
+ * moves and changes nothing, because the name it looked up was the
+ * instrument's and there is nothing there.
+ *
+ * What the panel says is scripts/panelcheck's business, and it says it with
+ * no toolkit anywhere. What is left here is the half that needs a display:
+ * that a thPanel becomes real widgets, and that dragging one of them reaches
+ * the arg its row stands for.
+ */
+void checkEffectPanel (thSynth &synth, const string &pluginPath)
+{
+    const string fx =
+        thUtil::findDataFile("fx/echo.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+    if (fx.empty())
+    {
+        printf("      (fx/echo.dsp not found; skipping the effect panel)\n");
+        return;
+    }
+
+    ok(synth.loadEffect(fx, 0) != NULL,
+       "an effect loads onto the channel the editor was using");
+
+    thArg *mix = synth.getChanArg(0, "fx.mix");
+
+    ok(mix != NULL, "its parameters are reachable under `fx.'");
+
+    if (mix == NULL)
+        return;
+
+    const float before = (*mix)[0];
+
+    Gtk::Window *win = new Gtk::Window();
+    ArgPanelView *table = Gtk::manage(new ArgPanelView);
+
+    table->setChannel(0);
+    table->setPrefix(TH_EFFECT_PREFIX);
+
+    ok(table->rebuild(), "the effect's parameters make a panel");
+
+    win->set_child(*table);
+    win->set_default_size(500, 200);
+    win->present();
+
+    pump(0.2);
+
+    std::vector<Gtk::Scale *> scales;
+
+    collectScales(table, scales);
+
+    /* One slider per row, in the panel's own order -- which is what lets the
+       one belonging to `mix' be found without reaching into the widgets by
+       name. */
+    const int at = table->panel().indexOf("mix");
+
+    ok(scales.size() == table->panel().rows.size(),
+       "the panel drew a slider for each of its rows (%zu of %zu)",
+       scales.size(), table->panel().rows.size());
+
+    if (at >= 0 && scales.size() == table->panel().rows.size())
+    {
+        const double want = (before < 0.5) ? 0.8 : 0.2;
+
+        scales[at]->set_value(want);
+
+        pump(0.2);
+
+        ok(fabs((double)(*mix)[0] - want) < 1e-6,
+           "moving it moved the effect's parameter and not a name that is "
+           "not there (%f -> %f, wanted %f)", (double)before,
+           (double)(*mix)[0], want);
+    }
+    else
+        ok(false, "the panel has a row for `mix' (%d)", at);
+
+    /* The other direction: the arg moves behind the panel -- a MIDI
+       controller, another window -- and the slider follows without that
+       coming back round as an edit. */
+    mix->setValue(0.35);
+
+    pump(0.2);
+
+    if (at >= 0 && (size_t)at < scales.size())
+        ok(fabs(scales[at]->get_value() - 0.35) < 1e-4,
+           "and the slider follows the arg when something else moves it "
+           "(%f)", scales[at]->get_value());
+
+    win->set_visible(false);
+    delete win;
+}
+
+/* The panel over one node of a graph.
+ *
+ * What it says is scripts/panelcheck's business and is checked there with no
+ * toolkit anywhere. What is left for here is the half that needs a display:
+ * that a thPanel becomes real widgets, that a parameter the plugin writes is
+ * drawn without one to type into, and that typing in the one that is offered
+ * reports the edit the window is waiting for -- the box, the arg's name and
+ * the number.
+ *
+ * The signal and no write, because there is nothing to write: a node's value
+ * is a number in the .dsp, and splicing it is NodeEditor's.
+ */
+void checkNodePanel (thSynth &synth, const char *file)
+{
+    thSynthTree *tree = synth.parseTree(file);
+
+    if (tree == NULL)
+    {
+        ok(false, "the patch parses for the node panel");
+        return;
+    }
+
+    NodeGraph graph;
+
+    if (!graph.build(tree))
+    {
+        ok(false, "it builds a graph");
+
+        delete tree;
+
+        return;
+    }
+
+    /* The first node with something a person could type into, which is the
+       same question the page asks before it draws a panel at all. */
+    int box = -1;
+
+    for (size_t i = 0; i < graph.boxes().size() && box < 0; i++)
+        if (!graph.boxes()[i].isControl &&
+            NodePanel::settable(&graph, (int)i))
+            box = (int)i;
+
+    ok(box >= 0, "the patch has a node with a value to set");
+
+    if (box < 0)
+    {
+        delete tree;
+
+        return;
+    }
+
+    Gtk::Window *win = new Gtk::Window();
+    NodeParamsView *panel = Gtk::manage(new NodeParamsView);
+
+    int gotBox = -1;
+    string gotArg;
+    double gotValue = 0;
+    int edits = 0;
+
+    panel->signal_param_edited().connect(
+        [&] (int b, string arg, double v)
+        {
+            gotBox = b;
+            gotArg = arg;
+            gotValue = v;
+            edits++;
+        });
+
+    panel->setBox(&graph, box);
+
+    win->set_child(*panel);
+    win->set_default_size(420, 400);
+    win->present();
+
+    pump(0.2);
+
+    /* A spin button per offered row and none for the rest. Every shipped
+       graph has more parameters shown than offered -- outputs, wires,
+       controls -- so this is not the trivial case. */
+    std::vector<Gtk::SpinButton *> spins;
+
+    collectWidgets<Gtk::SpinButton>(panel, spins);
+
+    size_t offered = 0;
+
+    for (size_t i = 0; i < panel->panel().rows.size(); i++)
+        if (panel->panel().rows[i].editable)
+            offered++;
+
+    ok(offered > 0 && offered < panel->panel().rows.size(),
+       "the panel offers %zu of %zu rows, and shows the rest",
+       offered, panel->panel().rows.size());
+
+    ok(spins.size() == offered,
+       "a box to type in for each offered row (%zu of %zu)",
+       spins.size(), offered);
+
+    /* Building the panel must not report an edit. The other way round, a
+       patch was modified by the act of looking at it. */
+    ok(edits == 0, "drawing it reported no edit (%d)", edits);
+
+    if (!spins.empty())
+    {
+        const double want = spins[0]->get_value() + 1.0;
+
+        spins[0]->set_value(want);
+
+        /* Committed on Enter or on focus leaving, not on every increment:
+           a spin button moves once per arrow click and each of those would
+           otherwise be a separate splice into the file. */
+        win->set_focus(*win);
+
+        pump(0.2);
+
+        ok(edits == 1 && gotBox == box && !gotArg.empty() &&
+           fabs(gotValue - want) < 1e-6,
+           "typing in one reports the box, the arg and the number "
+           "(%d edits, box %d, `%s' = %f, wanted %f)",
+           edits, gotBox, gotArg.c_str(), gotValue, want);
+
+        /* And typing it back to what the file holds is reported too.
+         *
+           A node's value is not written when it is typed: the window keeps
+           it as a pending edit until Save, so the panel goes on showing the
+           file's number and typing that number back is how a person takes
+           the edit back. Dropped as an echo -- which is the right answer for
+           a channel's arg, where the write has already happened -- the
+           window keeps the edit, stays modified, and saves a number the
+           panel is not showing. */
+        const double back = want - 1.0;
+
+        spins[0]->set_value(back);
+        win->set_focus(*win);
+
+        pump(0.2);
+
+        ok(edits == 2 && fabs(gotValue - back) < 1e-6,
+           "and typing it back to what the file holds is reported as well, "
+           "so the window can forget the edit (%d edits, %f)",
+           edits, gotValue);
+    }
+
+    win->set_visible(false);
+    delete win;
+
+    delete tree;
+}
+
+int run (const string &pluginPath, const char *file)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    if (synth.loadTree(file, 0, 100) == NULL)
+    {
+        printf("FAIL  could not load %s\n", file);
+        return 1;
+    }
+
+    /* The editor is a widget, so it needs a window to live in -- and it needs
+       to be realized before its canvas will draw. */
+    Gtk::Window *window = new Gtk::Window();
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+
+    window->set_child(*ed);
+    window->set_default_size(1000, 600);
+    window->present();
+
+    pump(0.3);
+
+    ok(!ed->visuals_.empty(),
+       "the editor found at least one visual module in %svisual/",
+       pluginPath.c_str());
+
+    ok(ed->open(file, 0), "the editor opens %s on channel 0", file);
+
+    pump(0.2);
+
+    /* The palette and the parameter panel start collapsed, the graph
+       taking the pane, and each toggle opens its own and closes it
+       again. */
+    ok(!ed->paletteShown() && !ed->paramsShown(),
+       "the palette and the parameter panel start collapsed");
+
+    ed->showPanels(true, true);
+    pump(0.2);
+
+    ok(ed->paletteShown() && ed->paramsShown(),
+       "...and their toggles open them");
+
+    ed->showPanels(false, false);
+    pump(0.2);
+
+    ok(!ed->paletteShown() && !ed->paramsShown(),
+       "...and close them again");
+
+    /* The graph as a list: List shows it under the canvas, a row chosen is
+       its box chosen, and the chosen one's wire is cut, made again from
+       the Connect row, and the box deleted, each in the graph. */
+    {
+        ed->listBtn_.set_active(true);
+        pump(0.2);
+
+        /* A button under the list's wiring panel, by its label, in the row
+           whose first label starts with `in' if there is one. */
+        auto button = [&](const std::string &label,
+                          const std::string &in = "") -> Gtk::Button *
+        {
+            std::vector<Gtk::Button *> all;
+
+            collectWidgets<Gtk::Button>(&ed->wiring_, all);
+
+            for (Gtk::Button *b : all)
+            {
+                Gtk::Label *first = dynamic_cast<Gtk::Label *>(
+                    b->get_parent()->get_first_child());
+
+                if (b->get_label().raw() == label &&
+                    (in.empty() || (first != NULL &&
+                                    first->get_text().raw().find(in) == 0)))
+                    return b;
+            }
+
+            return NULL;
+        };
+
+        int row = -1;
+        NodeGraph::Edge wire{};
+
+        /* A node's, not an expression's, whose inputs are its text's. */
+        for (size_t r = 0; r < ed->listed_.size() && row < 0; r++)
+            for (const NodeGraph::Edge &e : ed->graph().edges())
+                if (e.toBox == ed->listed_[r] &&
+                    !ed->graph().boxes()[e.toBox].isExpr &&
+                    !ed->graph().boxes()[e.toBox].isIoSink)
+                {
+                    row = (int)r;
+                    wire = e;
+                    break;
+                }
+
+        ok(row >= 0, "the list has a box with a wire into it");
+
+        if (row >= 0)
+        {
+            const std::vector<NodeGraph::Box> &boxes = ed->graph().boxes();
+            const std::string name = boxes[wire.toBox].name;
+            const std::string input = boxes[wire.toBox].ports[wire.toPort].name;
+            const std::string source = boxes[wire.fromBox].name + "." +
+                boxes[wire.fromBox].ports[wire.fromPort].name;
+            const size_t edges = ed->graph().edges().size();
+
+            ed->boxList_.get_row_at_index(row)->activate();
+            pump(0.1);
+
+            Gtk::Button *cut = button("Disconnect", input + " from ");
+
+            if (cut != NULL)
+                g_signal_emit_by_name(cut->gobj(), "clicked");
+            pump(0.2);
+
+            const size_t cutTo = ed->graph().edges().size();
+
+            /* The Connect row: its input menu, then its source menu. */
+            Gtk::Widget *go = button("Connect");
+            Gtk::DropDown *to = NULL, *from = NULL;
+
+            for (Gtk::Widget *c = go == NULL ? NULL
+                     : go->get_parent()->get_first_child();
+                 c != NULL; c = c->get_next_sibling())
+                if (Gtk::DropDown *d = dynamic_cast<Gtk::DropDown *>(c))
+                    (to == NULL ? to : from) = d;
+
+            auto pick = [](Gtk::DropDown *d, const std::string &what)
+            {
+                auto list = std::dynamic_pointer_cast<Gtk::StringList>(
+                    d->get_model());
+
+                for (guint i = 0; list && i < list->get_n_items(); i++)
+                    if (list->get_string(i).raw() == what)
+                        d->set_selected(i);
+            };
+
+            if (to != NULL && from != NULL)
+            {
+                pick(to, input);
+                pick(from, source);
+                g_signal_emit_by_name(go->gobj(), "clicked");
+            }
+            pump(0.2);
+
+            bool back = false;
+
+            for (const NodeGraph::Edge &e : ed->graph().edges())
+                back |= e.toBox == wire.toBox && e.toPort == wire.toPort &&
+                        e.fromBox == wire.fromBox && e.fromPort == wire.fromPort;
+
+            ok(cut != NULL && cutTo == edges - 1 && back &&
+               ed->graph().edges().size() == edges,
+               "...whose wire %s.%s from %s is cut from the list and made "
+               "again from its Connect row", name.c_str(), input.c_str(),
+               source.c_str());
+
+            Gtk::Button *gone = button("Delete " + name);
+
+            if (gone != NULL)
+                g_signal_emit_by_name(gone->gobj(), "clicked");
+            pump(0.2);
+
+            bool still = false;
+
+            for (const NodeGraph::Box &b : ed->graph().boxes())
+                still |= b.name == name;
+
+            ok(gone != NULL && !still,
+               "...and %s deleted from the list is gone from the graph",
+               name.c_str());
+
+            /* The file as it was: the delete is in the working copy, which
+               a reload would read back. */
+            ed->open(file, 0);
+            pump(0.2);
+        }
+
+        ed->listBtn_.set_active(false);
+        pump(0.1);
+    }
+
+    ok(ed->panels() == 0, "a freshly opened patch carries no panels");
+
+    /* Somewhere to point it: the first output port of the first node box. */
+    string node, arg;
+
+    for (size_t b = 0; b < ed->graph().boxes().size() && node.empty(); b++)
+    {
+        const NodeGraph::Box &bx = ed->graph().boxes()[b];
+
+        if (bx.isControl || bx.isProbe)
+            continue;
+
+        for (size_t p = 0; p < bx.ports.size(); p++)
+            if (!bx.ports[p].isInput)
+            {
+                node = bx.name;
+                arg = bx.ports[p].name;
+                break;
+            }
+    }
+
+    if (node.empty())
+    {
+        printf("FAIL  %s has no output port to probe\n", file);
+        return failures + 1;
+    }
+
+    const string visual = ed->visuals_.begin()->first;
+
+    ok(ed->armProbe(node, arg, visual),
+       "arming %s on %s.%s", visual.c_str(), node.c_str(), arg.c_str());
+
+    ok(ed->probes_.size() == 1, "one probe is armed (%d)",
+       (int)ed->probes_.size());
+    ok(ed->panels() == 1, "and one panel is on the canvas (%d)",
+       ed->panels());
+
+    if (ed->probes_.empty())
+        return failures + 1;
+
+    ok(ed->probes_[0].slot >= 0,
+       "the engine gave it a tap slot (%d)", ed->probes_[0].slot);
+    ok(ed->probes_[0].inst != NULL, "the module opened an instance");
+
+    /* Arming the same point again must not stack a second panel. */
+    ed->armProbe(node, arg, visual);
+    ok(ed->probes_.size() == 1 && ed->panels() == 1,
+       "arming the same point twice changes nothing (%d probes, %d panels)",
+       (int)ed->probes_.size(), ed->panels());
+
+    /* Now make a noise and let the frame tick run. process() is called here
+       rather than by an audio thread: what is being tested is the drain and
+       the feed, not the threading, which dspstress covers. */
+    synth.addNote(0, 60, 110);
+    synth.addNote(0, 64, 110);
+    synth.addNote(0, 67, 110);
+
+    for (int w = 0; w < 200; w++)
+        synth.process();
+
+    pump(0.4);   /* several frame ticks */
+
+    ok(drewSomething(ed->probes_[0].module, ed->probes_[0].inst),
+       "the module drew something it would not have drawn unfed -- samples "
+       "reached the screen");
+
+    /* A reload renumbers every box and drops every tap. The probe has to come
+       back on both counts, which is the whole reason it is keyed on names. */
+    const int slotBefore = ed->probes_[0].slot;
+
+    ok(ed->reload(), "the file reloads");
+
+    pump(0.2);
+
+    ok(ed->probes_.size() == 1, "the probe survives a reload");
+    ok(ed->panels() == 1, "and so does its panel (%d)", ed->panels());
+    ok(ed->probes_[0].slot >= 0,
+       "and it has a tap again (%d, was %d)", ed->probes_[0].slot, slotBefore);
+
+    /* A probe whose tap the engine dropped gets another one.
+     *
+     * The engine disarms every probe on a channel when a patch is loaded onto
+     * it -- the node ids a probe holds are only meaningful against the tree
+     * they were measured on. The editor is supposed to notice and re-arm on
+     * the next frame. It could not: the tick skipped anything with no slot
+     * before it reached the code that would have asked for one, so a probe
+     * that lost its tap was silent for good and only a reload of the *editor*
+     * brought it back.
+     *
+     * Provoked directly rather than by loading a patch, because a reload also
+     * rebuilds the graph and would hide the thing being tested behind the
+     * re-arm that reapplyProbes does anyway. */
+    {
+        ok(!ed->probes_.empty(), "a probe to drop the tap of");
+
+        if (!ed->probes_.empty() && ed->probes_[0].slot >= 0)
+        {
+            const int had = ed->probes_[0].slot;
+
+            synth.disarmProbe(had);
+            synth.process();      /* let the audio side apply it */
+
+            ok(synth.probe(had) == NULL, "the engine dropped the tap");
+
+            pump(0.3);            /* several frame ticks */
+
+            ok(!ed->probes_.empty() && ed->probes_[0].slot >= 0,
+               "and the editor asked for another one (slot %d)",
+               ed->probes_.empty() ? -1 : ed->probes_[0].slot);
+        }
+    }
+
+    /* The enlarged view: the same instance, drawn bigger. */
+    {
+        const int panel = ed->firstPanel();
+
+        ok(panel >= 0, "there is a panel to enlarge");
+
+        if (panel >= 0)
+        {
+            ed->onProbeActivated(panel);
+
+            ok(ed->enlarged_.size() == 1, "double-clicking it opens a window "
+               "(%d)", (int)ed->enlarged_.size());
+
+            /* Twice must not open two windows on one signal: they would be
+               two views of one instance with no way to tell them apart. */
+            ed->onProbeActivated(panel);
+
+            ok(ed->enlarged_.size() == 1,
+               "and doing it again raises that one rather than opening a "
+               "second (%d)", (int)ed->enlarged_.size());
+
+            pump(0.2);
+
+            /* It has to reach the module. paintEnlarged looks the probe up by
+               name every frame, so what is being checked here is that lookup
+               -- an index cached when the window opened would still work
+               today and break after the next reload. */
+            if (ed->enlarged_.size() == 1)
+            {
+                Cairo::RefPtr<Cairo::ImageSurface> big =
+                    Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32,
+                                                400, 200);
+                Cairo::RefPtr<Cairo::ImageSurface> blank =
+                    Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32,
+                                                400, 200);
+
+                {
+                    Cairo::RefPtr<Cairo::Context> cr =
+                        Cairo::Context::create(big);
+
+                    ed->paintEnlarged(cr, 400, 200, node, arg);
+                }
+
+                big->flush();
+                blank->flush();
+
+                ok(memcmp(big->get_data(), blank->get_data(),
+                          (size_t)big->get_stride() * 200) != 0,
+                   "and it draws through the module rather than staying "
+                   "blank");
+            }
+
+            /* The title bar's close button, which is what close() sends.
+             *
+             * The lifecycle, not a crash: closing a window must leave it in
+             * the list until a tick reaps it, and reopening must then work.
+             * Deliberately not claimed as a use-after-free guard -- removing
+             * the close-request handler passes this and passes under ASan
+             * too, because gtkmm's wrapper holds its own reference and the
+             * window survives GTK destroying it. The handler is there so the
+             * list decides when a window goes; see NodeEditor.cpp. */
+            if (ed->enlarged_.size() == 1)
+            {
+                ed->enlarged_[0].win->close();
+
+                ok(ed->enlarged_.size() == 1,
+                   "the close button hides the window rather than destroying "
+                   "it under us");
+
+                pump(0.3);
+
+                ok(ed->enlarged_.empty(),
+                   "and the next tick reaps it (%d left)",
+                   (int)ed->enlarged_.size());
+
+                /* Reopened, so the checks after this still have one. */
+                ed->onProbeActivated(panel);
+                pump(0.1);
+            }
+        }
+    }
+
+    /* Save and reopen. This is the property anyone would actually notice:
+     * a probe put on a patch is still there tomorrow.
+     *
+     * Against a copy, so the corpus is never written to -- the editor saves to
+     * the file it was opened from, and dsp/ts1.dsp is not that file's to
+     * change. */
+    {
+        const string copy = "/tmp/editorcheck-save.dsp";
+
+        {
+            ifstream in(file, std::ios::binary);
+            ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+            out << in.rdbuf();
+        }
+
+        TestEditor *ed2 = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w2 = new Gtk::Window();
+
+        w2->set_child(*ed2);
+        w2->set_default_size(1000, 600);
+        w2->present();
+
+        pump(0.2);
+
+        ok(ed2->open(copy, -1), "a second editor opens the copy");
+        ok(ed2->armProbe(node, arg, visual), "and arms a probe on it");
+        ok(ed2->save(), "and saves");
+
+        pump(0.2);
+
+        TestEditor *ed3 = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w3 = new Gtk::Window();
+
+        w3->set_child(*ed3);
+        w3->set_default_size(1000, 600);
+        w3->present();
+
+        pump(0.2);
+
+        ok(ed3->open(copy, -1), "a third editor opens the saved file");
+
+        ok(ed3->probes_.size() == 1,
+           "the probe came back from the file (%d)",
+           (int)ed3->probes_.size());
+        ok(ed3->panels() == 1, "and so did its panel (%d)", ed3->panels());
+
+        if (ed3->probes_.size() == 1)
+        {
+            ok(ed3->probes_[0].node == node && ed3->probes_[0].arg == arg &&
+               ed3->probes_[0].visual == visual,
+               "pointing where it did: %s.%s/%s",
+               ed3->probes_[0].node.c_str(), ed3->probes_[0].arg.c_str(),
+               ed3->probes_[0].visual.c_str());
+
+            /* Opened with no channel, so there is nothing to tap -- and the
+               panel has to be there regardless, or a probe would silently
+               vanish from any patch not currently playing. */
+            ok(ed3->probes_[0].slot < 0,
+               "and not tapping anything, since nothing is playing it");
+        }
+
+        w2->set_visible(false);
+        w3->set_visible(false);
+        delete w2;
+        delete w3;
+
+        ::remove(copy.c_str());
+    }
+
+    /* A graph written inside a piece: opened from its text, and saved back
+       through the piece rather than to a file -- there is none, and the
+       name it is loaded under is not a path anything may be written to. */
+    {
+        string body;
+
+        {
+            ifstream in(file, std::ios::binary);
+
+            body.assign((std::istreambuf_iterator<char>(in)),
+                        std::istreambuf_iterator<char>());
+        }
+
+        string saved;
+        TestEditor *ed4 = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w4 = new Gtk::Window();
+
+        w4->set_child(*ed4);
+        w4->set_default_size(1000, 600);
+        w4->present();
+
+        pump(0.2);
+
+        ok(ed4->openInline("pad#0.dsp", body, -1,
+                           [&saved](const string &text, string &name, string &)
+                           {
+                               saved = text;
+                               name = "pad#1.dsp";
+                               return true;
+                           }),
+           "an editor opens a graph from the text of a piece");
+        ok(ed4->armProbe(node, arg, visual), "and arms a probe on it");
+
+        ed4->onSave();
+
+        ok(saved.find("@probe") != string::npos,
+           "Save hands the piece the edited text");
+        ok(ed4->sourceFile() == "pad#1.dsp",
+           "and the editor takes the name the graph is loaded under now");
+        ok(!std::filesystem::exists("pad#0.dsp") &&
+           !std::filesystem::exists("pad#1.dsp"),
+           "and writes no file under either name");
+
+        /* A node marked as grown is drawn otherwise than when it is not. */
+        NodeGraph shown = ed4->graph();
+        NodeCanvas canvas;
+        string plain;
+
+        canvas.setGraph(&shown);
+        canvas.setZoom(1.0);
+
+        for (const NodeGraph::Box &b : shown.boxes())
+            if (!b.isIoSource && !b.isIoSink && !b.isControl && !b.isExpr &&
+                !b.isProbe && b.attachedTo < 0)
+                plain = b.name;
+
+        const auto picture = [&canvas] ()
+        {
+            Cairo::RefPtr<Cairo::ImageSurface> s =
+                Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32,
+                                            1000, 600);
+            Cairo::RefPtr<Cairo::Context> cr = Cairo::Context::create(s);
+
+            canvas.drawGraph(cr, 1000, 600);
+            s->flush();
+
+            return string((const char *)s->get_data(),
+                          (size_t)s->get_stride() * 600);
+        };
+        const string unmarked = picture();
+
+        canvas.setMarked({ plain });
+
+        ok(!plain.empty() && picture() != unmarked,
+           "a node marked as grown is drawn as one");
+
+        w4->set_visible(false);
+        delete w4;
+    }
+
+    /* And disarming really lets go of all three. */
+    ed->disarmProbe(0);
+
+    ok(ed->probes_.empty(), "disarming removes the probe");
+    ok(ed->panels() == 0, "and its panel (%d)", ed->panels());
+
+    /* And the window that was drawing it. The tick is what notices, so this
+       has to let one run -- a window left open would keep calling into an
+       instance that has been closed. */
+    pump(0.3);
+
+    ok(ed->enlarged_.empty(),
+       "and the enlarged window that was showing it (%d left)",
+       (int)ed->enlarged_.size());
+
+    /* And nothing is left ticking. An editor with no probes and no windows
+       should cost exactly what it did before probes existed. */
+    ok(!ed->probeTick_.connected(),
+       "with no probes and no windows, the frame tick has stopped");
+
+    {
+        int armed = 0;
+
+        for (int s = 0; s < synth.probeCount(); s++)
+            if (synth.probe(s))
+                armed++;
+
+        ok(armed == 0, "and gives the engine's slot back (%d still armed)",
+           armed);
+    }
+
+    window->set_visible(false);
+
+    /* Deliberately destroyed: the destructor's ordering -- stop the tick,
+       close the instances, then unload the modules -- is a real thing to get
+       wrong, and running it under ASan is the only way anyone would find out.
+       Gtk::manage means the editor goes with the window. */
+    delete window;
+
+    checkNodePanel(synth, file);
+    checkEffectPanel(synth, pluginPath);
+    checkPanelViewRows();
+
+    return failures;
+}
+
+} /* namespace */
+
+int main (int argc, char **argv)
+{
+    string pluginPath = PLUGIN_PATH;
+    const char *file = NULL;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "-p")) { if (++i >= argc) return 2; pluginPath = argv[i]; }
+        else { file = argv[i]; break; }
+    }
+
+    if (file == NULL)
+    {
+        printf("usage: %s [-p PATH] file.dsp\n\nNeeds a display; run under "
+               "xvfb-run on a headless box.\n", argv[0]);
+        return 2;
+    }
+
+    if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
+        pluginPath += '/';
+
+    /* Skip rather than fail where there is no display.
+     *
+     * This is a gate, so it is in the ctest list, and ctest runs in places
+     * that have no X server -- a CI container, someone's build over ssh. The
+     * alternative to skipping is either a red suite everywhere it cannot run,
+     * or leaving it out of the suite entirely and having it rot. Saying so on
+     * stdout is what keeps the skip from being silent.
+     *
+     * Checked before Gtk::Application::create rather than after, because GTK's
+     * response to no display is to abort the process, which reads as a crash
+     * rather than as a machine without a screen. */
+    if (getenv("DISPLAY") == NULL && getenv("WAYLAND_DISPLAY") == NULL)
+    {
+        printf("skipped: no display (run under xvfb-run to exercise this)\n");
+        return 0;
+    }
+
+    Glib::RefPtr<Gtk::Application> app =
+        Gtk::Application::create("org.metaphonic.thinksynth.editorcheck",
+                                 Gio::Application::Flags::NON_UNIQUE);
+
+    int rc = 0;
+
+    app->signal_activate().connect([&]() { rc = run(pluginPath, file); });
+
+    app->run();
+
+    printf("\n%d checks, %d failed\n", checks, failures);
+
+    return rc;
+}

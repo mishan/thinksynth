@@ -1,0 +1,427 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef TH_PLUGIN_H
+#define TH_PLUGIN_H 1
+
+#include <atomic>
+
+#include "thExport.h"
+
+class thSynthTree;
+class thNode;
+
+/* Bumped from 4 when arg metadata grew a step and a set of value names.
+ *
+ * Direction did not need a bump: regArg() gained a defaulted parameter and
+ * nothing about thPlugin's shape changed, so a plugin built against the older
+ * header still loaded and simply reported every arg as an input. This one is
+ * different. The three parallel arrays behind regArg() became one vector, which
+ * moves every member after them -- and a plugin calls setDesc() and setState(),
+ * which are inlined into the plugin from this header and reach their members by
+ * offset.
+ *
+ * As it happens those two sit *before* what moved, so the mismatch would
+ * probably go unnoticed. "Probably" is the problem: that is precisely the shape
+ * of the stale-libthink bug docs/ARCHITECTURE.md describes, where a binary linked
+ * against the wrong library read every header-inlined accessor at the wrong
+ * offset and returned garbage without a diagnostic. This check exists to make
+ * that loud, and a layout change is what it is for. Stale plugin .so files left
+ * in a source tree are a thing that actually happens here -- NodePalette's own
+ * tooltip tells people to go and delete them.
+ *
+ * Still 5 after the description, the default, and now the range and units were
+ * added, and the rule above is why. Those went inside ArgInfo, which lives in a
+ * vector -- so thPlugin is the same size and every member is where it was. A
+ * plugin touches setDesc, setState and the setArg* calls; the first two are
+ * inlined here and reach members that did not move, and the rest are
+ * out-of-line in thPlugin.cpp. Adding methods is not a layout change, and the
+ * version is for layout changes.
+ *
+ * (The other direction -- a plugin built against *this* header loaded by an
+ * older libthink -- fails at the link, or at the first call, with an undefined
+ * symbol. That is already loud, and no version number would improve it.)
+ *
+ * What growing ArgInfo *does* change is the stride of args_, and the getArg*
+ * accessors below are inlined into whatever includes this header. A host built
+ * against this header and linked against a libthink whose regArg fills the
+ * vector with the older ArgInfo reads every arg at the wrong offset, silently.
+ * That is not this version's business -- it is the library's soname, and
+ * THINK_LIB_MAJOR went to 7 for it. Two numbers, two directions: this one
+ * guards libthink against a stale plugin, and the soname guards a binary
+ * against a stale libthink.
+ */
+#define MODULE_IFACE_VER 5
+
+/* Every plugin keeps the indices regArg() hands back in a file-scope table,
+ * `std::atomic<int> args[]', and reads it on every callback. There is one
+ * table per plugin per process, however many synths load the plugin, and
+ * each synth's module_init writes it again -- with the same values, since
+ * registration order is fixed. Atomic because that rewrite can land while
+ * another synth's audio thread is reading the table, or while a third synth
+ * is writing it: two instances of an audio plugin in one host. The loads
+ * are plain loads on x86 and ldar on ARM64, a few per node per window. */
+
+/* We don't want this to exist unless we're using a plugin.
+ *
+ * These four are what the host looks up by name, so they are the plugin's
+ * entire ABI and the only symbols it needs to export. Declaring them here
+ * with THINK_PLUGIN_API means all 66 plugins get the export attribute from
+ * the header rather than each having to say so -- on Windows the attribute
+ * on a prior declaration is what counts, and every plugin includes think.h
+ * before defining them.
+ *
+ * module_cleanup used to be declared `void module_cleanup(struct module *)'
+ * -- and `struct module' is a type that exists nowhere in the tree; it was
+ * being forward-declared into existence by that parameter list. Meanwhile
+ * thPlugin.cpp casts the looked-up symbol to ModuleCleanup, which is
+ * void (*)(thPlugin *), and calls it with `this'. So every plugin's cleanup
+ * hook was called through a function pointer of the wrong type on every
+ * unload. It survived only because all 66 bodies are empty. The declaration
+ * now matches the typedef and the call.
+ */
+#ifdef PLUGIN_BUILD
+THINK_PLUGIN_API unsigned char apiversion = MODULE_IFACE_VER;
+class thPlugin;
+
+/* Provide the prototypes */
+extern "C" {
+    THINK_PLUGIN_API int  module_init (thPlugin *plugin);
+    THINK_PLUGIN_API int  module_callback (thNode *node, thSynthTree *mod,
+                                           unsigned int windowlen,
+                                           unsigned int samples);
+    THINK_PLUGIN_API void module_cleanup (thPlugin *plugin);
+
+    /* Optional, like module_cleanup: put whatever the plugin keeps for
+       `plugin' -- the synth that loaded it -- back where module_init
+       left it. The noise sources' generators are what it is for: a
+       private synth that renders one note after another restarts them
+       before each, so the same patch renders the same twice without a
+       synth, and a module_init of everything, per render. */
+    THINK_PLUGIN_API void module_reset (thPlugin *plugin);
+
+    /* Optional: what a node will need from disk or a long build -- a
+       file, a table -- made off the audio thread rather than on the first
+       window that asks. `voice' 0: `node' is in a graph the synth has just
+       built, on the loading thread, or in one it holds when the host says
+       data files have changed. `voice' 1: `node' is in a voice about to
+       start, its io node holding the note, on the thread that builds
+       voices -- which in the browser is the audio thread. */
+    THINK_PLUGIN_API void module_prepare (thNode *node, thSynthTree *mod,
+                                          unsigned int samples, int voice);
+}
+#endif
+
+class THINK_API thPlugin {
+public:
+    thPlugin (const string &path);
+    ~thPlugin ();
+
+    enum State { ACTIVE, PASSIVE, NOTLOADED };
+
+    /* Which way an arg faces.
+     *
+     * Every plugin has always encoded this in the enum it indexes args[] with
+     * -- IN_FREQ, OUT_ARG, INOUT_LAST -- but the information stopped at the
+     * enum and never reached anything that could use it. regArg() took only a
+     * name, so nothing outside a plugin could tell an input from an output,
+     * which is what appeared to block building a node editor.
+     *
+     * STATE is the INOUT_ case: scratch a plugin keeps between windows --
+     * delay rings, envelope positions, filter history. It is emphatically not
+     * a port. No .dsp in the shipped corpus references one, and an editor must
+     * not offer them for wiring.
+     *
+     * The default is ARG_IN so that a plugin built against the old header
+     * still compiles; its args will all read as inputs, which is wrong but
+     * harmless, and every in-tree plugin passes a direction explicitly.
+     */
+    enum ArgDir { ARG_IN = 0, ARG_OUT, ARG_STATE };
+
+    /* Everything a plugin can say about one of its args.
+     *
+     * Direction was the first field and for a long time the only one. This is
+     * the rest of the proposal docs/ARCHITECTURE.md deferred, and the two new fields
+     * answer the same question at different resolutions.
+     *
+     * `step' is 0 for an ordinary continuous parameter and 1 for one that means
+     * a whole number. That is not a display preference: `waveform' is read
+     * `switch ((int)buf_waveform[i])', so 3.4 *is* 3, and a control that can
+     * produce 3.4 is a control most of whose travel does nothing. The eight
+     * shipped patches that drive a waveform all declare `.max = 5.1' or `5.5'
+     * rather than 5, which is an author working around exactly that -- padding
+     * the top of a continuous slider so it can still truncate to the last
+     * waveform.
+     *
+     * `values' names the whole numbers when they mean something sayable:
+     * "Sine", "Sawtooth", "Square". It implies a step of 1 and a range of
+     * its first named entry to its last, because a name for every value is a
+     * stronger statement than either.
+     *
+     * The length is a statement in its own right: it says how many indices the
+     * arg has, which is not always how many are worth offering. osc::window's
+     * switch spans six and implements three, so its list is six long with three
+     * holes -- shortening it to four would quietly redefine what a 5 means.
+     *
+     * Both are advice to whatever draws the control. Nothing in the audio path
+     * reads them, and a plugin that says nothing gets what it always got.
+     */
+    struct ArgInfo {
+        string name;
+        ArgDir dir;
+        float step;
+        vector<string> values;
+
+        /* What the arg is for, in the plugin author's words.
+         *
+         * A sentence fragment, not a sentence: it goes in a tooltip beside a
+         * spin button. "Multiply the wavelength by this", "Reset position to 0
+         * when this goes to 1".
+         *
+         * Empty for most args, and that is the honest state rather than a gap
+         * to be filled in. The ones that carry text carry text somebody wrote
+         * about their own DSP; inventing the other 280 from reading the
+         * arithmetic would produce confident descriptions of what the code
+         * appears to do, which is worse than none. */
+        string desc;
+
+        /* The value the plugin behaves as though the arg held when it is 0.
+         *
+         * Not "a sensible starting point" -- that would be invention again.
+         * Several plugins special-case zero in their own callback:
+         * osc::simple's `if (amp_max == 0) amp_max = TH_MAX;' and
+         * `if (mul) freq *= mul;', math::sin's two. Those plugins already have
+         * a default; it was just written where nothing could read it.
+         *
+         * `has' rather than a sentinel, because 0 is a perfectly good default
+         * for an arg that has one.
+         *
+         * Read by the engine, unlike the rest of ArgInfo: buildArgMap() loads
+         * it into an arg the .dsp never mentioned. Safe only while the value
+         * stays a transcription of the callback's zero case -- `amp = 0' and
+         * no `amp' line must stay the same sound, since NodeEdit::disconnect()
+         * writes the former. scripts/argtype compares all three spellings. */
+        float def;
+        bool hasDefault;
+
+        /* The span of values the callback's arithmetic is defined over, in
+         * whatever `units' says the arg is measured in.
+         *
+         * Not the same claim as thArg's min and max, which are a control's
+         * travel -- a .dsp is free to declare a knob that sweeps a fraction of
+         * what the plugin accepts. This is the plugin's own statement, and the
+         * only one available for a node arg no control drives.
+         *
+         * `has' rather than a sentinel: 0..1 and 0..0 are both ranges a plugin
+         * might mean, and the absence of a range is a third thing.
+         *
+         * Where a stability clamp exists (filt::res2pole2, filt::moog) this is
+         * the clamped span, so a value inside the range is one the filter will
+         * actually run at rather than one it will quietly bend. */
+        float min, max;
+        bool hasRange;
+
+        /* What the numbers are: "Hz", "ms", "samples", "0..1", "dB",
+         * "semitones". Free text, compared by nothing, shown in a tooltip and
+         * in docs/NODES.md.
+         *
+         * The point is filt::moog's cutoff (a fraction of the sample rate)
+         * against filt::res2pole2's (hertz) -- two args with the same name,
+         * the same direction and the same plausible-looking numbers, which
+         * before this could only be told apart by reading both callbacks. */
+        string units;
+
+        /* How long, in ms, a step in the arg takes to settle: the time
+         * constant of a one-pole the engine runs it through whenever it holds
+         * one value for the window, as a knob or a chanarg does. 0 for none.
+         * Read by the engine, like def. See thPlugin::setArgSmooth. */
+        float smoothMs;
+
+        ArgInfo (const string &n, ArgDir d)
+            : name(n), dir(d), step(0), def(0), hasDefault(false),
+              min(0), max(0), hasRange(false), smoothMs(0) {}
+    };
+
+    typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
+    typedef int (*ModuleInit)(thPlugin *);
+    typedef void (*ModuleCleanup)(thPlugin *);
+    typedef void (*ModuleReset)(thPlugin *);
+    typedef void (*ModulePrepare)(thNode *, thSynthTree *, unsigned int,
+                                  int);
+
+    const string &path (void) const { return path_; };
+    const string &desc (void) const { return desc_; };
+    State state (void) const { return state_; };
+    
+    void setDesc(const string &desc) { desc_ = desc; }
+    void setState(State state) { state_ = state; };
+    
+    int regArg (const string &argname, ArgDir dir = ARG_IN);
+
+    /* Says the arg means a whole number. Separate from regArg() rather than
+       another defaulted parameter on it, because the overwhelming majority of
+       args are continuous and a call site that says nothing should look like
+       one that has nothing to say. */
+    void setArgStep (int index, float step);
+
+    /* Names the arg's values, from 0 upwards. Implies setArgStep(index, 1).
+       `names' is copied. */
+    void setArgValues (int index, const char *const *names, int count);
+
+    /* What the arg is for. A fragment, for a tooltip. */
+    void setArgDesc (int index, const string &desc);
+
+    /* The value this plugin treats a 0 in that arg as meaning. Only for a
+       plugin that genuinely does so -- see ArgInfo::def. */
+    void setArgDefault (int index, float value);
+
+    /* The span the callback is defined over, and what the numbers are
+       measured in. See ArgInfo::min and ArgInfo::units. */
+    void setArgRange (int index, float min, float max);
+    void setArgUnits (int index, const string &units);
+
+    /* Says a step in the arg is heard as a click or a zipper: a cutoff, a
+       gain, a pan. A knob moves the arg a window at a time; the engine
+       glides it to each new value over about `ms' instead, a sample at a
+       time, so the plugin sees a ramp. An arg that already changes within
+       the window, an envelope or an LFO, passes untouched. */
+    void setArgSmooth (int index, float ms);
+
+    float getArgSmooth (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].smoothMs;
+        return 0;
+    }
+
+    /* The args setArgSmooth named, so the engine need not look at all. */
+    const vector<int> &smoothedArgs (void) const { return smoothed_; }
+
+    int argCount (void) const { return (int)args_.size(); };
+    string getArgName (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].name;
+        return "";
+    }
+
+    ArgDir getArgDir (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].dir;
+        return ARG_IN;
+    }
+
+    float getArgStep (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].step;
+        return 0;
+    }
+
+    /* Empty when the arg's values have no names, which is almost all of them.
+       By reference: the editor asks per redraw. */
+    const vector<string> &getArgValues (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].values;
+        return noValues_;
+    }
+
+    const string &getArgDesc (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].desc;
+        return noDesc_;
+    }
+
+    bool argHasDefault (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].hasDefault;
+        return false;
+    }
+
+    float getArgDefault (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].def;
+        return 0;
+    }
+
+    bool argHasRange (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].hasRange;
+        return false;
+    }
+
+    float getArgMin (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].min;
+        return 0;
+    }
+
+    float getArgMax (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].max;
+        return 0;
+    }
+
+    /* Empty for an arg whose plugin said nothing, which is the honest state
+       rather than a gap. By reference, like getArgDesc(). */
+    const string &getArgUnits (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].units;
+        return noDesc_;
+    }
+
+    /* Convenience for the editor: a port is anything a .dsp may legitimately
+       wire, i.e. everything except plugin-internal state. */
+    bool argIsPort (int index) const { return getArgDir(index) != ARG_STATE; }
+
+    void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
+               unsigned int samples);
+
+    /* The plugin's module_reset, if it has one. Only on the thread that
+       renders this plugin's synth, while it is not rendering. */
+    void reset (void);
+
+    /* The plugin's module_prepare, if it has one. On the thread that built
+       `mod'. */
+    void prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                  bool voice);
+private:
+    int moduleLoad (void);
+    void moduleUnload (void);
+
+    string path_;
+    string desc_;
+    State state_;
+    void *handle_;
+
+    /* Was three parallel arrays -- `string **', `ArgDir *', a count and a
+       capacity -- grown by hand in ARGCHUNK steps with calloc and memcpy, and
+       the grow check was off by one for years. A fourth and a fifth array for
+       the step and the value names is not a thing worth writing; a vector of
+       one struct is the same data with the bookkeeping deleted. */
+    vector<ArgInfo> args_;
+    vector<int> smoothed_;
+
+    /* What getArgValues() and getArgDesc() hand back for an index that has
+       none, so they can return by reference without every caller checking. */
+    static const vector<string> noValues_;
+    static const string noDesc_;
+
+    Callback callback_;
+    ModuleReset reset_;
+    ModulePrepare prepare_;
+};
+
+#endif /* TH_PLUGIN_H */

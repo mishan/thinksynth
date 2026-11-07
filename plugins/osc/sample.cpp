@@ -1,0 +1,503 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/* A wav, played at a voice's pitch.
+ *
+ *     out = the file, read at (freq / root) frames per sample
+ *
+ * and that is the node. What it is for is the half of the decade a graph
+ * cannot reach: a LinnDrum, a DMX, a Fairlight, an Emulator. An
+ * orchestra hit is a recording of an orchestra and no amount of
+ * oscillator is going to be one.
+ *
+ * `freq' AND `root' RATHER THAN A RATE, because a patch has to survive
+ * being played at a pitch nobody thought of. `root' is the frequency the
+ * file was recorded at -- middle C unless the graph says otherwise --
+ * and the playback rate is the ratio of the two, so a note an octave up
+ * reads at twice the speed and comes out an octave up and half as long,
+ * which is what a sampler of this period did and is half of why they
+ * sound the way they do. A drum writes `root = freq' (both reading the
+ * same node) and plays at exactly one frame a sample whatever key it is
+ * on, which is the other half.
+ *
+ * LINEAR INTERPOLATION between frames, for delay::chorus's reason: the
+ * playhead lands between samples and the fraction is where the pitch
+ * lives. A cubic would cost four reads a frame to fix a treble loss that
+ * a drum machine's 8-bit converters never had in the first place.
+ *
+ * `play' IS THE FILE'S OWN LENGTH. A one-shot's io node writes
+ * `play = smp->play' and the note is over when the sample is, with no
+ * envelope involved and nothing to tune -- which is exactly how a drum
+ * machine behaves and is the reason `play' is an output here rather than
+ * something a graph has to work out from a decay time.
+ *
+ * `loop' IS HOW MANY FRAMES AT THE END REPEAT, and 0 is a one-shot. A
+ * string or a choir is trimmed so its last half-second is the sustain,
+ * and `loop = 22050' plays that forever; a drum names nothing and stops.
+ * The frames-from-the-end spelling rather than a loop point is what lets
+ * a file be re-trimmed without the number in the graph going stale.
+ *
+ * `xfade' IS HOW LONG THE SEAM IS. A loop cut from a recording -- a pad,
+ * a chord, the tree's own renders -- does not end where it began, and the
+ * jump back is a click every time round. With `xfade' set, the last
+ * `xfade' frames of the loop fade into the `xfade' frames just before its
+ * start, by equal power, so that by the end of the file the output is
+ * already reading the frame the loop jumps back to and the jump is not
+ * there to hear. Equal power rather than linear because the two ends of
+ * a sustain are different stretches of the same sound, not the same
+ * samples, and uncorrelated signals crossfaded linearly dip in the
+ * middle. It needs that many frames before the loop to fade from, so it
+ * is held to the loop's own length and to what precedes it; at 0 the
+ * loop is exactly what it always was.
+ *
+ * `file2' AND `file3' ARE VELOCITY LAYERS. `select' chooses one on the
+ * trigger edge and that file stays under the voice until its next edge.
+ * Omitted layers fall back to the one below them. With `alternate = 1',
+ * a counter shared by this synth's voices chooses 1, 2, 3, 1 instead.
+ *
+ * A `file' MAY BE A SET OF ZONES: "vln_G3.wav@55 vln_D4.wav@62 ...", each
+ * recording with the MIDI note it was made at. The trigger edge picks the
+ * one nearest the voice's pitch and plays it from that note, so `root' is
+ * not read; every layer may be zoned the same way. That is a multisample
+ * -- an instrument recorded every few semitones, so no note is pitched
+ * far enough to sound like a sampler.
+ *
+ * `slices' CUTS THE FILE INTO EQUAL PARTS and `slice' picks one at the
+ * trigger, counting from 0 and wrapping, so a break can be played a beat
+ * at a time in any order: `slice = ionode->note - 48' puts its pieces on
+ * the keys from C3. A slice is a one-shot, and so is a file played with
+ * `reverse', starting `start' frames before its end and playing back to
+ * its beginning; both fade over 2 ms at each end, since a cut falls
+ * mid-wave. `loop' and `xfade' are for a whole file played forward.
+ *
+ * THE FILE IS READ ONCE PER SYNTH, not once per voice -- sixteen voices
+ * of a kit share one copy of the kick, read at load. See osc/sampleslot.h.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+#include "config.h"
+
+#include "think.h"
+
+#include "thArg.h"
+#include "thPlugin.h"
+#include "thPluginManager.h"
+#include "thNode.h"
+#include "thSynthTree.h"
+#include "thSynth.h"
+
+#include "sampleslot.h"
+
+enum {IN_FILE, IN_FILE2, IN_FILE3, IN_FREQ, IN_ROOT, IN_START, IN_LOOP,
+      IN_TRIGGER, IN_SELECT, IN_SPLIT1, IN_SPLIT2, IN_ALTERNATE,
+      OUT_ARG, OUT_PLAY, INOUT_STATE, IN_XFADE, IN_SLICES, IN_SLICE,
+      IN_REVERSE};
+
+std::atomic<int> args[IN_REVERSE + 1];
+
+static const char desc[] = "Sample Player (a wav at a voice's pitch)";
+thPlugin::State    mystate = thPlugin::ACTIVE;
+
+/* Middle C. What a sampler calls a file's root note when nobody has said
+   -- and the number a graph overrides with `root = freq' to play a file
+   at the speed it was recorded at whatever the key. */
+#define SAMPLE_ROOT_DEFAULT 261.63f
+
+/* Sixteen times up and down. Past that a file is being used as a noise
+   source rather than as a recording, and the arithmetic stops being
+   worth defending: at 64x a drum is four hundred samples long and the
+   interpolation is reading every fifth frame. */
+#define SAMPLE_RATIO_MAX 16.0f
+
+void module_cleanup (thPlugin *plugin)
+{
+    thSampleRelease(plugin);
+}
+
+/* Every file a layer may play, so a note reads none. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const int layers[3] = { IN_FILE, IN_FILE2, IN_FILE3 };
+
+    if (voice)
+        return;
+
+    for (int k = 0; k < 3; k++)
+    {
+        const thArg *file = mod->getArg(node, args[layers[k]]);
+
+        if (file != NULL && (k == 0 || !file->text().empty()))
+            thSamplePrime(node->plugin(), file->text(), samples);
+    }
+}
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    /* A table of this synth's files, for the nodes built from this
+       plugin to share. osc::noise claims a noise stream in the same
+       place and for the same reason. */
+    thSampleClaim(plugin);
+
+    args[IN_FILE] = plugin->regArg("file", thPlugin::ARG_IN);
+    /* A quoted name in the .dsp -- `file = "kick808.wav";' -- which is
+       the one arg in the tree that is not a number. See thArg::ARG_TEXT
+       and docs/DSP_FORMAT.md. It cannot be a control, an expression or a
+       wire: a filename is not a thing a slider moves, so a kit is one
+       node per drum rather than one node with the name swept. */
+    plugin->setArgDesc(args[IN_FILE],
+                       "The wav to play, found under samples/ on "
+                       "THINK_DSP_PATH; or zones, `a.wav@48 b.wav@55', the "
+                       "one nearest the note played from its own");
+    args[IN_FILE2] = plugin->regArg("file2", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FILE2],
+                       "Middle layer wav; an empty slot uses file");
+    args[IN_FILE3] = plugin->regArg("file3", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FILE3],
+                       "Upper layer wav; an empty slot uses file2 or file");
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "The note to play it at");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
+    args[IN_ROOT] = plugin->regArg("root", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ROOT],
+                       "The frequency the file was recorded at; `root = "
+                       "freq' plays it unpitched");
+    plugin->setArgUnits(args[IN_ROOT], "Hz");
+    plugin->setArgDefault(args[IN_ROOT], SAMPLE_ROOT_DEFAULT);
+    args[IN_START] = plugin->regArg("start", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_START],
+                       "Where in the file a hit begins; reversed, how far "
+                       "before the end");
+    plugin->setArgUnits(args[IN_START], "samples");
+    args[IN_LOOP] = plugin->regArg("loop", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_LOOP],
+                       "How many frames at the end repeat; 0 is a one-shot");
+    plugin->setArgUnits(args[IN_LOOP], "samples");
+    args[IN_TRIGGER] = plugin->regArg("trigger", thPlugin::ARG_IN);
+    /* An edge and not a level, which is the difference between a
+       retrigger and a file pinned to its first frame: a note's trigger
+       is held at 1 for as long as the key is down. */
+    plugin->setArgDesc(args[IN_TRIGGER],
+                       "Start again from `start' when this rises above 0");
+    plugin->setArgRange(args[IN_TRIGGER], 0, 1);
+    args[IN_SELECT] = plugin->regArg("select", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SELECT],
+                       "Layer choice at trigger: below split1 is file, "
+                       "below split2 is file2, above is file3");
+    plugin->setArgRange(args[IN_SELECT], 0, 1);
+    args[IN_SPLIT1] = plugin->regArg("split1", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SPLIT1], "Boundary between file and file2");
+    plugin->setArgRange(args[IN_SPLIT1], 0, 1);
+    plugin->setArgDefault(args[IN_SPLIT1], 1.0f / 3.0f);
+    args[IN_SPLIT2] = plugin->regArg("split2", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SPLIT2], "Boundary between file2 and file3");
+    plugin->setArgRange(args[IN_SPLIT2], 0, 1);
+    plugin->setArgDefault(args[IN_SPLIT2], 2.0f / 3.0f);
+    args[IN_ALTERNATE] = plugin->regArg("alternate", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ALTERNATE],
+                       "Cycle layers 1, 2, 3 across this synth's triggers");
+    plugin->setArgRange(args[IN_ALTERNATE], 0, 1);
+    plugin->setArgStep(args[IN_ALTERNATE], 1);
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The file");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+    args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_PLAY],
+                       "1 while there is file left, so a one-shot's note "
+                       "can be the sample's own length");
+    plugin->setArgRange(args[OUT_PLAY], 0, 1);
+
+    /* [0] the playhead, [1] the last trigger, [2] the chosen layer, [3] the
+       note a zone was chosen for, [4] and [5] the first frame and one past
+       the last of what is playing, [6] 1 forward or -1 back. */
+    args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
+
+    /* Registered last, so every arg above keeps the index it had. */
+    args[IN_XFADE] = plugin->regArg("xfade", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_XFADE],
+                       "How long the loop's seam crossfades; 0 is a jump");
+    plugin->setArgUnits(args[IN_XFADE], "samples");
+
+    args[IN_SLICES] = plugin->regArg("slices", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SLICES],
+                       "How many equal parts the file is cut into; 0 plays "
+                       "it whole");
+    plugin->setArgRange(args[IN_SLICES], 0, 256);
+    plugin->setArgStep(args[IN_SLICES], 1);
+    args[IN_SLICE] = plugin->regArg("slice", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SLICE],
+                       "Which part plays, from 0, read at the trigger and "
+                       "wrapping past the last");
+    plugin->setArgStep(args[IN_SLICE], 1);
+    args[IN_REVERSE] = plugin->regArg("reverse", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_REVERSE],
+                       "Above 0, play from the end back, as a one-shot");
+    plugin->setArgRange(args[IN_REVERSE], 0, 1);
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    float *out, *play;
+    float *state;
+    thArg *in_file, *in_file2, *in_file3, *in_freq, *in_root;
+    thArg *in_start, *in_loop, *in_trigger, *in_select, *in_split1;
+    thArg *in_split2, *in_alternate, *in_xfade;
+    thArg *in_slices, *in_slice, *in_reverse;
+    thArg *out_arg, *out_play;
+    thArg *inout_state;
+    unsigned int i;
+    float at, lastTrigger, note;
+    unsigned layer;
+
+    in_file = mod->getArg(node, args[IN_FILE]);
+    in_file2 = mod->getArg(node, args[IN_FILE2]);
+    in_file3 = mod->getArg(node, args[IN_FILE3]);
+    in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_root = mod->getArg(node, args[IN_ROOT]);
+    in_start = mod->getArg(node, args[IN_START]);
+    in_loop = mod->getArg(node, args[IN_LOOP]);
+    in_trigger = mod->getArg(node, args[IN_TRIGGER]);
+    in_select = mod->getArg(node, args[IN_SELECT]);
+    in_split1 = mod->getArg(node, args[IN_SPLIT1]);
+    in_split2 = mod->getArg(node, args[IN_SPLIT2]);
+    in_alternate = mod->getArg(node, args[IN_ALTERNATE]);
+    in_xfade = mod->getArg(node, args[IN_XFADE]);
+    in_slices = mod->getArg(node, args[IN_SLICES]);
+    in_slice = mod->getArg(node, args[IN_SLICE]);
+    in_reverse = mod->getArg(node, args[IN_REVERSE]);
+
+    inout_state = mod->getArg(node, args[INOUT_STATE]);
+
+    /* In float, and stepped in float, so that a window boundary is not
+       an event -- delay::chorus's rule, and the same arithmetic. It also
+       sets the ceiling on a file's length: past about six minutes a
+       float's mantissa can no longer hold a frame index and its
+       fraction, and the interpolation goes coarse. A sampler of the
+       period held eight seconds. */
+    at = (*inout_state)[0];
+    lastTrigger = (*inout_state)[1];
+    layer = (unsigned)thClampArg((*inout_state)[2], 0, 2);
+    note = (*inout_state)[3];
+
+    float lo = (*inout_state)[4];
+    float hi = (*inout_state)[5];
+    float dir = (*inout_state)[6] < 0 ? -1.0f : 1.0f;
+
+    state = inout_state->allocate(7);
+
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
+    out_play = mod->getArg(node, args[OUT_PLAY]);
+    play = out_play->allocate(windowlen);
+
+    /* Resolve at most once per window, and once more if a retrigger changes
+       layer inside it. The counter lives in the synth's shared sample slot;
+       the chosen layer and playhead live in this voice's state arg. */
+    const thSampleData *smp = NULL;
+    size_t len = 0;
+    unsigned loadedLayer = 3;
+    double zoneRoot = 0;
+
+    for (i = 0; i < windowlen; i++)
+    {
+        const float trigger = (*in_trigger)[i];
+        const bool edge = trigger > 0 && !(lastTrigger > 0);
+        float step;
+
+        if (edge)
+        {
+            /* The pitch the zone is chosen for, kept for the windows
+               after this one. */
+            note = (float)(69 + 12 * log2(thBoundFreq((*in_freq)[i], samples) /
+                                          440.0));
+            loadedLayer = 3;
+
+            if ((*in_alternate)[i] > 0)
+                layer = thSampleNextLayer(node->plugin(), in_file->text());
+            else
+            {
+                const float select = thClampArg((*in_select)[i], 0, 1);
+                const float split1 = thClampArg((*in_split1)[i], 0, 1);
+                const float split2 = thClampArg((*in_split2)[i], split1, 1);
+
+                layer = select < split1 ? 0 : select < split2 ? 1 : 2;
+            }
+        }
+
+        lastTrigger = trigger;
+
+        if (loadedLayer != layer)
+        {
+            const std::string &text =
+                (layer == 2 && !in_file3->text().empty()) ? in_file3->text() :
+                (layer >= 1 && !in_file2->text().empty()) ? in_file2->text() :
+                in_file->text();
+            const thSampleZone *zone = thSampleIsZoned(text)
+                ? thSampleZoneFor(node->plugin(), text, note) : NULL;
+
+            zoneRoot = zone != NULL ? zone->root : 0;
+            smp = thSampleGet(node->plugin(), zone != NULL ? zone->file : text,
+                              samples);
+            len = (smp != NULL) ? smp->frames.size() : 0;
+            loadedLayer = layer;
+        }
+
+        /* Where this note plays, set at its trigger -- or on the first
+           sample the file is known, for a note that started before it was
+           loaded, and for a voice fresh from the pool. */
+        if (edge && len == 0)
+            lo = hi = 0;
+
+        if (len > 0 && (edge || hi <= lo))
+        {
+            const int n = (int)thClampArg((*in_slices)[i], 0, 256);
+
+            lo = 0;
+            hi = (float)len;
+
+            if (n > 0)
+            {
+                const float pick = thClampArg((*in_slice)[i], -1e6f, 1e6f);
+                const int k = (((int)floorf(pick) % n) + n) % n;
+
+                lo = floorf((float)len * k / n);
+                hi = fmaxf(floorf((float)len * (k + 1) / n), lo + 1);
+            }
+
+            dir = (*in_reverse)[i] > 0 ? -1.0f : 1.0f;
+
+            const float start = thClampArg((*in_start)[i], 0, hi - lo - 1);
+
+            at = dir > 0 ? lo + start : hi - 1 - start;
+        }
+
+        if (len == 0)
+        {
+            out[i] = 0;
+            play[i] = 0;
+            continue;
+        }
+
+        /* A file read again shorter while a note plays. */
+        if (hi > (float)len)
+        {
+            hi = (float)len;
+            lo = fminf(lo, hi - 1);
+            at = fminf(at, hi - 1);
+        }
+
+        const bool whole = dir > 0 && lo == 0 && hi == (float)len;
+        const float loop = whole ? thClampArg((*in_loop)[i], 0, (float)len)
+                                 : 0;
+        const float root = zoneRoot > 0 ? (float)zoneRoot : (*in_root)[i];
+
+        /* Both bounded, so a root of 0 -- which is what an unwired
+           `root' reads as before its default is applied -- is middle C
+           rather than a division by nothing. */
+        step = (float)(thBoundFreq((*in_freq)[i], samples) /
+                       thBoundFreq(root > 0 ? root : SAMPLE_ROOT_DEFAULT,
+                                   samples));
+        step = thClampArg(step, 1.0f / SAMPLE_RATIO_MAX, SAMPLE_RATIO_MAX);
+
+        if (dir < 0 ? at < lo : at >= hi)
+        {
+            /* Past the end. A one-shot stops and says so; a loop takes
+               the last `loop' frames again. */
+            if (loop >= 1)
+            {
+                at -= floorf(loop);
+
+                if (at < 0 || at >= (float)len)
+                    at = (float)len - floorf(loop);
+            }
+            else
+            {
+                out[i] = 0;
+                play[i] = 0;
+                continue;
+            }
+        }
+
+        {
+            const size_t k = (size_t)at;
+            const float frac = at - (float)k;
+            const float a = smp->frames[k];
+            const float b = smp->frames[(k + 1 < len) ? k + 1 : k];
+            float v = a + (b - a) * frac;
+
+            /* The seam. Held to the loop and to the frames before it, so
+               the frame it fades from always exists. */
+            const float xfade = loop >= 1
+                ? thClampArg((*in_xfade)[i], 0,
+                             fminf(floorf(loop), (float)len - floorf(loop)))
+                : 0;
+
+            if (xfade >= 1 && at >= (float)len - xfade)
+            {
+                const float into = (at - ((float)len - xfade)) / xfade;
+                const float back = at - floorf(loop);
+                const size_t kb = (size_t)back;
+                const float fb = back - (float)kb;
+                const float ab = smp->frames[kb];
+                const float bb = smp->frames[(kb + 1 < len) ? kb + 1 : kb];
+                const float early = ab + (bb - ab) * fb;
+                const float angle = (float)(M_PI / 2) * into;
+
+                v = v * cosf(angle) + early * sinf(angle);
+            }
+
+            /* A slice or a reversed file starts and stops wherever the cut
+               falls, mid-wave, so it fades over 2 ms at each end. */
+            if (!whole)
+            {
+                const float edgeLen = 0.002f * samples;
+                const float from = dir > 0 ? at - lo + 1 : hi - at;
+                const float left = dir > 0 ? hi - at : at - lo + 1;
+
+                v *= fminf(1, fminf(from, left) / edgeLen);
+            }
+
+            out[i] = TH_MAX * v;
+        }
+
+        play[i] = 1;
+        at += dir * step;
+    }
+
+    state[0] = at;
+    state[1] = lastTrigger;
+    state[2] = (float)layer;
+    state[3] = note;
+    state[4] = lo;
+    state[5] = hi;
+    state[6] = dir;
+
+    return 0;
+}

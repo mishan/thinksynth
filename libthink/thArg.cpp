@@ -1,0 +1,480 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include "config.h"
+
+#include <string.h>
+#include <stdio.h>
+
+#include "think.h"
+
+/* Ownership of value will transfer to us. Same goes for SetAllocatedArg. */
+thArg::thArg(const string &name, float value)
+{
+    name_ = name;
+    values_ = new float[1];
+    values_[0] = value;
+    len_ = 1;
+    cap_ = 1;
+
+    type_ = ARG_VALUE;
+    nodePtrId_ = -1;
+    argPtrId_ = -1;
+    argPtr_ = NULL;
+    index_ = -1;       /* so we know it has not been indexed yet */
+
+    widgetType_ = HIDE;
+    min_ = 0;
+    max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
+}
+
+thArg::thArg(const string &name, const float *value, int len)
+{
+    name_ = name;
+    len_ = (len > 0) ? len : 0;
+    cap_ = (len_ > 0) ? len_ : 1;
+    values_ = new float[cap_];
+
+    if (len_ > 0 && value != NULL) {
+        memcpy(values_, value, len_*sizeof(float));
+    }
+    else {
+        /* A zero-length ARG_VALUE would make operator[] and getBuffer() read
+           values_[0], so keep one well-defined element around. */
+        values_[0] = 0;
+    }
+
+    type_ = ARG_VALUE;
+    nodePtrId_ = -1;   /* so we know it has not been set yet */
+    argPtrId_ = -1;   /* so we know it has not been set yet */
+    argPtr_ = NULL;
+    index_ = -1;       /* so we know it has not been indexed yet */
+
+    widgetType_ = HIDE;
+    min_ = 0;
+    max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
+}
+
+thArg::thArg(const string &name, const string &node, const string &value)
+{
+    name_ = name;
+    values_ = NULL;
+    len_ = 0;
+    cap_ = 0;
+
+    nodePtrName_ = node;
+    argPtrName_ = value;
+
+    type_ = ARG_POINTER;
+    nodePtrId_ = -1;   /* so we know it has not been set yet */
+    argPtrId_ = -1;   /* so we know it has not been set yet */
+    argPtr_ = NULL;
+    index_ = -1;       /* so we know it has not been indexed yet */
+
+    widgetType_ = HIDE;
+    min_ = 0;
+    max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
+}
+
+thArg::thArg(const string &name, const string &chanarg)
+{
+    name_ = name;
+    values_ = NULL;
+    len_ = 0;
+    cap_ = 0;
+
+    argPtrName_ = chanarg;
+
+    type_ = ARG_CHANNEL;
+    nodePtrId_ = -1;   /* so we know it has not been set yet */
+    argPtrId_ = -1;   /* so we know it has not been set yet */
+    argPtr_ = NULL;
+    index_ = -1;       /* so we know it has not been indexed yet */
+
+    widgetType_ = HIDE;
+    min_ = 0;
+    max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
+}
+
+
+thArg::thArg (const thArg *copyArg)
+{
+    name_ = copyArg->name_;
+
+    len_ = copyArg->len_;
+    cap_ = (len_ > 0) ? len_ : 1;
+    values_ = new float[cap_];
+
+    if (len_ > 0 && copyArg->values_ != NULL) {
+        memcpy(values_, copyArg->values_, len_ * sizeof(float));
+    }
+    else {
+        values_[0] = 0;
+        len_ = (copyArg->values_ != NULL) ? len_ : 0;
+    }
+
+    comment_ = copyArg->comment_;
+    text_ = copyArg->text_;
+    label_ = copyArg->label_;
+    group_ = copyArg->group_;
+    units_ = copyArg->units_;
+    min_ = copyArg->min_;
+    max_ = copyArg->max_;
+    widgetType_ = copyArg->widgetType_;
+    step_ = copyArg->step_;
+    valueNames_ = copyArg->valueNames_;
+    typedByFile_ = copyArg->typedByFile_;
+
+    nodePtrName_ = copyArg->nodePtrName_;
+    argPtrName_ = copyArg->argPtrName_;
+    type_ = copyArg->type_;
+    nodePtrId_ = copyArg->nodePtrId_;
+    argPtrId_ = copyArg->argPtrId_;
+    argPtr_ = copyArg->argPtr_;
+    index_ = copyArg->index_;
+}
+
+/* the equivalent of creating a thArg(NULL, NULL, 0) */
+thArg::thArg (void)
+{
+    values_ = NULL;
+    len_ = 0;
+    cap_ = 0;
+    type_ = ARG_VALUE;
+    widgetType_ = HIDE;
+    min_ = 0;
+    max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
+    nodePtrId_ = -1;   /* so we know it has not been set yet */
+    argPtrId_ = -1;   /* so we know it has not been set yet */
+    argPtr_ = NULL;
+    index_ = -1;       /* so we know it has not been indexed yet */
+}
+
+thArg::~thArg(void)
+{
+    if (values_) {
+        delete[] values_;
+    }
+}
+
+/* "Sine, Sawtooth, Square" -> three names. See the header for why an empty
+   entry is meaningful rather than a typo to skip over. */
+void thArg::setValueNames (const string &commaList, bool fromFile)
+{
+    vector<string> names;
+
+    string::size_type at = 0;
+
+    /* A trailing comma would otherwise be dropped, and "Sine," is a two-value
+       list whose second value has no name -- exactly the case this spelling
+       exists for. So the loop runs once more than there are commas. */
+    for (;;)
+    {
+        const string::size_type comma = commaList.find(',', at);
+        const string::size_type end =
+            (comma == string::npos) ? commaList.size() : comma;
+
+        string one = commaList.substr(at, end - at);
+
+        const string::size_type a = one.find_first_not_of(" \t");
+
+        if (a == string::npos)
+            one.clear();
+        else
+            one = one.substr(a, one.find_last_not_of(" \t") - a + 1);
+
+        names.push_back(one);
+
+        if (comma == string::npos)
+            break;
+
+        at = comma + 1;
+    }
+
+    /* A list of nothing but empty names says nothing at all, and would
+       otherwise imply a step of 1 and a range of 0..0. */
+    bool anyNamed = false;
+
+    for (size_t i = 0; i < names.size(); i++)
+        if (!names[i].empty())
+            anyNamed = true;
+
+    if (!anyNamed)
+        names.clear();
+
+    setValueNames(names, fromFile);
+}
+
+/* Returns a buffer of `elements' floats, zeroed if it had to be (re)allocated.
+ *
+ * This used to hand back raw `new float[]' memory. Plugins keep their state in
+ * args -- delay lines, filter history, oscillator phase -- and read it back
+ * before writing it (delay/echo, delay/fir, filt/comb, filt/allpass and others
+ * all do). A note's args are copy-constructed from the channel's prototype
+ * tree, where they are single-valued, so the *first* window of every note
+ * resizes each of them from 1 to windowlen and the plugin then read whatever
+ * happened to be in that heap block.
+ *
+ * That is the burst of static on a note's attack that clears once the note
+ * sustains: after the first window len_ already matches and the buffer is
+ * simply reused, so from then on it holds real audio.
+ *
+ * It also explains why this was not obvious on the machines this was written
+ * on. Freshly mapped pages come from the kernel zero-filled, so on a quiet heap
+ * the garbage was usually silence. On a busy one -- more notes, more
+ * allocation churn -- the block comes back holding the previous note's samples
+ * at full scale instead.
+ *
+ * Note that a resize deliberately does not preserve the old contents: going
+ * from a single value to a window means the old value was a placeholder, not
+ * history worth keeping. Zero is the right initial state for a delay line.
+ */
+float *thArg::allocate (unsigned int elements)
+{
+    if (values_ == NULL || elements > cap_) {
+        delete[] values_;
+        values_ = new float[elements]();   /* () -> value-initialised */
+        cap_ = elements;
+        len_ = elements;
+    }
+    else if (len_ != elements) {
+        /* The buffer is big enough already: a reset voice's args shrink
+           back to what the prototype holds and grow again in the first
+           window, and that should not be an allocation. */
+        memset(values_, 0, elements * sizeof(float));
+        len_ = elements;
+    }
+
+    return values_;
+}
+
+void thArg::reserve (unsigned int elements)
+{
+    if (values_ != NULL && elements <= cap_)
+        return;
+
+    float *grown = new float[elements]();
+
+    if (values_ != NULL)
+        memcpy(grown, values_, len_ * sizeof(float));
+
+    delete[] values_;
+    values_ = grown;
+    cap_ = elements;
+}
+
+float *thArg::resize (unsigned int elements, unsigned int most)
+{
+    if (values_ == NULL || elements > cap_)
+        reserve((values_ == NULL || elements > 2 * cap_) ? elements
+                : 2 * cap_ < most                         ? 2 * cap_
+                : elements > most                         ? elements
+                                                          : most);
+
+    if (elements > len_)
+        memset(values_ + len_, 0, (elements - len_) * sizeof(float));
+
+    len_ = elements;
+
+    return values_;
+}
+
+/* What `thArg(proto)' would have made, in this arg's own buffer. See the
+   header. */
+void thArg::restore (const thArg *proto)
+{
+    const unsigned int want = (proto->len_ > 0) ? proto->len_ : 1;
+
+    if (values_ == NULL || want > cap_) {
+        delete[] values_;
+        values_ = new float[want];
+        cap_ = want;
+    }
+
+    if (proto->len_ > 0 && proto->values_ != NULL) {
+        memcpy(values_, proto->values_, proto->len_ * sizeof(float));
+        len_ = proto->len_;
+    }
+    else {
+        values_[0] = 0;
+        len_ = (proto->values_ != NULL) ? proto->len_ : 0;
+    }
+
+    type_ = proto->type_;
+    nodePtrId_ = proto->nodePtrId_;
+    argPtrId_ = proto->argPtrId_;
+    argPtr_ = proto->argPtr_;
+    index_ = proto->index_;
+}
+
+void thArg::setArg (const string &name, float value)
+{
+    values_ = allocate(1);
+    values_[0] = value;
+    name_ = name;
+    len_ = 1;
+    type_ = ARG_VALUE;
+}
+
+void thArg::setArg(const string &name, const float *value, int len)
+{
+    values_ = allocate(len);
+
+    name_ = name;
+    
+    memcpy(values_, value, len * sizeof(float));
+
+    len_ = len;
+    type_ = ARG_VALUE;
+}
+
+void thArg::setArg(const string &name, const string &node, const string &value)
+{
+    name_ = name;
+    nodePtrName_ = node;
+    argPtrName_ = value;
+    
+    type_ = ARG_POINTER;
+}
+
+void thArg::setArg(const string &name, const string &chanarg)
+{
+    name_ = name;
+    argPtrName_ = chanarg;
+
+    type_ = ARG_CHANNEL;
+}
+
+/* A quoted name, and a single zero where the numbers would be.
+ *
+ * The zero is the load-bearing half. Everything that walks a graph reads
+ * an arg's buffer without asking what kind of arg it is -- an expression
+ * that happens to name this one, a probe armed on it, the editor drawing
+ * a value -- and the answer has to be a number even though the arg is
+ * not one. Leaving values_ NULL would make operator[] answer 0 anyway
+ * (it checks len_), but allocate() is what the rest of the class
+ * assumes, and a buffer that exists is cheaper to reason about than one
+ * that is conditionally absent.
+ *
+ * The name is copied rather than shared. A thArg is copy-constructed
+ * once per arg per note, so a shared string would be a shared allocation
+ * on the audio thread's side of the fence.
+ */
+void thArg::setText (const string &text)
+{
+    text_ = text;
+    type_ = ARG_TEXT;
+
+    float *v = allocate(1);
+
+    v[0] = 0;
+}
+
+void thArg::getBuffer (float *buffer, unsigned int size)
+{
+    unsigned int i, j;    
+
+    if (type_ != ARG_VALUE) {
+        return;
+    }
+
+    if (values_ == NULL || len_ == 0) {
+        /* Nothing to repeat -- hand back silence rather than reading off the
+           end of a zero-length allocation. */
+        memset(buffer, 0, size * sizeof(float));
+        return;
+    }
+
+    if (len_ == 1)
+    {
+        /* The single-value case is a knob: the GUI thread writes it from a
+           slider callback while the audio thread reads it here, and routing
+           every drag through the command queue would be silly. Load it once,
+           atomically, so the read cannot tear -- last writer wins, which is
+           exactly what a control surface wants. */
+        float held;
+
+        /* The generic __atomic_load, not __atomic_load_n: the _n form only
+           takes integer and pointer types. */
+        __atomic_load(&values_[0], &held, __ATOMIC_RELAXED);
+
+        for (i = 0; i < size; i++)
+            buffer[i] = held;
+
+        return;
+    }
+
+    /* A node's output is a whole window, and that is the usual case. */
+    if (len_ >= size)
+    {
+        memcpy(buffer, values_, size * sizeof(float));
+        return;
+    }
+
+    j = 0; /* depth into the arg float array (for the loop) */
+    for (i = 0; i < size; i++)
+    {
+        buffer[i] = values_[j];
+        if (++j >= len_)
+        {
+            j = 0;
+        }
+    }
+}
+
+/* Safe to call from the GUI thread on an arg the audio thread is reading, as
+   long as the arg already holds exactly one value: allocate() is then a no-op,
+   so this is a lone atomic store with no reallocation. That is the slider case.
+   Growing or shrinking an arg is a different matter -- see setValue(float*,int)
+   below and thSynth::setChanArg. */
+void thArg::setValue(float value)
+{
+    if (values_ != NULL && len_ == 1)
+    {
+        /* Store straight into the existing buffer. Note that values_ itself is
+           deliberately not reassigned: allocate(1) would return the same
+           pointer, but the assignment is still an 8-byte non-atomic write to a
+           member the audio thread reads in getBuffer(), which is a race even
+           though the value never changes. */
+        __atomic_store(&values_[0], &value, __ATOMIC_RELAXED);
+    }
+    else
+    {
+        values_ = allocate(1);
+        values_[0] = value;
+    }
+
+    m_signal_arg_changed(this);
+}
+
+void thArg::setValue(float *values, int len)
+{
+    allocate(len);
+    memcpy(values_, values, len*sizeof(float));
+    m_signal_arg_changed(this);
+}

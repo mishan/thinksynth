@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>thinksynth &mdash; a room</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="panes.css">
+</head>
+<body data-unstarted>
+<!-- Where you are and what is going on, on one line: tiled, the window's
+     height is the layout's, and every line spent up here is one the
+     panes do not get. -->
+<header id="roomhead" class="row">
+  <h1>thinksynth <span id="roomname" class="dim">&mdash; a room</span></h1>
+  <p id="status" role="status"></p>
+  <!-- What the piece says about itself, cut to what fits; the whole of
+       it is the title. -->
+  <p id="about"></p>
+  <!-- The panes closed to the drawer, listed here rather than on a row
+       of their own over the layout. -->
+  <span id="roomdrawer"></span>
+  <!-- Who is here, and by which path. -->
+  <span id="peers" class="peers"></span>
+  <!-- The room's address without your name in it (jam.js, copyInvite),
+       and the link itself where the clipboard is refused. -->
+  <button id="invite" hidden>Copy invite link</button>
+  <!-- Who finds the room, and whether its owner alone edits the piece:
+       the owner's to change (jam.js, showRoom). -->
+  <span id="roomsettings" hidden>
+    <select id="visibility" aria-label="Who can join the room">
+      <option value="public">Listed</option>
+      <option value="unlisted">Unlisted</option>
+      <option value="private">Invite only</option>
+    </select>
+    <label><input id="lock" type="checkbox"> Lock the piece</label>
+  </span>
+  <!-- The room again after the relay went away (jam.js, lost). -->
+  <button id="rejoin" hidden>Rejoin</button>
+  <input id="invitelink" readonly hidden aria-label="Invite link">
+</header>
+
+<!-- A new version, ready and not taken because something was going
+     (offline.js). -->
+<p id="updaterow" hidden>
+  A new version is ready. <button id="update">Update</button>
+  <span id="updatewhy" class="hint"></span>
+</p>
+
+<!-- Who and where. The room's name is the URL's, and so is the piece a
+     new room is seeded with (?room=x&piece=ebb.gen). -->
+<main>
+<section id="joinrow">
+  <p>A room is a piece played together: everyone in it hears the same
+    music, plays into it from a seat, and edits the same text.</p>
+  <!-- The relay's rooms, who is in each and what it plays. -->
+  <ul id="rooms" class="roomlist" aria-label="Open rooms" hidden></ul>
+  <label>Room <input id="room" size="12" value="lobby"></label>
+  <label>Name <input id="name" size="12"></label>
+  <!-- An account's handle, which nobody else can join as (accountui.js);
+       shown once the relay says it has accounts. -->
+  <button id="account" hidden>Log in</button>
+  <!-- Only a room nobody has opened yet is seeded with it; one that is
+       there plays what it plays. -->
+  <label>Piece <select id="newpiece"></select></label>
+  <button id="join">Join</button>
+</section>
+
+<section id="roompanel" hidden>
+  <!-- A seat is a channel the piece plays: an instrument it declares, a
+       channel it takes `input midi' on, or one its sinks name. Keys play
+       into it, on every peer, in one of three ways -- see commands.js's
+       keyAt -- with the relay's round trip beside the choice. -->
+  <div id="roomtools" class="row">
+    <span class="group">
+      <button id="start">Start</button>
+      <button id="play" disabled>Play</button>
+      <button id="stop" disabled>Stop</button>
+      <label>Tempo <input id="tempo" type="number" min="20" max="300" step="1" value="120" size="4" disabled></label>
+      <span id="clock">0:00.0</span>
+      <!-- Another shipped piece for everyone in the room (jam.js,
+           switchPiece). -->
+      <label>Piece <select id="piece" disabled></select></label>
+    </span>
+    <span class="group">
+      <label>Seat <select id="seat"><option value="">none</option></select></label>
+      <label id="instrumentlabel" hidden>Instrument <select id="instrument" disabled></select></label>
+      <label>Timing <select id="playmode">
+        <option value="direct">direct</option>
+        <option value="quantised">quantised</option>
+        <option value="ahead">a bar ahead</option>
+      </select></label>
+      <span id="modenote"></span>
+    </span>
+  </div>
+
+  <!-- Where the tiler puts the panes below, when there is one. Empty and
+       invisible otherwise, and the page is the document it has always
+       been: panes.js adopts what is marked `data-pane' and puts every one
+       of them back where it was when the layout goes away. -->
+  <div id="panes"></div>
+
+  <!-- The piano roll: every chain's output on one timeline, the past left
+       of the now-line and the *scheduled future* ghosted to the right of
+       it -- what the piece has already decided and not yet played. It is
+       the desktop's roll, compiled to wasm and drawn by the mirror, which
+       is where the scheduler holding that future is. Drag it to scrub back
+       through what has been played, double-click to go back to live, and
+       the wheel changes how much time is on screen. -->
+  <div id="roll" class="canvasview rollview"
+       data-pane data-pane-title="Piano roll" data-pane-min="320">
+    <canvas id="rollcanvas" tabindex="0" role="img"
+            aria-label="Piano roll: the notes played, and those to come"></canvas>
+  </div>
+
+  <div id="knobs"
+       data-pane data-pane-title="The piece's knobs"
+       data-pane-min="240"></div>
+
+  <!-- The piece's picture, drawn by the mirror: a second scheduler in a
+       worker, fed the same commands this page's worklet is fed, holding
+       real composer instances. A gesture on an enlarged picture is a
+       command like a knob -- stamped, sent, and applied at its time on
+       every peer, so what one person paints everybody sees on the same
+       beat. -->
+  <details id="composerview" open
+           data-pane data-pane-min="360">
+    <summary>The composers</summary>
+    <div id="composerscroll" class="canvasview">
+      <canvas id="composer" tabindex="0"></canvas>
+    </div>
+    <div class="row" id="composertools">
+      <select id="composerpaint" aria-label="Paint on a picture"
+              hidden></select>
+      <button id="collapseall">Collapse</button>
+      <button id="expandall">Expand</button>
+      <label class="hint"><input type="checkbox" id="rollbychain">
+        Roll by chain</label>
+    </div>
+    <p id="composerstatus" class="hint"></p>
+  </details>
+
+  <!-- The piece as tracks, as on the solo page: one row per gen::grid,
+       and a click on one a gesture like a click on the composers' --
+       stamped, sent, and written into the document by whoever made it. -->
+  <section id="seqview"
+           data-pane data-pane-title="Sequencer" data-pane-min="320">
+    <div id="tracks"></div>
+    <p id="seqhint" class="hint"></p>
+  </section>
+
+  <!-- The instrument, as on the solo page. -->
+  <section id="keyboard"
+           data-pane data-pane-title="Keys" data-pane-min="280">
+    <div class="row">
+      <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
+      <span id="range"></span>
+      <button id="up" class="octave" aria-label="An octave up">&#9654;</button>
+
+      <!-- Whether a letter is a note at the moment, which it is unless
+           something was tabbed to or is being typed into (keyfocus.js).
+           Empty the rest of the time: the ordinary state is not worth a
+           word, and a line that is always there is one nobody reads. -->
+      <span id="keysstate" class="hint" aria-live="polite"></span>
+
+      <!-- A MIDI keyboard onto the same keys, into the seat (midi.js).
+           Offered once the synth has started. -->
+      <button id="midi" disabled>MIDI in</button>
+      <span id="midistatus" class="hint"></span>
+
+      <!-- The piece's MIDI instruments onto this machine's devices
+           (midioutui.js): every peer composes the same piece and sends it
+           to devices of its own. -->
+      <button id="midiout" disabled>MIDI out</button>
+      <label class="hint">delay
+        <input id="midioutdelay" type="number" min="0" max="500" step="1"
+               value="0"> ms</label>
+      <span id="midioutstatus" class="hint"></span>
+      <div id="midiclock"></div>
+    </div>
+    <div id="midioutlist"></div>
+    <svg id="keys" role="application" aria-label="Keyboard"></svg>
+  </section>
+
+  <!-- The document: a tab per file, everyone's cursors, and Apply, which
+       puts the text as it stands into the piece at the next bar -- or, while
+       stopped, is Play from the top. -->
+  <details id="documentbox" open
+           data-pane data-pane-min="380">
+    <summary>The piece</summary>
+    <div class="row">
+      <span id="tabs" class="tabs"></span>
+      <button id="apply" disabled>Apply</button>
+    </div>
+    <div id="editor"></div>
+  </details>
+
+  <!-- Evolve toward, as the solo page has it: the search in this
+       browser's workers, what it finds heard on every peer and then kept
+       into the document or discarded. -->
+  <details id="evolvebox"
+           data-pane data-pane-title="Evolve toward" data-pane-min="320">
+    <summary>Evolve toward</summary>
+    <fieldset id="evolve">
+      <legend>Evolve toward</legend>
+      <div class="row">
+        <label>Instrument <select id="evolvewhat" disabled></select></label>
+        <label>toward <select id="evolvetoward" disabled></select></label>
+        <input id="evolvesound" type="file" accept=".wav,audio/wav" hidden>
+        <select id="evolvehow" aria-label="Search" disabled>
+          <option value="0">Tune: its constants</option>
+          <option value="1">Tune and grow: its shape too</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="evolvego" disabled>Start</button>
+        <button id="evolvestop" disabled>Cancel</button>
+        <button id="evolvehear" disabled
+                title="Put the nearest graph found so far on the instrument's channel">Listen</button>
+        <button id="evolvekeep" disabled
+                title="Write the result into the piece as the instrument's dsp { }">Keep</button>
+        <button id="evolvedrop" disabled
+                title="Put back the graph the instrument had before the search">Discard</button>
+      </div>
+      <canvas id="evolveplot" width="320" height="80" hidden aria-hidden="true"></canvas>
+      <div id="evolvestate" class="hint"></div>
+    </fieldset>
+  </details>
+
+  <!-- The .dsp canvas, over the document: the desktop's node editor, with
+       its graph, its layout and its writer compiled to wasm and run in
+       this page's own instance of the module. An edit is a splice into
+       the shared file, so it is everybody's edit, and the piece plays it
+       at the next Apply. -->
+  <details id="nodeview"
+           data-pane data-pane-min="400">
+    <summary>The instrument</summary>
+    <div class="row">
+      <label>File <select id="nodefile"></select></label>
+      <label>Add <select id="nodepalette"></select></label>
+      <button id="nodeadd">Add node</button>
+      <button id="nodefit">Fit</button>
+      <span id="nodeselected"></span>
+    </div>
+    <!-- Said instead of an empty menu over a blank canvas when the
+         document has no graph of its own (nodeview.js, offer). -->
+    <p id="nodeempty" hidden>No graph to edit: this piece plays only the
+      shipped patches. A .dsp in the room's document is drawn here.</p>
+    <div id="nodescroll" class="canvasview">
+      <canvas id="nodecanvas" tabindex="0" role="img"
+              aria-label="The graph, as nodes and wires"></canvas>
+    </div>
+    <!-- The graph without the canvas: its nodes to choose, and the chosen
+         one's wires, to cut, make and watch (nodeview.js). -->
+    <details id="nodeoutline">
+      <summary>Nodes and wires, as a list</summary>
+      <ul id="nodelist" aria-label="Nodes"></ul>
+      <div id="nodewiring"></div>
+    </details>
+    <div id="nodeparams"></div>
+  </details>
+
+  <details id="detail"
+           data-pane data-pane-min="240">
+    <summary>The numbers</summary>
+    <div class="row">
+      <label>Knob lead <input id="knoblead" type="number" min="0" max="5" step="0.01" size="5"> s</label>
+      <label>Transport lead <input id="transportlead" type="number" min="0" max="5" step="0.01" size="5"> s</label>
+      <button id="export" disabled>Download the tape</button>
+    </div>
+    <pre id="numbers"></pre>
+    <pre id="log"></pre>
+  </details>
+
+  <!-- Text, for the people in the room, between lines this page writes
+       about what the room did: who came, who sat down, who pressed Play
+       (chat.js). Through the relay, and kept by nobody. -->
+  <details id="chat" open
+           data-pane data-pane-min="240">
+    <summary>Chat</summary>
+    <ul id="chatfeed" aria-live="polite" aria-label="Chat"></ul>
+    <form id="chatform" class="row">
+      <input id="chatinput" type="text" maxlength="500" autocomplete="off"
+             aria-label="Say something to the room">
+      <button>Send</button>
+    </form>
+    <p id="chatnote" class="hint" aria-live="polite"></p>
+  </details>
+</section>
+
+<!-- What a stage's params handle asks for, and what a right-click on a
+     port offers: placed in page coordinates beside whatever asked for
+     them, so where they sit in the document says nothing -- except that
+     being after every pane is what keeps them over one. -->
+<div id="composerparams" class="popover" hidden></div>
+<div id="nodemenu" class="popover" role="dialog" hidden></div>
+
+</main>
+
+<dialog id="accountdialog" aria-labelledby="accounttitle"></dialog>
+
+<script type="module" src="jam.js"></script>
+</body>
+</html>

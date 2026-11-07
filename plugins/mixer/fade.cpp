@@ -1,0 +1,92 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "think.h"
+
+enum {IN_0, IN_1, IN_FADE, OUT};
+std::atomic<int> args[OUT+1];
+
+static const char desc[] = "Fades between two streams";
+thPlugin::State    mystate = thPlugin::PASSIVE;
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_0], "What a fade of 0 gives");
+    plugin->setArgRange(args[IN_0], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_0], "full scale");
+    args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_1], "What a fade of 1 gives");
+    plugin->setArgRange(args[IN_1], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_1], "full scale");
+    args[IN_FADE] = plugin->regArg("fade", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_FADE], TH_SMOOTH_MS);
+    /* Linear and unclamped: `in0*(1-fade) + in1*fade', so a fade outside 0
+       to 1 extrapolates past either input rather than stopping there. */
+    plugin->setArgDesc(args[IN_FADE],
+                       "0 is all in0, 1 is all in1; outside that it "
+                       "extrapolates past either rather than stopping");
+    plugin->setArgRange(args[IN_FADE], 0, 1);
+    args[OUT] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT], "The crossfade");
+    plugin->setArgRange(args[OUT], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT], "full scale");
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    float *out;
+    thArg *in_0, *in_1, *in_fade;
+    thArg *out_arg;
+    float buf_in0[windowlen], buf_in1[windowlen], buf_fade[windowlen];
+    unsigned int i;
+    float val_fade;
+
+    in_0 = mod->getArg(node, args[IN_0]);
+    in_1 = mod->getArg(node, args[IN_1]);
+    in_fade = mod->getArg(node, args[IN_FADE]);
+
+    in_0->getBuffer(buf_in0, windowlen);
+    in_1->getBuffer(buf_in1, windowlen);
+    in_fade->getBuffer(buf_fade, windowlen);
+
+    out_arg = mod->getArg(node, args[OUT]);
+    out = out_arg->allocate(windowlen);
+
+    for(i = 0; i < windowlen; i++) {
+        val_fade = buf_fade[i];
+
+        out[i] = (buf_in0[i] * (1-val_fade)) + (buf_in1[i] * val_fade);
+    }
+
+    return 0;
+}

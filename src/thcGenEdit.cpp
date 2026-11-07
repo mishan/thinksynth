@@ -1,0 +1,4760 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ */
+
+#include "config.h"
+
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <fstream>
+#include <map>
+#include <sstream>
+
+#include <sys/stat.h>   /* writeFile preserves the mode                 */
+
+#include "think.h"      /* thUtil::replaceFile                          */
+
+#include "thcGenFile.h"
+#include "thcGenEdit.h"
+
+const char *
+thcGenEdit::resultText (Result r)
+{
+    switch (r)
+    {
+        case OK:         return "written";
+        case NOT_FOUND:  return "not in the file";
+        case REFUSED:    return "that edit does not make sense";
+        case UNWRITABLE: return "that value cannot be written in a .gen";
+        case IO_ERROR:   return "could not read or write the file";
+    }
+
+    return "unknown";
+}
+
+/* ---- file plumbing ---------------------------------------------------- */
+
+/* Binary, here and in every read and write below: the splicer's whole
+ * contract is byte spans into the file as it sits on disk, and Windows'
+ * text mode rewrites newlines in both directions -- offsets that
+ * counted \n would land splices one byte short per line above them,
+ * and a written file would grow \r\n it never had. NodeEdit's
+ * writeLines learned this first; the lexer reads the same way so the
+ * two ends of the span agree. */
+static bool
+readFile (const std::string &filename, std::string &text)
+{
+    std::ifstream in(filename.c_str(), std::ios::binary);
+
+    if (!in)
+        return false;
+
+    text.assign((std::istreambuf_iterator<char>(in)),
+                std::istreambuf_iterator<char>());
+
+    return true;
+}
+
+/* Temporary beside the target, renamed into place, mode preserved --
+ * the old file survives until the new one is complete, exactly as
+ * NodeEdit's writeLines does it. */
+static bool
+writeFile (const std::string &filename, const std::string &text)
+{
+    std::string tmp = filename + ".gen-edit-tmp";
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc | std::ios::binary);
+
+        if (!out)
+            return false;
+
+        out << text;
+
+        if (!out.good())
+        {
+            ::remove(tmp.c_str());
+            return false;
+        }
+    }
+
+    /* Unix only, for the reason NodeEdit's writeLines gives: Windows
+       has no POSIX mode worth preserving, and MinGW declares chmod in
+       <io.h>, so this would not even compile there. */
+#ifndef _WIN32
+    struct stat st;
+
+    if (::stat(filename.c_str(), &st) == 0)
+        ::chmod(tmp.c_str(), st.st_mode & 07777);
+#endif
+
+    /* thUtil::replaceFile rather than rename(): Windows' rename
+       refuses a target that exists, and every save of a piece after
+       the first is exactly that. */
+    if (!thUtil::replaceFile(tmp, filename))
+    {
+        ::remove(tmp.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+/* ---- span edits ------------------------------------------------------- */
+
+struct Edit
+{
+    size_t a, b;         /* replace [a, b)                              */
+    std::string repl;
+};
+
+/* Applied back to front, so earlier offsets stay true while later text
+ * moves. Edits are built against one index over one read, so they can
+ * never overlap unless an operation is buggy -- and a buggy operation
+ * must not half-happen: overlaps are detected before the first byte
+ * moves, and false means the text was not touched at all. A partially
+ * applied edit set is a file nobody wrote.
+ *
+ * stable_sort ascending, then applied in reverse. The stability and
+ * the direction together make same-offset inserts land in push order:
+ * the later-pushed insert is applied first and the earlier one then
+ * lands above it, so what setKnobMeta pushes as min, max, label reads
+ * back as min, max, label -- on every platform, every run. Plain sort
+ * left equal offsets to the implementation's mood. */
+static bool
+applyEdits (std::string &text, std::vector<Edit> &edits)
+{
+    std::stable_sort(edits.begin(), edits.end(),
+                     [](const Edit &x, const Edit &y)
+                     { return x.a < y.a; });
+
+    for (size_t i = 0; i + 1 < edits.size(); i++)
+        if (edits[i].b > edits[i + 1].a)
+            return false;
+
+    for (size_t i = edits.size(); i-- > 0; )
+        text.replace(edits[i].a, edits[i].b - edits[i].a, edits[i].repl);
+
+    return true;
+}
+
+static size_t
+lineStartOf (const std::string &text, size_t pos)
+{
+    size_t nl = text.rfind('\n', pos ? pos - 1 : 0);
+
+    return nl == std::string::npos ? 0 : nl + 1;
+}
+
+/* Where a statement appended to a block goes, and whether it gets a line
+ * of its own.
+ *
+ * `bodyClose' is the block's `}'. When everything before it on its line is
+ * blank the block is written across several lines and the statement goes
+ * above the brace, indented. When something shares that line the block is
+ * a one-liner -- `chain c { stage s gen::eno_line { }; };' -- and the
+ * start of the line is *before* the statement the block belongs to.
+ * Inserting there puts the new statement above its own block at top
+ * level, where the loader reads it as a statement it does not know and
+ * the file no longer loads. So a one-liner stays a one-liner and the text
+ * goes just inside the brace instead.
+ *
+ * addPresetValue has drawn this distinction all along, over a preset
+ * written the same way round. These are the other two blocks this writer
+ * appends a statement to.
+ */
+static size_t
+endOfBlock (const std::string &text, size_t bodyClose, bool &ownLine)
+{
+    const size_t ls = lineStartOf(text, bodyClose);
+
+    ownLine = text.find_first_not_of(" \t", ls) >= bodyClose;
+
+    return ownLine ? ls : bodyClose;
+}
+
+/* A space of our own only where there is not one already, so `{ a = 1; }'
+   and `{ a = 1;}' both come out readable. */
+static std::string
+gapBefore (const std::string &text, size_t at)
+{
+    return (at > 0 && (text[at - 1] == ' ' || text[at - 1] == '\t'))
+        ? "" : " ";
+}
+
+/* Remove a statement and, when it sat on a line of its own, the line --
+ * indentation and newline included. When something else shares the line
+ * (another statement, or a trailing comment worth keeping), only the
+ * statement's own bytes and the blanks before it go. */
+static Edit
+eraseStmt (const std::string &text, size_t a, size_t b)
+{
+    size_t ls = lineStartOf(text, a);
+    bool lineBefore = text.find_first_not_of(" \t", ls) >= a;
+
+    size_t e = b;
+
+    while (e < text.size() && (text[e] == ' ' || text[e] == '\t'))
+        e++;
+
+    bool lineAfter = e >= text.size() || text[e] == '\n';
+
+    Edit ed;
+
+    if (lineBefore && lineAfter)
+    {
+        ed.a = ls;
+        ed.b = e < text.size() ? e + 1 : e;   /* the newline too         */
+    }
+    else
+    {
+        ed.a = lineBefore ? ls : a;
+        ed.b = e;
+    }
+
+    return ed;
+}
+
+/* ---- the structural index --------------------------------------------- */
+/* A lenient scan: the files this operates on have already been through
+ * the loader, so shape surprises mean "leave it alone", not "guess". */
+
+typedef thcGenToken Tok;
+
+struct PIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* name .. ';'                          */
+    size_t valA, valB;
+    std::string valueText;
+};
+
+struct StageIdx
+{
+    std::string name, cat, plugin;
+    size_t stmtA, stmtB;
+    size_t bodyClose;            /* offset of the '}'                    */
+    std::vector<PIdx> params;
+};
+
+struct SinkIdx
+{
+    size_t stmtA, stmtB;
+    size_t bodyClose;
+
+    /* The target, in whichever of its two spellings the file used. The
+       whole `channel = N;' or `instrument = pad;' statement is spanned
+       as well as its value, because switching between the two replaces
+       the statement rather than editing inside it. */
+    int    channel;                        /* 0 when instrument-bound   */
+    size_t chStmtA, chStmtB, chValA, chValB;
+    std::string instrument;
+    size_t instStmtA, instStmtB, instValA, instValB;
+
+    bool   hasArg;
+    std::string chanarg;
+    size_t argStmtA, argStmtB, argValA, argValB;
+
+    std::string knob;                      /* `knob = @name;', or empty */
+};
+
+/* One value inside an instrument block: `a = 900 ms;'. The same shape as
+ * a stage param and indexed by the same scanner, because it is the same
+ * thing -- a name, an `=', and a right-hand side kept as text. */
+struct InstrumentIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* `instrument' .. the trailing ';'   */
+    size_t bodyClose;
+
+    std::string dsp;
+    bool dspInline = false;      /* `dsp { }' rather than a file name  */
+    std::string dspBody;         /* between its braces                 */
+    size_t dspA, dspB;           /* the quoted file name or the braced
+                                    graph, 0 when none                 */
+
+    std::string midi;            /* `midi "port";', or empty           */
+    int midiChannel = -1;        /* 1-16 as written, -1 when none      */
+
+    std::vector<PIdx> values;
+
+    /* `fx.mix' -> `@w ms', for every value inside the `effect' block that
+       a knob drives. Not PIdx and not in `values': those carry the byte
+       span an edit splices against, and nothing here edits an effect's
+       values -- see the scan below. What this is for is the one question
+       that can be asked about them from outside, which is whether a knob
+       already has hold of the arg a sink is being pointed at. Keyed with
+       the prefix, because that is the name the sink is written with. */
+    std::vector<std::pair<std::string, std::string> > effectKnobs;
+
+    /* The instruments its effect's `side = <instrument>;' names. */
+    std::vector<std::string> sides;
+};
+
+struct MetaIdx
+{
+    bool present;
+    size_t stmtA, stmtB;
+    size_t valA, valB;
+    double num;
+    std::string str;
+
+    MetaIdx (void) : present(false), num(0) {}
+};
+
+struct KnobIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* the `@n = v;' declaration            */
+    size_t valA, valB;
+    double value;
+    size_t blockEnd;             /* end of the last line of the block    */
+    std::map<std::string, MetaIdx> meta;
+};
+
+struct ScaleIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;
+    size_t valA, valB;           /* the quoted note list, quotes incl.   */
+    std::string notes;
+};
+
+struct PresetCompIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* name .. its ';'                      */
+    size_t valA, valB;
+    double value;
+};
+
+struct PresetIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* `preset' .. the trailing ';'         */
+    size_t bodyClose;            /* offset of the '}'                    */
+    std::vector<PresetCompIdx> comps;
+};
+
+/* One `section' statement, and every chain name inside it.
+ *
+ * Indexed for the two edits that can *invalidate* one -- renaming a
+ * chain a section names, and removing it -- because the file a dangling
+ * name leaves behind does not load (the same care removeKnob takes over
+ * `@name'), and for the one edit made to a section itself: a chain's
+ * level in it (setSectionLevel). */
+struct SectionRefIdx
+{
+    std::string chain;
+    size_t nameA, nameB;         /* the chain name inside the block      */
+    size_t levelA, levelB;       /* its level                            */
+    size_t entryB;               /* just past the entry's ';'            */
+};
+
+struct SectionIdx
+{
+    std::string name;
+    size_t nameA, nameB;
+    size_t lenA, lenB;           /* `16 bars'                            */
+    size_t holdA, holdB;         /* `hold', or npos                      */
+    size_t stmtA, stmtB;
+    size_t bodyClose;            /* the block's '}'                      */
+    std::vector<SectionRefIdx> refs;
+};
+
+struct ChainIdx
+{
+    std::string name;
+    std::string startText;       /* empty when the chain starts at zero  */
+    size_t startA, startB;
+    size_t nameA, nameB;
+    size_t stmtA, stmtB;
+    size_t bodyOpen;             /* the chain's '{'                      */
+    size_t bodyClose;            /* the chain's '}'                      */
+    bool   inputMidi;
+    size_t inputA, inputB;
+    bool     hasSeed;
+    unsigned seed;
+    size_t   seedA, seedB;
+    std::vector<StageIdx> stages;
+    std::vector<SinkIdx>  sinks;
+};
+
+struct Index
+{
+    std::map<std::string, MetaIdx> infos;    /* name/author/description  */
+    MetaIdx seed, tempo;
+    std::vector<KnobIdx>       knobs;
+    std::vector<ScaleIdx>      scales;
+    std::vector<PresetIdx>     presets;
+    std::vector<InstrumentIdx> instruments;
+    std::vector<SectionIdx>    sections;
+    std::vector<ChainIdx>      chains;
+
+    /* `section end;' or `section loop <name>;' -- what closes the list --
+       or npos for a piece whose sections cycle from the first; and where
+       `meter' ends, or npos. */
+    size_t sectionEndA, sectionEndB;
+    size_t meterB;
+
+    /* The name `section loop' goes round to, and where it sits. */
+    std::string loopTo;
+    size_t loopToA, loopToB;
+
+    /* The knobs a `cue @knob ...;' follows, and where the last cue ends. */
+    std::vector<std::string> cues;
+    size_t lastCueB;
+
+    /* The piece's own `effect "<file>" ...;', whole statement. */
+    std::string masterEffect;
+    size_t masterA, masterB;
+
+    size_t topInsert;        /* line start of the first token            */
+    size_t headerEnd;        /* after the info/tempo/seed statements     */
+    size_t firstScaleOff;    /* npos when there is none                  */
+    size_t firstPresetOff;
+    size_t firstInstrumentOff;
+    size_t firstChainOff;
+};
+
+/* Advance past one whole statement (to just after its `;' at depth 0
+ * relative to where we are), used when the scan meets a shape it does
+ * not index. */
+static size_t
+skipStmt (const std::vector<Tok> &t, size_t i)
+{
+    int depth = 0;
+
+    while (t[i].kind != Tok::END)
+    {
+        if (t[i].kind == Tok::PUNCT)
+        {
+            if (t[i].text[0] == '{')
+                depth++;
+            else if (t[i].text[0] == '}' && depth > 0)
+                depth--;
+            else if (t[i].text[0] == ';' && depth == 0)
+                return i + 1;
+        }
+
+        i++;
+    }
+
+    return i;
+}
+
+static bool
+isPunct (const Tok &t, char c)
+{
+    return t.kind == Tok::PUNCT && t.text[0] == c;
+}
+
+/* `<word> = <value tokens> ;` starting at i. Fills p, returns the index
+ * after the ';', or 0 on a shape that is not a param. */
+static size_t
+scanParam (const std::vector<Tok> &t, size_t i, PIdx &p)
+{
+    if (t[i].kind != Tok::WORD || !isPunct(t[i + 1], '='))
+        return 0;
+
+    p.name = t[i].text;
+    p.stmtA = t[i].off;
+
+    size_t v = i + 2;
+
+    if (t[v].kind == Tok::END || isPunct(t[v], ';'))
+        return 0;
+
+    p.valA = t[v].off;
+
+    size_t last = v;
+
+    while (t[last + 1].kind != Tok::END && !isPunct(t[last + 1], ';') &&
+           !isPunct(t[last + 1], '}'))
+        last++;
+
+    if (!isPunct(t[last + 1], ';'))
+        return 0;
+
+    p.valB = t[last].end;
+    p.stmtB = t[last + 1].end;
+
+    return last + 2;
+}
+
+static bool
+buildIndex (const std::string &text, Index &ix, std::string &why)
+{
+    std::vector<Tok> t;
+    std::string err;
+    int errLine = 0;
+
+    if (!thcGenLoader::tokenize(text, t, err, errLine))
+    {
+        std::ostringstream s;
+
+        s << "line " << errLine << ": " << err;
+        why = s.str();
+        return false;
+    }
+
+    ix.topInsert = lineStartOf(text, t[0].off);
+    ix.headerEnd = ix.topInsert;
+    ix.firstScaleOff = std::string::npos;
+    ix.firstPresetOff = std::string::npos;
+    ix.firstInstrumentOff = std::string::npos;
+    ix.firstChainOff = std::string::npos;
+    ix.masterA = ix.masterB = 0;
+    ix.sectionEndA = ix.sectionEndB = std::string::npos;
+    ix.loopToA = ix.loopToB = std::string::npos;
+    ix.lastCueB = std::string::npos;
+    ix.meterB = std::string::npos;
+
+    size_t i = 0;
+
+    while (t[i].kind != Tok::END)
+    {
+        /* @knob declarations and metadata */
+        if (t[i].kind == Tok::KNOB)
+        {
+            const std::string &name = t[i].text;
+
+            if (isPunct(t[i + 1], '=') && t[i + 2].kind == Tok::NUMBER &&
+                isPunct(t[i + 3], ';'))
+            {
+                KnobIdx k;
+
+                k.name = name;
+                k.stmtA = t[i].off;
+                k.valA = t[i + 2].off;
+                k.valB = t[i + 2].end;
+                k.value = t[i + 2].num;
+                k.stmtB = t[i + 3].end;
+                k.blockEnd = k.stmtB;
+                ix.knobs.push_back(k);
+                i += 4;
+                continue;
+            }
+
+            if (isPunct(t[i + 1], '.') && t[i + 2].kind == Tok::WORD &&
+                isPunct(t[i + 3], '=') &&
+                (t[i + 4].kind == Tok::NUMBER ||
+                 t[i + 4].kind == Tok::STRING) &&
+                isPunct(t[i + 5], ';'))
+            {
+                for (size_t k = 0; k < ix.knobs.size(); k++)
+                    if (ix.knobs[k].name == name)
+                    {
+                        MetaIdx m;
+
+                        m.present = true;
+                        m.stmtA = t[i].off;
+                        m.stmtB = t[i + 5].end;
+                        m.valA = t[i + 4].off;
+                        m.valB = t[i + 4].end;
+                        m.num = t[i + 4].num;
+                        m.str = t[i + 4].text;
+                        ix.knobs[k].meta[t[i + 2].text] = m;
+                        ix.knobs[k].blockEnd = m.stmtB;
+                        break;
+                    }
+
+                i += 6;
+                continue;
+            }
+
+            i = skipStmt(t, i);
+            continue;
+        }
+
+        if (t[i].kind != Tok::WORD)
+        {
+            i = skipStmt(t, i);
+            continue;
+        }
+
+        const std::string &kw = t[i].text;
+
+        if ((kw == "name" || kw == "author" || kw == "description" ||
+             kw == "category") &&
+            t[i + 1].kind == Tok::STRING && isPunct(t[i + 2], ';'))
+        {
+            MetaIdx m;
+
+            m.present = true;
+            m.stmtA = t[i].off;
+            m.stmtB = t[i + 2].end;
+            m.valA = t[i + 1].off;
+            m.valB = t[i + 1].end;
+            m.str = t[i + 1].text;
+            ix.infos[kw] = m;
+            ix.headerEnd = m.stmtB;
+            i += 3;
+            continue;
+        }
+
+        /* `meter' is a header statement, so what gets inserted after the
+           header goes after it rather than between it and the tempo above
+           it; and it must come before the first section, which is where
+           a first section is written. */
+        if ((kw == "seed" || kw == "tempo" || kw == "meter") &&
+            t[i + 1].kind == Tok::NUMBER && isPunct(t[i + 2], ';'))
+        {
+            MetaIdx m;
+
+            m.present = true;
+            m.stmtA = t[i].off;
+            m.stmtB = t[i + 2].end;
+            m.valA = t[i + 1].off;
+            m.valB = t[i + 1].end;
+            m.num = t[i + 1].num;
+
+            if (kw == "seed")
+                ix.seed = m;
+            else if (kw == "tempo")
+                ix.tempo = m;
+            else
+                ix.meterB = m.stmtB;
+
+            ix.headerEnd = m.stmtB;
+            i += 3;
+            continue;
+        }
+
+        if (kw == "scale" && t[i + 1].kind == Tok::WORD &&
+            t[i + 2].kind == Tok::STRING && isPunct(t[i + 3], ';'))
+        {
+            ScaleIdx s;
+
+            s.name = t[i + 1].text;
+            s.stmtA = t[i].off;
+            s.stmtB = t[i + 3].end;
+            s.valA = t[i + 2].off;
+            s.valB = t[i + 2].end;
+            s.notes = t[i + 2].text;
+
+            if (ix.firstScaleOff == std::string::npos)
+                ix.firstScaleOff = s.stmtA;
+
+            ix.scales.push_back(s);
+            i += 4;
+            continue;
+        }
+
+        /* preset <name> { <comp> = <number>; ... }; */
+        if (kw == "preset" && t[i + 1].kind == Tok::WORD &&
+            isPunct(t[i + 2], '{'))
+        {
+            PresetIdx pr;
+
+            pr.name = t[i + 1].text;
+            pr.stmtA = t[i].off;
+            pr.bodyClose = 0;
+
+            size_t j = i + 3;
+            bool shaped = true;
+
+            while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
+            {
+                if (t[j].kind == Tok::WORD && isPunct(t[j + 1], '=') &&
+                    t[j + 2].kind == Tok::NUMBER && isPunct(t[j + 3], ';'))
+                {
+                    PresetCompIdx c;
+
+                    c.name = t[j].text;
+                    c.stmtA = t[j].off;
+                    c.stmtB = t[j + 3].end;
+                    c.valA = t[j + 2].off;
+                    c.valB = t[j + 2].end;
+                    c.value = t[j + 2].num;
+
+                    pr.comps.push_back(c);
+                    j += 4;
+                    continue;
+                }
+
+                /* A shape the loader would refuse anyway. Leave the whole
+                   statement unindexed rather than index half of it: an
+                   edit aimed at a preset this scan did not understand
+                   would splice against offsets it guessed. */
+                shaped = false;
+                break;
+            }
+
+            if (shaped && isPunct(t[j], '}') && isPunct(t[j + 1], ';'))
+            {
+                pr.bodyClose = t[j].off;
+                pr.stmtB = t[j + 1].end;
+
+                if (ix.firstPresetOff == std::string::npos)
+                    ix.firstPresetOff = pr.stmtA;
+
+                ix.presets.push_back(pr);
+                i = j + 2;
+                continue;
+            }
+
+            i = skipStmt(t, i);
+            continue;
+        }
+
+        /* section <name> <n> <unit> { <chain> = <level>; ... };  and
+           section end; -- indexed for its name, its length and its chain
+           names, and the end for where a last section goes. */
+        if (kw == "section" && t[i + 1].kind == Tok::WORD &&
+            t[i + 1].text == "end" && isPunct(t[i + 2], ';'))
+        {
+            ix.sectionEndA = t[i].off;
+            ix.sectionEndB = t[i + 2].end;
+            i += 3;
+            continue;
+        }
+
+        if (kw == "section" && t[i + 1].kind == Tok::WORD &&
+            t[i + 1].text == "loop" && t[i + 2].kind == Tok::WORD &&
+            isPunct(t[i + 3], ';'))
+        {
+            ix.sectionEndA = t[i].off;
+            ix.sectionEndB = t[i + 3].end;
+            ix.loopTo = t[i + 2].text;
+            ix.loopToA = t[i + 2].off;
+            ix.loopToB = t[i + 2].end;
+            i += 4;
+            continue;
+        }
+
+        if (kw == "section" && t[i + 1].kind == Tok::WORD)
+        {
+            SectionIdx se;
+
+            se.name = t[i + 1].text;
+            se.nameA = t[i + 1].off;
+            se.nameB = t[i + 1].end;
+            se.stmtA = t[i].off;
+            se.holdA = se.holdB = std::string::npos;
+
+            size_t j = i + 2;
+
+            /* `hold' between the length and the block is the section's,
+               and no part of what an edit splices. */
+            const bool hold = t[j].kind == Tok::NUMBER &&
+                              t[j + 1].kind == Tok::WORD &&
+                              t[j + 2].kind == Tok::WORD &&
+                              t[j + 2].text == "hold";
+            bool shaped = t[j].kind == Tok::NUMBER &&
+                          t[j + 1].kind == Tok::WORD &&
+                          isPunct(t[j + (hold ? 3 : 2)], '{');
+
+            if (shaped)
+            {
+                se.lenA = t[j].off;
+                se.lenB = t[j + 1].end;
+
+                if (hold)
+                {
+                    se.holdA = t[j + 2].off;
+                    se.holdB = t[j + 2].end;
+                }
+
+                j += hold ? 4 : 3;
+
+                while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
+                {
+                    if ((t[j].kind != Tok::WORD && t[j].kind != Tok::KNOB) ||
+                        !isPunct(t[j + 1], '=') ||
+                        t[j + 2].kind != Tok::NUMBER ||
+                        !isPunct(t[j + 3], ';'))
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    SectionRefIdx ref;
+
+                    /* A knob the section sets is its name with the `@',
+                       which no chain's has. */
+                    ref.chain = (t[j].kind == Tok::KNOB ? "@" : "") +
+                                t[j].text;
+                    ref.nameA = t[j].off;
+                    ref.nameB = t[j].end;
+                    ref.levelA = t[j + 2].off;
+                    ref.levelB = t[j + 2].end;
+                    ref.entryB = t[j + 3].end;
+                    se.refs.push_back(ref);
+                    j += 4;
+                }
+            }
+
+            if (shaped && isPunct(t[j], '}') && isPunct(t[j + 1], ';'))
+            {
+                se.bodyClose = t[j].off;
+                se.stmtB = t[j + 1].end;
+                ix.sections.push_back(se);
+                i = j + 2;
+                continue;
+            }
+
+            i = skipStmt(t, i);
+            continue;
+        }
+
+        if (kw == "cue" && t[i + 1].kind == Tok::KNOB)
+        {
+            ix.cues.push_back(t[i + 1].text);
+            i = skipStmt(t, i);
+            ix.lastCueB = t[i - 1].end;
+            continue;
+        }
+
+        if (kw == "effect" && t[i + 1].kind == Tok::STRING)
+        {
+            ix.masterEffect = t[i + 1].text;
+            ix.masterA = t[i].off;
+
+            const size_t j = skipStmt(t, i);
+
+            ix.masterB = t[j - 1].end;
+            i = j;
+            continue;
+        }
+
+        /* `effect { dsp ...; ... };': the graph is the block's `dsp', named
+           as the loader names it when it is written inline. */
+        if (kw == "effect" && isPunct(t[i + 1], '{'))
+        {
+            const size_t j = skipStmt(t, i);
+            int depth = 0;
+
+            for (size_t k = i + 1; k < j; k++)
+            {
+                if (isPunct(t[k], '{'))
+                    depth++;
+                else if (isPunct(t[k], '}'))
+                    depth--;
+                else if (depth == 1 && t[k].kind == Tok::WORD &&
+                         t[k].text == "dsp" && t[k + 1].kind == Tok::STRING)
+                    ix.masterEffect = t[k + 1].text;
+                else if (depth == 1 && t[k].kind == Tok::WORD &&
+                         t[k].text == "dsp" && isPunct(t[k + 1], '{'))
+                {
+                    size_t e = k + 2;
+
+                    for (int d = 1; t[e].kind != Tok::END && d > 0; e++)
+                    {
+                        if (isPunct(t[e], '{'))
+                            d++;
+                        else if (isPunct(t[e], '}'))
+                            d--;
+                    }
+
+                    ix.masterEffect = thcGenLoader::inlineGraphName("mix",
+                        text.substr(t[k + 1].end, t[e - 1].off - t[k + 1].end));
+                }
+            }
+
+            ix.masterA = t[i].off;
+            ix.masterB = t[j - 1].end;
+            i = j;
+            continue;
+        }
+
+        /* instrument <name> { dsp "<file>"; <arg> = <value>; ... }; */
+        if (kw == "instrument" && t[i + 1].kind == Tok::WORD &&
+            isPunct(t[i + 2], '{'))
+        {
+            InstrumentIdx in;
+
+            in.name = t[i + 1].text;
+            in.stmtA = t[i].off;
+            in.bodyClose = 0;
+            in.dspA = in.dspB = 0;
+
+            size_t j = i + 3;
+            bool shaped = true;
+
+            while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
+            {
+                if (t[j].kind == Tok::WORD && t[j].text == "dsp" &&
+                    t[j + 1].kind == Tok::STRING && isPunct(t[j + 2], ';'))
+                {
+                    in.dsp = t[j + 1].text;
+                    in.dspA = t[j + 1].off;
+                    in.dspB = t[j + 1].end;
+                    j += 3;
+                    continue;
+                }
+
+                /* `dsp { ... };': the graph inline, which is .dsp's grammar
+                   and nothing this scan reads -- stepped over whole, by a
+                   count, since the graph is made of blocks. */
+                if (t[j].kind == Tok::WORD && t[j].text == "dsp" &&
+                    isPunct(t[j + 1], '{'))
+                {
+                    size_t k = j + 2;
+                    int depth = 1;
+
+                    for (; t[k].kind != Tok::END && depth > 0; k++)
+                    {
+                        if (isPunct(t[k], '{'))
+                            depth++;
+                        else if (isPunct(t[k], '}'))
+                            depth--;
+                    }
+
+                    if (depth != 0 || !isPunct(t[k], ';'))
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    in.dspInline = true;
+                    in.dspBody = text.substr(t[j + 1].end,
+                                             t[k - 1].off - t[j + 1].end);
+                    in.dspA = t[j + 1].off;
+                    in.dspB = t[k - 1].end;
+                    j = k + 1;
+                    continue;
+                }
+
+                /* `node.arg = "name";': a graph's text arg, stepped over
+                   for the reason the MIDI statements below are -- scanParam
+                   refuses the shape, and a refusal drops the whole block
+                   out of the index. Not edited from here. */
+                if (t[j].kind == Tok::WORD && isPunct(t[j + 1], '.') &&
+                    t[j + 2].kind == Tok::WORD && isPunct(t[j + 3], '=') &&
+                    t[j + 4].kind == Tok::STRING && isPunct(t[j + 5], ';'))
+                {
+                    j += 6;
+                    continue;
+                }
+
+                /* The MIDI statements: recorded, for a panel to say where
+                   the instrument plays, and stepped over rather than left
+                   to scanParam -- `midi "x";' and a `cc' block are shapes
+                   it refuses, and a refusal drops the whole block out of
+                   the index. Not edited from here. */
+                if (t[j].kind == Tok::WORD && t[j].text == "midi" &&
+                    t[j + 1].kind == Tok::STRING && isPunct(t[j + 2], ';'))
+                {
+                    in.midi = t[j + 1].text;
+                    j += 3;
+                    continue;
+                }
+
+                if (t[j].kind == Tok::WORD &&
+                    (t[j].text == "midichannel" ||
+                     t[j].text == "midiprogram") &&
+                    isPunct(t[j + 1], '=') && t[j + 2].kind == Tok::NUMBER &&
+                    isPunct(t[j + 3], ';'))
+                {
+                    if (t[j].text == "midichannel")
+                        in.midiChannel = (int)t[j + 2].num;
+
+                    j += 4;
+                    continue;
+                }
+
+                if (t[j].kind == Tok::WORD &&
+                    (t[j].text == "cc" || t[j].text == "bend") &&
+                    t[j + 1].kind == Tok::WORD)
+                {
+                    size_t k = j + 2;
+                    int depth = 0;
+
+                    while (t[k].kind != Tok::END &&
+                           !(depth == 0 && isPunct(t[k], ';')))
+                    {
+                        if (isPunct(t[k], '{'))
+                            depth++;
+                        else if (isPunct(t[k], '}'))
+                            depth--;
+
+                        k++;
+                    }
+
+                    if (t[k].kind == Tok::END)
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    j = k + 1;
+                    continue;
+                }
+
+                /* `effect "fx/echo.dsp" { delay = 375 ms; };' -- stepped
+                 * over rather than indexed.
+                 *
+                 * Not indexed because nothing in this editor edits an
+                 * effect's values yet; they are a second chanarg map,
+                 * addressed `fx.', and reaching them is the GUI half of the
+                 * work. Stepped over rather than left to scanParam because
+                 * scanParam would refuse the shape, and refusing anything
+                 * inside the block drops the *whole* block out of the index
+                 * -- so an instrument that carried an effect would become
+                 * one whose own values could not be edited either, and one
+                 * that describe() did not mention.
+                 *
+                 * The one thing taken off the way past is which of these
+                 * values a knob drives. A sink may name `fx.mix' now, the
+                 * loader refuses a sink onto an arg a knob already has, and
+                 * a check that read only `values' would have written a file
+                 * it could not load -- see checkSinkTarget. Names and knobs
+                 * only: no offsets, because an offset is a licence to edit
+                 * and this is not one.
+                 *
+                 * The brace count is a count rather than a match on the
+                 * first `}': an effect's block holds statements, and a
+                 * statement the scan does not recognize may hold braces of
+                 * its own. */
+                if (t[j].kind == Tok::WORD && t[j].text == "effect" &&
+                    (t[j + 1].kind == Tok::STRING || isPunct(t[j + 1], '{')))
+                {
+                    size_t k = t[j + 1].kind == Tok::STRING ? j + 2 : j + 1;
+
+                    if (isPunct(t[k], '{'))
+                    {
+                        int depth = 1;
+
+                        for (k++; t[k].kind != Tok::END && depth > 0; k++)
+                        {
+                            if (isPunct(t[k], '{'))
+                                depth++;
+                            else if (isPunct(t[k], '}'))
+                                depth--;
+                            else if (depth == 1 && k + 2 < t.size() &&
+                                     t[k].kind == Tok::WORD &&
+                                     t[k].text == "side" &&
+                                     isPunct(t[k + 1], '=') &&
+                                     t[k + 2].kind == Tok::WORD)
+                                in.sides.push_back(t[k + 2].text);
+                            else if (depth == 1 && k + 2 < t.size() &&
+                                     t[k].kind == Tok::WORD &&
+                                     isPunct(t[k + 1], '=') &&
+                                     t[k + 2].kind == Tok::KNOB)
+                            {
+                                /* To the ';', so that the unit comes with
+                                   it and the refusal quotes the binding
+                                   the way the file spells it. */
+                                size_t last = k + 2;
+
+                                while (last + 1 < t.size() &&
+                                       t[last + 1].kind != Tok::END &&
+                                       !isPunct(t[last + 1], ';') &&
+                                       !isPunct(t[last + 1], '}'))
+                                    last++;
+
+                                in.effectKnobs.push_back(std::make_pair(
+                                    std::string(TH_EFFECT_PREFIX) +
+                                        t[k].text,
+                                    text.substr(t[k + 2].off,
+                                                t[last].end - t[k + 2].off)));
+                            }
+                        }
+
+                        if (depth != 0)
+                        {
+                            shaped = false;
+                            break;
+                        }
+                    }
+
+                    if (!isPunct(t[k], ';'))
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    j = k + 1;
+                    continue;
+                }
+
+                PIdx p;
+                size_t next = scanParam(t, j, p);
+
+                if (next == 0)
+                {
+                    /* A shape the loader would refuse anyway. Leave the
+                       whole block unindexed rather than half of it --
+                       the same call presets make, for the same reason:
+                       an edit aimed at what this scan misread would
+                       splice against offsets it guessed. */
+                    shaped = false;
+                    break;
+                }
+
+                p.valueText = text.substr(p.valA, p.valB - p.valA);
+                in.values.push_back(p);
+                j = next;
+            }
+
+            if (shaped && isPunct(t[j], '}') && isPunct(t[j + 1], ';'))
+            {
+                in.bodyClose = t[j].off;
+                in.stmtB = t[j + 1].end;
+
+                if (ix.firstInstrumentOff == std::string::npos)
+                    ix.firstInstrumentOff = in.stmtA;
+
+                ix.instruments.push_back(in);
+                i = j + 2;
+                continue;
+            }
+
+            i = skipStmt(t, i);
+            continue;
+        }
+
+        if (kw == "chain" && t[i + 1].kind == Tok::WORD &&
+            isPunct(t[i + 2], '{'))
+        {
+            ChainIdx c;
+
+            c.name = t[i + 1].text;
+            c.nameA = t[i + 1].off;
+            c.nameB = t[i + 1].end;
+            c.stmtA = t[i].off;
+            c.bodyOpen = t[i + 2].off;
+            c.inputMidi = false;
+            c.inputA = c.inputB = 0;
+            c.startA = c.startB = 0;
+            c.hasSeed = false;
+            c.seed = 0;
+            c.seedA = c.seedB = 0;
+
+            if (ix.firstChainOff == std::string::npos)
+                ix.firstChainOff = c.stmtA;
+
+            size_t j = i + 3;
+
+            while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
+            {
+                if (t[j].kind == Tok::WORD && t[j].text == "start" &&
+                    isPunct(t[j + 1], '=') && t[j + 2].kind == Tok::NUMBER &&
+                    t[j + 3].kind == Tok::WORD && isPunct(t[j + 4], ';'))
+                {
+                    c.startText = text.substr(t[j + 2].off,
+                        t[j + 3].end - t[j + 2].off);
+                    c.startA = t[j].off;
+                    c.startB = t[j + 4].end;
+                    j += 5;
+                    continue;
+                }
+
+                /* Only a seed the loader would take: anything else is the
+                   loader's to refuse, and not a number to fold. */
+                if (t[j].kind == Tok::WORD && t[j].text == "seed" &&
+                    t[j + 1].kind == Tok::NUMBER && isPunct(t[j + 2], ';') &&
+                    t[j + 1].num >= 0 && t[j + 1].num <= 4294967295.0 &&
+                    t[j + 1].num == std::floor(t[j + 1].num))
+                {
+                    c.hasSeed = true;
+                    c.seed = (unsigned)t[j + 1].num;
+                    c.seedA = t[j].off;
+                    c.seedB = t[j + 2].end;
+                    j += 3;
+                    continue;
+                }
+
+                if (t[j].kind == Tok::WORD && t[j].text == "input" &&
+                    t[j + 1].kind == Tok::WORD && isPunct(t[j + 2], ';'))
+                {
+                    c.inputMidi = true;
+                    c.inputA = t[j].off;
+                    c.inputB = t[j + 2].end;
+                    j += 3;
+                    continue;
+                }
+
+                if (t[j].kind == Tok::WORD && t[j].text == "stage" &&
+                    t[j + 1].kind == Tok::WORD &&
+                    t[j + 2].kind == Tok::WORD &&
+                    t[j + 3].kind == Tok::MODSEP &&
+                    t[j + 4].kind == Tok::WORD && isPunct(t[j + 5], '{'))
+                {
+                    StageIdx s;
+
+                    s.name = t[j + 1].text;
+                    s.cat = t[j + 2].text;
+                    s.plugin = t[j + 4].text;
+                    s.stmtA = t[j].off;
+
+                    size_t k = j + 6;
+
+                    while (t[k].kind != Tok::END && !isPunct(t[k], '}'))
+                    {
+                        PIdx p;
+                        size_t next = scanParam(t, k, p);
+
+                        if (next == 0)
+                        {
+                            k = skipStmt(t, k);
+                            continue;
+                        }
+
+                        p.valueText = text.substr(p.valA, p.valB - p.valA);
+                        s.params.push_back(p);
+                        k = next;
+                    }
+
+                    if (t[k].kind == Tok::END)
+                        break;
+
+                    s.bodyClose = t[k].off;
+
+                    if (isPunct(t[k + 1], ';'))
+                        k++;
+
+                    s.stmtB = t[k].end;
+                    c.stages.push_back(s);
+                    j = k + 1;
+                    continue;
+                }
+
+                if (t[j].kind == Tok::WORD && t[j].text == "sink" &&
+                    isPunct(t[j + 1], '{'))
+                {
+                    SinkIdx s;
+
+                    s.stmtA = t[j].off;
+                    s.channel = 0;
+                    s.chStmtA = s.chStmtB = s.chValA = s.chValB = 0;
+                    s.instStmtA = s.instStmtB = 0;
+                    s.instValA = s.instValB = 0;
+                    s.hasArg = false;
+                    s.argStmtA = s.argStmtB = s.argValA = s.argValB = 0;
+
+                    size_t k = j + 2;
+
+                    while (t[k].kind != Tok::END && !isPunct(t[k], '}'))
+                    {
+                        if (t[k].kind == Tok::WORD &&
+                            t[k].text == "channel" &&
+                            isPunct(t[k + 1], '=') &&
+                            t[k + 2].kind == Tok::NUMBER &&
+                            isPunct(t[k + 3], ';'))
+                        {
+                            s.channel = (int)t[k + 2].num;
+                            s.chStmtA = t[k].off;
+                            s.chStmtB = t[k + 3].end;
+                            s.chValA = t[k + 2].off;
+                            s.chValB = t[k + 2].end;
+                            k += 4;
+                            continue;
+                        }
+
+                        if (t[k].kind == Tok::WORD &&
+                            t[k].text == "instrument" &&
+                            isPunct(t[k + 1], '=') &&
+                            t[k + 2].kind == Tok::WORD &&
+                            isPunct(t[k + 3], ';'))
+                        {
+                            s.instrument = t[k + 2].text;
+                            s.instStmtA = t[k].off;
+                            s.instStmtB = t[k + 3].end;
+                            s.instValA = t[k + 2].off;
+                            s.instValB = t[k + 2].end;
+                            k += 4;
+                            continue;
+                        }
+
+                        if (t[k].kind == Tok::WORD &&
+                            t[k].text == "knob" &&
+                            isPunct(t[k + 1], '=') &&
+                            t[k + 2].kind == Tok::KNOB &&
+                            isPunct(t[k + 3], ';'))
+                        {
+                            s.knob = t[k + 2].text;
+                            k += 4;
+                            continue;
+                        }
+
+                        if (t[k].kind == Tok::WORD &&
+                            t[k].text == "chanarg" &&
+                            isPunct(t[k + 1], '=') &&
+                            t[k + 2].kind == Tok::STRING &&
+                            isPunct(t[k + 3], ';'))
+                        {
+                            s.hasArg = true;
+                            s.chanarg = t[k + 2].text;
+                            s.argStmtA = t[k].off;
+                            s.argStmtB = t[k + 3].end;
+                            s.argValA = t[k + 2].off;
+                            s.argValB = t[k + 2].end;
+                            k += 4;
+                            continue;
+                        }
+
+                        k = skipStmt(t, k);
+                    }
+
+                    if (t[k].kind == Tok::END)
+                        break;
+
+                    s.bodyClose = t[k].off;
+
+                    if (isPunct(t[k + 1], ';'))
+                        k++;
+
+                    s.stmtB = t[k].end;
+                    c.sinks.push_back(s);
+                    j = k + 1;
+                    continue;
+                }
+
+                j = skipStmt(t, j);
+            }
+
+            if (t[j].kind == Tok::END)
+            {
+                why = "unterminated chain " + c.name;
+                return false;
+            }
+
+            c.bodyClose = t[j].off;
+
+            if (isPunct(t[j + 1], ';'))
+                j++;
+
+            c.stmtB = t[j].end;
+            ix.chains.push_back(c);
+            i = j + 1;
+            continue;
+        }
+
+        i = skipStmt(t, i);
+    }
+
+    return true;
+}
+
+/* ---- shared checks ---------------------------------------------------- */
+
+/* The lexer's WORD shape, nothing more. Param names live inside a stage
+ * body where no statement keyword can be confused for them -- quantize's
+ * pitch-set param is literally called `scale', and refusing it would be
+ * refusing the shipped piece. */
+static bool
+validWord (const std::string &name)
+{
+    if (name.empty())
+        return false;
+
+    char c = name[0];
+
+    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+        return false;
+
+    for (size_t i = 1; i < name.size(); i++)
+    {
+        c = name[i];
+
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '_'))
+            return false;
+    }
+
+    return true;
+}
+
+bool
+thcGenEdit::validName (const std::string &name)
+{
+    if (!validWord(name))
+        return false;
+
+    /* For the top-level names -- chains, scales, knobs, stages: the
+       words that open statements, and the unit words a bare value could
+       be mistaken for. A chain named `sink' would parse today, but the
+       file it produces reads like a trap. */
+    /* Statement keywords only. `dsp', `channel' and `chanarg' are
+       keywords *inside* a block and are not on this list, because this
+       is also what a preset's component names go through -- and a
+       component name is a chanarg, so a patch that declares `@channel'
+       has to stay reachable. Reserving them cost nothing visible and
+       quietly refused a name the loader accepts, which is the worse of
+       the two mistakes. */
+    static const char *reserved[] = {
+        "name", "author", "description", "category", "tempo", "seed", "scale",
+        "preset", "instrument", "meter", "section", "effect",
+        "chain", "input", "start", "stage", "sink", "midi",
+        "s", "ms", "beats", "b", "bars", NULL
+    };
+
+    for (int i = 0; reserved[i] != NULL; i++)
+        if (name == reserved[i])
+            return false;
+
+    return true;
+}
+
+bool
+thcGenEdit::format (double value, std::string &out)
+{
+    if (value != value || value > 1e15 || value < -1e15)
+        return false;
+
+    char buf[64];
+
+    snprintf(buf, sizeof(buf), "%.10g", value);
+
+    if (strchr(buf, 'e') || strchr(buf, 'E'))
+    {
+        /* The lexer has no exponent, so spell it out and trim. */
+        snprintf(buf, sizeof(buf), "%.12f", value);
+
+        char *end = buf + strlen(buf) - 1;
+
+        while (end > buf && *end == '0')
+            *end-- = 0;
+        if (end > buf && *end == '.')
+            *end = 0;
+    }
+
+    out = buf;
+
+    return true;
+}
+
+/* A .gen string literal: the lexer's pattern is "[^"\n]*" with no
+ * escapes at all, so a quote or a newline simply cannot be written. */
+static bool
+validString (const std::string &s)
+{
+    return s.find('"') == std::string::npos &&
+           s.find('\n') == std::string::npos;
+}
+
+/* Arithmetic on numbers and knobs -- `0.5 + @energy', `@pace * 2',
+ * `-(@a - 1)' -- which the loader evaluates (docs/GEN_FORMAT.md 5a): an
+ * operand and an operator in turn, parentheses that close. */
+static bool
+validArithmetic (const std::vector<Tok> &t)
+{
+    const size_t n = t.size() - 1;      /* END excluded                 */
+    bool operand = true;
+    int depth = 0;
+
+    for (size_t i = 0; i < n; i++)
+    {
+        const Tok &k = t[i];
+
+        if (operand)
+        {
+            if (isPunct(k, '('))
+                depth++;
+            else if (k.kind == Tok::NUMBER || k.kind == Tok::KNOB)
+                operand = false;
+            else if (!isPunct(k, '-'))
+                return false;
+        }
+        else if (isPunct(k, ')'))
+        {
+            if (--depth < 0)
+                return false;
+        }
+        else if (isPunct(k, '+') || isPunct(k, '-') || isPunct(k, '*') ||
+                 isPunct(k, '/'))
+            operand = true;
+        else
+            return false;
+    }
+
+    return n > 0 && !operand && depth == 0;
+}
+
+/* Is `rhs' one value the loader's grammar accepts? Tokenize it and
+ * pattern-match, so the check and the language cannot drift apart. A stage
+ * param may be arithmetic; an instrument's value may not (`sums'). */
+static bool
+validValueText (const std::string &rhs, bool sums = true)
+{
+    std::vector<Tok> t;
+    std::string err;
+    int line;
+
+    if (!thcGenLoader::tokenize(rhs, t, err, line))
+        return false;
+
+    size_t n = t.size() - 1;             /* END excluded                 */
+
+    if (n == 1)
+        return t[0].kind == Tok::NUMBER || t[0].kind == Tok::KNOB ||
+               t[0].kind == Tok::STRING || t[0].kind == Tok::WORD;
+
+    if (n == 2 && t[0].kind == Tok::NUMBER && t[1].kind == Tok::WORD &&
+        (t[1].text == "s" || t[1].text == "ms" || t[1].text == "beats" ||
+         t[1].text == "b"))
+        return true;
+
+    return sums && validArithmetic(t);
+}
+
+/* True if a param's current value is arithmetic (docs/GEN_FORMAT.md 5a).
+ *
+ * The loader's rule, restated: an operator, a call, or a parenthesis. What it
+ * is for is the same thing NodeEdit refuses on the .dsp side -- the value in
+ * the file is a graph, and splicing a number over it drops the author's
+ * arithmetic without saying so. Removing one is done by editing the text,
+ * which is what this writer is for anyway. */
+static bool
+isExpressionText (const std::string &rhs)
+{
+    std::vector<Tok> t;
+    std::string err;
+    int line;
+
+    if (!thcGenLoader::tokenize(rhs, t, err, line))
+        return false;
+
+    for (size_t i = 0; i + 1 < t.size(); i++)
+    {
+        if (t[i].kind != Tok::PUNCT)
+            continue;
+
+        if (t[i].text == "+" || t[i].text == "-" || t[i].text == "*" ||
+            t[i].text == "/" || t[i].text == "(" || t[i].text == ")")
+            return true;
+    }
+
+    return false;
+}
+
+/* Every `@name' in `text' replaced by `num'; false if there was none, and
+ * `out' is then untouched.
+ *
+ * Over the tokenizer rather than over the characters, which settles three
+ * questions at once: `@warm' cannot match inside `@warmth', an `@' inside a
+ * string is not a reference, and `@warmth.max' is the knob's metadata rather
+ * than the knob -- rewriting the front of that one would leave `0.06.max'
+ * behind.
+ *
+ * Occurrences rather than the whole value. Before arithmetic reached .gen
+ * (docs/GEN_FORMAT.md 5a) a param bound to a knob was spelled `@name' and nothing
+ * else, so removeKnob compared the whole right-hand side and that was the
+ * same thing. It is not any more: `step = @pace * 2' has to become
+ * `step = 0.25 * 2' and keep the multiplication, and comparing the whole
+ * value left the reference standing while the declaration went -- which is
+ * the dangling `@name' and the piece that no longer loads that this
+ * rewriting exists to prevent.
+ */
+static bool
+substituteKnob (const std::string &text, const std::string &name,
+                const std::string &num, std::string &out)
+{
+    std::vector<Tok> t;
+    std::string err;
+    int line;
+
+    if (!thcGenLoader::tokenize(text, t, err, line))
+        return false;
+
+    std::string built;
+    std::string::size_type taken = 0;
+    bool any = false;
+
+    for (size_t i = 0; i < t.size(); i++)
+    {
+        if (t[i].kind != Tok::KNOB || t[i].text != name)
+            continue;
+
+        /* `@warmth.max' -- the metadata, not the knob. */
+        if (i + 1 < t.size() && t[i + 1].kind == Tok::PUNCT &&
+            t[i + 1].text == ".")
+            continue;
+
+        if (t[i].off < taken || t[i].end > text.size())
+            return false;       /* offsets that do not index this string */
+
+        built += text.substr(taken, t[i].off - taken);
+        built += num;
+        taken = t[i].end;
+        any = true;
+    }
+
+    if (!any)
+        return false;
+
+    built += text.substr(taken);
+    out = built;
+
+    return true;
+}
+
+/* ---- the operations --------------------------------------------------- */
+
+/* Every operation is the same sandwich: read, index, decide, splice,
+ * write. `why' gets a sentence when the answer is no. */
+
+typedef thcGenEdit::Result R;
+
+static R
+loadIndexed (const std::string &filename, std::string &text, Index &ix,
+             std::string &why)
+{
+    if (!readFile(filename, text))
+    {
+        why = "could not read " + filename;
+        return thcGenEdit::IO_ERROR;
+    }
+
+    if (!buildIndex(text, ix, why))
+        return thcGenEdit::REFUSED;
+
+    return thcGenEdit::OK;
+}
+
+static R
+finish (const std::string &filename, std::string &text,
+        std::vector<Edit> &edits, std::string &why)
+{
+    if (edits.empty())
+        return thcGenEdit::OK;           /* nothing to change, no write  */
+
+    if (!applyEdits(text, edits))
+    {
+        why = "internal: overlapping edits; nothing was written";
+        return thcGenEdit::REFUSED;
+    }
+
+    if (!writeFile(filename, text))
+    {
+        why = "could not write " + filename;
+        return thcGenEdit::IO_ERROR;
+    }
+
+    return thcGenEdit::OK;
+}
+
+static ChainIdx *
+findChain (Index &ix, const std::string &name)
+{
+    for (size_t i = 0; i < ix.chains.size(); i++)
+        if (ix.chains[i].name == name)
+            return &ix.chains[i];
+
+    return NULL;
+}
+
+static KnobIdx *
+findKnob (Index &ix, const std::string &name)
+{
+    for (size_t i = 0; i < ix.knobs.size(); i++)
+        if (ix.knobs[i].name == name)
+            return &ix.knobs[i];
+
+    return NULL;
+}
+
+/* ---- describe --------------------------------------------------------- */
+
+R
+thcGenEdit::describe (const std::string &filename, Doc &doc,
+                      std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    doc = Doc();
+    doc.hasSeed = ix.seed.present;
+    doc.seed = (unsigned)ix.seed.num;
+    doc.hasTempo = ix.tempo.present;
+    doc.tempo = ix.tempo.num;
+    doc.masterEffect = ix.masterEffect;
+
+    if (ix.infos.count("name"))
+        doc.name = ix.infos["name"].str;
+    if (ix.infos.count("author"))
+        doc.author = ix.infos["author"].str;
+    if (ix.infos.count("description"))
+        doc.description = ix.infos["description"].str;
+    if (ix.infos.count("category"))
+        doc.category = ix.infos["category"].str;
+
+    for (size_t i = 0; i < ix.knobs.size(); i++)
+    {
+        Knob k;
+
+        k.name = ix.knobs[i].name;
+        k.value = ix.knobs[i].value;
+        k.hasMin = ix.knobs[i].meta.count("min") != 0;
+        k.hasMax = ix.knobs[i].meta.count("max") != 0;
+        k.min = k.hasMin ? ix.knobs[i].meta["min"].num : 0;
+        k.max = k.hasMax ? ix.knobs[i].meta["max"].num : 1;
+        k.label = ix.knobs[i].meta.count("label")
+            ? ix.knobs[i].meta["label"].str : "";
+
+        doc.knobs.push_back(k);
+    }
+
+    for (size_t i = 0; i < ix.scales.size(); i++)
+    {
+        Scale s;
+
+        s.name = ix.scales[i].name;
+        s.notes = ix.scales[i].notes;
+        doc.scales.push_back(s);
+    }
+
+    for (size_t i = 0; i < ix.presets.size(); i++)
+    {
+        Preset p;
+
+        p.name = ix.presets[i].name;
+
+        for (size_t k = 0; k < ix.presets[i].comps.size(); k++)
+        {
+            PresetValue v;
+
+            v.name = ix.presets[i].comps[k].name;
+            v.value = ix.presets[i].comps[k].value;
+            p.values.push_back(v);
+        }
+
+        doc.presets.push_back(p);
+    }
+
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+    {
+        Instrument in;
+
+        in.name = ix.instruments[i].name;
+        in.dsp = ix.instruments[i].dspInline
+               ? thcGenLoader::inlineGraphName(in.name,
+                                               ix.instruments[i].dspBody)
+               : ix.instruments[i].dsp;
+        in.midi = ix.instruments[i].midi;
+        in.midiChannel = ix.instruments[i].midiChannel;
+
+        for (size_t k = 0; k < ix.instruments[i].values.size(); k++)
+        {
+            InstrumentValue v;
+
+            v.name = ix.instruments[i].values[k].name;
+            v.valueText = ix.instruments[i].values[k].valueText;
+            in.values.push_back(v);
+        }
+
+        doc.instruments.push_back(in);
+    }
+
+    for (size_t ci = 0; ci < ix.chains.size(); ci++)
+    {
+        ChainIdx &c = ix.chains[ci];
+        Chain out;
+
+        out.name = c.name;
+        out.startText = c.startText;
+        out.inputMidi = c.inputMidi;
+        out.hasSeed = c.hasSeed;
+        out.seed = c.seed;
+
+        for (size_t si = 0; si < c.stages.size(); si++)
+        {
+            Stage st;
+
+            st.name = c.stages[si].name;
+            st.category = c.stages[si].cat;
+            st.plugin = c.stages[si].plugin;
+
+            for (size_t pi = 0; pi < c.stages[si].params.size(); pi++)
+            {
+                Param p;
+
+                p.name = c.stages[si].params[pi].name;
+                p.valueText = c.stages[si].params[pi].valueText;
+                st.params.push_back(p);
+            }
+
+            out.stages.push_back(st);
+        }
+
+        for (size_t ki = 0; ki < c.sinks.size(); ki++)
+        {
+            Sink s;
+
+            s.channel = c.sinks[ki].channel;
+            s.instrument = c.sinks[ki].instrument;
+            s.chanarg = c.sinks[ki].hasArg ? c.sinks[ki].chanarg : "";
+            s.knob = c.sinks[ki].knob;
+            out.sinks.push_back(s);
+        }
+
+        doc.chains.push_back(out);
+    }
+
+    return OK;
+}
+
+/* ---- piece header ----------------------------------------------------- */
+
+R
+thcGenEdit::setInfo (const std::string &filename, const std::string &key,
+                     const std::string &text_, std::string &why)
+{
+    if (key != "name" && key != "author" && key != "description" &&
+        key != "category")
+    {
+        why = "no such info string";
+        return REFUSED;
+    }
+
+    if (!validString(text_))
+    {
+        why = "a .gen string cannot contain a quote";
+        return UNWRITABLE;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    std::vector<Edit> edits;
+    bool present = ix.infos.count(key) != 0;
+
+    if (present && text_.empty())
+        edits.push_back(eraseStmt(text, ix.infos[key].stmtA,
+                                  ix.infos[key].stmtB));
+    else if (present)
+    {
+        if (ix.infos[key].str != text_)
+            edits.push_back({ ix.infos[key].valA, ix.infos[key].valB,
+                              "\"" + text_ + "\"" });
+    }
+    else if (!text_.empty())
+    {
+        Edit e;
+
+        e.a = e.b = lineStartOf(text, ix.headerEnd == ix.topInsert
+                                ? ix.topInsert
+                                : std::min(ix.headerEnd + 1, text.size()));
+
+        if (ix.headerEnd != ix.topInsert)
+        {
+            /* after the existing header lines */
+            size_t nl = text.find('\n', ix.headerEnd);
+
+            e.a = e.b = nl == std::string::npos ? text.size() : nl + 1;
+        }
+
+        e.repl = key + " \"" + text_ + "\";\n";
+        edits.push_back(e);
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+/* seed and tempo share their shape exactly. */
+static R
+setHeaderNumber (const std::string &filename, const char *key, double value,
+                 bool integer, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != thcGenEdit::OK)
+        return r;
+
+    MetaIdx &m = strcmp(key, "seed") == 0 ? ix.seed : ix.tempo;
+
+    std::string num;
+
+    if (integer)
+    {
+        char buf[32];
+
+        snprintf(buf, sizeof(buf), "%u", (unsigned)value);
+        num = buf;
+    }
+    else if (!thcGenEdit::format(value, num))
+    {
+        why = "that value cannot be written";
+        return thcGenEdit::UNWRITABLE;
+    }
+
+    std::vector<Edit> edits;
+
+    if (m.present)
+    {
+        if (m.num != value)
+            edits.push_back({ m.valA, m.valB, num });
+    }
+    else
+    {
+        size_t at;
+
+        if (ix.headerEnd != ix.topInsert)
+        {
+            size_t nl = text.find('\n', ix.headerEnd);
+
+            at = nl == std::string::npos ? text.size() : nl + 1;
+        }
+        else
+            at = ix.topInsert;
+
+        edits.push_back({ at, at, std::string(key) + " " + num + ";\n" });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+static R
+clearHeaderNumber (const std::string &filename, const char *key,
+                   std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != thcGenEdit::OK)
+        return r;
+
+    MetaIdx &m = strcmp(key, "seed") == 0 ? ix.seed : ix.tempo;
+
+    std::vector<Edit> edits;
+
+    if (m.present)
+        edits.push_back(eraseStmt(text, m.stmtA, m.stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSeed (const std::string &filename, unsigned seed,
+                     std::string &why)
+{
+    return setHeaderNumber(filename, "seed", seed, true, why);
+}
+
+R
+thcGenEdit::clearSeed (const std::string &filename, std::string &why)
+{
+    return clearHeaderNumber(filename, "seed", why);
+}
+
+R
+thcGenEdit::setTempo (const std::string &filename, double bpm,
+                      std::string &why)
+{
+    if (bpm <= 0)
+    {
+        why = "a tempo has to be positive";
+        return REFUSED;
+    }
+
+    return setHeaderNumber(filename, "tempo", bpm, false, why);
+}
+
+R
+thcGenEdit::clearTempo (const std::string &filename, std::string &why)
+{
+    return clearHeaderNumber(filename, "tempo", why);
+}
+
+/* ---- knobs ------------------------------------------------------------ */
+
+R
+thcGenEdit::setKnobValue (const std::string &filename,
+                          const std::string &name, double value,
+                          std::string &why)
+{
+    std::string text, num;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    KnobIdx *k = findKnob(ix, name);
+
+    if (k == NULL)
+    {
+        why = "no knob called @" + name;
+        return NOT_FOUND;
+    }
+
+    if (!format(value, num))
+    {
+        why = "that value cannot be written";
+        return UNWRITABLE;
+    }
+
+    std::vector<Edit> edits;
+
+    if (k->value != value)
+        edits.push_back({ k->valA, k->valB, num });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setKnobMeta (const std::string &filename, const std::string &name,
+                         double min, double max, const std::string &label,
+                         std::string &why)
+{
+    if (!validString(label))
+    {
+        why = "a label cannot contain a quote";
+        return UNWRITABLE;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    KnobIdx *k = findKnob(ix, name);
+
+    if (k == NULL)
+    {
+        why = "no knob called @" + name;
+        return NOT_FOUND;
+    }
+
+    std::string minS, maxS;
+
+    if (!format(min, minS) || !format(max, maxS))
+    {
+        why = "that range cannot be written";
+        return UNWRITABLE;
+    }
+
+    std::vector<Edit> edits;
+
+    /* Where a line the knob does not have gets added: after the last
+       line of its block, keeping the block one block. */
+    size_t insertAt;
+    {
+        size_t nl = text.find('\n', k->blockEnd);
+
+        insertAt = nl == std::string::npos ? text.size() : nl + 1;
+    }
+
+    struct { const char *key; double v; const std::string *s; } want[3] = {
+        { "min", min, &minS }, { "max", max, &maxS }, { "label", 0, &label },
+    };
+
+    for (int i = 0; i < 3; i++)
+    {
+        bool isLabel = i == 2;
+        bool present = k->meta.count(want[i].key) != 0;
+
+        if (present)
+        {
+            MetaIdx &m = k->meta[want[i].key];
+
+            if (isLabel)
+            {
+                if (label.empty())
+                    edits.push_back(eraseStmt(text, m.stmtA, m.stmtB));
+                else if (m.str != label)
+                    edits.push_back({ m.valA, m.valB,
+                                      "\"" + label + "\"" });
+            }
+            else if (m.num != want[i].v)
+                edits.push_back({ m.valA, m.valB, *want[i].s });
+        }
+        else if (!isLabel || !label.empty())
+        {
+            std::string line = "@" + name + "." + want[i].key + " = " +
+                (isLabel ? "\"" + label + "\"" : *want[i].s) + ";\n";
+
+            edits.push_back({ insertAt, insertAt, line });
+        }
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::addKnob (const std::string &filename, const std::string &name,
+                     double value, double min, double max,
+                     const std::string &label, std::string &why)
+{
+    if (!validName(name))
+    {
+        why = "'" + name + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    if (!validString(label))
+    {
+        why = "a label cannot contain a quote";
+        return UNWRITABLE;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findKnob(ix, name) != NULL)
+    {
+        why = "there is already a knob called @" + name;
+        return REFUSED;
+    }
+
+    std::string vS, minS, maxS;
+
+    if (!format(value, vS) || !format(min, minS) || !format(max, maxS))
+    {
+        why = "those values cannot be written";
+        return UNWRITABLE;
+    }
+
+    std::ostringstream block;
+
+    block << "@" << name << " = " << vS << ";\n"
+          << "@" << name << ".widget = 1;\n"
+          << "@" << name << ".min = " << minS << ";\n"
+          << "@" << name << ".max = " << maxS << ";\n";
+
+    if (!label.empty())
+        block << "@" << name << ".label = \"" << label << "\";\n";
+
+    block << "\n";
+
+    /* Before the scales, before the instruments, before the chains --
+       the shape the shipped pieces have and the reader expects.
+     *
+       The instruments are not just tidiness: an instrument value may
+       read a knob, and the loader resolves names in file order, so a
+       knob written *below* the block that binds it is a file that does
+       not load. Nothing here creates such a binding today, but the rule
+       is the file's and not this operation's. */
+    size_t at = std::min(ix.firstScaleOff,
+                         std::min(ix.firstInstrumentOff, ix.firstChainOff));
+
+    if (at == std::string::npos)
+    {
+        if (!text.empty() && text[text.size() - 1] != '\n')
+            text += "\n";
+
+        at = text.size();
+    }
+    else
+        at = lineStartOf(text, at);
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ at, at, block.str() });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::removeKnob (const std::string &filename, const std::string &name,
+                        double fallback, int &rewritten, std::string &why)
+{
+    rewritten = 0;
+
+    std::string text, num;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    KnobIdx *k = findKnob(ix, name);
+
+    if (k == NULL)
+    {
+        why = "no knob called @" + name;
+        return NOT_FOUND;
+    }
+
+    /* A number cannot stand in for a knob a chain writes: the sink would
+       have nothing left to write to. Its chain says first what it should
+       drive instead. */
+    for (size_t ci = 0; ci < ix.chains.size(); ci++)
+        for (size_t ki = 0; ki < ix.chains[ci].sinks.size(); ki++)
+            if (ix.chains[ci].sinks[ki].knob == name)
+            {
+                why = "chain " + ix.chains[ci].name + " writes @" + name +
+                      "; remove that sink first";
+                return REFUSED;
+            }
+
+    /* Nor for one a section sets, which is the knob's and no number's. */
+    for (const SectionIdx &se : ix.sections)
+        for (const SectionRefIdx &ref : se.refs)
+            if (ref.chain == "@" + name)
+            {
+                why = "section " + se.name + " sets @" + name +
+                      "; take it out of the section first";
+                return REFUSED;
+            }
+
+    if (!format(fallback, num))
+    {
+        why = "the knob's value cannot be written in its place";
+        return UNWRITABLE;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, k->stmtA, k->stmtB));
+
+    for (std::map<std::string, MetaIdx>::iterator m = k->meta.begin();
+         m != k->meta.end(); ++m)
+        edits.push_back(eraseStmt(text, m->second.stmtA, m->second.stmtB));
+
+    /* Every `@name' becomes the value those params were hearing -- the whole
+       value where the value was just the knob, and the reference alone where
+       it sits inside arithmetic.
+     *
+     * One gap left, and it is older than the arithmetic. A duration param
+     * bound to a knob takes the knob's number as seconds, and a bare number
+     * in its place is refused by the loader for want of a unit -- so
+     * removing a knob that drives a `step' or a `period' writes a file that
+     * does not load. Which params are durations is the plugin's answer, and
+     * this writer has no plugin map by design: it edits text and never
+     * loads anything. Fixing it means handing removeKnob the catalogue, or
+     * having the caller name the durations. Neither is a text edit. */
+    for (size_t ci = 0; ci < ix.chains.size(); ci++)
+        for (size_t si = 0; si < ix.chains[ci].stages.size(); si++)
+            for (size_t pi = 0;
+                 pi < ix.chains[ci].stages[si].params.size(); pi++)
+            {
+                PIdx &p = ix.chains[ci].stages[si].params[pi];
+                std::string rewrote;
+
+                if (substituteKnob(p.valueText, name, num, rewrote))
+                {
+                    edits.push_back({ p.valA, p.valB, rewrote });
+                    rewritten++;
+                }
+            }
+
+    /* And every one inside an instrument, which is a place a knob can be
+     * read from since the two namespaces met. Missing these left a
+     * dangling `@name' behind and the file stopped loading -- the exact
+     * failure this rewriting exists to prevent, in the half of the
+     * language that grew after it was written.
+     *
+     * The unit comes along. A binding on a folded chanarg is written
+     * `r = @tail ms', and a bare number in its place would be refused by
+     * the loader; whatever followed the knob's name is kept verbatim
+     * rather than reconstructed, so `%' and its spacing survive too. */
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+        for (size_t vi = 0; vi < ix.instruments[i].values.size(); vi++)
+        {
+            PIdx &p = ix.instruments[i].values[vi];
+            std::string rewrote;
+
+            if (substituteKnob(p.valueText, name, num, rewrote))
+            {
+                edits.push_back({ p.valA, p.valB, rewrote });
+                rewritten++;
+            }
+        }
+
+    return finish(filename, text, edits, why);
+}
+
+/* ---- scales ----------------------------------------------------------- */
+
+R
+thcGenEdit::addScale (const std::string &filename, const std::string &name,
+                      const std::string &notes, std::string &why)
+{
+    if (!validName(name))
+    {
+        why = "'" + name + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    std::vector<int> resolved;
+    std::string bad;
+
+    if (!thcGenLoader::parseNoteList(notes, resolved, bad))
+    {
+        why = "'" + bad + "' is not a note name";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    for (size_t i = 0; i < ix.scales.size(); i++)
+        if (ix.scales[i].name == name)
+        {
+            why = "there is already a scale called " + name;
+            return REFUSED;
+        }
+
+    size_t at = ix.firstChainOff;
+
+    if (at == std::string::npos)
+    {
+        if (!text.empty() && text[text.size() - 1] != '\n')
+            text += "\n";
+
+        at = text.size();
+    }
+    else
+        at = lineStartOf(text, at);
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ at, at,
+                      "scale " + name + " \"" + notes + "\";\n\n" });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setScale (const std::string &filename, const std::string &name,
+                      const std::string &notes, std::string &why)
+{
+    std::vector<int> resolved;
+    std::string bad;
+
+    if (!thcGenLoader::parseNoteList(notes, resolved, bad))
+    {
+        why = "'" + bad + "' is not a note name";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    std::vector<Edit> edits;
+
+    for (size_t i = 0; i < ix.scales.size(); i++)
+        if (ix.scales[i].name == name)
+        {
+            if (ix.scales[i].notes != notes)
+                edits.push_back({ ix.scales[i].valA, ix.scales[i].valB,
+                                  "\"" + notes + "\"" });
+
+            return finish(filename, text, edits, why);
+        }
+
+    why = "no scale called " + name;
+    return NOT_FOUND;
+}
+
+R
+thcGenEdit::removeScale (const std::string &filename, const std::string &name,
+                         int &rewritten, std::string &why)
+{
+    rewritten = 0;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ScaleIdx *found = NULL;
+
+    for (size_t i = 0; i < ix.scales.size(); i++)
+        if (ix.scales[i].name == name)
+            found = &ix.scales[i];
+
+    if (found == NULL)
+    {
+        why = "no scale called " + name;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, found->stmtA, found->stmtB));
+
+    /* References inlined as the literal, so the chains keep playing the
+       same notes the scale gave them. */
+    for (size_t ci = 0; ci < ix.chains.size(); ci++)
+        for (size_t si = 0; si < ix.chains[ci].stages.size(); si++)
+            for (size_t pi = 0;
+                 pi < ix.chains[ci].stages[si].params.size(); pi++)
+            {
+                PIdx &p = ix.chains[ci].stages[si].params[pi];
+
+                if (p.valueText == name)
+                {
+                    edits.push_back({ p.valA, p.valB,
+                                      "\"" + found->notes + "\"" });
+                    rewritten++;
+                }
+            }
+
+    return finish(filename, text, edits, why);
+}
+
+/* ---- instruments ------------------------------------------------------ */
+
+static R
+swapGraph (const std::string &filename, const std::string &name,
+           const std::string &dsp, bool fresh, std::string &why)
+{
+    /* A .gen string has no escapes, so a name with a quote or a newline
+       in it cannot be written at all. */
+    if (dsp.empty() || dsp.find('"') != std::string::npos ||
+        dsp.find('\n') != std::string::npos)
+    {
+        why = "'" + dsp + "' cannot be written as a file name";
+        return thcGenEdit::REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != thcGenEdit::OK)
+        return r;
+
+    std::vector<Edit> edits;
+
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+        if (ix.instruments[i].name == name)
+        {
+            const InstrumentIdx &in = ix.instruments[i];
+
+            if (in.dspB == 0)
+            {
+                why = "instrument " + name + " has no dsp line to change";
+                return thcGenEdit::NOT_FOUND;
+            }
+
+            if (in.dsp != dsp)
+                edits.push_back({ in.dspA, in.dspB, "\"" + dsp + "\"" });
+
+            if (fresh)
+                for (const PIdx &v : in.values)
+                {
+                    if (v.name == "send")
+                        continue;
+
+                    /* A comment after a value is about the value. */
+                    size_t b = v.stmtB;
+                    const size_t c = text.find_first_not_of(" \t", b);
+
+                    if (c != std::string::npos && text[c] == '#')
+                        b = std::min(text.find('\n', c), text.size());
+
+                    edits.push_back(eraseStmt(text, v.stmtA, b));
+                }
+
+            return finish(filename, text, edits, why);
+        }
+
+    why = "no instrument called " + name;
+    return thcGenEdit::NOT_FOUND;
+}
+
+/* The `{' to the `}' of an instrument's inline graph, or NOT_FOUND. With
+   `file', the quoted name of one whose graph is a file will do too, and
+   `inlined' says which it was. */
+static R
+findInlineGraph (const Index &ix, const std::string &name, size_t &a,
+                 size_t &b, std::string &why, bool file = false,
+                 bool *inlined = NULL)
+{
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+        if (ix.instruments[i].name == name)
+        {
+            if (!ix.instruments[i].dspInline &&
+                (!file || ix.instruments[i].dspB == 0))
+                break;
+
+            a = ix.instruments[i].dspA;
+            b = ix.instruments[i].dspB;
+
+            if (inlined != NULL)
+                *inlined = ix.instruments[i].dspInline;
+
+            return thcGenEdit::OK;
+        }
+
+    why = "no instrument called " + name + " has its graph inline";
+    return thcGenEdit::NOT_FOUND;
+}
+
+R
+thcGenEdit::inlineGraph (const std::string &filename, const std::string &name,
+                         std::string &body, std::string &why)
+{
+    std::string text;
+    Index ix;
+    size_t a = 0, b = 0;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r == OK)
+        r = findInlineGraph(ix, name, a, b, why);
+
+    if (r == OK)
+        body = text.substr(a + 1, b - 1 - (a + 1));
+
+    return r;
+}
+
+R
+thcGenEdit::setInlineGraph (const std::string &filename,
+                            const std::string &name, const std::string &body,
+                            std::string &why)
+{
+    std::string text;
+    Index ix;
+    size_t a = 0, b = 0;
+    bool inlined = true;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r == OK)
+        r = findInlineGraph(ix, name, a, b, why, true, &inlined);
+
+    if (r != OK)
+        return r;
+
+    std::vector<Edit> edits;
+
+    /* Between the braces, or the file's name replaced by braces. */
+    if (inlined)
+        edits.push_back({ a + 1, b - 1, body });
+    else
+        edits.push_back({ a, b, "{" + body + "}" });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setInstrumentDsp (const std::string &filename,
+                              const std::string &name,
+                              const std::string &dsp, std::string &why)
+{
+    return swapGraph(filename, name, dsp, false, why);
+}
+
+R
+thcGenEdit::setInstrumentGraph (const std::string &filename,
+                                const std::string &name,
+                                const std::string &dsp, std::string &why)
+{
+    return swapGraph(filename, name, dsp, true, why);
+}
+
+/* Its values go with the old graph: they are that graph's chanargs, and
+   one the new graph does not declare would stop the piece loading. */
+R
+thcGenEdit::setMasterEffect (const std::string &filename,
+                             const std::string &dsp, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (dsp.find('"') != std::string::npos)
+    {
+        why = "a file name cannot have a quote in it here";
+        return UNWRITABLE;
+    }
+
+    /* The same graph: its values are still its chanargs. */
+    if (dsp == ix.masterEffect)
+        return OK;
+
+    std::vector<Edit> edits;
+    const std::string stmt = "effect \"" + dsp + "\";";
+
+    if (!ix.masterEffect.empty())
+        edits.push_back(dsp.empty()
+                        ? eraseStmt(text, ix.masterA, ix.masterB)
+                        : Edit{ ix.masterA, ix.masterB, stmt });
+    else if (!dsp.empty())
+    {
+        size_t at = ix.firstChainOff;
+
+        if (at == std::string::npos)
+        {
+            if (!text.empty() && text[text.size() - 1] != '\n')
+                text += "\n";
+
+            at = text.size();
+        }
+        else
+            at = lineStartOf(text, at);
+
+        edits.push_back({ at, at, stmt + "\n\n" });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+/* ---- building blocks for chains and stages ---------------------------- */
+
+static std::string
+stageText (const std::string &stageName, const std::string &category,
+           const std::string &plugin,
+           const std::vector<std::pair<std::string, std::string> > &params)
+{
+    std::ostringstream s;
+
+    s << "    stage " << stageName << " " << category << "::" << plugin
+      << " {\n";
+
+    /* An empty value means "this param has no default that can be
+       written down" -- a preset or instrument name, where the only legal
+       value is something the piece declares and a fresh stage cannot
+       know one. The caller keeps them in its vector so the arg panel can
+       index it by param number; a written stage leaves the line out and
+       lets the loader default it. */
+    for (size_t i = 0; i < params.size(); i++)
+        if (!params[i].second.empty())
+            s << "        " << params[i].first << " = " << params[i].second
+              << ";\n";
+
+    s << "    };\n";
+
+    return s.str();
+}
+
+/* The target half of a sink body, in whichever spelling applies. One
+ * function because there is one rule: an instrument name wins, and a
+ * channel is what is written when there is no name to write. */
+static std::string
+sinkTarget (int channel, const std::string &instrument)
+{
+    std::ostringstream s;
+
+    if (!instrument.empty())
+        s << "instrument = " << instrument << ";";
+    else
+        s << "channel = " << channel << ";";
+
+    return s.str();
+}
+
+static std::string
+sinkText (int channel, const std::string &instrument,
+          const std::string &chanarg, bool ownLine)
+{
+    std::ostringstream s;
+
+    if (ownLine)
+        s << "    ";
+
+    s << "sink { " << sinkTarget(channel, instrument);
+
+    if (!chanarg.empty())
+        s << " chanarg = \"" << chanarg << "\";";
+
+    /* A trailing space rather than a newline inside a one-liner: what
+       follows is the block's own `}'. */
+    s << " };" << (ownLine ? "\n" : " ");
+
+    return s.str();
+}
+
+/* The target checks every writer of a sink shares -- addSink, setSink
+ * and the sink addChain generates with a new chain. An instrument name
+ * is checked against what the file declares rather than merely for
+ * shape: a sink pointed at an instrument nobody wrote is a load error,
+ * and every state this editor writes has to load.
+ *
+ * `before' is where the sink will sit -- the start of its chain, or npos
+ * for a chain about to be appended at the end of the file. The
+ * instrument has to be declared above that, because the loader resolves
+ * names in file order and refuses one it has not read yet. Checking only
+ * that the name exists *somewhere* is how this wrote a file it could
+ * then not load: a piece is free to put its chains above its
+ * instruments, and plenty of hand-written ones would. */
+static R
+checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
+                 const std::string &chanarg, size_t before, std::string &why)
+{
+    if (!instrument.empty())
+    {
+        if (!thcGenEdit::validName(instrument))
+        {
+            why = "that is not a name the file format accepts";
+            return thcGenEdit::REFUSED;
+        }
+
+        bool found = false;
+        bool above = false;
+        const InstrumentIdx *in = NULL;
+
+        for (size_t i = 0; i < ix.instruments.size(); i++)
+            if (ix.instruments[i].name == instrument)
+            {
+                found = true;
+                in = &ix.instruments[i];
+
+                if (before == std::string::npos ||
+                    ix.instruments[i].stmtB <= before)
+                    above = true;
+            }
+
+        if (!found)
+        {
+            why = "no instrument called " + instrument;
+            return thcGenEdit::NOT_FOUND;
+        }
+
+        /* Not onto an arg a knob already drives, either. The loader
+           refuses that -- both are pushes, so the walk wins every time
+           it fires and the slider looks dead a second after you let go
+           -- and every state this editor writes has to load. Read off
+           the authored text, which is where a knob binding is spelled
+           `@name'. */
+        if (!chanarg.empty() && chanarg != "*")
+        {
+            for (size_t i = 0; i < in->values.size(); i++)
+            {
+                /* `send' is written bare but filed as `fx.send' -- the
+                   loader checks that name, so this has to as well. */
+                std::string key = in->values[i].name;
+                if (key == TH_SEND_ARG)
+                    key = std::string(TH_EFFECT_PREFIX) + key;
+
+                if (key == chanarg &&
+                    !in->values[i].valueText.empty() &&
+                    in->values[i].valueText[0] == '@')
+                {
+                    why = chanarg + " on " + instrument + " is driven by " +
+                          in->values[i].valueText + "; a sink and a knob "
+                          "would fight over it";
+                    return thcGenEdit::REFUSED;
+                }
+            }
+
+            /* And the effect's, which are kept in a list of their own
+               because the `effect' block is stepped over rather than
+               indexed. A `fx.mix' sink can never match the loop above, so
+               without this the one thing a sink onto an effect knob is
+               refused for is the one thing this writer could not see. */
+            for (size_t i = 0; i < in->effectKnobs.size(); i++)
+                if (in->effectKnobs[i].first == chanarg)
+                {
+                    why = chanarg + " on " + instrument + " is driven by " +
+                          in->effectKnobs[i].second + "; a sink and a knob "
+                          "would fight over it";
+                    return thcGenEdit::REFUSED;
+                }
+        }
+
+        if (!above)
+        {
+            why = "instrument " + instrument + " is declared below this "
+                  "chain, and a sink can only name one declared above it";
+            return thcGenEdit::REFUSED;
+        }
+    }
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    else if (channel < 1 || channel > 16)
+    {
+        why = "channel is 1-16";
+        return thcGenEdit::REFUSED;
+    }
+
+    if (!validString(chanarg))
+    {
+        why = "a chanarg name cannot contain a quote";
+        return thcGenEdit::UNWRITABLE;
+    }
+
+    return thcGenEdit::OK;
+}
+
+static bool
+validParams (const std::vector<std::pair<std::string, std::string> > &params,
+             std::string &why, bool sums = true)
+{
+    for (size_t i = 0; i < params.size(); i++)
+        if (params[i].second.empty())
+            continue;
+        else if (!validWord(params[i].first) ||
+                 !validValueText(params[i].second, sums))
+        {
+            why = "'" + params[i].first + " = " + params[i].second +
+                  "' is not something the file format can say";
+            return false;
+        }
+
+    return true;
+}
+
+/* ---- chains ----------------------------------------------------------- */
+
+/* ---- presets ----------------------------------------------------------- */
+
+/* Where a preset's block is written and what one line of it looks like.
+ * A preset sits with the scales -- both are named objects a chain refers
+ * to, both must be declared before the chain that names them -- so it
+ * goes after the last one of either, and before the first chain. */
+static std::string
+presetLine (const std::string &indent, const std::string &name, double value)
+{
+    std::string num;
+
+    thcGenEdit::format(value, num);
+
+    return indent + name + " = " + num + ";\n";
+}
+
+/* The indentation this preset's components already use, so a component
+ * added to a hand-formatted block does not arrive at the house default
+ * and make the file look edited. Four spaces when there is nothing to
+ * copy from -- but a preset always has a component to copy from, since
+ * one that sets nothing does not load. */
+static std::string
+presetIndent (const std::string &text, const PresetIdx &pr)
+{
+    if (pr.comps.empty())
+        return "    ";
+
+    const size_t ls = lineStartOf(text, pr.comps[0].stmtA);
+
+    if (ls < pr.comps[0].stmtA &&
+        text.find_first_not_of(" \t", ls) >= pr.comps[0].stmtA)
+        return text.substr(ls, pr.comps[0].stmtA - ls);
+
+    return "    ";
+}
+
+static PresetIdx *
+findPreset (Index &ix, const std::string &name)
+{
+    for (size_t i = 0; i < ix.presets.size(); i++)
+        if (ix.presets[i].name == name)
+            return &ix.presets[i];
+
+    return NULL;
+}
+
+/* Every stage param whose value is the bare word `name'.
+ *
+ * A scale reference and a preset reference are spelled identically -- a
+ * bare word -- and this index does not know which params are which type,
+ * because that is the plugin's business and thcGenEdit deliberately does
+ * not load plugins. So this over-reports by design: a stage whose NOTESET
+ * param names a scale that happens to share a preset's name counts here.
+ * The consequence is a removal refused that could have gone ahead, which
+ * is the safe direction and is fixed by not naming two things the same. */
+static int
+referencesTo (const Index &ix, const std::string &name,
+              std::string &firstWhere)
+{
+    int n = 0;
+
+    for (size_t ci = 0; ci < ix.chains.size(); ci++)
+        for (size_t si = 0; si < ix.chains[ci].stages.size(); si++)
+            for (size_t pi = 0;
+                 pi < ix.chains[ci].stages[si].params.size(); pi++)
+                if (ix.chains[ci].stages[si].params[pi].valueText == name)
+                {
+                    if (n == 0)
+                        firstWhere = ix.chains[ci].name + "'s stage " +
+                            ix.chains[ci].stages[si].name;
+
+                    n++;
+                }
+
+    return n;
+}
+
+R
+thcGenEdit::addPreset (const std::string &filename, const std::string &name,
+                       const std::vector<PresetValue> &values,
+                       std::string &why)
+{
+    if (!validName(name))
+    {
+        why = "'" + name + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    if (values.empty())
+    {
+        why = "a preset needs at least one value";
+        return REFUSED;
+    }
+
+    for (size_t i = 0; i < values.size(); i++)
+    {
+        if (!validName(values[i].name))
+        {
+            why = "'" + values[i].name + "' is not a chanarg name";
+            return REFUSED;
+        }
+
+        for (size_t k = 0; k < i; k++)
+            if (values[k].name == values[i].name)
+            {
+                why = "'" + values[i].name + "' is set twice";
+                return REFUSED;
+            }
+
+        std::string num;
+
+        if (!thcGenEdit::format(values[i].value, num))
+        {
+            why = "that value cannot be written in a .gen";
+            return REFUSED;
+        }
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findPreset(ix, name) != NULL)
+    {
+        why = "there is already a preset called " + name;
+        return REFUSED;
+    }
+
+    std::string body;
+
+    for (size_t i = 0; i < values.size(); i++)
+        body += presetLine("    ", values[i].name, values[i].value);
+
+    const std::string block = "preset " + name + " {\n" + body + "};\n";
+
+    /* After the last scale or preset already there; failing that, before
+       the first chain; failing that, at the end. That is the order the
+       loader requires -- a named object has to be declared before the
+       chain that refers to it -- and it puts a new preset where an author
+       would have written one. */
+    size_t after = std::string::npos;
+
+    if (!ix.presets.empty())
+        after = ix.presets[ix.presets.size() - 1].stmtB;
+    else if (!ix.scales.empty())
+        after = ix.scales[ix.scales.size() - 1].stmtB;
+
+    std::vector<Edit> edits;
+
+    if (after != std::string::npos)
+    {
+        /* The start of the line after that statement's, so the insert
+           lands between whole lines and any trailing comment on it stays
+           where its author put it. */
+        const size_t nl = text.find('\n', after);
+        const size_t at = (nl == std::string::npos) ? text.size() : nl + 1;
+
+        edits.push_back({ at, at, "\n" + block });
+    }
+    else if (ix.firstChainOff != std::string::npos)
+    {
+        const size_t at = lineStartOf(text, ix.firstChainOff);
+
+        edits.push_back({ at, at, block + "\n" });
+    }
+    else
+    {
+        if (!text.empty() && text[text.size() - 1] != '\n')
+            text += "\n";
+
+        edits.push_back({ text.size(), text.size(), "\n" + block });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setPresetValue (const std::string &filename,
+                            const std::string &preset,
+                            const std::string &component,
+                            double value, std::string &why)
+{
+    std::string num;
+
+    if (!thcGenEdit::format(value, num))
+    {
+        why = "that value cannot be written in a .gen";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, preset);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + preset;
+        return NOT_FOUND;
+    }
+
+    for (size_t i = 0; i < pr->comps.size(); i++)
+        if (pr->comps[i].name == component)
+        {
+            std::vector<Edit> edits;
+
+            /* A no-op write changes no byte, which is the property the
+               whole splice model rests on. */
+            if (text.compare(pr->comps[i].valA,
+                             pr->comps[i].valB - pr->comps[i].valA, num) != 0)
+                edits.push_back({ pr->comps[i].valA, pr->comps[i].valB, num });
+
+            return finish(filename, text, edits, why);
+        }
+
+    why = preset + " does not set " + component;
+    return NOT_FOUND;
+}
+
+R
+thcGenEdit::addPresetValue (const std::string &filename,
+                            const std::string &preset,
+                            const std::string &component,
+                            double value, std::string &why)
+{
+    if (!validName(component))
+    {
+        why = "'" + component + "' is not a chanarg name";
+        return REFUSED;
+    }
+
+    std::string num;
+
+    if (!thcGenEdit::format(value, num))
+    {
+        why = "that value cannot be written in a .gen";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, preset);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + preset;
+        return NOT_FOUND;
+    }
+
+    for (size_t i = 0; i < pr->comps.size(); i++)
+        if (pr->comps[i].name == component)
+        {
+            why = preset + " already sets " + component;
+            return REFUSED;
+        }
+
+    /* At the end of the block, not in some canonical slot: a preset is a
+       vector and its order is the author's. Reshuffling someone's file
+       into the order this writer would have chosen is an edit nobody
+       asked for -- the same rule the .dsp writer follows. */
+    std::vector<Edit> edits;
+
+    const size_t ls = lineStartOf(text, pr->bodyClose);
+
+    /* Whether the closing brace has a line to itself decides how the new
+       component is written, and getting this wrong is not cosmetic. A
+       preset written `preset p { a = 1; };' has its `}' on the same line
+       as the `preset' keyword, so the start of that line is *before* the
+       block -- inserting there would put the new component above the
+       statement it belongs to and break the file. Multi-line blocks get
+       a line of their own; a one-liner stays a one-liner. */
+    if (text.find_first_not_of(" \t", ls) >= pr->bodyClose)
+        edits.push_back({ ls, ls,
+                          presetLine(presetIndent(text, *pr), component,
+                                     value) });
+    else
+    {
+        std::string num;
+
+        thcGenEdit::format(value, num);
+
+        /* A space of our own only where there is not one already, so
+           `{ a = 1; }' and `{ a = 1;}' both come out readable. */
+        const bool spaced = pr->bodyClose > 0 &&
+            (text[pr->bodyClose - 1] == ' ' ||
+             text[pr->bodyClose - 1] == '\t');
+
+        edits.push_back({ pr->bodyClose, pr->bodyClose,
+                          (spaced ? "" : " ") + component + " = " + num +
+                          "; " });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::removePresetValue (const std::string &filename,
+                               const std::string &preset,
+                               const std::string &component,
+                               std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, preset);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + preset;
+        return NOT_FOUND;
+    }
+
+    for (size_t i = 0; i < pr->comps.size(); i++)
+        if (pr->comps[i].name == component)
+        {
+            if (pr->comps.size() == 1)
+            {
+                why = component + " is all " + preset + " sets, and a "
+                    "preset that sets nothing will not load";
+                return REFUSED;
+            }
+
+            std::vector<Edit> edits;
+
+            edits.push_back(eraseStmt(text, pr->comps[i].stmtA,
+                                      pr->comps[i].stmtB));
+
+            return finish(filename, text, edits, why);
+        }
+
+    why = preset + " does not set " + component;
+    return NOT_FOUND;
+}
+
+R
+thcGenEdit::removePreset (const std::string &filename,
+                          const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, name);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + name;
+        return NOT_FOUND;
+    }
+
+    std::string where;
+    const int refs = referencesTo(ix, name, where);
+
+    if (refs > 0)
+    {
+        /* Refused rather than inlined, because there is nothing to inline
+           into: the format has no literal form for a chanarg vector, on
+           purpose. Naming where the first reference is, because "it is
+           used" without "by what" sends the reader through the file. */
+        std::ostringstream m;
+
+        m << name << " is still used by " << where;
+
+        if (refs > 1)
+            m << " and " << (refs - 1) << " other"
+              << (refs > 2 ? "s" : "");
+
+        why = m.str();
+        return REFUSED;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, pr->stmtA, pr->stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
+/* A new chain appended at the end of the file, its one stage and the
+   sink `sink' says: a note sink checked against what the file declares,
+   or a knob sink against its knobs. */
+static R
+appendChain (const std::string &filename, const std::string &name,
+             int channel, const std::string &instrument,
+             const std::string &knob, const std::string &stageName,
+             const std::string &category, const std::string &plugin,
+             const std::vector<std::pair<std::string, std::string> > &params,
+             std::string &why)
+{
+    if (!thcGenEdit::validName(name) || !thcGenEdit::validName(stageName))
+    {
+        why = "that is not a name the file format accepts";
+        return thcGenEdit::REFUSED;
+    }
+
+    if (!validParams(params, why))
+        return thcGenEdit::UNWRITABLE;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != thcGenEdit::OK)
+        return r;
+
+    /* npos: the block is appended at the end of the file, so anything
+       the file declares is above it. */
+    if (knob.empty())
+        r = checkSinkTarget(ix, channel, instrument, "", std::string::npos,
+                            why);
+    else if (findKnob(ix, knob) == NULL)
+    {
+        why = "there is no knob called @" + knob;
+        r = thcGenEdit::REFUSED;
+    }
+
+    if (r != thcGenEdit::OK)
+        return r;
+
+    if (findChain(ix, name) != NULL)
+    {
+        why = "there is already a chain called " + name;
+        return thcGenEdit::REFUSED;
+    }
+
+    if (!text.empty() && text[text.size() - 1] != '\n')
+        text += "\n";
+
+    std::ostringstream block;
+
+    block << "\nchain " << name << " {\n"
+          << stageText(stageName, category, plugin, params)
+          << (knob.empty() ? sinkText(channel, instrument, "", true)
+                           : "    sink { knob = @" + knob + "; };\n")
+          << "};\n";
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ text.size(), text.size(), block.str() });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::addChain (const std::string &filename, const std::string &name,
+                      int channel, const std::string &instrument,
+                      const std::string &stageName,
+                      const std::string &category, const std::string &plugin,
+                      const std::vector<std::pair<std::string,
+                          std::string> > &params,
+                      std::string &why)
+{
+    return appendChain(filename, name, channel, instrument, "", stageName,
+                       category, plugin, params, why);
+}
+
+R
+thcGenEdit::addKnobChain (const std::string &filename,
+                          const std::string &name, const std::string &knob,
+                          const std::string &stageName,
+                          const std::string &category,
+                          const std::string &plugin,
+                          const std::vector<std::pair<std::string,
+                              std::string> > &params,
+                          std::string &why)
+{
+    return appendChain(filename, name, 0, "", knob, stageName, category,
+                       plugin, params, why);
+}
+
+/* `instrument name { dsp "file"; value = ...; };' after the piece's last
+ * instrument, or above its first chain when it has none -- where a reader
+ * looks for what the chains play.
+ */
+R
+thcGenEdit::addInstrument (const std::string &filename,
+                           const std::string &name, const std::string &dsp,
+                           const std::vector<std::pair<std::string,
+                               std::string> > &values,
+                           std::string &why)
+{
+    if (!validName(name))
+    {
+        why = "'" + name + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    if (dsp.empty() || dsp.find_first_of("\"\n") != std::string::npos)
+    {
+        why = "'" + dsp + "' is not a graph's file name";
+        return REFUSED;
+    }
+
+    if (!validParams(values, why, false))
+        return UNWRITABLE;
+
+    /* The words an instrument block reads as its own statements. */
+    static const char *const keywords[] = {
+        "dsp", "midi", "midichannel", "midiprogram", "effect", "cc", "bend",
+        NULL };
+
+    for (const auto &v : values)
+        for (int i = 0; keywords[i] != NULL; i++)
+            if (v.first == keywords[i])
+            {
+                why = "'" + v.first + "' is not a value an instrument sets";
+                return REFUSED;
+            }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    for (const InstrumentIdx &in : ix.instruments)
+        if (in.name == name)
+        {
+            why = "there is already an instrument called " + name;
+            return REFUSED;
+        }
+
+    std::string stmt = "instrument " + name + " { dsp \"" + dsp + "\";";
+
+    /* An empty value is a placeholder, as addChain's callers pass. */
+    for (const auto &v : values)
+        if (!v.second.empty())
+            stmt += " " + v.first + " = " + v.second + ";";
+
+    stmt += " };";
+
+    std::vector<Edit> edits;
+
+    if (!ix.instruments.empty())
+    {
+        /* After its line, so a comment at the end of it stays its. */
+        size_t at = text.find('\n', ix.instruments.back().stmtB);
+
+        if (at == std::string::npos)
+            edits.push_back({ text.size(), text.size(), "\n" + stmt });
+        else
+            edits.push_back({ at + 1, at + 1, stmt + "\n" });
+    }
+    else
+    {
+        size_t at = ix.firstChainOff;
+
+        if (at == std::string::npos)
+        {
+            if (!text.empty() && text[text.size() - 1] != '\n')
+                text += "\n";
+
+            at = text.size();
+        }
+        else
+            at = lineStartOf(text, at);
+
+        edits.push_back({ at, at, stmt + "\n\n" });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+/* Refused while anything names it -- a sink, another's effect's side
+   chain, a swap stage's list -- since the file would then not load. A
+   stage param names it as the bare word or in a quoted list, and is
+   counted as the loader would refuse it, over-reporting rather than not. */
+R
+thcGenEdit::removeInstrument (const std::string &filename,
+                              const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const InstrumentIdx *found = NULL;
+
+    for (const InstrumentIdx &in : ix.instruments)
+        if (in.name == name)
+            found = &in;
+
+    if (found == NULL)
+    {
+        why = "no instrument called " + name;
+        return NOT_FOUND;
+    }
+
+    for (const ChainIdx &c : ix.chains)
+        for (const SinkIdx &k : c.sinks)
+            if (k.instrument == name)
+            {
+                why = "chain " + c.name + " plays " + name +
+                      "; take it out first";
+                return REFUSED;
+            }
+
+    for (const InstrumentIdx &in : ix.instruments)
+        for (const std::string &side : in.sides)
+            if (side == name)
+            {
+                why = in.name + "'s effect is keyed by " + name +
+                      "; take that out first";
+                return REFUSED;
+            }
+
+    auto names = [&name] (const std::string &v)
+    {
+        if (v == name)
+            return true;
+
+        if (v.size() < 2 || v[0] != '"')
+            return false;
+
+        std::string word;
+
+        for (char ch : v.substr(1, v.size() - 2) + ",")
+            if (ch == ',' || ch == ' ' || ch == '\t')
+            {
+                if (word == name)
+                    return true;
+
+                word.clear();
+            }
+            else
+                word += ch;
+
+        return false;
+    };
+
+    for (const ChainIdx &c : ix.chains)
+        for (const StageIdx &st : c.stages)
+            for (const PIdx &p : st.params)
+                if (names(p.valueText))
+                {
+                    why = "chain " + c.name + "'s stage " + st.name +
+                          " names " + name + "; take it out first";
+                    return REFUSED;
+                }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, found->stmtA, found->stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::removeChain (const std::string &filename, const std::string &name,
+                         std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, name);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + name;
+        return NOT_FOUND;
+    }
+
+    /* A section naming a chain that is not there is a file that does not
+       load, so this is refused rather than silently written -- and it
+       says which section, because the fix is an edit to the
+       arrangement and the arrangement is hand-written. The same refusal
+       removeScale makes, for the same reason. */
+    for (size_t i = 0; i < ix.sections.size(); i++)
+        for (size_t k = 0; k < ix.sections[i].refs.size(); k++)
+            if (ix.sections[i].refs[k].chain == name)
+            {
+                why = "section " + ix.sections[i].name + " names " + name +
+                      "; take it out of the arrangement first";
+                return REFUSED;
+            }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, c->stmtA, c->stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::renameChain (const std::string &filename,
+                         const std::string &oldName,
+                         const std::string &newName, std::string &why)
+{
+    if (!validName(newName))
+    {
+        why = "'" + newName + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findChain(ix, newName) != NULL)
+    {
+        why = "there is already a chain called " + newName;
+        return REFUSED;
+    }
+
+    ChainIdx *c = findChain(ix, oldName);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + oldName;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ c->nameA, c->nameB, newName });
+
+    /* And every section that names it. A rename that left the
+       arrangement pointing at the old name would write a file that does
+       not load -- removeKnob's rule, applied to the other name a piece
+       can refer to a thing by. */
+    for (size_t i = 0; i < ix.sections.size(); i++)
+        for (size_t k = 0; k < ix.sections[i].refs.size(); k++)
+            if (ix.sections[i].refs[k].chain == oldName)
+                edits.push_back({ ix.sections[i].refs[k].nameA,
+                                  ix.sections[i].refs[k].nameB, newName });
+
+    return finish(filename, text, edits, why);
+}
+
+/* ---- the arrangement ------------------------------------------------ */
+
+/* `16 bars', `8 beats', `4 b' or `30 s': the lengths a section takes,
+   checked here as setChainStart checks a start, since a file this writes
+   that the loader refuses is a broken piece. */
+static bool
+validSectionLength (const std::string &text, std::string &why)
+{
+    size_t i = 0;
+    bool digit = false;
+
+    /* A digit before any point: the lexer reads `.5' as no number. */
+    while (i < text.size() && isdigit((unsigned char)text[i]))
+        i++, digit = true;
+
+    if (digit && i < text.size() && text[i] == '.')
+        for (i++; i < text.size() && isdigit((unsigned char)text[i]); i++)
+            ;
+
+    const size_t end = i;
+
+    while (i < text.size() && text[i] == ' ')
+        i++;
+
+    const std::string unit = text.substr(i);
+
+    if (!digit || i == end || (unit != "bars" && unit != "beats" &&
+                               unit != "b" && unit != "s") ||
+        std::atof(text.c_str()) <= 0)
+    {
+        why = "a section's length is a number and bars, beats or s, not '" +
+              text + "'";
+        return false;
+    }
+
+    return true;
+}
+
+static SectionIdx *
+findSection (Index &ix, const std::string &name)
+{
+    for (SectionIdx &se : ix.sections)
+        if (se.name == name)
+            return &se;
+
+    return NULL;
+}
+
+/* A section `name' of `length', after section `after' -- or, for "", last,
+ * above a `section end;' -- naming each chain in `levels' at its level:
+ * what a scene copied from another is. A piece with no sections gets its
+ * first above its chains, where the loader wants them.
+ */
+R
+thcGenEdit::addSection (const std::string &filename, const std::string &name,
+                        const std::string &length, const std::string &after,
+                        const std::vector<std::pair<std::string,
+                            double> > &levels,
+                        std::string &why)
+{
+    if (!validName(name) || name == "end" || name == "loop")
+    {
+        why = "'" + name + "' is not a name a section can have";
+        return REFUSED;
+    }
+
+    if (!validSectionLength(length, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findSection(ix, name) != NULL)
+    {
+        why = "there is already a section called " + name;
+        return REFUSED;
+    }
+
+    std::string stmt = "section " + name + " " + length + " {";
+
+    for (size_t i = 0; i < levels.size(); i++)
+    {
+        const auto &l = levels[i];
+        std::string num;
+
+        for (size_t k = 0; k < i; k++)
+            if (levels[k].first == l.first)
+            {
+                why = "chain " + l.first + " is given two levels";
+                return REFUSED;
+            }
+
+        const bool knob = !l.first.empty() && l.first[0] == '@';
+
+        if (knob ? findKnob(ix, l.first.substr(1)) == NULL
+                 : findChain(ix, l.first) == NULL)
+        {
+            why = (knob ? "no knob called " : "no chain called ") + l.first;
+            return NOT_FOUND;
+        }
+
+        if ((!knob && !(l.second >= 0)) || !format(l.second, num))
+        {
+            why = "that level cannot be written";
+            return UNWRITABLE;
+        }
+
+        if (l.second != 1 || knob)
+            stmt += " " + l.first + " = " + num + ";";
+    }
+
+    stmt += " };";
+
+    size_t at;
+
+    /* After a statement: on the next line, past a comment at the end of
+       its own, or straight after it when another statement shares it. */
+    auto behind = [&text, &stmt] (size_t b)
+    {
+        size_t k = b;
+
+        while (k < text.size() && (text[k] == ' ' || text[k] == '\t' ||
+                                   text[k] == '\r'))
+            k++;
+
+        if (k < text.size() && text[k] == '#')
+            k = text.find('\n', k);
+
+        if (k == std::string::npos || k >= text.size())
+        {
+            stmt = "\n" + stmt;
+            return text.size();
+        }
+
+        if (text[k] != '\n')
+        {
+            stmt = "\n" + stmt;
+            return b;
+        }
+
+        stmt += "\n";
+        return k + 1;
+    };
+
+    if (!after.empty())
+    {
+        const SectionIdx *se = findSection(ix, after);
+
+        if (se == NULL)
+        {
+            why = "no section called " + after;
+            return NOT_FOUND;
+        }
+
+        at = behind(se->stmtB);
+    }
+    else if (ix.sectionEndA != std::string::npos)
+    {
+        /* Above the end, on a line of its own unless the end shares one. */
+        at = lineStartOf(text, ix.sectionEndA);
+
+        const bool shared =
+            text.find_first_not_of(" \t", at) < ix.sectionEndA;
+
+        if (shared)
+            at = ix.sectionEndA;
+
+        stmt += shared ? " " : "\n";
+    }
+    else if (!ix.sections.empty())
+        at = behind(ix.sections.back().stmtB);
+    else if (ix.meterB != std::string::npos &&
+             (ix.firstChainOff == std::string::npos ||
+              ix.meterB > ix.firstChainOff))
+        /* Below a meter the chains come before: the loader wants meter
+           above every section. */
+        at = behind(ix.meterB);
+    else if (ix.firstChainOff != std::string::npos)
+    {
+        at = lineStartOf(text, ix.firstChainOff);
+        stmt += "\n\n";
+    }
+    else
+    {
+        if (!text.empty() && text[text.size() - 1] != '\n')
+            text += "\n";
+
+        at = text.size();
+        stmt += "\n";
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ at, at, stmt });
+
+    return finish(filename, text, edits, why);
+}
+
+/* The last one taken out takes what closes the list with it, `section
+   end;' or `section loop': a piece with no sections plays as written,
+   which an end with nothing before it would stop at once. */
+R
+thcGenEdit::removeSection (const std::string &filename,
+                           const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+
+    if (se == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    /* Taking away the section the list goes round to would leave a
+       `section loop' naming nothing, and a file that does not load. */
+    if (ix.loopTo == name && ix.sections.size() > 1)
+    {
+        why = "section " + name + " is where 'section loop' goes round "
+              "to; change that first";
+        return REFUSED;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, se->stmtA, se->stmtB));
+
+    if (ix.sections.size() == 1 && ix.sectionEndA != std::string::npos)
+        edits.push_back(eraseStmt(text, ix.sectionEndA, ix.sectionEndB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::renameSection (const std::string &filename,
+                           const std::string &oldName,
+                           const std::string &newName, std::string &why)
+{
+    if (!validName(newName) || newName == "end" || newName == "loop")
+    {
+        why = "'" + newName + "' is not a name a section can have";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, oldName);
+
+    if (se == NULL)
+    {
+        why = "no section called " + oldName;
+        return NOT_FOUND;
+    }
+
+    if (newName != oldName && findSection(ix, newName) != NULL)
+    {
+        why = "there is already a section called " + newName;
+        return REFUSED;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ se->nameA, se->nameB, newName });
+
+    /* And the `section loop' that goes round to it, or the file would
+       name a section it no longer has. */
+    if (ix.loopTo == oldName)
+        edits.push_back({ ix.loopToA, ix.loopToB, newName });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSectionLength (const std::string &filename,
+                              const std::string &name,
+                              const std::string &length, std::string &why)
+{
+    if (!validSectionLength(length, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+
+    if (se == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ se->lenA, se->lenB, length });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSectionHold (const std::string &filename,
+                            const std::string &name, bool hold,
+                            std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+
+    if (se == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    if (hold == (se->holdA != std::string::npos))
+        return OK;
+
+    std::vector<Edit> edits;
+
+    if (hold)
+        edits.push_back({ se->lenB, se->lenB, " hold" });
+    else
+        edits.push_back({ se->lenB, se->holdB, "" });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSectionLoop (const std::string &filename,
+                            const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (!name.empty() && findSection(ix, name) == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+    const std::string stmt = "section loop " + name + ";";
+
+    if (!ix.loopTo.empty())
+        edits.push_back(name.empty()
+            ? eraseStmt(text, ix.sectionEndA, ix.sectionEndB)
+            : Edit{ ix.loopToA, ix.loopToB, name });
+    else if (name.empty())
+        return OK;
+    else if (ix.sectionEndA != std::string::npos)
+        edits.push_back({ ix.sectionEndA, ix.sectionEndB, stmt });
+    else
+        edits.push_back({ ix.sections.back().stmtB,
+                          ix.sections.back().stmtB, "\n" + stmt });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::addCue (const std::string &filename, const std::string &knob,
+                    const std::string &grid, std::string &why)
+{
+    if (!validSectionLength(grid, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findKnob(ix, knob) == NULL)
+    {
+        why = "no knob called @" + knob;
+        return NOT_FOUND;
+    }
+
+    if (ix.sections.empty())
+    {
+        why = "there are no sections to cue";
+        return REFUSED;
+    }
+
+    if (std::find(ix.cues.begin(), ix.cues.end(), knob) != ix.cues.end())
+        return OK;
+
+    if (!ix.cues.empty())
+    {
+        why = "the piece follows @" + ix.cues[0] + " already, and a piece "
+              "follows one cue knob";
+        return REFUSED;
+    }
+
+    /* Last, below the knob, which may be declared below the sections. */
+    std::vector<Edit> edits;
+    const bool ended = !text.empty() && text.back() == '\n';
+
+    edits.push_back({ text.size(), text.size(),
+                      std::string(ended ? "" : "\n") + "cue @" + knob + " " +
+                      grid + ";\n" });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSectionLevel (const std::string &filename,
+                             const std::string &section,
+                             const std::string &chain, double level,
+                             std::string &why)
+{
+    const bool knob = !chain.empty() && chain[0] == '@';
+
+    if (!knob && !(level >= 0))
+    {
+        why = "a section's level cannot be negative";
+        return REFUSED;
+    }
+
+    /* A knob's entry goes for a NaN: it has no value that says "as
+       written". */
+    const bool out = knob ? std::isnan(level) : level == 1;
+
+    std::string text, num;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    SectionIdx *se = NULL;
+
+    for (size_t i = 0; i < ix.sections.size(); i++)
+        if (ix.sections[i].name == section)
+            se = &ix.sections[i];
+
+    if (se == NULL)
+    {
+        why = "no section called " + section;
+        return NOT_FOUND;
+    }
+
+    if (knob ? findKnob(ix, chain.substr(1)) == NULL
+             : findChain(ix, chain) == NULL)
+    {
+        why = (knob ? "no knob called " : "no chain called ") + chain;
+        return NOT_FOUND;
+    }
+
+    if (!out && !format(level, num))
+    {
+        why = "that level cannot be written";
+        return UNWRITABLE;
+    }
+
+    const SectionRefIdx *ref = NULL;
+
+    for (size_t k = 0; k < se->refs.size(); k++)
+        if (se->refs[k].chain == chain)
+            ref = &se->refs[k];
+
+    std::vector<Edit> edits;
+
+    /* 1 is "as written", which is what a section that does not name the
+       chain already says: the entry goes, rather than staying as a line
+       that says nothing. With the line it was on, if it had one. */
+    if (out)
+    {
+        if (ref == NULL)
+            return OK;
+
+        size_t a = ref->nameA, b = ref->entryB;
+
+        while (b < text.size() && (text[b] == ' ' || text[b] == '\t'))
+            b++;
+
+        size_t line = a;
+
+        while (line > 0 && (text[line - 1] == ' ' || text[line - 1] == '\t'))
+            line--;
+
+        /* Where the line ends, in either spelling: a file written on
+           Windows ends its lines "\r\n". */
+        const size_t eol = b < text.size() && text[b] == '\r' &&
+                           b + 1 < text.size() && text[b + 1] == '\n'
+            ? 2 : b < text.size() && text[b] == '\n' ? 1 : 0;
+
+        if (eol > 0 && line > 0 && text[line - 1] == '\n')
+        {
+            a = line;
+            b += eol;
+        }
+        else if (eol > 0)
+            a = line;                   /* last on its line: no trailing
+                                           spaces left behind            */
+
+        edits.push_back({ a, b, "" });
+    }
+    else if (ref != NULL)
+        edits.push_back({ ref->levelA, ref->levelB, num });
+    else
+    {
+        /* Before the closing brace: on a line of its own where the block
+           puts its entries on lines, and inline where it is one line. */
+        const std::string entry = chain + " = " + num + ";";
+        size_t at = se->bodyClose;
+        size_t line = at;
+
+        while (line > 0 && (text[line - 1] == ' ' || text[line - 1] == '\t'))
+            line--;
+
+        if (line > 0 && text[line - 1] == '\n')
+        {
+            /* At the indent of the line before, which is the block's own
+               -- four spaces where that line is the statement's first. */
+            size_t prev = line - 1;
+
+            while (prev > 0 && text[prev - 1] != '\n')
+                prev--;
+
+            size_t ind = prev;
+
+            while (ind < text.size() && (text[ind] == ' ' || text[ind] == '\t'))
+                ind++;
+
+            std::string indent = text.substr(prev, ind - prev);
+
+            if (text.compare(ind, 7, "section") == 0)
+                indent += "    ";
+
+            /* Ended the way the line before is. */
+            const bool crlf = line >= 2 && text[line - 2] == '\r';
+
+            edits.push_back({ line, line,
+                              indent + entry + (crlf ? "\r\n" : "\n") });
+        }
+        else if (at > 0 && text[at - 1] == ' ')
+            edits.push_back({ at, at, entry + " " });
+        else
+            edits.push_back({ at, at, " " + entry + " " });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+/* A statement on its own line just inside the chain's opening brace.
+ *
+ * Anchored on the brace rather than on the first newline after the
+ * `chain' keyword: a chain written on one line has its next newline
+ * past its own closing brace, and a statement inserted there lands
+ * outside the body -- a file this editor wrote that the next load
+ * refuses. Such a chain takes the statement inline instead, on the one
+ * line it was already written on.
+ */
+static Edit
+insertInBody (const std::string &text, const ChainIdx &c,
+              const std::string &stmt)
+{
+    const size_t at = c.bodyOpen + 1;
+    size_t scan = at;
+
+    while (scan < text.size() && (text[scan] == ' ' || text[scan] == '\t'))
+        scan++;
+
+    if (scan < text.size() && text[scan] == '\n')
+        return { scan + 1, scan + 1, "    " + stmt + "\n" };
+
+    return { at, at, " " + stmt };
+}
+
+R
+thcGenEdit::setChainInput (const std::string &filename,
+                           const std::string &chain, bool midi,
+                           std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    if (midi && !c->inputMidi)
+        edits.push_back(insertInBody(text, *c, "input midi;"));
+    else if (!midi && c->inputMidi)
+        edits.push_back(eraseStmt(text, c->inputA, c->inputB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setChainSeed (const std::string &filename,
+                          const std::string &chain, bool pin, unsigned seed,
+                          std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    const std::string stmt = "seed " + std::to_string(seed) + ";";
+    std::vector<Edit> edits;
+
+    if (!pin)
+    {
+        if (c->hasSeed)
+            edits.push_back(eraseStmt(text, c->seedA, c->seedB));
+    }
+    else if (c->hasSeed)
+        edits.push_back({ c->seedA, c->seedB, stmt });
+    else
+        edits.push_back(insertInBody(text, *c, stmt));
+
+    return finish(filename, text, edits, why);
+}
+
+/* `93 beats': digits, an optional fraction, and one of the loader's
+ * units. Deliberately narrower than strtod -- no sign, no exponent, no
+ * hex -- because the point is to write only what the loader's own lexer
+ * will read back, and a file this editor wrote that the next load
+ * refuses is the one outcome worth ruling out here. */
+static bool
+validStart (const std::string &text, std::string &why)
+{
+    size_t i = 0;
+    bool digit = false;
+
+    while (i < text.size() && isdigit((unsigned char)text[i]))
+        i++, digit = true;
+
+    if (i < text.size() && text[i] == '.')
+        for (i++; i < text.size() && isdigit((unsigned char)text[i]); i++)
+            digit = true;
+
+    const size_t end = i;
+
+    while (i < text.size() && (text[i] == ' ' || text[i] == '\t'))
+        i++;
+
+    if (!digit || i == end)
+    {
+        why = "a chain start is a nonnegative time and a unit, "
+              "not '" + text + "'";
+        return false;
+    }
+
+    const std::string unit = text.substr(i);
+
+    if (unit != "s" && unit != "ms" && unit != "beats" && unit != "b" &&
+        unit != "bars")
+    {
+        why = "'" + unit + "' is not a unit a chain start takes; "
+              "write s, ms, beats, b or bars";
+        return false;
+    }
+
+    return true;
+}
+
+/* `start = 93 beats;', or "" to take the line out and have the chain
+ * start with the transport.
+ *
+ * The value is checked here rather than left to the next load, because
+ * an editor that writes a file the loader will refuse has turned a
+ * question into a broken piece. Same set of units as the loader's, and
+ * the same rule about `bars' needing a meter above it -- which the
+ * loader enforces and this only has to not write past.
+ */
+R
+thcGenEdit::setChainStart (const std::string &filename,
+                           const std::string &chain,
+                           const std::string &start, std::string &why)
+{
+    std::string trimmed = start;
+    const size_t a = trimmed.find_first_not_of(" \t");
+
+    trimmed = a == std::string::npos
+        ? "" : trimmed.substr(a, trimmed.find_last_not_of(" \t") + 1 - a);
+
+    if (!trimmed.empty() && !validStart(trimmed, why))
+        return REFUSED;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    if (trimmed.empty())
+    {
+        if (!c->startText.empty())
+            edits.push_back(eraseStmt(text, c->startA, c->startB));
+    }
+    else if (!c->startText.empty())
+        edits.push_back({ c->startA, c->startB, "start = " + trimmed + ";" });
+    else
+        /* Above the input and the stages: the chain's own clock reads
+           first. */
+        edits.push_back(insertInBody(text, *c,
+                                     "start = " + trimmed + ";"));
+
+    return finish(filename, text, edits, why);
+}
+
+/* ---- stages ----------------------------------------------------------- */
+
+R
+thcGenEdit::addStage (const std::string &filename, const std::string &chain,
+                      const std::string &stageName,
+                      const std::string &category, const std::string &plugin,
+                      const std::vector<std::pair<std::string,
+                          std::string> > &params,
+                      std::string &why)
+{
+    if (!validName(stageName))
+    {
+        why = "'" + stageName + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    if (!validParams(params, why))
+        return UNWRITABLE;
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    /* Before the first sink: sinks end a chain. With no sink yet (a
+       state this editor never writes but a hand file might briefly be
+       in), before the closing brace. */
+    size_t at = c->sinks.empty() ? c->bodyClose : c->sinks[0].stmtA;
+
+    at = lineStartOf(text, at);
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ at, at, stageText(stageName, category, plugin,
+                                        params) });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::removeStage (const std::string &filename,
+                         const std::string &chain, int stageIndex,
+                         std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    if (stageIndex < 0 || stageIndex >= (int)c->stages.size())
+    {
+        why = "no such stage";
+        return NOT_FOUND;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, c->stages[stageIndex].stmtA,
+                              c->stages[stageIndex].stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::moveStage (const std::string &filename, const std::string &chain,
+                       int from, int to, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    int n = (int)c->stages.size();
+
+    if (from < 0 || from >= n || to < 0 || to >= n)
+    {
+        why = "no such stage";
+        return NOT_FOUND;
+    }
+
+    if (from == to)
+        return OK;
+
+    /* The whole block moves as text -- one cut, one paste -- so any
+       comment inside the stage travels with it. */
+    Edit cut = eraseStmt(text, c->stages[from].stmtA, c->stages[from].stmtB);
+    std::string block = text.substr(cut.a, cut.b - cut.a);
+
+    if (block.empty() || block[block.size() - 1] != '\n')
+        block += "\n";
+
+    size_t at;
+
+    if (to < from)
+        at = lineStartOf(text, c->stages[to].stmtA);
+    else if (to + 1 < n)
+        at = lineStartOf(text, c->stages[to + 1].stmtA);
+    else
+        at = lineStartOf(text, c->sinks.empty() ? c->bodyClose
+                                                : c->sinks[0].stmtA);
+
+    text.erase(cut.a, cut.b - cut.a);
+
+    if (at > cut.a)
+        at -= cut.b - cut.a;
+
+    text.insert(at, block);
+
+    if (!writeFile(filename, text))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}
+
+R
+thcGenEdit::setParam (const std::string &filename, const std::string &chain,
+                      int stageIndex, const std::string &param,
+                      const std::string &valueText, std::string &why)
+{
+    if (!validValueText(valueText))
+    {
+        why = "'" + valueText + "' is not a value the file format can say";
+        return UNWRITABLE;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    if (stageIndex < 0 || stageIndex >= (int)c->stages.size())
+    {
+        why = "no such stage";
+        return NOT_FOUND;
+    }
+
+    StageIdx &s = c->stages[stageIndex];
+    std::vector<Edit> edits;
+
+    /* The loader's refusal, made here so a line it would refuse is never
+       written, nor bound live by whoever wrote it. */
+    std::vector<Tok> vt;
+    std::string err;
+    int line;
+
+    thcGenLoader::tokenize(valueText, vt, err, line);
+
+    for (const Tok &k : vt)
+        for (const SinkIdx &sk : c->sinks)
+            if (k.kind == Tok::KNOB && k.text == sk.knob)
+            {
+                why = "chain " + c->name + " writes '@" + sk.knob +
+                      "', and its stage '" + s.name + "' reads it; a "
+                      "chain cannot drive a knob it is driven by";
+                return REFUSED;
+            }
+
+    for (size_t i = 0; i < s.params.size(); i++)
+        if (s.params[i].name == param)
+        {
+            if (isExpressionText(s.params[i].valueText))
+            {
+                why = "'" + param + "' is the expression `" +
+                      s.params[i].valueText + "'; edit the text to change it";
+                return UNWRITABLE;
+            }
+
+            if (s.params[i].valueText != valueText)
+                edits.push_back({ s.params[i].valA, s.params[i].valB,
+                                  valueText });
+
+            return finish(filename, text, edits, why);
+        }
+
+    /* The param existed only as the plugin's default: add the line,
+       indented like its neighbors (or the house four-plus-four). */
+    std::string indent = "        ";
+
+    if (!s.params.empty())
+    {
+        size_t ls = lineStartOf(text, s.params[0].stmtA);
+        size_t sp = text.find_first_not_of(" \t", ls);
+
+        if (sp != std::string::npos && sp >= s.params[0].stmtA - 0 &&
+            text.compare(ls, s.params[0].stmtA - ls,
+                         std::string(s.params[0].stmtA - ls, ' ')) == 0)
+            indent = text.substr(ls, s.params[0].stmtA - ls);
+    }
+
+    bool ownLine = true;
+    const size_t at = endOfBlock(text, s.bodyClose, ownLine);
+
+    edits.push_back({ at, at,
+                      ownLine
+                          ? indent + param + " = " + valueText + ";\n"
+                          : gapBefore(text, at) + param + " = " +
+                            valueText + "; " });
+
+    return finish(filename, text, edits, why);
+}
+
+/* ---- sinks ------------------------------------------------------------ */
+
+R
+thcGenEdit::addSink (const std::string &filename, const std::string &chain,
+                     int channel, const std::string &instrument,
+                     const std::string &chanarg, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    r = checkSinkTarget(ix, channel, instrument, chanarg, c->stmtA, why);
+
+    if (r != OK)
+        return r;
+
+    bool ownLine = true;
+    const size_t at = endOfBlock(text, c->bodyClose, ownLine);
+
+    std::vector<Edit> edits;
+
+    edits.push_back({ at, at,
+                      (ownLine ? "" : gapBefore(text, at)) +
+                      sinkText(channel, instrument, chanarg, ownLine) });
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::removeSink (const std::string &filename, const std::string &chain,
+                        int sinkIndex, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    if (sinkIndex < 0 || sinkIndex >= (int)c->sinks.size())
+    {
+        why = "no such sink";
+        return NOT_FOUND;
+    }
+
+    if (c->sinks.size() == 1)
+    {
+        why = "a chain needs at least one sink";
+        return REFUSED;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, c->sinks[sinkIndex].stmtA,
+                              c->sinks[sinkIndex].stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setSink (const std::string &filename, const std::string &chain,
+                     int sinkIndex, int channel,
+                     const std::string &instrument,
+                     const std::string &chanarg, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    ChainIdx *c = findChain(ix, chain);
+
+    if (c == NULL)
+    {
+        why = "no chain called " + chain;
+        return NOT_FOUND;
+    }
+
+    r = checkSinkTarget(ix, channel, instrument, chanarg, c->stmtA, why);
+
+    if (r != OK)
+        return r;
+
+    if (sinkIndex < 0 || sinkIndex >= (int)c->sinks.size())
+    {
+        why = "no such sink";
+        return NOT_FOUND;
+    }
+
+    SinkIdx &s = c->sinks[sinkIndex];
+    std::vector<Edit> edits;
+
+    /* A knob sink has no channel, instrument or chanarg to edit, and
+       turning one into a sink that has them is a different sink, which
+       the text has to say: addSink has no knob form. */
+    if (!s.knob.empty())
+    {
+        why = "this sink writes @" + s.knob + "; edit the text to aim it "
+              "elsewhere";
+        return REFUSED;
+    }
+
+    /* Same spelling as before: edit the value in place, so a sink whose
+       channel moves from 4 to 5 changes one character. */
+    if (instrument.empty() && s.instrument.empty())
+    {
+        if (s.channel != channel && s.chValB > s.chValA)
+        {
+            char buf[16];
+
+            snprintf(buf, sizeof(buf), "%d", channel);
+            edits.push_back({ s.chValA, s.chValB, buf });
+        }
+    }
+    else if (!instrument.empty() && !s.instrument.empty())
+    {
+        if (s.instrument != instrument && s.instValB > s.instValA)
+            edits.push_back({ s.instValA, s.instValB, instrument });
+    }
+    else
+    {
+        /* The spelling changed, so the whole statement is replaced --
+           there is no sense in which `channel = 4' can be edited into
+           `instrument = pad'. Whichever one is there goes; the other
+           takes its place, in its place, so the rest of the line and
+           anything after it on it stays where the author left it. */
+        const size_t a = instrument.empty() ? s.instStmtA : s.chStmtA;
+        const size_t b = instrument.empty() ? s.instStmtB : s.chStmtB;
+
+        if (b > a)
+            edits.push_back({ a, b, sinkTarget(channel, instrument) });
+    }
+
+    if (s.hasArg && chanarg.empty())
+    {
+        /* Back to a note sink; take the statement and the blank before
+           it so `{ channel = 3; };' closes up tidily. */
+        size_t a = s.argStmtA;
+
+        while (a > 0 && (text[a - 1] == ' ' || text[a - 1] == '\t'))
+            a--;
+
+        edits.push_back({ a, s.argStmtB, "" });
+    }
+    else if (s.hasArg)
+    {
+        if (s.chanarg != chanarg)
+            edits.push_back({ s.argValA, s.argValB,
+                              "\"" + chanarg + "\"" });
+    }
+    else if (!chanarg.empty())
+        edits.push_back({ s.bodyClose, s.bodyClose,
+                          "chanarg = \"" + chanarg + "\"; " });
+
+    return finish(filename, text, edits, why);
+}

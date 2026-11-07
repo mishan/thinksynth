@@ -1,0 +1,69 @@
+*.o
+*.so
+# *.so does not match libthink.so.6.0 -- the name has to *end* in .so.
+libthink/libthink.so.*
+*.a
+
+# CMake builds out of source, so one pattern covers most of it.
+build/
+build-*/
+_deps/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+config.h
+
+# The harnesses, by pattern rather than by name. The list used to be written
+# out one binary at a time, and twice a new harness was added without its line
+# -- dspnew and dsplayout both got committed as multi-megabyte ELF files. A
+# pattern cannot be forgotten. Sources are re-admitted below.
+scripts/dsp*
+!scripts/*.cpp
+!scripts/*.h
+!scripts/*.sh
+
+src/thinksynth
+
+# Editor droppings. An emacs autosave and a lock symlink for two of the DSPs
+# got committed once; the lock files are dangling symlinks to a user@host that
+# means nothing to anyone else.
+\#*\#
+.\#*
+*~
+.*.swp
+
+# Flatpak. flatpak-builder puts a multi-gigabyte object cache in
+# .flatpak-builder/ and an OSTree repo in repo/, and the bundle itself is a
+# build artefact -- none of it belongs in the tree. Left out of .gitignore,
+# the first `git add -A' after a local flatpak build commits the lot.
+.flatpak-builder/
+build-flatpak/
+repo/
+*.flatpak
+
+# The browser build's test harness (wasm/web/package.json) installs here.
+node_modules/
+
+# A relay run from the tree keeps its accounts beside itself (relay.mjs).
+/wasm/web/relay.db*
+
+# wasm/compare.mjs renders every piece twice, natively and through the
+# module, and `-k DIR' leaves the pair on disk rather than in a temp dir --
+# which is what CI passes, as `-k compare'. That is 458 MB of wav for the
+# shipped corpus, and it went into a commit and onto master exactly the way
+# the flatpak note above describes. Without `-k' the renders go to a temp
+# dir and none of this arises.
+/compare/
+
+# Working notes that were never meant to be merged. The plan documents that
+# drove a branch -- a milestone's detail, a measurement write-up, a handoff
+# -- are worth having on disk while the branch is open and are a liability
+# afterwards: the code grew section references into them, and a reference
+# into a document nobody maintains is worse than no reference at all. What
+# survived them is in docs/ and in TODO.
+docs/COMPOSITION_HANDOFF.md
+docs/SCHEDULER_PLACEMENT.md
+docs/JAM_M3.md
+docs/JAM_M6.md

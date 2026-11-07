@@ -1,0 +1,47 @@
+# LeakSanitizer suppressions for the two harnesses that build real widgets.
+#
+# Everything here is a library allocating at startup and keeping it for the
+# life of the process: fontconfig's pattern cache, cairo's toy-font-face
+# table, pango's font map, and whatever the Mesa driver decides it needs. A
+# process that draws one frame and exits leaves all of it behind, and none of
+# it is ours -- `composercheck' showed 43,000 allocations under ASan and not
+# one frame in the tree.
+#
+# Suppressed by module rather than by symbol on purpose. These libraries are
+# stripped on most distributions, so a symbol-based rule would match on the
+# machine it was written on and silently stop matching everywhere else, which
+# is the failure mode a suppression file must not have.
+#
+# What is deliberately NOT here: glib and gobject. They are the closest thing
+# to our own code in this list -- the composer scheduler runs off a Glib
+# timeout and the whole GUI is GObject underneath -- so suppressing them would
+# hide the leaks most worth finding. Every trace seen so far has a fontconfig
+# or cairo frame further down, and one matching frame anywhere in the stack is
+# all LSan needs, so nothing is lost by leaving glib out.
+#
+# Wired up in scripts/CMakeLists.txt, and only when the address sanitizer is
+# on, so an ordinary run carries none of this.
+
+leak:libfontconfig.so
+leak:libfreetype.so
+leak:libexpat.so
+
+leak:libcairo.so
+leak:libcairo-gobject.so
+leak:libpango-1.0.so
+leak:libpangocairo-1.0.so
+leak:libpangoft2-1.0.so
+leak:libharfbuzz.so
+
+leak:libgtk-4.so
+leak:libgdk_pixbuf-2.0.so
+leak:librsvg-2.so
+
+# The GL stack the toolkit brings up to draw, which on a headless runner is
+# whatever software renderer is installed.
+leak:libgallium
+leak:libEGL
+leak:libGLX
+leak:libGL.so
+leak:swrast
+leak:libLLVM

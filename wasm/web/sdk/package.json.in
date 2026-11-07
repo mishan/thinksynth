@@ -1,0 +1,13 @@
+{
+  "name": "@thinksynth/web",
+  "version": "@PROJECT_VERSION@",
+  "description": "thinksynth's engine for the browser: pieces, instruments and a look-ahead, for games and toys.",
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "main": "thinksynth.js",
+  "exports": {
+    ".": "./thinksynth.js",
+    "./*": "./*"
+  },
+  "repository": "github:mishan/thinksynth"
+}

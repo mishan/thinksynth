@@ -1,0 +1,173 @@
+# voice.gen -- a chord you can talk through.
+#
+# What hands.gen is to the keyboard, this is to the microphone: a piece
+# whose point is the thing you bring to it. A string machine holds a slow
+# progression and nothing else happens. Switch a live input on and the
+# chord starts saying whatever you say -- sixteen bands of it, each turned
+# up and down by how loud you are in the same band.
+#
+# TO PLAY IT IN A BROWSER: press Start, choose this piece, press Play, then
+# press Live in and allow the microphone. Talk.
+#
+# If the chord does not start speaking, turn Mic gain up. A microphone with no
+# automatic gain control -- which is what this needs, and what the page asks
+# for -- is ten to twenty times quieter than the synth channel a vocoder is
+# usually driven by, and no default covers every microphone. The level beside
+# the Live in button is what to aim by: get it moving and the bands open.
+#
+# Pick a window of 128 before Start if the page offers it. A live graph
+# hears a window late, and a second window where the browser's 128-frame
+# quantum is smaller than the synth's window -- so 128 costs 2.7 ms and 256
+# costs 10.7. docs/DSP_FORMAT.md's "An effect graph" has the arithmetic.
+#
+# AND WEAR HEADPHONES. A microphone, speakers and a graph that puts the one
+# into the other is an oscillator. The master limiter saturates it rather
+# than stopping it, which makes it a loud steady tone instead of a nasty
+# one, and that is not the same as a fix. The browser's echo canceller
+# would stop it and is switched off on purpose: it works by removing
+# whatever correlates with the output, and here that is the carrier.
+#
+# ON THE DESKTOP IT IS THE CHORD ALONE. Nothing opens a capture device
+# there yet, and a live input nothing is feeding is silence -- which is
+# also why this piece renders the same under genwav today as it will after
+# somebody wires one up, and why it can be in the seeded corpus at all.
+#
+# `DRY' IS WHY YOU HEAR ANYTHING AT ALL. A vocoder with no modulator has no
+# band envelopes and lets none of the carrier through, so fully wet this
+# would be silence until somebody talks. That is correct for a vocoder and
+# useless for a piece you are meant to be able to open, so a little of the
+# chord goes round the side of the bands. Turn Dry to 0 once the microphone
+# is on and it is a vocoder proper: nothing comes out but your own voice
+# wearing the chord.
+#
+# AND THE EFFECT IS ON THE INSTRUMENT, NOT THE MIX. Either works -- a live
+# input names no channel, so `effect "fx/vocoder-mic.dsp";' on a line of
+# its own vocodes the whole piece -- but on an instrument the piece keeps
+# its master slot, and on a piece with drums in it you would not want them
+# vocoded anyway. Adding that one line to any piece in the text box is the
+# fastest way to try this on something else.
+
+name "Voice";
+author "Misha Nasledov";
+description "A string machine holding a chord, wearing whatever the microphone hears.";
+category "Playing it yourself";
+
+tempo 68;
+seed 9;
+meter 4;
+
+# How loud the person is, before the bands see them. The one knob that has to
+# be reachable: a microphone with no automatic gain control arrives at whatever
+# it arrives at, and that is a property of the room and the hardware rather
+# than of this piece. The page shows the capture's level beside the Live in
+# button; turn this up until the vocoder is as loud as the chord.
+@gain = 12;
+@gain.widget = 1;
+@gain.min = 1;
+@gain.max = 64;
+@gain.label = "Mic gain";
+
+# How much of the chord gets through the bands. The vocoder's output is a
+# sum of sixteen band-passes and starts quiet, so this is its level rather
+# than a trim.
+@talk = 8;
+@talk.widget = 1;
+@talk.min = 0;
+@talk.max = 32;
+@talk.label = "Talk";
+
+# How narrow each band is, which is how much of its own shape the chord
+# keeps between your formants. Wide is a chord with a voice on it; narrow
+# is a voice made of chord.
+@bands = 0.9;
+@bands.widget = 1;
+@bands.min = 0.7;
+@bands.max = 0.97;
+@bands.label = "Band Q";
+
+# The chord round the side of the bands. Down to 0 once the microphone is
+# on; see the head.
+@chord = 0.35;
+@chord.widget = 1;
+@chord.min = 0;
+@chord.max = 1;
+@chord.label = "Chord";
+
+# The consonants, which no band can carry: `s', `t', `f' and `sh' are noise
+# above where any formant is, and a chord has nothing up there to multiply.
+# Straight off the microphone, unvocoded, which is what every hardware
+# vocoder does and why they sound like they have teeth.
+@teeth = 0.6;
+@teeth.widget = 1;
+@teeth.min = 0;
+@teeth.max = 2;
+@teeth.label = "Teeth";
+
+scale voicing "C3 G3 A#3 D4 F4 G4 C5";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 0.9;
+    ceiling = 0.9;
+    smooth  = 2;
+};
+
+# ---- the instrument ----------------------------------------------------
+
+# A divide-down string machine: a sawtooth per key through a chorus, which
+# is a continuous spectrum with no gaps in it. That is what a carrier has
+# to be -- a vocoder can only turn down what is already there, so a carrier
+# with a hole where a formant lands has nothing to hand over.
+instrument pads {
+    dsp "strings.dsp";
+    amp = 80;
+
+    detune    = 11;
+    cutoff    = 5200;
+    res       = 0.1;
+    slow      = 0.35;
+    slowdepth = 6 ms;
+
+    effect "fx/vocoder-mic.dsp" {
+        drive     = @gain;
+        level     = @talk;
+        res       = @bands;
+        dry       = @chord;
+        sibilance = @teeth;
+        speed     = 2.2;
+        hiss      = 5000;
+    };
+};
+
+# ---- what it plays -----------------------------------------------------
+
+# Slow, overlapping, and nothing clever. A vocoder wants a carrier that is
+# *sounding* when you talk into it, so the holds are longer than the gaps
+# and the notes pile up into a chord rather than arriving as a line.
+chain held {
+    stage src gen::eno_line {
+        notes      = voicing;
+        period     = 2.4 s;
+        jitter     = 0.8 s;
+        prob       = 0.9;
+        hold       = 9 s;
+        vel        = 70;
+        vel_jitter = 8;
+    };
+    sink { instrument = pads; };
+};
+
+# And a low one under it, so there is something in the bottom bands for a
+# vowel to land on.
+chain root {
+    stage src gen::eno_line {
+        notes  = "C2 G2";
+        period = 7.5 s;
+        jitter = 1.5 s;
+        prob   = 0.85;
+        hold   = 13 s;
+        vel    = 58;
+    };
+    sink { instrument = pads; };
+};

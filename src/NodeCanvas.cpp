@@ -1,0 +1,1293 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include "config.h"
+
+/* This file used M_PI with no fallback and compiled anyway, because the
+ * gtkmm include chain happened to smuggle one in. That was luck rather
+ * than a decision, and there is no gtkmm here any more to be lucky with. */
+#include "thMath.h"
+
+#include "think.h"
+
+#include <algorithm>
+#include <cmath>
+#include <chrono>   /* onDraw times itself; see drawCount() in the header */
+
+#include "NodeCanvas.h"
+
+/* Palette. Kept flat and low-contrast so the wires stay the loudest thing on
+   screen -- in a signal-flow diagram the connections are the content. Not
+   so low a node cannot be found: its box's edge is 3:1 on the ground, and
+   dimmed text 4.5:1 on what it is drawn on -- COL_DIM on a body, a strip
+   or a probe, COL_HEAD_DIM on a title bar -- as WCAG asks of an outline
+   and of text. */
+#define COL_BG        0.16, 0.17, 0.19
+#define COL_BOX       0.24, 0.25, 0.28
+#define COL_BOX_EDGE  0.46, 0.48, 0.52
+#define COL_HEAD      0.30, 0.32, 0.36
+#define COL_IO_HEAD   0.24, 0.36, 0.44
+#define COL_TEXT      0.88, 0.89, 0.91
+#define COL_DIM       0.68, 0.70, 0.74
+#define COL_HEAD_DIM  0.84, 0.86, 0.89
+#define COL_WIRE      0.55, 0.72, 0.85
+#define COL_FEEDBACK  0.88, 0.55, 0.40
+#define COL_PORT_IN   0.60, 0.75, 0.55
+#define COL_PORT_OUT  0.80, 0.72, 0.50
+#define COL_SELECT    0.95, 0.85, 0.45
+#define COL_GROWN_HEAD 0.18, 0.40, 0.26
+#define COL_ATTACH    0.27, 0.25, 0.33
+#define COL_CUT       0.90, 0.42, 0.38
+#define COL_CTL_HEAD  0.34, 0.30, 0.44
+
+/* An expression's head, distinct from a node's and from a control's. It is
+   neither: the box is not in the file as a node, and there is nothing on it
+   to turn. */
+#define COL_EXPR_HEAD 0.30, 0.38, 0.32
+#define COL_TRACK     0.16, 0.17, 0.19
+#define COL_FILL      0.62, 0.55, 0.82
+#define COL_HANDLE    0.86, 0.83, 0.94
+
+/* A probe panel. Cooler and darker than a control strip (COL_ATTACH), because
+   the two sit in the same stack on the same node and the eye needs to tell a
+   thing you watch from a thing you turn without reading either. */
+#define COL_PROBE     0.20, 0.26, 0.30
+
+#define PORT_R  3.5
+
+/* A value in as few characters as say it: a strip has about five of them
+   to the right of its track, and "%.4g" spends nine on 11470 as
+   "1.147e+04", which runs off the strip and into the node beside it.
+   The unit is chosen by the value after rounding, so 999999 is "1M" and
+   not "1e+03k". Below 1, three figures: "0.4372" is a character too many. */
+static string compactValue (double v)
+{
+    char buf[32];
+    const double a = fabs(v);
+
+    if (!std::isfinite(v))
+        snprintf(buf, sizeof(buf), "%g", v);
+    else if (a < 1.0)
+        snprintf(buf, sizeof(buf), "%.3g", v);
+    else if (a < 9999.5)
+        snprintf(buf, sizeof(buf), "%.4g", v);
+    else if (a < 999.5e3)
+        snprintf(buf, sizeof(buf), "%.3gk", v / 1e3);
+    else if (a < 999.5e6)
+        snprintf(buf, sizeof(buf), "%.3gM", v / 1e6);
+    else
+        snprintf(buf, sizeof(buf), "%.3g", v);
+
+    return buf;
+}
+
+/* `text' cut to fit `width' in the current font, with an ellipsis where it
+   was cut. A hard clip left "Filter Envel" looking like a name rather than
+   part of one. Cuts on a character boundary, never inside a UTF-8
+   sequence. */
+static string fitText (const Cairo::RefPtr<Cairo::Context> &cr,
+                       const string &text, double width)
+{
+    Cairo::TextExtents te;
+
+    cr->get_text_extents(text, te);
+
+    if (te.x_advance <= width)
+        return text;
+
+    static const string ELLIPSIS = "\xe2\x80\xa6";
+
+    /* Where a cut may go: before each character, never inside a UTF-8
+       sequence. The longest prefix that fits with the ellipsis is found by
+       bisection, since this runs for every box on every frame and a
+       measure in the browser is a call out to Canvas2D. */
+    vector<size_t> cuts;
+
+    for (size_t i = 1; i < text.size(); i++)
+        if (((unsigned char)text[i] & 0xc0) != 0x80)
+            cuts.push_back(i);
+
+    /* No space before the ellipsis: "Filter …" wastes the one character
+       there is room for. */
+    auto candidate = [&] (size_t k)
+    {
+        string cut = text.substr(0, cuts[k]);
+
+        while (!cut.empty() && cut.back() == ' ')
+            cut.pop_back();
+
+        return cut + ELLIPSIS;
+    };
+
+    string best = ELLIPSIS;
+    size_t lo = 0, hi = cuts.size();
+
+    while (lo < hi)
+    {
+        const size_t mid = (lo + hi) / 2;
+        const string c = candidate(mid);
+
+        cr->get_text_extents(c, te);
+
+        if (te.x_advance <= width)
+        {
+            best = c;
+            lo = mid + 1;
+        }
+        else
+            hi = mid;
+    }
+
+    return best;
+}
+
+
+NodeCanvas::NodeCanvas (void)
+    : graph_(NULL), dragBox_(-1), dragDX_(0), dragDY_(0),
+      hoverBox_(-1), hoverPort_(-1), selBox_(-1),
+      bandOn_(false), bandX0_(0), bandY0_(0), bandX1_(0), bandY1_(0),
+      wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
+      wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
+      hoverEdge_(-1), dragSlider_(-1),
+      drawCount_(0), drawMicros_(0.0)
+{
+}
+
+/* What CanvasContent needs to size and fit the view: the graph's own
+   extent, before zoom. */
+void NodeCanvas::contentExtent (double &w, double &h) const
+{
+    w = graph_ ? graph_->width() : 0;
+    h = graph_ ? graph_->height() : 0;
+}
+
+void NodeCanvas::setGraph (NodeGraph *graph)
+{
+    graph_ = graph;
+    dragBox_ = hoverBox_ = hoverPort_ = selBox_ = -1;
+    sel_.clear();
+    bandOn_ = false;
+    wireBox_ = wirePort_ = wireTargetBox_ = wireTargetPort_ = -1;
+    hoverEdge_ = -1;
+    dragSlider_ = -1;
+
+    m_signal_selected_(-1);
+
+    contentResized();
+    requestRedraw();
+}
+
+bool NodeCanvas::isSelected (int box) const
+{
+    for (size_t i = 0; i < sel_.size(); i++)
+        if (sel_[i] == box)
+            return true;
+
+    return false;
+}
+
+void NodeCanvas::clearSelection (void)
+{
+    if (sel_.empty() && selBox_ < 0)
+        return;
+
+    sel_.clear();
+    selBox_ = -1;
+
+    m_signal_selected_(-1);
+    requestRedraw();
+}
+
+/* Selects exactly one box, which is what a plain click means.
+ *
+ * The early return on "already selected" is load-bearing beyond saving a
+ * redraw: it stops a click inside an existing multi-selection from collapsing
+ * it, so a drag that begins on one of several selected nodes moves them all.
+ * That only holds while the selection really is just this box. */
+void NodeCanvas::setSelected (int box)
+{
+    if (box == selBox_ && sel_.size() == (box < 0 ? 0u : 1u))
+        return;
+
+    sel_.clear();
+
+    if (box >= 0)
+        sel_.push_back(box);
+
+    selBox_ = box;
+
+    m_signal_selected_(selBox_);
+    requestRedraw();
+}
+
+/* Right-click: says what is under the pointer and lets the editor decide what
+   that means. Deliberately without selecting or otherwise disturbing anything
+   -- a menu that moved the selection out from under you before opening would
+   be its own bug. */
+void NodeCanvas::onRightPressed (int nPress, double x, double y)
+{
+    (void)nPress;
+
+    if (graph_ == NULL)
+        return;
+
+    double gx, gy;
+
+    toContent(x, y, gx, gy);
+
+    int pb = -1, pp = -1;
+
+    if (!graph_->portAt(gx, gy, pb, pp))
+    {
+        pb = graph_->boxAt(gx, gy);
+        pp = -1;
+    }
+
+    m_signal_context_(pb, pp, x, y);
+}
+
+void NodeCanvas::onPressed (int nPress, double x, double y)
+{
+    if (graph_ == NULL)
+        return;
+
+    double gx, gy;
+
+    toContent(x, y, gx, gy);
+
+    /* Double-click on a panel: open it properly.
+     *
+     * Before everything below, because a panel is a box and the first click of
+     * the pair has already selected it -- letting the second fall through
+     * would start a drag on a box that cannot be dragged, which does nothing,
+     * but only by accident. */
+    if (nPress == 2)
+    {
+        const int box = graph_->boxAt(gx, gy);
+
+        if (box >= 0 && graph_->boxes()[box].isProbe)
+        {
+            m_signal_activated_(box);
+            return;
+        }
+    }
+
+    /* A slider takes precedence over the box it is drawn on, or a control
+       could never be adjusted -- only dragged around. */
+    const int slider = graph_->sliderAt(gx, gy);
+
+    if (slider >= 0)
+    {
+        dragSlider_ = slider;
+
+        const double v = graph_->sliderValueAt(slider, gx);
+
+        graph_->setControlValue(slider, (float)v);
+
+        setSelected(slider);
+        m_signal_control_(slider, v, false);
+        requestRedraw();
+
+        return;
+    }
+
+    /* A port takes precedence over the box it sits on: the handles straddle
+       the edge, so a click there means "wire", not "move". */
+    int pb = -1, pp = -1;
+
+    if (graph_->portAt(gx, gy, pb, pp))
+    {
+        wireBox_ = pb;
+        wirePort_ = pp;
+        wireX_ = gx;
+        wireY_ = gy;
+        wireTargetBox_ = wireTargetPort_ = -1;
+        wireTargetOk_ = false;
+
+        setSelected(pb);
+        requestRedraw();
+
+        return;
+    }
+
+    /* Clicking a wire and pressing Delete is one interaction too many for
+       something this small, so a click on a wire removes it. The window
+       confirms nothing -- Revert is right there, and nothing has been written
+       to the file yet. */
+    const int edge = graph_->edgeAt(gx, gy);
+
+    if (edge >= 0 && graph_->boxAt(gx, gy) < 0)
+    {
+        m_signal_disconnect_(edge);
+        return;
+    }
+
+    int hit = graph_->boxAt(gx, gy);
+
+    /* A press on a strip is a press on the node it belongs to.
+     *
+     * The slider was handled above, so what is left is the label and the
+     * margins around it -- and a strip has no life of its own there. Taking it
+     * at face value collapsed a multi-selection down to the strip and then
+     * started a drag that went nowhere, because moveBox refuses to move an
+     * attached box. Both follow from treating as independent something the
+     * rest of the code is careful to say is not. */
+    if (hit >= 0 && graph_->boxes()[hit].attachedTo >= 0)
+        hit = graph_->boxes()[hit].attachedTo;
+
+    /* Empty canvas: start a rubber band rather than doing nothing.
+     *
+     * Only from empty space, so it cannot be confused with anything else: a
+     * press on a box drags it, on a port draws a wire, on a slider moves it,
+     * on a wire cuts it. Nothing was left for a press on the background to
+     * mean, which is what makes the gesture free to take. */
+    if (hit < 0)
+    {
+        bandOn_ = true;
+        bandX0_ = bandX1_ = gx;
+        bandY0_ = bandY1_ = gy;
+
+        clearSelection();
+
+        return;
+    }
+
+    /* Selecting on press rather than on release: a drag should show you what
+       you are dragging while you drag it.
+
+       A press inside an existing selection leaves it alone, so several nodes
+       can be gathered and then dragged as a group. setSelected collapses to
+       the one box in every other case. */
+    if (!isSelected(hit))
+        setSelected(hit);
+    else if (hit != selBox_)
+    {
+        /* Still worth telling the panel which one was touched. */
+        selBox_ = hit;
+        m_signal_selected_(selBox_);
+        requestRedraw();
+    }
+
+    dragBox_ = hit;
+    dragDX_ = gx - graph_->boxes()[hit].x;
+    dragDY_ = gy - graph_->boxes()[hit].y;
+
+    return;
+}
+
+void NodeCanvas::onReleased (int nPress, double x, double y)
+{
+    /* Which button came up does not matter: the gesture only watches one. */
+    (void)nPress; (void)x; (void)y;
+
+    if (dragSlider_ >= 0)
+    {
+        const int s = dragSlider_;
+
+        dragSlider_ = -1;
+
+        /* The committing emit. Everything before this was live feedback. */
+        m_signal_control_(s, (double)graph_->boxes()[s].ctlValue, true);
+
+        requestRedraw();
+
+        return;
+    }
+
+    if (wireBox_ >= 0)
+    {
+        const int fromBox = wireBox_, fromPort = wirePort_;
+        const int toBox = wireTargetBox_, toPort = wireTargetPort_;
+
+        wireBox_ = wirePort_ = -1;
+        wireTargetBox_ = wireTargetPort_ = -1;
+
+        requestRedraw();
+
+        if (toBox < 0)
+            return;             /* dropped on nothing; no complaint needed */
+
+        /* Dragging output-to-input and input-to-output are the same gesture,
+           so whichever end is the input becomes the destination. */
+        int a = fromBox, ap = fromPort, z = toBox, zp = toPort;
+
+        if (graph_->boxes()[a].ports[ap].isInput)
+        {
+            a = toBox; ap = toPort;
+            z = fromBox; zp = fromPort;
+        }
+
+        string why;
+
+        if (!graph_->canConnect(a, ap, z, zp, why))
+        {
+            m_signal_refused_(why);
+            return;
+        }
+
+        m_signal_connect_(a, ap, z, zp);
+
+        return;
+    }
+
+    if (bandOn_)
+    {
+        bandOn_ = false;
+
+        const double x0 = bandX0_ < bandX1_ ? bandX0_ : bandX1_;
+        const double x1 = bandX0_ < bandX1_ ? bandX1_ : bandX0_;
+        const double y0 = bandY0_ < bandY1_ ? bandY0_ : bandY1_;
+        const double y1 = bandY0_ < bandY1_ ? bandY1_ : bandY0_;
+
+        /* The geometry is NodeGraph's, so it can be checked without a
+           display -- see boxesIn, and dspgraph. */
+        graph_->boxesIn(x0, y0, x1, y1, sel_);
+
+        /* The panel can only speak for one node, so it gets the single box
+           when that is what was gathered and nothing otherwise. */
+        selBox_ = (sel_.size() == 1) ? sel_[0] : -1;
+
+        m_signal_selected_(selBox_);
+        m_signal_selection_((int)sel_.size());
+
+        requestRedraw();
+
+        return;
+    }
+
+    if (dragBox_ >= 0)
+    {
+        /* A box dragged past the old bounds needs the scrollable area to grow
+           with it, or it becomes unreachable. */
+        graph_->refreshExtent();
+        contentResized();
+
+        m_signal_box_moved_(dragBox_);
+        dragBox_ = -1;
+    }
+
+    return;
+}
+
+void NodeCanvas::onMotion (double x, double y)
+{
+    if (graph_ == NULL)
+        return;
+
+    double gx, gy;
+
+    toContent(x, y, gx, gy);
+
+    if (dragBox_ >= 0)
+    {
+        double nx = gx - dragDX_;
+        double ny = gy - dragDY_;
+
+        if (sel_.size() > 1)
+        {
+            /* One delta for the whole group, clamped once against whichever
+               member is furthest left and furthest up.
+            
+               Clamping each box on its own looked equivalent and was not: if
+               the box you grabbed is not the leftmost, the ones to its left
+               hit zero first and stop while it keeps going, so the group
+               closes up. Which boxes move and which stick then depends on
+               which one you happened to grab. Deciding the delta once, from
+               the group's own edge, keeps the arrangement rigid -- the whole
+               selection stops together at the boundary. */
+            graph_->moveSelection(sel_,
+                                  nx - graph_->boxes()[dragBox_].x,
+                                  ny - graph_->boxes()[dragBox_].y);
+        }
+        else
+        {
+            /* Keep boxes out of negative space: the canvas has no origin
+               offset, so anything dragged above or left of zero would be
+               unreachable. */
+            if (nx < 0) nx = 0;
+            if (ny < 0) ny = 0;
+
+            graph_->moveBox(dragBox_, nx, ny);
+        }
+
+        requestRedraw();
+
+        return;
+    }
+
+    if (bandOn_)
+    {
+        bandX1_ = gx;
+        bandY1_ = gy;
+
+        requestRedraw();
+
+        return;
+    }
+
+    if (dragSlider_ >= 0)
+    {
+        const double v = graph_->sliderValueAt(dragSlider_, gx);
+
+        graph_->setControlValue(dragSlider_, (float)v);
+
+        m_signal_control_(dragSlider_, v, false);
+        requestRedraw();
+
+        return;
+    }
+
+    if (wireBox_ >= 0)
+    {
+        wireX_ = gx;
+        wireY_ = gy;
+
+        int tb = -1, tp = -1;
+
+        wireTargetOk_ = false;
+
+        if (graph_->portAt(gx, gy, tb, tp) &&
+            !(tb == wireBox_ && tp == wirePort_))
+        {
+            /* Test the connection in the direction it would actually be made,
+               so the feedback while dragging matches what the drop will do. */
+            int a = wireBox_, ap = wirePort_, z = tb, zp = tp;
+
+            if (graph_->boxes()[a].ports[ap].isInput)
+            { a = tb; ap = tp; z = wireBox_; zp = wirePort_; }
+
+            string why;
+
+            wireTargetOk_ = graph_->canConnect(a, ap, z, zp, why);
+        }
+        else
+            tb = tp = -1;
+
+        wireTargetBox_ = tb;
+        wireTargetPort_ = tp;
+
+        requestRedraw();
+
+        return;
+    }
+
+    /* Hover feedback: ports, so the wire handles are discoverable, and wires,
+       so it is clear which one a click would remove. */
+    int hb = -1, hp = -1;
+
+    graph_->portAt(gx, gy, hb, hp);
+
+    int he = -1;
+
+    if (hb < 0 && graph_->boxAt(gx, gy) < 0)
+        he = graph_->edgeAt(gx, gy);
+
+    if (hb != hoverBox_ || hp != hoverPort_ || he != hoverEdge_)
+    {
+        hoverBox_ = hb;
+        hoverPort_ = hp;
+        hoverEdge_ = he;
+        requestRedraw();
+    }
+
+    return;
+}
+
+void NodeCanvas::onLeave (void)
+{
+    if (hoverBox_ >= 0 || hoverPort_ >= 0 || hoverEdge_ >= 0)
+    {
+        hoverBox_ = hoverPort_ = hoverEdge_ = -1;
+        requestRedraw();
+    }
+}
+
+/* An attached control: label, track, number, on one line against its host.
+ *
+ * No title bar, no port handle, no outline to speak of -- it is not a node and
+ * should not look like one. The chrome is a tab on the right edge, saying at a
+ * glance which box the strip belongs to; the short wire dropping from the
+ * strip to a port below says which of that box's inputs it drives, which
+ * neither the tab nor sitting on top of the box can. */
+void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
+                               const NodeGraph::Box &b, bool highlit,
+                               bool selected)
+{
+    cr->set_line_width(1.0);
+
+    /* The group's name above its first row, and a rule under it. Four sliders
+       titled "Envelope" read as one control; four untitled ones read as four
+       coincidences. */
+    if (b.groupHead && !b.ctlGroup.empty())
+    {
+        cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                             Cairo::ToyFontFace::Weight::BOLD);
+        cr->set_font_size(8.0);
+        cr->set_source_rgb(COL_DIM);
+        cr->move_to(b.x + 4.0, b.y - 3.0);
+        cr->show_text(b.ctlGroup);
+
+        cr->rectangle(b.x, b.y - 1.5, b.w, 1.0);
+        cr->set_source_rgb(COL_ATTACH);
+        cr->fill();
+    }
+
+    cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
+    cr->set_source_rgb(COL_ATTACH);
+    cr->fill_preserve();
+
+    if (selected)
+    {
+        cr->set_source_rgb(COL_SELECT);
+        cr->set_line_width(2.0);
+        cr->stroke();
+        cr->set_line_width(1.0);
+    }
+    else if (highlit)
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->stroke();
+    }
+    else
+        cr->begin_new_path();
+
+    /* The tab: a short bar on the right edge, pointing at the host. */
+    cr->rectangle(b.x + b.w - 2.0, b.y + 3.0, 3.0, b.h - 6.0);
+    cr->set_source_rgb(COL_FILL);
+    cr->fill();
+
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+    cr->set_font_size(9.0);
+    cr->set_source_rgb(COL_TEXT);
+
+    /* The label, cut to its share of the strip so a long one cannot run
+       under the track. */
+    cr->move_to(b.x + 5.0, b.y + b.h * 0.5 + 3.0);
+    cr->show_text(fitText(cr, b.ctlLabel,
+                         b.w * NodeGraph::stripLabelShare() - 9.0));
+
+    drawSlider(cr, b);
+}
+
+/* The body of a probe panel: a title row saying which output is being watched,
+   and the rest handed to the visual module through the painter. */
+void NodeCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr,
+                            int index, const NodeGraph::Box &b, bool highlit,
+                            bool selected)
+{
+    const double head = NodeGraph::probeHeadHeight();
+    const double bodyH = b.h - head;
+
+    cr->set_line_width(1.0);
+
+    cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
+    cr->set_source_rgb(COL_PROBE);
+    cr->fill_preserve();
+
+    if (selected)
+    {
+        cr->set_source_rgb(COL_SELECT);
+        cr->set_line_width(2.0);
+        cr->stroke();
+        cr->set_line_width(1.0);
+    }
+    else if (highlit)
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->stroke();
+    }
+    else
+        cr->begin_new_path();
+
+    /* Which output. The host is directly below and a node can have several
+       outputs -- filt::moog has three -- so adjacency alone does not say which
+       one this is watching. A control strip cannot carry this because its text
+       is already the label and the value; a panel has a title row for it. */
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+    cr->set_font_size(8.0);
+    cr->set_source_rgb(COL_DIM);
+
+    cr->save();
+    cr->rectangle(b.x + 3.0, b.y, b.w - 6.0, head);
+    cr->clip();
+    cr->move_to(b.x + 4.0, b.y + head - 3.0);
+    cr->show_text(b.probeArg);
+    cr->restore();
+
+    /* The module's name at the right, so a canvas carrying a scope and a meter
+       says which is which without either having to draw its own caption. */
+    Cairo::TextExtents ext;
+
+    cr->get_text_extents(b.probeVisual, ext);
+
+    cr->save();
+    cr->rectangle(b.x + b.w * 0.5, b.y, b.w * 0.5 - 3.0, head);
+    cr->clip();
+    cr->move_to(b.x + b.w - 4.0 - ext.width, b.y + head - 3.0);
+    cr->show_text(b.probeVisual);
+    cr->restore();
+
+    if (bodyH <= 0)
+        return;
+
+    /* Translated and clipped before the module sees it, so a plugin's box is
+       its own and a bug in one cannot smear across the canvas. thVisual::draw
+       clips again on its side; this one is about *where*, that one is about
+       *whether*, and neither is redundant -- the canvas is what knows the
+       panel's position and the host is what knows the module cannot be
+       trusted. */
+    cr->save();
+    cr->rectangle(b.x, b.y + head, b.w, bodyH);
+    cr->clip();
+    cr->translate(b.x, b.y + head);
+
+    if (probePainter_)
+        probePainter_(index, cr, (int)b.w, (int)bodyH);
+    else
+    {
+        /* Armed with nothing to show: a baseline through the middle, the way
+           a scope with no signal on it looks.
+         *
+         * The first attempt filled the body with COL_TRACK, which is the same
+           three numbers as COL_BG -- so an idle panel was a hole in the canvas
+           and read as a floating caption rather than a panel. The frame is
+           already filled with COL_PROBE; what this needs to add is evidence
+           that the body is a body. */
+        cr->set_source_rgb(COL_DIM);
+        cr->set_line_width(1.0);
+        cr->move_to(4.0, (double)(int)(bodyH * 0.5) + 0.5);
+        cr->line_to(b.w - 4.0, (double)(int)(bodyH * 0.5) + 0.5);
+        cr->stroke();
+    }
+
+    cr->restore();
+}
+
+void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
+                          const NodeGraph::Box &b, bool highlit, bool selected)
+{
+    /* Before the attachment test, because a probe panel is attached too and
+       drawAttached would draw it as a slider strip with no slider. */
+    if (b.isProbe)
+    {
+        drawProbe(cr, index, b, highlit, selected);
+        return;
+    }
+
+    if (b.attachedTo >= 0)
+    {
+        drawAttached(cr, b, highlit, selected);
+        return;
+    }
+
+    cr->set_line_width(1.0);
+
+    /* body */
+    cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
+    cr->set_source_rgb(COL_BOX);
+    cr->fill_preserve();
+    if (selected)
+    {
+        cr->set_source_rgb(COL_SELECT);
+        cr->set_line_width(2.5);
+    }
+    else if (highlit)
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->set_line_width(2.0);
+    }
+    else
+        cr->set_source_rgb(COL_BOX_EDGE);
+    cr->stroke();
+    cr->set_line_width(1.0);
+
+    /* title bar -- the io halves and the controls get their own colours, since
+       "midi in", "audio out" and the knobs are the parts of a patch you look
+       for first */
+    cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, 20.0);
+    if (b.isIoSource || b.isIoSink)
+        cr->set_source_rgb(COL_IO_HEAD);
+    else if (b.isControl)
+        cr->set_source_rgb(COL_CTL_HEAD);
+    else if (b.isExpr)
+        cr->set_source_rgb(COL_EXPR_HEAD);
+    else if (marked_.count(b.name))
+        cr->set_source_rgb(COL_GROWN_HEAD);
+    else
+        cr->set_source_rgb(COL_HEAD);
+    cr->fill();
+
+    string corner = b.isControl ? ("@" + b.ctlArg) : b.plugin;
+
+    /* A control still drawn as a box is one that several nodes share -- the
+       rest are strips against the thing they drive. Saying how many says why
+       this one is different, instead of leaving it looking like a control
+       that failed to attach. */
+    if (b.isControl)
+    {
+        int consumers = 0;
+
+        for (size_t e = 0; e < graph_->edges().size(); e++)
+            if (graph_->edges()[e].fromBox == (int)(&b - &graph_->boxes()[0]))
+                consumers++;
+
+        if (consumers > 1)
+        {
+            char buf[32];
+
+            snprintf(buf, sizeof(buf), "  shared x%d", consumers);
+            corner += buf;
+        }
+    }
+
+    /* The title and the corner share the bar. The title is what the box
+       is and has the first claim, up to two thirds of it; the corner gets
+       what is left, and both are cut to their share rather than drawn over
+       each other. */
+    const double bar = b.w - 12.0;
+    Cairo::TextExtents te;
+
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::ITALIC,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+    cr->set_font_size(8.0);
+    cr->get_text_extents(corner, te);
+
+    const double cornerW = corner.empty() ? 0.0 : te.x_advance + 6.0;
+
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::BOLD);
+    cr->set_font_size(10.0);
+    cr->set_source_rgb(COL_TEXT);
+    cr->move_to(b.x + 6, b.y + 14);
+
+    /* A control's label is what the .dsp author called it -- "Band Limit"
+       rather than "blim" -- and that is the useful thing to read. The bare
+       name goes in the right-hand corner where a node shows its plugin, so
+       the box still says which `@name' it is: the label is for reading, the
+       name is what the rest of the file refers to. */
+    const string title = fitText(cr, b.isControl ? b.ctlLabel : b.name,
+                                 std::max(bar - cornerW, bar * 2.0 / 3.0));
+
+    cr->get_text_extents(title, te);
+    cr->show_text(title);
+
+    const double titleW = te.x_advance;
+
+    if (!corner.empty())
+    {
+        cr->select_font_face("sans", Cairo::ToyFontFace::Slant::ITALIC,
+                             Cairo::ToyFontFace::Weight::NORMAL);
+        cr->set_font_size(8.0);
+        cr->set_source_rgb(COL_HEAD_DIM);
+
+        const string shown = fitText(cr, corner, bar - titleW - 6.0);
+
+        if (shown != "\xe2\x80\xa6")
+        {
+            cr->get_text_extents(shown, te);
+            cr->move_to(b.x + b.w - te.x_advance - 6, b.y + 14);
+            cr->show_text(shown);
+        }
+    }
+
+    if (b.isControl)
+    {
+        drawSlider(cr, b);
+
+        /* The one output port still wants drawing, so fall through to the
+           port loop rather than returning here. */
+    }
+
+    /* The arithmetic itself, under the title, where a node shows its ports'
+       values. It is the whole content of the box -- there is nothing else to
+       say about an expression, and the ports already name its leaves. Clipped
+       to the box rather than shortened: a long expression running off the
+       edge reads as "there is more of this", which an ellipsis in the middle
+       of someone's arithmetic does not. */
+    if (b.isExpr && !b.exprText.empty())
+    {
+        cr->save();
+        cr->rectangle(b.x + 1, b.y + 20, b.w - 2, b.h - 20);
+        cr->clip();
+
+        cr->select_font_face("monospace", Cairo::ToyFontFace::Slant::NORMAL,
+                             Cairo::ToyFontFace::Weight::NORMAL);
+        cr->set_font_size(9.0);
+        cr->set_source_rgb(COL_TEXT);
+        cr->move_to(b.x + 6, b.y + 20.0 + NodeGraph::exprTextRow() - 4.0);
+        cr->show_text(b.exprText);
+
+        cr->restore();
+    }
+
+    /* ports */
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+    cr->set_font_size(9.0);
+
+    for (size_t k = 0; k < b.ports.size(); k++)
+    {
+        const NodeGraph::Port &p = b.ports[k];
+
+        const bool hot = (hoverBox_ >= 0 &&
+                          &graph_->boxes()[hoverBox_] == &b &&
+                          (int)k == hoverPort_);
+
+        cr->arc(b.x + p.x, b.y + p.y, hot ? PORT_R + 2.0 : PORT_R, 0, 2 * M_PI);
+
+        /* Not `set_source_rgb(p.isInput ? COL_PORT_IN : COL_PORT_OUT)'.
+         *
+         * These macros are three comma-separated numbers, and the middle
+         * operand of ?: swallows commas: that expression parsed as
+         * set_source_rgb(isInput ? (0.60, 0.75, 0.55) : 0.80, 0.72, 0.50),
+         * i.e. red from the conditional with green and blue always 0.72 and
+         * 0.50. Inputs came out olive rather than green, and the two port
+         * colours differed only in the red channel. */
+        if (p.isInput)
+            cr->set_source_rgb(COL_PORT_IN);
+        else
+            cr->set_source_rgb(COL_PORT_OUT);
+
+        cr->fill();
+
+        cr->set_source_rgb(COL_DIM);
+
+        if (p.isInput)
+        {
+            cr->move_to(b.x + p.x + PORT_R + 4, b.y + p.y + 3);
+            cr->show_text(p.name);
+        }
+        else
+        {
+            Cairo::TextExtents te;
+            cr->get_text_extents(p.name, te);
+            cr->move_to(b.x + p.x - PORT_R - 4 - te.width, b.y + p.y + 3);
+            cr->show_text(p.name);
+        }
+    }
+}
+
+/* The slider on a control box: a track, the filled part up to the handle, the
+   handle, and the value.
+ *
+ * The geometry comes from NodeGraph::sliderGeometry, which is also what
+ * sliderAt() and sliderValueAt() use, so what is drawn and what is dragged are
+ * one thing. */
+void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
+                             const NodeGraph::Box &b)
+{
+    /* The index by pointer arithmetic rather than by scanning. drawBox is
+       handed a reference to an element of the vector, so the offset is exact;
+       scanning for it made drawing the controls quadratic in the number of
+       boxes, every frame, on the one code path that runs during a drag. */
+    const vector<NodeGraph::Box> &all = graph_->boxes();
+
+    if (all.empty() || &b < &all[0] || &b > &all[all.size() - 1])
+        return;
+
+    const int index = (int)(&b - &all[0]);
+
+    double x0, x1, y, hx;
+
+    if (!graph_->sliderGeometry(index, x0, x1, y, hx))
+        return;
+
+    cr->set_line_width(3.0);
+    cr->set_line_cap(Cairo::Context::LineCap::ROUND);
+
+    cr->move_to(x0, y);
+    cr->line_to(x1, y);
+    cr->set_source_rgb(COL_TRACK);
+    cr->stroke();
+
+    if (hx > x0)
+    {
+        cr->move_to(x0, y);
+        cr->line_to(hx, y);
+        cr->set_source_rgb(COL_FILL);
+        cr->stroke();
+    }
+
+    cr->set_line_cap(Cairo::Context::LineCap::BUTT);
+
+    /* A tick per value, when a control has few enough of them to draw.
+     *
+     * A stepped track and a continuous one are the same picture otherwise, and
+     * the difference only shows up when you drag one and it refuses to stop
+     * between two places -- which reads as a stiff slider rather than as a
+     * deliberate choice. The ticks say so before it is touched.
+     *
+     * Capped, because the same step of 1 that gives a waveform six positions
+     * gives an envelope time in samples eight hundred thousand, and drawing
+     * those would be a solid bar and a lot of frames. */
+    if (b.ctlStep > 0 && b.ctlDrawMax() > b.ctlDrawMin())
+    {
+        const double steps =
+            (double)(b.ctlDrawMax() - b.ctlDrawMin()) / (double)b.ctlStep;
+
+        if (steps >= 1 && steps <= 16)
+        {
+            cr->set_line_width(1.0);
+            cr->set_source_rgb(COL_TRACK);
+
+            for (int s = 0; s <= (int)steps; s++)
+            {
+                const double tx = x0 + (x1 - x0) * (s / steps);
+
+                cr->move_to(tx, y - 4.0);
+                cr->line_to(tx, y + 4.0);
+            }
+
+            cr->stroke();
+        }
+    }
+
+    cr->arc(hx, y, (index == dragSlider_) ? 6.0 : 5.0, 0, 2 * M_PI);
+    cr->set_source_rgb(COL_HANDLE);
+    cr->fill();
+
+    char buf[48];
+
+    /* The value's name where it has one -- "Triangle" says what a waveform is
+       and "3" says where it comes in a list nobody can see. Falls back to the
+       number for a value the plugin does not name, which is a state a .dsp can
+       be in: nothing stops it storing a 7 in a selector with six cases. */
+    const string &named = b.ctlValueName();
+
+    if (!named.empty())
+        snprintf(buf, sizeof(buf), "%s", named.c_str());
+    else if (b.ctlStep == 1)
+        snprintf(buf, sizeof(buf), "%s",
+                 compactValue((double)(long long)b.ctlValue).c_str());
+    else
+        snprintf(buf, sizeof(buf), "%s", compactValue(b.ctlValue).c_str());
+
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+    cr->set_font_size(8.0);
+    cr->set_source_rgb(COL_DIM);
+
+    Cairo::TextExtents te;
+
+    if (b.attachedTo >= 0)
+    {
+        /* On one line: the number goes to the right of the track, where the
+           strip has room, and the range is dropped. A strip is for reading at
+           a glance and adjusting; the range is in the panel when wanted. */
+        cr->move_to(x1 + 6.0, y + 3.0);
+
+        /* Cut to what is left before the tab on the right edge: a value's
+           name ("Triangle") can still be longer than a number is. */
+        cr->show_text(fitText(cr, buf, b.x + b.w - 3.0 - (x1 + 6.0)));
+
+        return;
+    }
+
+    /* The number, right-aligned under the track. Four significant figures is
+       enough for anything with a declared range and short enough to fit. */
+    cr->get_text_extents(buf, te);
+    cr->move_to(b.x + b.w - te.width - 6, b.y + b.h - 3);
+    cr->show_text(buf);
+
+    /* ...and the range at the left, so the slider's travel means something. A
+       list of named values says how many there are instead: "0-5" is the same
+       information twice when the value beside it already reads "Triangle". */
+    if (!b.ctlValueNames.empty())
+        snprintf(buf, sizeof(buf), "%d of %d", (int)b.ctlValue + 1,
+                 (int)b.ctlValueNames.size());
+    else if (b.ctlStep == 1)
+        snprintf(buf, sizeof(buf), "%d\xe2\x80\x93%d", (int)b.ctlDrawMin(),
+                 (int)b.ctlDrawMax());
+    else
+        /* An en dash, since a hyphen made -1..1 read "-1-1". */
+        snprintf(buf, sizeof(buf), "%s\xe2\x80\x93%s",
+                 compactValue(b.ctlMin).c_str(),
+                 compactValue(b.ctlMax).c_str());
+
+    cr->move_to(b.x + 6, b.y + b.h - 3);
+    cr->show_text(buf);
+}
+
+void NodeCanvas::drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
+                           bool highlit)
+{
+    const NodeGraph::Edge &e = graph_->edges()[edge];
+
+    /* The curve comes from the graph, which is also what edgeAt() tests
+       against -- so what is drawn and what can be clicked are the same shape
+       by construction rather than by two functions agreeing. */
+    double xs[4], ys[4];
+
+    graph_->edgeCurve(edge, xs, ys);
+
+    cr->move_to(xs[0], ys[0]);
+    cr->curve_to(xs[1], ys[1], xs[2], ys[2], xs[3], ys[3]);
+
+    if (highlit)
+    {
+        /* A wire under the pointer is about to be removed if clicked, so it
+           gets the warning colour rather than a subtle emphasis. */
+        cr->set_source_rgb(COL_CUT);
+        cr->set_line_width(2.6);
+        cr->unset_dash();
+    }
+    else if (e.feedback)
+    {
+        cr->set_source_rgb(COL_FEEDBACK);
+        cr->set_line_width(1.6);
+
+        vector<double> dashes;
+        dashes.push_back(4.0);
+        dashes.push_back(3.0);
+        cr->set_dash(dashes, 0.0);
+    }
+    else
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->set_line_width(1.3);
+        cr->unset_dash();
+    }
+
+    cr->stroke();
+    cr->unset_dash();
+}
+
+/* The wire being dragged, from its origin port to the pointer. */
+void NodeCanvas::drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr)
+{
+    if (wireBox_ < 0)
+        return;
+
+    double x1, y1;
+
+    graph_->portPos(wireBox_, wirePort_, x1, y1);
+
+    double x2 = wireX_, y2 = wireY_;
+
+    /* Snap the loose end to the port it would land on, so the wire visibly
+       commits before the button comes up. */
+    if (wireTargetBox_ >= 0)
+        graph_->portPos(wireTargetBox_, wireTargetPort_, x2, y2);
+
+    double reach = (x2 - x1) * 0.5;
+
+    if (reach < 30.0)
+        reach = 30.0 + (x1 - x2) * 0.25;
+
+    cr->move_to(x1, y1);
+    cr->curve_to(x1 + reach, y1, x2 - reach, y2, x2, y2);
+
+    if (wireTargetBox_ >= 0 && !wireTargetOk_)
+        cr->set_source_rgb(COL_CUT);        /* would be refused */
+    else if (wireTargetBox_ >= 0)
+        cr->set_source_rgb(COL_SELECT);     /* would connect */
+    else
+        cr->set_source_rgb(COL_DIM);        /* nothing under the pointer */
+
+    cr->set_line_width(2.0);
+
+    vector<double> dashes;
+    dashes.push_back(5.0);
+    dashes.push_back(3.0);
+    cr->set_dash(dashes, 0.0);
+
+    cr->stroke();
+    cr->unset_dash();
+
+    if (wireTargetBox_ >= 0)
+    {
+        cr->arc(x2, y2, PORT_R + 2.5, 0, 2 * M_PI);
+        cr->set_line_width(1.5);
+        cr->stroke();
+    }
+}
+
+void NodeCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                       int height)
+{
+    /* See drawCount() in the header. Not conditional: two counters and a clock
+       read per frame, against a function that rasterises hundreds of boxes. */
+    const std::chrono::steady_clock::time_point drawStart =
+        std::chrono::steady_clock::now();
+
+    drawGraph(cr, width, height);
+
+    drawMicros_ += std::chrono::duration<double, std::micro>(
+                       std::chrono::steady_clock::now() - drawStart).count();
+    drawCount_++;
+}
+
+void NodeCanvas::drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                            int height)
+{
+    cr->set_source_rgb(COL_BG);
+    cr->rectangle(0, 0, width, height);
+    cr->fill();
+
+    if (graph_ == NULL)
+        return;
+
+    cr->save();
+    cr->scale(zoom(), zoom());
+
+    /* Wires first so boxes sit on top of them; a wire disappearing behind a
+       box reads better than one crossing its face. */
+    for (size_t e = 0; e < graph_->edges().size(); e++)
+        drawEdge(cr, (int)e, (int)e == hoverEdge_);
+
+    const vector<NodeGraph::Box> &boxes = graph_->boxes();
+
+    for (size_t b = 0; b < boxes.size(); b++)
+        drawBox(cr, (int)b, boxes[b],
+                (int)b == dragBox_ || (int)b == hoverBox_,
+                isSelected((int)b));
+
+    /* On top of everything: it is the thing being manipulated. */
+    drawPendingWire(cr);
+
+    /* The rubber band, last of all and over the boxes it is gathering. Dashed
+       and unfilled: a translucent fill would tint every node under it, which
+       is the one thing the band must not do -- the point is to see what is
+       being caught. */
+    if (bandOn_)
+    {
+        const double x = bandX0_ < bandX1_ ? bandX0_ : bandX1_;
+        const double y = bandY0_ < bandY1_ ? bandY0_ : bandY1_;
+        const double w = bandX0_ < bandX1_ ? bandX1_ - bandX0_
+                                           : bandX0_ - bandX1_;
+        const double h = bandY0_ < bandY1_ ? bandY1_ - bandY0_
+                                           : bandY0_ - bandY1_;
+
+        vector<double> dashes;
+
+        dashes.push_back(4.0);
+        dashes.push_back(3.0);
+
+        cr->save();
+        cr->set_line_width(1.0 / zoom());
+        cr->set_dash(dashes, 0.0);
+        cr->set_source_rgb(COL_SELECT);
+        cr->rectangle(x, y, w, h);
+        cr->stroke();
+        cr->restore();
+    }
+
+    cr->restore();
+}

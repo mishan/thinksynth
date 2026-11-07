@@ -1,0 +1,1018 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * mirror.js -- the same module again, in a worker, composing what the
+ * worklet composes and drawing it.
+ *
+ * The composer view shows real composer instances -- a Life board, a CA's
+ * grid -- and the instances that are sounding are in the worklet, on the
+ * audio thread, in a realm the page cannot reach into. So there is a
+ * second set of them here, fed the messages the worklet is fed (host.js
+ * posts each to both ports) and stepped to the frame the worklet's last
+ * tape batch reached. Its synth never renders: notes stop at the door and
+ * process() applies the queue and skips the DSP (thSynth::setSilent).
+ *
+ * A worker rather than the main thread, for three reasons in order: the
+ * mirror's job is to receive the same messages the worklet receives, and a
+ * worker with the worklet's own handler gets that by construction; a
+ * fast-forward runs for seconds and must not freeze the page; and docs/JAM.md's
+ * description of the mirror -- another peer that renders nothing -- is then
+ * literally what it is.
+ *
+ * What it sends back: its own tape, for the page to hold against the
+ * worklet's, and display lists -- the composer canvas and the piano roll
+ * both live here, next to the scheduler they draw from, and what crosses
+ * is the list of ops the page replays on a Canvas2D (cairo-canvas2d). The
+ * roll is here for a reason of its own on top of that one: half of what it
+ * draws is the scheduler's *pending* queue, and a tape -- which is what the
+ * page used to draw a roll from -- is by definition what has already been
+ * delivered.
+ *
+ * A gesture goes the other way and comes back round: the page sends the
+ * pointer, the canvas here works out which stage it landed on and where in
+ * its picture, and what comes back is a record the page stamps and sends
+ * as a command -- to the worklet, to the peers, and to this instance,
+ * which hears its own click at its time like everyone else (section 5).
+ */
+
+import { apply } from './engine.js';
+import { answer, askToHear, createSilent } from './silent.js';
+import { drain } from './tape.js';
+
+/* thinkweb.cpp's CanvasContent::Key. */
+const KEYS = { Escape: 1 };
+
+let M = null;
+const early = [];
+
+/* The page's commands by number, until the worklet says where it took them. */
+const held = new Map();
+
+let events = [];
+let epoch = 0;
+
+/* The last size the page asked for a drawing at, in CSS pixels, and the
+   device pixel ratio it will replay at. The canvas lays out in CSS pixels
+   and the replayer scales; the ratio is here only so that a list drawn for
+   one size is not replayed at another.
+
+   One per canvas: the composer view and the piano roll are two panes and
+   two boxes, and a single `view' had whichever of them drew last decide
+   how big the other one was. */
+let view = { w: 0, h: 0, dpr: 1 };
+let rollView = { w: 0, h: 0, dpr: 1 };
+
+const post = (m, transfer) => postMessage(m, transfer ?? []);
+const log = (text) => post({ type: 'log', text: `mirror: ${text}` });
+
+async function start (m)
+{
+    M = await createSilent(m, log);
+
+    epoch = M._tw_epoch();
+    post({ type: 'ready' });
+
+    for (const m of early.splice(0))
+        receive(m);
+}
+
+/* The piece the canvas is now showing, in the little the page needs to
+ * know about it: the chains by name, and their stages with whether each
+ * has a picture and whether that picture is a control. Sent once per load,
+ * and again as `chains' after an edit.
+ *
+ * The page uses it to offer the stages that can be painted on; everything
+ * else about the drawing it never needs to know, because it does not do
+ * the drawing.
+ */
+/* The canvas to the view's width: columns chosen at 1:1, and then scaled
+   down if even one of them is wider than the view. */
+function fitToWidth ()
+{
+    M._tw_canvas_set_zoom(1);
+    M._tw_canvas_refit_columns();
+    M._tw_canvas_zoom_to_width();
+}
+
+function showPiece ()
+{
+    if (!M._tw_canvas_show())
+    {
+        post({ type: 'piece', chains: [] });
+        return;
+    }
+
+    /* A piece that has just loaded is a drawing that did not exist when
+       the page last asked for a fit -- and a fit of nothing is dropped,
+       since there is nothing to fit to. So the fit happens here, where
+       there is -- from 1:1, with the columns chosen for that, so the zoom
+       is this piece's and not whatever the last one left. */
+    fitToWidth();
+
+    post({ type: 'piece', chains: chainsNow() });
+    editsShown = M._tw_edit_count();
+}
+
+/* How many edits the piece had when its chains were last posted. */
+let editsShown = 0;
+
+function chainsNow ()
+{
+    const chains = [];
+
+    for (let c = 0; c < M._tw_chain_count(); c++)
+    {
+        const stages = [];
+
+        for (let s = 0; s < M._tw_stage_count(c); s++)
+            stages.push({
+                stage: s,
+                name: M.UTF8ToString(M.ccall('tw_stage_name', 'number',
+                                             ['number', 'number'], [c, s])),
+                label: M.ccall('tw_stage_label', 'string',
+                               ['number', 'number'], [c, s]),
+                draws: M._tw_stage_draws(c, s) !== 0,
+                takesInput: M._tw_stage_takes_input(c, s) !== 0,
+            });
+
+        chains.push({
+            chain: c,
+            name: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                         ['number'], [c])),
+            /* Where this chain is heard, for a view that draws a track
+               and has to say what plays it. -1 for a chain that only
+               writes knobs. */
+            channel: M._tw_chain_channel(c),
+            stages,
+        });
+    }
+
+    return chains;
+}
+
+/* What the piece calls a chain and a stage: what a command names the stage
+   by, beside its indices, so that it still reaches it after an edit has
+   moved it (thinkweb.cpp, namedStage). */
+function namesOf (chain, stage)
+{
+    return {
+        chainName: M.ccall('tw_chain_name', 'string', ['number'], [chain]),
+        stageName: M.ccall('tw_stage_label', 'string', ['number', 'number'],
+                           [chain, stage]),
+    };
+}
+
+/* Everything the canvas has decided to send since it was last asked. Each
+   becomes an `input' command on the page. */
+function sendGestures ()
+{
+    for (let k = 0; k < M._tw_canvas_input_count(); k++)
+        post({
+            type: 'input',
+            chain: M._tw_canvas_input_chain(k),
+            stage: M._tw_canvas_input_stage(k),
+            ...namesOf(M._tw_canvas_input_chain(k),
+                       M._tw_canvas_input_stage(k)),
+            kind: M._tw_canvas_input_kind(k),
+            button: M._tw_canvas_input_button(k),
+            x: M._tw_canvas_input_x(k),
+            y: M._tw_canvas_input_y(k),
+            w: M._tw_canvas_input_w(k),
+            h: M._tw_canvas_input_h(k),
+        });
+
+    M._tw_canvas_inputs_clear();
+
+    /* A chain's M or S. Sent, not applied: the flag changes when the
+       command comes back, on this instance as on the worklet. */
+    for (let k = 0; k < M._tw_canvas_mix_count(); k++)
+        post({
+            type: M._tw_canvas_mix_solo(k) ? 'solo' : 'mute',
+            chain: M._tw_canvas_mix_chain(k),
+            on: M._tw_canvas_mix_on(k) !== 0,
+        });
+
+    M._tw_canvas_mixes_clear();
+
+    /* A knob node's track, dragged: a knob command on the page, by the
+       index the module gave the knob at the load. */
+    for (let k = 0; k < M._tw_canvas_knob_count(); k++)
+        post({
+            type: 'canvasknob',
+            knob: M._tw_canvas_knob_index(k),
+            name: M.UTF8ToString(M._tw_canvas_knob_name(k)),
+            value: M._tw_canvas_knob_value(k),
+            commit: M._tw_canvas_knob_commit(k) !== 0,
+        });
+
+    M._tw_canvas_knobs_clear();
+
+    /* An arrangement cell: a `section' command on the page. */
+    for (let k = 0; k < M._tw_canvas_section_count(); k++)
+        post({
+            type: 'canvassection',
+            section: M._tw_canvas_section_section(k),
+            chain: M._tw_canvas_section_chain(k),
+            level: M._tw_canvas_section_level(k),
+        });
+
+    M._tw_canvas_sections_clear();
+
+    /* A section's block: a seek, which the page sends as a transport
+       command -- to the section, or for a room, which seeks by time, to
+       where it begins the first time through. */
+    const seekTo = M._tw_canvas_seek_wanted();
+
+    if (seekTo >= 0)
+        post({ type: 'canvasseek', section: seekTo,
+               at: M._tw_section_first_at(seekTo) });
+
+    /* A chain's F: the page asks the worklet, which heard what it
+       played, for the text with the frozen chain in it. */
+    const frozen = M._tw_canvas_freeze_wanted();
+
+    if (frozen >= 0)
+        post({
+            type: 'canvasfreeze',
+            chain: frozen,
+            chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                              ['number'], [frozen])),
+        });
+
+    /* A stage box dropped elsewhere in its chain. The page makes the
+       edit, to whichever text it holds, and loads what comes back. */
+    if (M._tw_canvas_move_wanted())
+    {
+        const chain = M._tw_canvas_move_chain();
+
+        post({
+            type: 'canvasmove',
+            chain,
+            chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                              ['number'], [chain])),
+            from: M._tw_canvas_move_from(),
+            to: M._tw_canvas_move_to(),
+        });
+    }
+
+    /* A wire from a knob dropped on a stage: which param is the page's
+       question to ask, from the stage's own panel. */
+    if (M._tw_canvas_bind_wanted())
+    {
+        const chain = M._tw_canvas_bind_chain();
+        const stage = M._tw_canvas_bind_stage();
+
+        post({
+            type: 'canvasbind',
+            knob: M.UTF8ToString(M._tw_canvas_bind_knob()),
+            chain,
+            stage,
+            ...namesOf(chain, stage),
+            at: { x: M._tw_canvas_bind_x(), y: M._tw_canvas_bind_y(),
+                  w: M._tw_canvas_bind_w(), h: M._tw_canvas_bind_h() },
+            panel: panelOf(chain, stage),
+        });
+    }
+
+    /* And the params popover, if a stage's handle was clicked. Read here
+       rather than asked for later, because the page has no scheduler to
+       read them from: this instance is where the piece is. */
+    if (!M._tw_canvas_params_wanted())
+        return;
+
+    const chain = M._tw_canvas_params_chain();
+    const stage = M._tw_canvas_params_stage();
+    const panel = panelOf(chain, stage);
+
+    post({
+        type: 'params',
+        chain,
+        stage,
+        ...namesOf(chain, stage),
+        at: { x: M._tw_canvas_params_x(), y: M._tw_canvas_params_y(),
+              w: M._tw_canvas_params_w(), h: M._tw_canvas_params_h() },
+        panel,
+        growth: growthOf(chain, panel),
+    });
+}
+
+/* A stage's parameters, as the module describes them.
+ *
+ * One call and a JSON.parse on the other side, where there were ten
+ * accessors and a field-by-field loop over every row. The rows are
+ * src/StagePanel.cpp's now, and the difference is not only the line count:
+ * what came across before was what the plugin declared, so the page had to
+ * guess at a resolution with toPrecision(4) and could not have told a value
+ * written in beats from one written in seconds if it had wanted to.
+ *
+ * Null when the stage has no panel -- a dsp node run at control rate, a
+ * plugin that did not load -- which is a popover saying so rather than an
+ * empty one. */
+function panelOf (chain, stage)
+{
+    /* thPanel::GEN_PARAM. */
+    if (M._tw_panel_open(2, chain, stage) === 0)
+        return null;
+
+    return M.UTF8ToString(M._tw_panel_json());
+}
+
+/* What a gen::grow or gen::graft stage's chain has grown or bred, beside
+   its panel (thinkweb.cpp, tw_growth_json); null for any other stage. */
+function growthOf (chain, panel)
+{
+    const subtitle = panel !== null ? JSON.parse(panel).subtitle : null;
+
+    return subtitle === 'gen::grow' || subtitle === 'gen::graft'
+        ? M.UTF8ToString(M._tw_growth_json(chain)) : null;
+}
+
+/* The three tables a draw leaves behind -- the ops, the strings they
+ * index, the surfaces they blit -- copied out of the heap.
+ *
+ * Copied rather than viewed, and the copies transferred: a view into
+ * HEAPF32 is a view into memory this worker goes on writing to, and a
+ * transfer costs nothing on top of the copy. `buffers' is what the post
+ * hands to postMessage as its transfer list.
+ *
+ * Shared by the canvas and by one stage's picture, because they are the
+ * same three tables (thinkweb.cpp): a stage's draw and the canvas's are
+ * one recorder.
+ */
+function readList (words)
+{
+    const at = M._tw_draw_ops();
+    const ops = words > 0
+        ? new Float32Array(M.HEAPF32.subarray(at >> 2, (at >> 2) + words))
+        : new Float32Array(0);
+
+    const strings = [];
+
+    for (let i = 0; i < M._tw_draw_string_count(); i++)
+        strings.push(M.UTF8ToString(M._tw_draw_string(i)));
+
+    const surfaces = [];
+    const buffers = [ops.buffer];
+
+    for (let i = 0; i < M._tw_draw_surface_count(); i++)
+    {
+        const from = M._tw_draw_surface_data(i);
+        const stride = M._tw_draw_surface_stride(i);
+        const height = M._tw_draw_surface_height(i);
+        const data = new Uint8Array(
+            M.HEAPU8.subarray(from, from + stride * height));
+
+        surfaces.push({ index: i, width: M._tw_draw_surface_width(i),
+                        height, stride, data });
+        buffers.push(data.buffer);
+    }
+
+    return { ops, strings, surfaces, buffers };
+}
+
+/* One frame of the canvas: the list, the strings it indexes and the
+ * surfaces it blits, out of the heap and over to the page.
+ *
+ * Copied rather than viewed, and the copies transferred: a view into
+ * HEAPF32 is a view into memory this worker goes on writing to, and a
+ * transfer costs nothing on top of the copy.
+ */
+function draw ()
+{
+    if (M === null || view.w <= 0 || view.h <= 0)
+        return;
+
+    /* At the drawing's own size, not the view's: the element is as big as
+       the drawing and the scroller around it is what moves, which is what
+       a Gtk scrolled window does to the widget on the desktop. Before a
+       piece has loaded there is no drawing, and the view's size is as
+       good an answer as any. */
+    const w = M._tw_canvas_width() || view.w;
+    const h = M._tw_canvas_height() || view.h;
+    const words = M._tw_canvas_draw(w, h);
+
+    if (words < 0)
+        return;                 /* no canvas yet: no piece has loaded */
+
+    const { ops, strings, surfaces, buffers } = readList(words);
+
+    /* The drawing's own size, for the scroller around the element, and
+       the size this list was drawn at, so a page that has resized since
+       can tell that it is a frame behind. */
+    post({ type: 'draw', ops, strings, surfaces,
+           w, h, dpr: view.dpr,
+           width: M._tw_canvas_width(), height: M._tw_canvas_height(),
+           zoom: M._tw_canvas_zoom(),
+           enlarged: { chain: M._tw_canvas_enlarged_chain(),
+                       stage: M._tw_canvas_enlarged_stage(),
+                       x: M._tw_canvas_enlarged_x(),
+                       y: M._tw_canvas_enlarged_y(),
+                       w: M._tw_canvas_enlarged_w(),
+                       h: M._tw_canvas_enlarged_h() } },
+         buffers);
+}
+
+/* ---- the piano roll ----
+ *
+ * The other canvas drawn here, and here for a reason the composer view
+ * only half shares: what the roll shows to the right of the now-line is
+ * the scheduler's *pending* queue -- what the piece has already decided
+ * and not yet played -- and this worker holds the only scheduler the page
+ * has. The worklet's tape cannot answer the question at all: a tape is
+ * what has been delivered.
+ *
+ * The messages are the canvas view's, with `canvas: "roll"' on them, so
+ * one shell file drives both panes and the routing is one line.
+ */
+function drawRoll ()
+{
+    if (M === null || rollView.w <= 0 || rollView.h <= 0)
+        return;
+
+    /* The roll's drawing is always exactly its view (src/RollCanvas.h),
+       so there is no separate drawing size to ask for and nothing to
+       scroll. */
+    const w = M._tw_roll_width() || rollView.w;
+    const h = M._tw_roll_height() || rollView.h;
+    const words = M._tw_roll_draw(w, h);
+
+    if (words < 0)
+        return;                 /* no scheduler yet: nothing to draw */
+
+    const at = M._tw_draw_ops();
+    const ops = words > 0
+        ? new Float32Array(M.HEAPF32.subarray(at >> 2, (at >> 2) + words))
+        : new Float32Array(0);
+
+    const strings = [];
+
+    for (let i = 0; i < M._tw_draw_string_count(); i++)
+        strings.push(M.UTF8ToString(M._tw_draw_string(i)));
+
+    /* No surfaces: the roll blits nothing. The page's replayer takes the
+       empty list and the message is that much smaller. */
+    post({ type: 'draw', canvas: 'roll', ops, strings, surfaces: [],
+           w, h, dpr: rollView.dpr, width: w, height: h,
+           now: M._tw_roll_view_now(),
+           following: M._tw_roll_following() !== 0,
+           spanPast: M._tw_roll_span_past(),
+           spanFuture: M._tw_roll_span_future() },
+         [ops.buffer]);
+}
+
+/* True if the message was the roll's. */
+function rollReceive (m)
+{
+    switch (m.type)
+    {
+        case 'view':
+            rollView = { w: m.w, h: m.h, dpr: m.dpr ?? 1 };
+            M._tw_roll_viewport(m.x ?? 0, m.y ?? 0, m.w, m.h);
+
+            /* `fit' is dropped, and deliberately: the roll's drawing is
+               its view, so every fit this base offers computes exactly 1
+               (src/RollCanvas.h). */
+            break;
+
+        case 'press':
+            M._tw_roll_press(m.x, m.y, m.button ?? 1, m.nPress ?? 1);
+            break;
+
+        case 'motion':
+            M._tw_roll_motion(m.x, m.y);
+            break;
+
+        case 'release':
+            M._tw_roll_release(m.x, m.y, m.button ?? 1);
+            break;
+
+        /* A wheel notch. The shell says how much bigger to draw and the
+           roll spends it as a span, which is the one place a number here
+           is read as something other than its name -- RollCanvas::zoomBy
+           says why. */
+        case 'zoomBy':
+            M._tw_roll_zoom_by(m.by);
+            break;
+
+        case 'draw':
+            drawRoll();
+            break;
+    }
+}
+
+function receive (m)
+{
+    if (m.type === 'start')
+    {
+        start(m).catch((e) => log(String(e)));
+        return;
+    }
+
+    if (M === null)
+    {
+        early.push(m);
+        return;
+    }
+
+    /* Applied where the worklet applied it, which its next tape says:
+       a command takes effect at the top of the next window, and this
+       instance is stepped a batch behind that one. */
+    if (m.cmd !== undefined)
+    {
+        held.set(m.cmd, m);
+        return;
+    }
+
+    act(m);
+}
+
+function act (m)
+{
+    /* The messages the worklet gets, applied the same way (engine.js).
+       The piece is the one with something else to do: the canvas has to
+       be shown what loaded. */
+    if (apply(M, m, { log, piece: (id, ok) => ok && showPiece() }) ||
+        answer(M, m))
+        return;
+
+    /* The piano roll's half of the canvas-view protocol, told apart by
+       the page tagging it. Everything below is the composer view's. */
+    if (m.canvas === 'roll')
+    {
+        rollReceive(m);
+        return;
+    }
+
+    switch (m.type)
+    {
+        /* As far as the worklet's last tape batch reached: the commands
+           due, the transport, the queue drained, and the tape. */
+        case 'step':
+        {
+            /* A worklet from another build says nothing of where it took
+               them: each here and now, as before it did. */
+            const handled = m.handled ??
+                [...held.keys()].map((cmd) => [cmd, m.frame]);
+
+            for (const [cmd, frame] of handled)
+            {
+                if (cmd === 'seek')
+                {
+                    M._tw_seek_release(frame);
+                    continue;
+                }
+
+                if (cmd === 'replay')
+                {
+                    M._tw_replay_release(frame);
+                    continue;
+                }
+
+                const h = held.get(cmd);
+
+                if (h === undefined)
+                    continue;
+
+                held.delete(cmd);
+                stepTo(frame);
+                act(h);
+            }
+
+            stepTo(m.frame);
+
+            /* An edit moves chains and stages without a load, and the
+               sequencer finds its tracks by index. Not `piece', which the
+               composer view takes for a load. */
+            if (M._tw_edit_count() !== editsShown)
+            {
+                editsShown = M._tw_edit_count();
+                post({ type: 'chains', chains: chainsNow() });
+            }
+
+            /* The worklet's keys and not this instance's own, which it
+               applied a step late (tw_roll_key); and none from a run this
+               one has already left. */
+            M._tw_keys_clear();
+
+            if (m.epoch === M._tw_epoch())
+                for (const k of m.keys ?? [])
+                    M._tw_roll_key(k.at, k.channel, k.note, k.velocity,
+                                   k.on ? 1 : 0);
+
+            /* The worklet tells the page what its param edits wrote; the
+               same edits here are only forgotten, or they would pile up. */
+            if (M._tw_param_edit_count() > 0)
+                M._tw_param_edits_json();
+
+            const now = M._tw_epoch();
+
+            if (now !== epoch)
+            {
+                if (events.length > 0)
+                    postTape();
+
+                epoch = now;
+            }
+
+            drain(M, events);
+            postTape();
+            break;
+        }
+
+        /* The page's element resized, scrolled or zoomed. */
+        case 'view':
+            view = { w: m.w, h: m.h, dpr: m.dpr ?? 1 };
+            M._tw_canvas_viewport(m.x ?? 0, m.y ?? 0, m.w, m.h);
+
+            /* To the width, and the scroller takes the rest: a piece is
+               a row per chain and a tall one fitted both ways is a
+               quarter-scale picture nobody can read
+               (CanvasContent::zoomToWidth). */
+            if (m.fit)
+                fitToWidth();
+
+            break;
+
+        /* A zoom changes the room the columns have in the drawing's own
+           units, with no change in the view to say so. */
+        case 'zoom':
+            M._tw_canvas_set_zoom(m.zoom);
+            M._tw_canvas_refit_columns();
+            break;
+
+        /* Ctrl+wheel: a step in, a step out. The shell says by how much
+           and this says from what, since the zoom is the content's. */
+        case 'zoomBy':
+            M._tw_canvas_set_zoom(M._tw_canvas_zoom() * m.by);
+            M._tw_canvas_refit_columns();
+            break;
+
+        case 'fit':
+            M._tw_canvas_zoom_to_fit();
+            M._tw_canvas_refit_columns();
+            break;
+
+        case 'enlarge':
+            M._tw_canvas_enlarge(m.chain ?? -1, m.stage ?? -1);
+            break;
+
+        /* The open panel again, values and all: a param read through a
+           knob moves while the popover is up, and the panel is described
+           afresh rather than polled row by row -- a stage's rows come out
+           of the document and the knob's number comes with them. The page
+           compares the shape and redraws only when the rows themselves
+           have changed. */
+        case 'panel':
+        {
+            const panel = panelOf(m.chain, m.stage);
+
+            post({ type: 'panel', chain: m.chain, stage: m.stage,
+                   ...namesOf(m.chain, m.stage), panel,
+                   growth: growthOf(m.chain, panel) });
+            break;
+        }
+
+        /* The piece composed offline into a .mid (tw_export_midi): here,
+           where the composers and instruments are and nothing is
+           rendered. The bytes go back as a transfer. */
+        case 'exportmidi':
+        {
+            /* Answered whatever happens: the page waits for the reply with
+               its button off. */
+            let reply;
+
+            try
+            {
+                const n = M.ccall('tw_export_midi', 'number',
+                                  ['string', 'number', 'number', 'string'],
+                                  [m.text, m.seconds, m.seed, m.name ?? '']);
+                const bytes = n < 0 ? new Uint8Array(0)
+                    : new Uint8Array(M.HEAP32.buffer, M._tw_export_bytes(),
+                                     n).slice();
+
+                reply = { type: 'exportedmidi', id: m.id, ok: n >= 0,
+                          why: M.UTF8ToString(M._tw_export_why()),
+                          length: M._tw_export_length(), bytes };
+            }
+            catch (e)
+            {
+                reply = { type: 'exportedmidi', id: m.id, ok: false,
+                          why: `the export failed: ${e.message}`, length: 0,
+                          bytes: new Uint8Array(0) };
+            }
+
+            self.postMessage(reply, [reply.bytes.buffer]);
+            break;
+        }
+
+        /* Where a stage's params handle is, for a page that wants to
+           press one without repeating the layout arithmetic. */
+        case 'handle':
+            post({ type: 'handle', chain: m.chain, stage: m.stage,
+                   x: M._tw_canvas_handle_x(m.chain, m.stage),
+                   y: M._tw_canvas_handle_y(m.chain, m.stage) });
+            break;
+
+        /* Where a knob's track and port are, and a stage's box, for a
+           page that wants to drag them. */
+        case 'knobat':
+            post({ type: 'knobat',
+                   at: [0, 1, 2, 3, 4].map((w) => M.ccall(
+                       'tw_canvas_knob_at', 'number', ['string', 'number'],
+                       [m.name, w])) });
+            break;
+
+        case 'stageat':
+            post({ type: 'stageat',
+                   at: [0, 1, 2, 3].map((w) => M._tw_canvas_stage_at(
+                       m.chain, m.stage, w)) });
+            break;
+
+        /* The transport and when each chain's first stage last emitted
+           and each chain was last heard: what the lights are drawn from. */
+        case 'activity':
+        {
+            const chains = [];
+
+            for (let c = 0; c < M._tw_chain_count(); c++)
+                chains.push({ out: M._tw_stage_last_out(c, 0),
+                              heard: M._tw_chain_last_heard(c) });
+
+            post({ type: 'activity', now: M._tw_now(),
+                   running: M._tw_running() !== 0, chains });
+            break;
+        }
+
+        /* The layout: how many columns, and for each chain whether it is
+           collapsed and where its disclosure triangle is. */
+        case 'layout':
+        {
+            const chains = [];
+
+            for (let c = 0; c < M._tw_chain_count(); c++)
+                chains.push({ collapsed: M._tw_canvas_collapsed(c) !== 0,
+                              x: M._tw_canvas_disclose_x(c),
+                              y: M._tw_canvas_disclose_y(c) });
+
+            post({ type: 'layout', columns: M._tw_canvas_columns(),
+                   width: M._tw_canvas_width(), chains,
+                   probe: { chain: M._tw_canvas_probe_chain(),
+                            stage: M._tw_canvas_probe_stage() },
+                   arrow: m.arrow === undefined ? null
+                       : { x: M._tw_canvas_arrow_x(m.arrow.chain,
+                                                   m.arrow.stage),
+                           y: M._tw_canvas_arrow_y(m.arrow.chain,
+                                                   m.arrow.stage) } });
+            break;
+        }
+
+        /* The arrangement as the running piece has it, [section][chain],
+           and where each cell is, for a test. */
+        case 'lane':
+        {
+            const levels = [], cells = [];
+
+            for (let s = 0; s < M._tw_section_count(); s++)
+            {
+                levels.push([]);
+                cells.push([]);
+
+                for (let c = 0; c < M._tw_chain_count(); c++)
+                {
+                    levels[s].push(M._tw_section_level_of(s, c));
+                    cells[s].push({ x: M._tw_canvas_cell_x(s, c),
+                                    y: M._tw_canvas_cell_y(s, c) });
+                }
+            }
+
+            const heads = [];
+
+            for (let s = 0; s < M._tw_section_count(); s++)
+                heads.push({ x: M._tw_canvas_head_x(s),
+                             y: M._tw_canvas_head_y(s) });
+
+            post({ type: 'lane', levels, cells, heads,
+                   now: M._tw_now() });
+            break;
+        }
+
+        case 'collapseall':
+            M._tw_canvas_collapse_all(m.on ? 1 : 0);
+            break;
+
+        /* The roll by chain rather than channel, and the canvas to match. */
+        case 'bychain':
+            M._tw_color_by_chain(m.on ? 1 : 0);
+            break;
+
+        /* Where a chain's M (which 0) or S (1) is, for the same page. */
+        case 'chip':
+            post({ type: 'chip', chain: m.chain, which: m.which,
+                   x: M._tw_canvas_chip_x(m.chain, m.which),
+                   y: M._tw_canvas_chip_y(m.chain, m.which) });
+            break;
+
+        /* The played keys the roll keeps, for a harness. */
+        case 'rollplayed':
+            post({ type: 'rollplayed', id: m.id, keys: JSON.parse(
+                M.ccall('tw_roll_played_json', 'string')) });
+            break;
+
+        /* Each chain's mute, solo, and whether it is heard after both. */
+        case 'mix':
+        {
+            const chains = [];
+
+            for (let c = 0; c < M._tw_chain_count(); c++)
+                chains.push({ muted: M._tw_chain_muted(c) === 1,
+                              soloed: M._tw_chain_soloed(c) === 1,
+                              audible: M._tw_chain_audible(c) === 1 });
+
+            post({ type: 'mix', chains });
+            break;
+        }
+
+        /* The pointer. The canvas decides what it landed on; whatever it
+           wants sent goes back as a gesture to be stamped. */
+        case 'press':
+            M._tw_canvas_press(m.x, m.y, m.button ?? 1, m.nPress ?? 1);
+            sendGestures();
+            break;
+
+        case 'motion':
+            M._tw_canvas_motion(m.x, m.y);
+            sendGestures();
+            break;
+
+        case 'release':
+            M._tw_canvas_release(m.x, m.y, m.button ?? 1);
+            sendGestures();
+            break;
+
+        case 'key':
+            M._tw_canvas_key(KEYS[m.key] ?? 0);
+            sendGestures();
+            break;
+
+        /* A frame, asked for by the page on its own animation frames and
+           not at all while the view is hidden. Unconditional: what these
+           draw is composer state, which moves whether or not anybody
+           touched the canvas -- the desktop redraws on a 50 ms timer for
+           the same reason. */
+        case 'draw':
+            draw();
+            break;
+
+        /* One stage's own picture, at the size the asker will replay it
+         * at. The canvas's draw is a whole piece laid out as rows; this
+         * is what a view wants that has already decided where a stage
+         * goes -- a track in a sequencer is one grid and nothing else
+         * around it, and laying the canvas out to get at one box of it
+         * would be drawing the other twenty for nobody. */
+        case 'stagedraw':
+        {
+            const words = M._tw_stage_draw(m.chain, m.stage, m.w, m.h);
+
+            /* Every ask is answered, including "no such stage, or it
+               does not draw" -- with no list, which is a different thing
+               from an empty one and says to leave the picture alone. The
+               asker counts what is out and not back so it does not queue
+               frames on a worker already behind, and a request that got
+               no reply at all stopped that count coming down for good:
+               load a piece with fewer chains while the frames are in
+               flight and the pane froze. */
+            const list = words < 0 ? null : readList(words);
+
+            post({ type: 'stagedraw', chain: m.chain, stage: m.stage,
+                   w: m.w, h: m.h, dpr: m.dpr ?? 1,
+                   ops: list?.ops ?? null, strings: list?.strings ?? null,
+                   surfaces: list?.surfaces ?? null },
+                 list?.buffers ?? []);
+            break;
+        }
+
+        /* What a set of .patch texts say they are, read the once.
+         *
+         * A menu wants to offer the patches that are for the graph a
+         * channel is holding, which is a question about every shipped
+         * patch and no channel at all. It is asked here rather than of
+         * the worklet because the worklet's thread is the one making
+         * sound, and seventy-seven parses do not belong on it -- and
+         * asked of the module rather than answered in the page, because
+         * the format has one reading and it is in C++. */
+        case 'patchinfo':
+        {
+            const read = [];
+
+            for (const item of m.items ?? [])
+            {
+                const doc = JSON.parse(M.UTF8ToString(
+                    M.ccall('tw_patch_reads', 'number', ['string'],
+                            [item.text])));
+
+                if (doc.dsp === undefined)
+                    continue;
+
+                read.push({ name: item.name, dsp: doc.dsp,
+                            title: doc.info?.title });
+            }
+
+            post({ type: 'patchinfo', items: read });
+            break;
+        }
+
+        /* Every param of one stage, by name and value. The page has no
+           scheduler to read them from; this instance is where the piece
+           is, which is the same reason the params popover is answered
+           from here. */
+        case 'stageparams':
+        {
+            const params = [];
+
+            for (let p = 0;
+                 p < M._tw_stage_param_count(m.chain, m.stage); p++)
+                params.push({
+                    name: M.UTF8ToString(
+                        M._tw_stage_param_name(m.chain, m.stage, p)),
+                    value: M._tw_stage_param_value(m.chain, m.stage, p),
+                    text: M.UTF8ToString(
+                        M._tw_stage_param_text(m.chain, m.stage, p)),
+                });
+
+            post({ type: 'stageparams', chain: m.chain, stage: m.stage,
+                   params });
+            break;
+        }
+
+        /* The piece's `tempo' statement, set -- the same edit the worklet
+           is being asked for on the same message, made to this instance's
+           copy of the document.
+         *
+           Both instances hold one: tw_piece_load writes it and thcGenEdit
+           reads and writes what it wrote. The canvas describes this one
+           (tw_canvas_show), so an edit that reached the worklet alone
+           would leave the two reading different files. The text goes back
+           to the page from the worklet, which is the instance somebody is
+           waiting on, so nothing is posted from here. */
+        case 'settempo':
+            M.ccall('tw_piece_set_tempo', 'string', ['number'], [m.bpm]);
+            break;
+    }
+}
+
+/* A window at a time, as the worklet renders a quantum at a time: what
+   came before a rewind or a seek goes out under the run it was in, and
+   what a window delivered under the run it ended in -- the worklet's own
+   rule (worklet.js, process). Stepped a batch at once, the events of the
+   windows before a seek went out under the run after it, and the two
+   tapes were held against each other an event or more apart. */
+function stepTo (frame)
+{
+    for (let at = M._tw_frame(); at < frame; at = M._tw_frame())
+    {
+        M._tw_step(at + 1);
+
+        const now = M._tw_epoch();
+
+        if (now !== epoch)
+        {
+            if (events.length > 0)
+                postTape();
+
+            epoch = now;
+        }
+
+        drain(M, events);
+    }
+}
+
+function postTape ()
+{
+    post({ type: 'tape', epoch, now: M._tw_now(), frame: M._tw_frame(),
+           running: M._tw_running() !== 0, late: M._tw_late(),
+           dropped: M._tw_dropped(), events });
+    events = [];
+}
+
+/* After each message, what this instance's scheduler asked to hear. */
+onmessage = (e) =>
+{
+    receive(e.data);
+    askToHear(M);
+};

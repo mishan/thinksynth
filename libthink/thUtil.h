@@ -1,0 +1,180 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef TH_UTIL_H
+#define TH_UTIL_H
+
+#include "thExport.h"
+
+using namespace std;
+
+#include <memory>
+#include <string>
+
+class THINK_API thUtil {
+public:
+    thUtil (void) { }
+    ~thUtil (void) { }
+
+    static int getNumLength (int num);
+    static string basename (const char* path);
+    static string dirname (const char* path);
+
+    /* The directory the running executable is in, or "" if that cannot be
+       determined. Linux, macOS and Windows each need a different call. */
+    static string exeDir (void);
+
+    /* This user's own data directory for thinksynth, whether or not it
+     * exists: $XDG_DATA_HOME/thinksynth (~/.local/share/thinksynth) on
+     * Linux, ~/Library/Application Support/thinksynth on macOS,
+     * %LOCALAPPDATA%\thinksynth on Windows. Where a downloaded sample pack
+     * goes, because an install directory is usually not writable; empty
+     * if no home directory can be found. Inside a Flatpak it is the
+     * host's ~/.local/share/thinksynth, not the sandbox's own data
+     * directory: that is where scripts/packs.py, run on the host, puts
+     * them, and the manifest grants the home directory. */
+    static string userDataDir (void);
+
+    /* Find a data file that something referred to by bare name.
+     *
+     * A .patch says `dsp ts1.dsp' and a .dsp says nothing about where it
+     * lives, so a bare name has to be looked for in several places: the
+     * environment override, the current directory, the source or build tree,
+     * next to the installed binary, and finally the path compiled in at
+     * configure time. Returns "" if nothing matched.
+     *
+     * The answer is always absolute. It used to be whichever candidate
+     * matched, which for the current-directory candidates meant handing back
+     * something like "dsp/amb01.dsp" -- correct only for as long as the
+     * working directory stays where it was. The synth loads a patch's DSP
+     * immediately and the node editor opens the same file later, so a
+     * relative answer worked in the first place and failed in the second.
+     *
+     *   name     the bare filename, e.g. "ts1.dsp"
+     *   subdir   where files of this kind live, e.g. "dsp"
+     *   envVar   an override, e.g. "THINK_DSP_PATH", or NULL
+     *   fallback the compiled-in absolute path, e.g. DSP_PATH
+     */
+    static string findDataFile (const string &name, const string &subdir,
+                                const char *envVar, const string &fallback);
+
+    /* Where files of a given kind live: the same search as findDataFile, for
+     * the directory rather than for a file in it, and "" if none exists.
+     *
+     * This is what a file chooser should open at. The compiled-in DSP_PATH
+     * and PATCH_PATH cannot do that job on their own -- they are the install
+     * prefix of the machine that did the *build*, which on a relocatable
+     * package (a Windows zip, a macOS .app) is a directory the user has never
+     * had.
+     */
+    static string findDataDir (const string &subdir, const char *envVar,
+                               const string &fallback);
+
+    /* The finish of every temp-and-rename writer: rename `tmp' over
+     * `target', replacing it if it is there. POSIX rename() already
+     * means that; Windows' refuses a target that exists, which is how a
+     * writer that passed every Unix gate came to fail its first edit of
+     * an existing file on the Windows runner -- the create worked (no
+     * target yet) and the very next save did not. There it is
+     * MoveFileEx with MOVEFILE_REPLACE_EXISTING, which keeps the
+     * either-the-old-file-or-the-new-one guarantee on NTFS.
+     *
+     * False when the replace failed; `tmp' is left in place for the
+     * caller to remove, since the caller knows whether it is worth
+     * keeping for a diagnostic. */
+    static bool replaceFile (const string &tmp, const string &target);
+
+    /* Create an empty file with a name nobody can predict, in whatever
+     * directory this platform uses for temporary files, and return its
+     * absolute path. Returns "" if one cannot be made.
+     *
+     * The file exists, is empty, and belongs to this user when this returns:
+     * the point is that the name is taken atomically rather than chosen and
+     * then opened, so nothing can be waiting at it.
+     *
+     * `prefix' goes at the front of the name, to make the file recognisable
+     * in a directory listing. Nothing is appended -- no extension -- because
+     * the name is never shown to anyone and callers pass paths, not suffixes.
+     *
+     * The caller owns the file and should remove it.
+     */
+    static string tempFile (const string &prefix);
+
+    /* Decimal text to a number and a number to decimal text, in the C
+     * locale whatever LC_NUMERIC says.
+     *
+     * atof, strtof and printf's %f follow LC_NUMERIC, so under de_DE they
+     * read `0.5' as 0 and write a half as `0,5'. The application pins
+     * LC_NUMERIC to "C" in main(), but a host that links libthink into
+     * itself -- an audio plugin inside a DAW -- cannot change a locale the
+     * host's own UI depends on, so the library's conversions do not rely on
+     * it, and do not touch the process's locale either: several threads,
+     * the host's among them, may be using it.
+     *
+     * These are strtod, strtof and snprintf("%.*f") in the C locale, and
+     * behave as those do there: the longest prefix that is a number, 0 if
+     * there is none, infinity out of range. */
+    static double parseDouble (const char *text);
+    static float parseFloat (const char *text);
+
+    /* printf("%.*f", precision, value), up to 511 characters. */
+    static string formatFixed (double value, int precision);
+
+    /* Data files a host carries inside itself, by the name a graph would
+     * find them under -- "samples/kick.wav".
+     *
+     * An audio plugin built around one .dsp has no directory beside it to
+     * find that .dsp's samples in, so it registers them, compiled in, before
+     * it loads the graph, and osc::sample asks here before it searches the
+     * disk. `data' is not copied and has to outlive every synth. Process-
+     * wide, which in a plugin means that plugin's own copy of libthink:
+     * each module links its own. Thread-safe. */
+    static void addEmbeddedFile (const string &name, const unsigned char *data,
+                                 size_t size);
+    static bool findEmbeddedFile (const string &name,
+                                  const unsigned char *&data, size_t &size);
+
+    /* A graph carried as text by another file -- `dsp { ... }' inside a
+     * .gen instrument -- under a name findDataFile hands back as it is and
+     * every thSynth load reads instead of the disk. Copied; a second text
+     * under one name replaces the first. Process-wide and thread-safe.
+     *
+     * Registered for as long as a copy of the hold handed back lives, so
+     * whoever keeps the name keeps the hold beside it, and a graph nothing
+     * plays any more is gone with the last of them. */
+    typedef std::shared_ptr<void> GraphHold;
+
+    static GraphHold addGraphText (const string &name, const string &text);
+    static bool findGraphText (const string &name, string &text);
+
+    /* A count a host bumps after putting new files where findDataFile
+     * looks -- a sample pack downloaded while the synth runs. A reader that
+     * cached "not found" retries when the count has moved on. */
+    static void dataFilesChanged ();
+    static unsigned dataFilesGeneration ();
+
+    /* One file, by the name findDataFile is given ("samples/kick.wav"):
+     * what a host calls once it has written over it. A reader holding the
+     * old contents reads it again when the file's generation is past the
+     * count it took. dataFileGeneration is 0 for a file never named, and
+     * takes a lock, so a reader asks only once the count has moved. */
+    static void dataFileChanged (const string &name);
+    static unsigned dataFileGeneration (const string &name);
+};
+
+#endif /* TH_UTIL_H */

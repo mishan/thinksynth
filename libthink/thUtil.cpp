@@ -1,0 +1,691 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include "config.h"
+
+#include <cstdlib>
+#include <cstring>
+
+#ifdef _WIN32
+#include <windows.h>   /* MoveFileExA -- see replaceFile */
+#endif
+
+#include <atomic>
+#include <clocale>
+#include <cstdio>
+#include <filesystem>
+#include <map>
+#include <mutex>
+#include <system_error>
+#include <vector>
+
+/* One platform block, and it has to stay one.
+ *
+ * WIN32_LEAN_AND_MEAN and NOMINMAX only do anything if they are defined
+ * before the first <windows.h> in the translation unit. A second include
+ * block added above this one -- for tempFile -- pulled <windows.h> in ahead
+ * of them and quietly turned both off.
+ *
+ * exeDir needs GetModuleFileNameW, _NSGetExecutablePath or readlink;
+ * tempFile needs GetTempFileNameW or mkstemp and close. unistd.h covers
+ * readlink and close together, so macOS takes it as well as dyld.h -- close()
+ * is otherwise undeclared there. */
+#if defined(_WIN32)
+# ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+# endif
+# ifndef NOMINMAX
+#  define NOMINMAX
+# endif
+# include <windows.h>       /* GetModuleFileNameW, GetTempFileNameW */
+#else
+# include <unistd.h>        /* readlink, close */
+# if defined(__APPLE__)
+#  include <mach-o/dyld.h>  /* _NSGetExecutablePath */
+#  include <xlocale.h>      /* newlocale, uselocale */
+# endif
+#endif
+
+#include "thUtil.h"
+
+namespace fs = std::filesystem;
+
+static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
+                           100000000, 1000000000};
+
+static int RangeSize = sizeof(RangeArray)/sizeof(int);
+
+int thUtil::getNumLength (int num)
+{
+    /* abs(INT_MIN) is undefined -- there is no positive counterpart in int.
+       Widen first, then clamp back into the range the table covers. */
+    long long wide = num;
+
+    if (wide < 0)
+        wide = -wide;
+
+    if (wide > RangeArray[RangeSize - 1])
+        return RangeSize + 1;
+
+    int i;
+
+    for (i = 0; i < RangeSize; i++) {
+        if (wide < RangeArray[i]) {
+            return i+1;
+        }
+    }
+
+    return RangeSize+1;
+}
+
+/* These were a strrchr(path, '/') pair -- one lifted from ircd-hybrid, one
+ * from Lars Wirzenius -- which is correct on Unix and wrong everywhere else:
+ * a Windows path separator is a backslash, and "C:file" is relative to the
+ * current directory *of drive C*, which no amount of slash-hunting will tell
+ * you. std::filesystem knows all of that per platform.
+ *
+ * Checked case by case against the old implementations. Behaviour on Unix is
+ * unchanged, including the odd corners:
+ *
+ *     basename("foo")   -> "foo"      dirname("foo")   -> ""
+ *     basename("a/b")   -> "b"        dirname("a/b")   -> "a"
+ *     basename("/foo")  -> "foo"      dirname("/foo")  -> "/"
+ *     basename("foo/")  -> ""         dirname("foo/")  -> "foo"
+ *     basename("/")     -> ""         dirname("/")     -> "/"
+ *
+ * One deliberate difference: dirname("/a//b") was "/a/" and is now "/a".
+ * Duplicate separators get collapsed. Both name the same directory, and the
+ * only consumers are Gtk::FileChooser::set_current_folder and the patch
+ * list's display column.
+ */
+
+bool thUtil::replaceFile (const string &tmp, const string &target)
+{
+#ifdef _WIN32
+    return MoveFileExA(tmp.c_str(), target.c_str(),
+                       MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+    return ::rename(tmp.c_str(), target.c_str()) == 0;
+#endif
+}
+
+string thUtil::basename (const char *path)
+{
+    if (path == NULL)
+        return "";
+
+    return std::filesystem::path(path).filename().string();
+}
+
+string thUtil::dirname (const char *path)
+{
+    if (path == NULL)
+        return "";
+
+    return std::filesystem::path(path).parent_path().string();
+}
+
+/* The directory the running executable is in, or "".
+ *
+ * This is what lets an installed tree find its own data without an absolute
+ * path compiled into it, which a macOS .app and a Windows install directory
+ * have no alternative to. Moved here from a static in thPluginManager.cpp so
+ * that DSP lookup can use it too.
+ */
+string thUtil::exeDir (void)
+{
+#if defined(_WIN32)
+
+    wchar_t buf[32768];   /* MAX_PATH is a lie; long paths need the big one */
+
+    const DWORD n = GetModuleFileNameW(NULL, buf, sizeof(buf) / sizeof(buf[0]));
+
+    if (n == 0 || n >= sizeof(buf) / sizeof(buf[0]))
+        return "";
+
+    return fs::path(buf, buf + n).parent_path().string();
+
+#elif defined(__APPLE__)
+
+    uint32_t size = 0;
+
+    /* Returns -1 and sets size to what is actually needed. */
+    _NSGetExecutablePath(NULL, &size);
+
+    std::vector<char> buf(size + 1, 0);
+
+    if (_NSGetExecutablePath(buf.data(), &size) != 0)
+        return "";
+
+    /* May be a symlink or contain ".."; canonical() resolves both, and a
+       failure just means we fall back to the unresolved form. */
+    std::error_code ec;
+
+    const fs::path resolved = fs::canonical(fs::path(buf.data()), ec);
+
+    return ec ? fs::path(buf.data()).parent_path().string()
+              : resolved.parent_path().string();
+
+#else
+
+    /* readlink does not terminate, does not report the length it wanted, and
+       silently truncates -- so a fixed buffer can hand back a path that looks
+       plausible and names the wrong directory. Grow until it fits. */
+    std::vector<char> buf(1024);
+
+    for (;;)
+    {
+        const ssize_t n = readlink("/proc/self/exe", buf.data(), buf.size());
+
+        if (n <= 0)
+            return "";
+
+        if ((size_t)n < buf.size())
+        {
+            buf[n] = 0;
+            return fs::path(buf.data()).parent_path().string();
+        }
+
+        if (buf.size() > (1u << 20))
+            return "";   /* absurd; something is wrong */
+
+        buf.resize(buf.size() * 2);
+    }
+
+#endif
+}
+
+/* Find a data file named by a bare filename.
+ *
+ * A .patch says `dsp ts1.dsp' and nothing about where ts1.dsp lives. The old
+ * lookup tried exactly two places -- the name as given, and DSP_PATH -- which
+ * meant a .patch only resolved if you happened to be standing in the right
+ * directory or had run `make install'. On this machine it silently worked for
+ * months because a years-old /usr/local/share/thinksynth/dsp was still there,
+ * which is precisely the kind of false pass that makes CI look wrong when it
+ * is right.
+ */
+/* Absolute, and tidied where that is possible.
+ *
+ * weakly_canonical also folds away "." and ".." and follows symlinks, which
+ * makes the path the user is shown in an error message the path the file
+ * actually has. It can fail on a filesystem that refuses to be walked, so
+ * absolute() -- which only prepends the working directory -- is the fallback,
+ * and the raw candidate the fallback's fallback. */
+static string absolutePath (const fs::path &p)
+{
+    std::error_code ec;
+
+    const fs::path canon = fs::weakly_canonical(p, ec);
+
+    if (!ec && !canon.empty())
+        return canon.string();
+
+    const fs::path abs = fs::absolute(p, ec);
+
+    return ec ? p.string() : abs.string();
+}
+
+string thUtil::userDataDir (void)
+{
+#if defined(_WIN32)
+    const char *base = getenv("LOCALAPPDATA");
+
+    return (base != NULL && *base != 0)
+        ? (fs::path(base) / PACKAGE_NAME).string() : "";
+#else
+    const char *home = getenv("HOME");
+
+    if (getenv("FLATPAK_ID") != NULL && home != NULL && *home != 0)
+        return (fs::path(home) / ".local" / "share" / PACKAGE_NAME).string();
+#if defined(__APPLE__)
+    return (home != NULL && *home != 0)
+        ? (fs::path(home) / "Library" / "Application Support" /
+           PACKAGE_NAME).string() : "";
+#else
+    const char *xdg = getenv("XDG_DATA_HOME");
+
+    if (xdg != NULL && *xdg == '/')
+        return (fs::path(xdg) / PACKAGE_NAME).string();
+
+    return (home != NULL && *home != 0)
+        ? (fs::path(home) / ".local" / "share" / PACKAGE_NAME).string() : "";
+#endif
+#endif
+}
+
+string thUtil::findDataFile (const string &name, const string &subdir,
+                             const char *envVar, const string &fallback)
+{
+    if (name.empty())
+        return "";
+
+    string graph;
+
+    if (findGraphText(name, graph))
+        return name;
+
+    std::error_code ec;
+
+    /* An absolute path means what it says, found or not: reporting "cannot
+       open /what/you/asked/for" is more use than silently substituting. */
+    if (fs::path(name).is_absolute())
+        return absolutePath(name);
+
+    std::vector<fs::path> tries;
+
+    if (envVar != NULL)
+    {
+        const char *env = getenv(envVar);
+
+        if (env != NULL && *env != 0)
+        {
+            tries.push_back(fs::path(env) / name);
+            tries.push_back(fs::path(env) / subdir / name);
+        }
+    }
+
+    /* Relative to the current directory, as given and under the conventional
+       subdirectory -- the latter is what makes a source or build tree work
+       without anything being installed. */
+    tries.push_back(name);
+    tries.push_back(fs::path(subdir) / name);
+
+    const string exe = exeDir();
+
+    if (!exe.empty())
+    {
+        const fs::path bin(exe);
+
+        /* Unix install: <prefix>/bin/thinksynth,
+           <prefix>/share/thinksynth/dsp/. */
+        tries.push_back(bin.parent_path() / "share" / PACKAGE_NAME / subdir / name);
+
+        /* macOS bundle: Contents/MacOS/thinksynth, Contents/Resources/dsp/. */
+        tries.push_back(bin.parent_path() / "Resources" / subdir / name);
+
+        /* Windows install, and a build tree run from its own directory. */
+        tries.push_back(bin / subdir / name);
+        tries.push_back(bin.parent_path() / subdir / name);
+    }
+
+    if (!fallback.empty())
+        tries.push_back(fs::path(fallback) / name);
+
+    /* Last: what this user downloaded, so nothing shipped can be shadowed
+       by it. */
+    const string user = userDataDir();
+
+    if (!user.empty())
+        tries.push_back(fs::path(user) / subdir / name);
+
+    for (size_t i = 0; i < tries.size(); i++)
+        if (fs::exists(tries[i], ec))
+            return absolutePath(tries[i]);
+
+    return "";
+}
+
+/* The directories the above searches, in the same order and for the same
+   reasons. Kept beside it deliberately: two search orders that are supposed
+   to agree and are written out separately do not stay agreeing. */
+/* An empty file with an unguessable name, in the right directory for this
+ * platform.
+ *
+ * The directory is the reason this exists. The node editor used to build the
+ * template itself:
+ *
+ *     const char *tmp = getenv("TMPDIR");
+ *     string tpl = string(tmp && *tmp ? tmp : "/tmp");
+ *
+ * TMPDIR is a POSIX convention. Windows sets TEMP and TMP and never TMPDIR,
+ * so that fell through to "/tmp" -- a directory Windows does not have.
+ * mkstemp failed, the working copy was never made, and the editor reported
+ * "Could not read <file>" about a file it had not tried to read.
+ * temp_directory_path knows the answer on all three platforms.
+ */
+string thUtil::tempFile (const string &prefix)
+{
+    std::error_code ec;
+
+    const fs::path dir = fs::temp_directory_path(ec);
+
+    if (ec || dir.empty())
+        return "";
+
+#if defined(_WIN32)
+
+    /* GetTempFileName is the Win32 equivalent: it invents a name in the
+       directory given, creates the file, and hands back the path -- and the
+       per-user temp directory is already private, which is what mkstemp's
+       0600 buys on a shared /tmp. */
+    /* The directory, with a separator on the end. temp_directory_path does
+       not put one there and GetTempFileName is documented against paths that
+       have one, so it is added rather than hoped about. */
+    std::wstring wdir = dir.wstring();
+
+    if (!wdir.empty() && wdir.back() != L'\\' && wdir.back() != L'/')
+        wdir += L'\\';
+
+    /* At most the first three characters of the prefix are used -- a limit of
+       the API, not a choice here -- so a long caller prefix is truncated
+       rather than passed whole, and an empty one gets something rather than
+       nothing. */
+    std::wstring wpre;
+
+    for (size_t i = 0; i < prefix.size() && wpre.size() < 3; i++)
+        wpre += (wchar_t)(unsigned char)prefix[i];
+
+    if (wpre.empty())
+        wpre = L"ths";
+
+    /* The buffer must be MAX_PATH characters; the call fails rather than
+       truncating if the directory leaves no room, which the empty return
+       reports to the caller. */
+    wchar_t out[MAX_PATH];
+
+    if (GetTempFileNameW(wdir.c_str(), wpre.c_str(), 0, out) == 0)
+        return "";
+
+    return fs::path(out).string();
+
+#else
+
+    /* mkstemp rather than a name built from the pid: it creates the file
+       itself, O_EXCL and 0600, so on a shared temp directory without the
+       sticky bit there is nothing to guess and nothing to pre-empt.
+
+       The template has to end in the X's, so nothing may be appended. */
+    const fs::path tpl = dir / (prefix + "XXXXXX");
+
+    const string t = tpl.string();
+
+    std::vector<char> buf(t.begin(), t.end());
+
+    buf.push_back('\0');
+
+    const int fd = mkstemp(&buf[0]);
+
+    if (fd < 0)
+        return "";
+
+    /* Closed rather than kept: everything downstream works by path, and the
+       writer deliberately writes through a temporary and renames, which
+       replaces the inode under any descriptor we held anyway. */
+    close(fd);
+
+    return string(&buf[0]);
+
+#endif
+}
+
+string thUtil::findDataDir (const string &subdir, const char *envVar,
+                            const string &fallback)
+{
+    std::error_code ec;
+
+    std::vector<fs::path> tries;
+
+    if (envVar != NULL)
+    {
+        const char *env = getenv(envVar);
+
+        if (env != NULL && *env != 0)
+        {
+            tries.push_back(env);
+            tries.push_back(fs::path(env) / subdir);
+        }
+    }
+
+    tries.push_back(subdir);
+
+    const string exe = exeDir();
+
+    if (!exe.empty())
+    {
+        const fs::path bin(exe);
+
+        tries.push_back(bin.parent_path() / "share" / PACKAGE_NAME / subdir);
+        tries.push_back(bin.parent_path() / "Resources" / subdir);
+        tries.push_back(bin / subdir);
+        tries.push_back(bin.parent_path() / subdir);
+    }
+
+    if (!fallback.empty())
+        tries.push_back(fallback);
+
+    for (size_t i = 0; i < tries.size(); i++)
+        if (fs::is_directory(tries[i], ec))
+            return absolutePath(tries[i]);
+
+    return "";
+}
+
+/* The C locale, as an object the _l and uselocale calls take, made once.
+ *
+ * Not std::locale::classic() on a stream, which is what this was first:
+ * libstdc++ on MinGW implements a stream's numeric conversion by saving the
+ * process's locale, calling setlocale(LC_ALL, "C"), converting, and setting
+ * the saved one back. Two threads doing that interleave -- one restores the
+ * host's comma locale while the other is mid-strtod -- and the host's UI
+ * thread sees LC_ALL flip to "C" on every number the lexer reads. Both the
+ * calls below leave the process's locale alone: _strtod_l and friends take
+ * the locale as an argument, and uselocale sets it for this thread only. */
+#if defined(_WIN32)
+
+static _locale_t cLocale (void)
+{
+    static const _locale_t c = _create_locale(LC_NUMERIC, "C");
+
+    return c;
+}
+
+double thUtil::parseDouble (const char *text)
+{
+    return _strtod_l(text, NULL, cLocale());
+}
+
+float thUtil::parseFloat (const char *text)
+{
+    return _strtof_l(text, NULL, cLocale());
+}
+
+string thUtil::formatFixed (double value, int precision)
+{
+    char buf[512];
+
+    _snprintf_l(buf, sizeof(buf), "%.*f", cLocale(), precision, value);
+    buf[sizeof(buf) - 1] = 0;
+
+    return buf;
+}
+
+#else
+
+static locale_t cLocale (void)
+{
+    static const locale_t c = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+
+    return c;
+}
+
+/* uselocale for the length of one conversion, on this thread. */
+class thCLocale
+{
+public:
+    thCLocale (void) : saved_(uselocale(cLocale())) { }
+    ~thCLocale (void) { uselocale(saved_); }
+
+private:
+    locale_t saved_;
+};
+
+double thUtil::parseDouble (const char *text)
+{
+    thCLocale c;
+
+    return strtod(text, NULL);
+}
+
+float thUtil::parseFloat (const char *text)
+{
+    thCLocale c;
+
+    return strtof(text, NULL);
+}
+
+string thUtil::formatFixed (double value, int precision)
+{
+    thCLocale c;
+    char buf[512];
+
+    snprintf(buf, sizeof(buf), "%.*f", precision, value);
+
+    return buf;
+}
+
+#endif
+
+namespace {
+
+struct EmbeddedFiles
+{
+    std::mutex lock;
+    std::map<std::string, std::pair<const unsigned char *, size_t> > files;
+};
+
+EmbeddedFiles &embedded (void)
+{
+    static EmbeddedFiles e;
+
+    return e;
+}
+
+struct GraphTexts
+{
+    std::mutex lock;
+    std::map<std::string, std::pair<std::string, int> > texts;  /* holds */
+};
+
+/* Never destroyed: a hold may be released by a static's destructor after
+   this one's would have run. */
+GraphTexts &graphTexts (void)
+{
+    static GraphTexts *g = new GraphTexts;
+
+    return *g;
+}
+
+} /* namespace */
+
+void thUtil::addEmbeddedFile (const string &name, const unsigned char *data,
+                              size_t size)
+{
+    EmbeddedFiles &e = embedded();
+    std::lock_guard<std::mutex> hold(e.lock);
+
+    e.files[name] = std::make_pair(data, size);
+}
+
+thUtil::GraphHold thUtil::addGraphText (const string &name,
+                                        const string &text)
+{
+    GraphTexts &g = graphTexts();
+
+    {
+        std::lock_guard<std::mutex> hold(g.lock);
+        std::pair<std::string, int> &entry = g.texts[name];
+
+        entry.first = text;
+        entry.second++;
+    }
+
+    return GraphHold(new string(name), [](void *p)
+    {
+        string *held = (string *)p;
+        GraphTexts &texts = graphTexts();
+        std::lock_guard<std::mutex> hold(texts.lock);
+        const auto i = texts.texts.find(*held);
+
+        if (i != texts.texts.end() && --i->second.second == 0)
+            texts.texts.erase(i);
+
+        delete held;
+    });
+}
+
+bool thUtil::findGraphText (const string &name, string &text)
+{
+    GraphTexts &g = graphTexts();
+    std::lock_guard<std::mutex> hold(g.lock);
+    const auto i = g.texts.find(name);
+
+    if (i == g.texts.end())
+        return false;
+
+    text = i->second.first;
+
+    return true;
+}
+
+bool thUtil::findEmbeddedFile (const string &name, const unsigned char *&data,
+                               size_t &size)
+{
+    EmbeddedFiles &e = embedded();
+    std::lock_guard<std::mutex> hold(e.lock);
+    const auto i = e.files.find(name);
+
+    if (i == e.files.end())
+        return false;
+
+    data = i->second.first;
+    size = i->second.second;
+
+    return true;
+}
+
+static std::atomic<unsigned> dataGeneration{0};
+
+/* Each file named to dataFileChanged, and the count after it was. */
+static std::mutex dataLock;
+static std::map<string, unsigned> dataChanged;
+
+void thUtil::dataFilesChanged ()
+{
+    dataGeneration++;
+}
+
+void thUtil::dataFileChanged (const string &name)
+{
+    std::lock_guard<std::mutex> hold(dataLock);
+
+    dataChanged[name] = ++dataGeneration;
+}
+
+unsigned thUtil::dataFilesGeneration ()
+{
+    return dataGeneration.load();
+}
+
+unsigned thUtil::dataFileGeneration (const string &name)
+{
+    std::lock_guard<std::mutex> hold(dataLock);
+    const auto i = dataChanged.find(name);
+
+    return i == dataChanged.end() ? 0 : i->second;
+}

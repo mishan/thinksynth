@@ -1,0 +1,1844 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * voicecheck -- how a channel hands notes to voices.
+ *
+ * `poly' and `mono' on the io node are the two things a .dsp can say about
+ * that, and what each one claims is about a *sound*: how many voices are
+ * audible, and at what pitch. So this harness listens rather than counting.
+ * It plays notes into a real thSynth, reads the channel's output back, and
+ * measures two things from it -- the level, which says how many voices are
+ * sounding, and the rate of the zero crossings, which for a graph that is one
+ * sine says which pitch. Nothing here reaches into thMidiChan to ask.
+ *
+ * What is claimed:
+ *
+ *   poly    caps the voices. Three notes at once on a `poly = 1' channel are
+ *           one voice, and the one left is the newest.
+ *
+ *   choke   makes a second note cut the voices that are sounding rather than
+ *           sum with them: they go into their release, the new one attacks
+ *           from the start and at its own velocity, and the two overlap
+ *           while the old one finishes. That is a drummer's pedal on the
+ *           open hat, and it is not `mono' -- which retunes the voice it
+ *           finds and keeps the velocity the first note arrived with.
+ *
+ *   mono    makes a second note retune the voice that is already sounding
+ *           instead of starting another: the pitch moves, the level does not,
+ *           and the velocity stays the first note's, because the envelopes
+ *           read it every sample and a step there is a click.
+ *
+ *           Releasing the newer key falls back to the older one, which is
+ *           last-note priority and the reason the channel keeps a stack of
+ *           the keys that are down rather than one pitch.
+ *
+ *           A note arriving when nothing is held is a new voice even if the
+ *           previous one is still in its release -- so a rest between two
+ *           notes is a retrigger and an overlap is a slide, which is the rule
+ *           a composed line already knows how to write.
+ *
+ *           And a voice the pedal is holding counts as sounding, so it slides
+ *           too -- and stops being the pedal's once a key is down again,
+ *           which is what keeps it from being cut off the moment the pedal
+ *           comes up.
+ *
+ *   glide   a misc::slew on the frequency inside the graph carries across a
+ *           retune. That is the whole point of retuning a voice rather than
+ *           starting one: the state in the graph survives, so the pitch
+ *           slides instead of stepping.
+ *
+ * Its .dsp files are written here rather than taken from the corpus, for the
+ * reason argtype gives about its own: the cases that matter are ones the
+ * corpus cannot contain, since every shipped graph is polyphonic.
+ *
+ *     scripts/voicecheck -p build/plugins/
+ *
+ * Exit status is the number of failures.
+ */
+
+#include "config.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#ifdef __linux__
+#include <pthread.h>
+#include <sched.h>
+
+#include <chrono>
+#include <set>
+#include <thread>
+#endif
+
+#include "think.h"
+#include "thPhoneme.h"
+
+using std::string;
+using std::vector;
+
+static int failed = 0;
+
+static void ok (const string &what)
+{
+    printf("ok    %s\n", what.c_str());
+}
+
+static void fail (const string &what, const string &detail)
+{
+    printf("FAIL  %s%s%s\n", what.c_str(), detail.empty() ? "" : ": ",
+           detail.c_str());
+    failed++;
+}
+
+static void okOrFail (bool good, const string &what, const string &detail)
+{
+    if (good)
+        ok(what);
+    else
+        fail(what, detail);
+}
+
+static string num (double v)
+{
+    char buf[64];
+
+    snprintf(buf, sizeof(buf), "%.6g", v);
+
+    return buf;
+}
+
+/* Not "/tmp/...", for the reason argtype spells out: this is a CTest gate and
+   the Windows runner has no such directory. */
+static string scratchPath (const char *leaf)
+{
+    std::error_code ec;
+
+    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+
+    if (ec)
+        dir = ".";
+
+    return (dir / leaf).string();
+}
+
+static bool writeFile (const string &path, const string &text)
+{
+    std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+
+    out << text;
+    out.close();
+
+    if (out.good())
+        return true;
+
+    fail("could not write", path);
+
+    return false;
+}
+
+/* ---- the graphs --------------------------------------------------------
+ *
+ * One sine at the note's pitch, at the note's velocity, through an envelope
+ * that reaches its sustain in a millisecond and holds there. The level is
+ * then a count of voices and the zero crossings are a pitch, which is all
+ * either measurement below needs.
+ *
+ * `io' is whatever the case under test wants on the io node -- `poly = 1',
+ * `mono = 1', `choke = 1', neither -- `extra' is the glide case's slew,
+ * `release' is how long a cut voice takes to go, and `trigger' is what the
+ * envelope watches, which is the one-shot case's whole subject.
+ */
+static string graph (const string &io, const string &freqSource,
+                     const string &extra, const string &release = "200 ms",
+                     const string &trigger = "ionode->trigger")
+{
+    return
+        string("name \"voicecheck\";\n\n") +
+        "node ionode {\n"
+        "    channels = 1;\n"
+        "    out0 = vca->out;\n"
+        "    play = env->play;\n" + io +
+        "};\n\n"
+        "node freq misc::midi2freq {\n"
+        "    note = ionode->note;\n"
+        "};\n\n" + extra +
+        "node osc osc::simple {\n"
+        "    freq = " + freqSource + ";\n"
+        "    waveform = 0;\n"
+        "    amp = ionode->velocity;\n"
+        "};\n\n"
+        "node env env::adsr {\n"
+        "    a = 1 ms;\n"
+        "    d = 1 ms;\n"
+        "    s = th_max;\n"
+        "    r = " + release + ";\n"
+        "    trigger = " + trigger + ";\n"
+        "};\n\n"
+        "node vca mixer::mul {\n"
+        "    in0 = osc->out;\n"
+        "    in1 = env->out;\n"
+        "};\n\n"
+        "io ionode;\n";
+}
+
+/* ---- measuring ---------------------------------------------------------- */
+
+static double rms (const vector<float> &v)
+{
+    double sum = 0;
+
+    for (size_t i = 0; i < v.size(); i++)
+        sum += (double)v[i] * v[i];
+
+    return v.empty() ? 0 : sqrt(sum / v.size());
+}
+
+/* The largest step the waveform takes from one sample to the next -- which
+   is what a cut in the middle of a voice looks like, against what the
+   waveform does on its own. */
+static double maxStep (const vector<float> &v)
+{
+    double worst = 0;
+
+    for (size_t i = 1; i < v.size(); i++)
+    {
+        const double step = fabs((double)v[i] - v[i - 1]);
+
+        if (step > worst)
+            worst = step;
+    }
+
+    return worst;
+}
+
+/* Hertz, from the upward zero crossings.
+ *
+ * Exact for one sine and meaningless for two, which is deliberate: where a
+ * case is about how many voices are sounding the level is what is read, and
+ * where it is about which pitch there is only ever one voice to hear.
+ *
+ * Measured from the first crossing to the last rather than over the whole
+ * buffer. Crossings are whole numbers, so dividing a count by the buffer
+ * length quantises the answer to one cycle in it -- eleven hertz over a
+ * window, which is most of a semitone at middle C and enough to fail a pitch
+ * that is exactly right. Between two crossings there is a whole number of
+ * cycles by construction, and what is divided is a sample count.
+ *
+ * The threshold keeps a run of samples sitting on zero -- a released voice --
+ * from counting as a crossing per sample. */
+static double pitch (const vector<float> &v, int rate)
+{
+    const double floorAt = 1e-4;
+
+    int crossings = 0;
+    size_t first = 0, last = 0;
+
+    /* False, so that a buffer beginning part way up a cycle does not count
+       its own first sample as a crossing. It would be a crossing three
+       quarters of a cycle early, which over four windows of middle C reads as
+       a pitch one and a third percent sharp -- close enough to look like a
+       tuning constant and not like an off-by-one. */
+    bool below = false;
+
+    for (size_t i = 0; i < v.size(); i++)
+    {
+        if (below && v[i] > floorAt)
+        {
+            if (crossings == 0)
+                first = i;
+
+            last = i;
+            crossings++;
+            below = false;
+        }
+        else if (!below && v[i] < -floorAt)
+        {
+            below = true;
+        }
+    }
+
+    if (crossings < 2 || last == first)
+        return 0;
+
+    return (double)(crossings - 1) * rate / (double)(last - first);
+}
+
+/* ---- a session ---------------------------------------------------------
+ *
+ * A synth with one channel loaded, notes played into it by hand, and the
+ * channel's window read back after each step. Commands are queued and drained
+ * by process(), so a note played here is sounding from the next window on --
+ * the same path the audio thread takes.
+ */
+struct Session
+{
+    thSynth synth;
+    vector<float> heard;
+
+    Session (const string &pluginPath)
+        : synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES) {}
+
+    bool load (const string &file)
+    {
+        return synth.loadTree(file, 0, 100) != NULL;
+    }
+
+    /* `windows' windows of channel 0, appended to `heard'. */
+    void run (int windows)
+    {
+        const int len = synth.getWindowlen();
+
+        for (int w = 0; w < windows; w++)
+        {
+            synth.process();
+
+            const float *out = synth.getOutput();
+
+            heard.insert(heard.end(), out, out + len);
+        }
+    }
+
+    /* Everything since the last look. */
+    vector<float> take (void)
+    {
+        vector<float> got;
+
+        got.swap(heard);
+
+        return got;
+    }
+
+    /* Run, and answer only the second half: the first is where the pitch is
+       still arriving and the envelope still moving. */
+    vector<float> settled (int windows)
+    {
+        take();
+        run(windows);
+
+        vector<float> all = take();
+
+        return vector<float>(all.begin() + all.size() / 2, all.end());
+    }
+
+    void pedal (int value)
+    {
+        synth.setChanArg(0, new thArg(string("SusPedal"), (float)value));
+    }
+};
+
+/* Within `tol' of each other, proportionally. */
+static bool near (double a, double b, double tol)
+{
+    if (b == 0)
+        return fabs(a) < tol;
+
+    return fabs(a - b) <= fabs(b) * tol;
+}
+
+int main (int argc, char **argv)
+{
+    string pluginPath = PLUGIN_PATH;
+
+    for (int i = 1; i < argc; i++)
+        if (!strcmp(argv[i], "-p") && i + 1 < argc)
+            pluginPath = argv[++i];
+
+    if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
+        pluginPath += '/';
+
+    const string file = scratchPath("voicecheck-scratch.dsp");
+    const int rate = TH_DEFAULT_SAMPLES;
+
+    /* Middle C and the C above it, which misc::midi2freq puts at these. */
+    const double C4 = 261.6255, C5 = 523.2511;
+
+    /* Per-note gain belongs to the voice mix. Both graphs should see the
+       same velocity, while their channel outputs differ only by the gain. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(file, 0, 100) == NULL ||
+            synth.loadTree(file, 1, 100) == NULL)
+            fail("two channels for note gain load", "");
+        else
+        {
+            synth.addNote(0, 60, 40, 1);
+            synth.addNote(1, 60, 40, 0.5);
+
+            for (int i = 0; i < 8; i++)
+                synth.process();
+
+            thMidiChan *full = synth.getChannel(0);
+            thMidiChan *half = synth.getChannel(1);
+            const int len = synth.getWindowlen();
+            const vector<float> a(full->output(), full->output() + len);
+            const vector<float> b(half->output(), half->output() + len);
+            thMidiNote *an = full->getNote(60);
+            thMidiNote *bn = half->getNote(60);
+            thArg *av = an ? an->synthTree()->IONode()->getArg("velocity")
+                           : NULL;
+            thArg *bv = bn ? bn->synthTree()->IONode()->getArg("velocity")
+                           : NULL;
+
+            okOrFail(rms(a) > 0 && near(rms(b), rms(a) * 0.5, 0.01) &&
+                     av && bv && near((*av)[0], (*bv)[0], 0.0001),
+                     "note gain halves the voice output without changing "
+                     "the graph velocity",
+                     "full " + num(rms(a)) + ", half " + num(rms(b)));
+        }
+    }
+
+    /* ---- a graph's own @amp and @SusPedal ----------------------------- */
+
+    /* The channel's args by those names take their place in its map, but
+       the graph's nodes still read the graph's: two channels, @amp 0.5
+       and 0.25, sound a factor of two apart at one channel amp. Under
+       ASan this is also the check that the channel frees them. */
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        const char *const amps[] = { "0.5", "0.25" };
+        bool loaded = true;
+
+        for (int c = 0; c < 2; c++)
+        {
+            string g = graph("", "freq->out", string("@amp = ") + amps[c] +
+                             ";\n@SusPedal = 0.5;\n\n");
+
+            g.replace(g.find("amp = ionode->velocity"),
+                      strlen("amp = ionode->velocity"), "amp = @amp");
+            loaded = loaded && writeFile(file, g) &&
+                     synth.loadTree(file, c, 100) != NULL;
+        }
+
+        if (!loaded)
+            fail("graphs declaring @amp load", "");
+        else
+        {
+            synth.addNote(0, 60, 100, 1);
+            synth.addNote(1, 60, 100, 1);
+
+            for (int i = 0; i < 8; i++)
+                synth.process();
+
+            const int len = synth.getWindowlen();
+            const float *a = synth.getChannel(0)->output();
+            const float *b = synth.getChannel(1)->output();
+            const double ra = rms(vector<float>(a, a + len));
+            const double rb = rms(vector<float>(b, b + len));
+            thArg *amp = synth.getChanArg(0, "amp");
+
+            okOrFail(ra > 0 && near(rb, ra * 0.5, 0.01) && amp &&
+                     amp->max() == MIDIVALMAX,
+                     "a graph's @amp drives its node while the channel "
+                     "keeps its own amp",
+                     "@amp 0.5 " + num(ra) + ", 0.25 " + num(rb));
+        }
+    }
+
+    /* A graph that reads a chan arg it never declared reads a 0: here the
+       gain of its vca, which is silence. */
+    {
+        string g = graph("", "freq->out", "");
+
+        g.replace(g.find("in1 = env->out"), strlen("in1 = env->out"),
+                  "in1 = @nowhere");
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (!writeFile(file, g) || synth.loadTree(file, 0, 100) == NULL)
+            fail("a graph reading an undeclared chan arg loads", "");
+        else
+        {
+            synth.addNote(0, 60, 100, 1);
+
+            for (int i = 0; i < 8; i++)
+                synth.process();
+
+            const float *o = synth.getChannel(0)->output();
+            const double r = rms(vector<float>(o, o + synth.getWindowlen()));
+
+            okOrFail(r == 0, "an undeclared chan arg reads as 0",
+                     "rms " + num(r));
+        }
+    }
+
+    /* And in an effect's graph: a gain of @nowhere silences the voice. */
+    {
+        const string fx =
+            "node ionode { channels = 1; in0 = 0; out0 = g->out; };\n"
+            "node g math::mul { in0 = ionode->in0; in1 = @nowhere; };\n"
+            "io ionode;\n";
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (!writeFile(file, graph("", "freq->out", "")) ||
+            synth.loadTree(file, 0, 100) == NULL ||
+            synth.loadEffectText("nowhere-fx", fx, 0) == NULL)
+            fail("an effect reading an undeclared chan arg loads", "");
+        else
+        {
+            synth.addNote(0, 60, 100, 1);
+
+            for (int i = 0; i < 8; i++)
+                synth.process();
+
+            const float *o = synth.getChannel(0)->output();
+            const double r = rms(vector<float>(o, o + synth.getWindowlen()));
+
+            okOrFail(r == 0, "an undeclared chan arg in an effect reads as 0",
+                     "rms " + num(r));
+        }
+    }
+
+    /* ---- a note's aux reaches its own voice, and no other ------------- */
+
+    /* A graph whose oscillator's amplitude is `ionode->aux1', so what a note
+       carries there is what the voice sounds at. Two notes on one channel,
+       0.25 and 0.75: each voice's io node holds its own, the second note
+       arriving does not rewrite the first's, and the two sound at a third
+       of each other. A MIDI note -- no aux at all -- carries zeros. */
+    {
+        string g = graph("", "freq->out", "");
+        const string amp = "    amp = ionode->velocity;\n";
+
+        g.replace(g.find(amp), amp.size(), "    amp = ionode->aux1;\n");
+
+        if (writeFile(file, g))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+
+            if (synth.loadTree(file, 0, 100) == NULL ||
+                synth.loadTree(file, 1, 100) == NULL ||
+                synth.loadTree(file, 2, 100) == NULL)
+                fail("a graph that reads aux1 loads", "");
+            else
+            {
+                const float quarter[TH_NOTE_AUX] = { 0, 0.25f, 0, 0 };
+                const float most[TH_NOTE_AUX] = { 0, 0.75f, 0, 0 };
+
+                synth.addNote(0, 60, 100, 1, quarter);
+                synth.addNote(0, 64, 100, 1, most);
+                synth.addNote(1, 60, 100, 1, quarter);
+                synth.addNote(2, 60, 100, 1, most);
+                synth.addNote(0, 67, 100);
+
+                for (int i = 0; i < 8; i++)
+                    synth.process();
+
+                auto aux1 = [&](int chan, int note) -> float {
+                    thMidiNote *n = synth.getChannel(chan)->getNote(note);
+                    thArg *a = n ? n->synthTree()->IONode()->getArg("aux1")
+                                 : NULL;
+
+                    return a ? (*a)[0] : -1;
+                };
+                auto level = [&](int chan) {
+                    thMidiChan *ch = synth.getChannel(chan);
+                    const int len = synth.getWindowlen();
+
+                    return rms(vector<float>(ch->output(),
+                                             ch->output() + len));
+                };
+
+                okOrFail(aux1(0, 60) == 0.25f && aux1(0, 64) == 0.75f &&
+                         aux1(0, 67) == 0,
+                         "each voice's io node holds the aux its own note "
+                         "carried, and a note with none holds zero",
+                         "60 holds " + num(aux1(0, 60)) + ", 64 holds " +
+                         num(aux1(0, 64)) + ", the MIDI note " +
+                         num(aux1(0, 67)));
+
+                okOrFail(level(1) > 0 &&
+                         near(level(2), level(1) * 3, 0.01),
+                         "a graph reading aux1 sounds each note at what it "
+                         "carried",
+                         "0.25 gave " + num(level(1)) + ", 0.75 gave " +
+                         num(level(2)));
+            }
+        }
+    }
+
+    /* And a graph that never mentions one has none: the aux are written
+       only where they are read, so no voice of the other ninety-odd graphs
+       grows an arg its prototype does not have. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        const float some[TH_NOTE_AUX] = { 0.5f, 0.5f, 0.5f, 0.5f };
+
+        if (synth.loadTree(file, 0, 100) == NULL)
+            fail("a graph for the aux loads", "");
+        else
+        {
+            synth.addNote(0, 60, 100, 1, some);
+            synth.process();
+
+            thMidiNote *n = synth.getChannel(0)->getNote(60);
+            bool none = n != NULL;
+
+            for (int a = 0; none && a < TH_NOTE_AUX; a++)
+            {
+                char name[16];
+
+                snprintf(name, sizeof(name), AUXPREFIX "%d", a);
+                none = n->synthTree()->IONode()->getArg(name) == NULL;
+            }
+
+            okOrFail(none, "a graph that reads no aux gets no aux arg", "");
+        }
+    }
+
+    /* ---- a note's phonemes reach its voice, and a slide's reach it too -- */
+
+    /* A graph that mentions `ionode->say'. Each voice holds what its own
+       note said, the full TH_NOTE_SAY long; a MIDI note says nothing; and
+       on a mono channel the next syllable, slid onto, replaces the first
+       in the voice that is sounding. */
+    {
+        const string extra = "node said math::add {\n"
+                             "    in0 = ionode->say;\n"
+                             "    in1 = 0;\n"
+                             "};\n\n";
+        const unsigned char come[] = { 24, 3, 26, 0 };    /* K AH M */
+        const unsigned char in[] = { 10, 27, 0 };         /* IH N */
+        auto said = [](thSynth &synth, int note) -> string {
+            thMidiNote *n = synth.getChannel(0)->getNote(note);
+            thArg *a = n ? n->synthTree()->IONode()->getArg(SAYARG) : NULL;
+            string out;
+
+            if (a == NULL)
+                return "no arg";
+            if (a->len() != TH_NOTE_SAY)
+                return "length " + to_string(a->len());
+            for (unsigned i = 0; i < TH_NOTE_SAY - 1 && (*a)[i] != 0; i++)
+                out += string(out.empty() ? "" : ".") +
+                       thPhonemeName((int)(*a)[i]);
+
+            return out;
+        };
+
+        if (writeFile(file, graph("", "freq->out", extra)))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a graph that reads say loads", "");
+            else
+            {
+                synth.addNote(0, 60, 100, 1, NULL, come);
+                synth.addNote(0, 64, 100, 1, NULL, in);
+                synth.addNote(0, 67, 100);
+                synth.process();
+
+                okOrFail(said(synth, 60) == "K.AH.M" &&
+                         said(synth, 64) == "IH.N" && said(synth, 67) == "",
+                         "each voice's io node holds what its own note said, "
+                         "and a note that said nothing holds nothing",
+                         "60 " + said(synth, 60) + ", 64 " + said(synth, 64) +
+                         ", the MIDI note " + said(synth, 67));
+            }
+        }
+
+        if (writeFile(file, graph("    mono = 1;\n", "freq->out", extra)))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a mono graph that reads say loads", "");
+            else
+            {
+                synth.addNote(0, 60, 100, 1, NULL, come);
+                synth.process();
+                synth.addNote(0, 64, 100, 1, NULL, in);
+                synth.process();
+
+                okOrFail(said(synth, 64) == "IH.N",
+                         "a mono slide onto the next note says that note's "
+                         "phonemes", said(synth, 64));
+
+                synth.addNote(0, 67, 100);
+                synth.process();
+
+                okOrFail(said(synth, 67) == "IH.N",
+                         "a mono slide onto a note that says nothing leaves "
+                         "the words sounding", said(synth, 67));
+            }
+        }
+    }
+
+    /* ---- osc::speak says what a note carries ---------------------------- */
+
+    /* A voice that is osc::speak alone, at A2 so its harmonics are 110 Hz
+       apart: what it says is read off the spectrum. A vowel is its
+       formants, so the loudest harmonic under 1 kHz is the one nearest F1
+       -- AA's 700, IY's 310 -- and IY's F2, at 2 kHz, stands within 30 dB
+       of its F1, as a spoken IY's does, and at least 6 dB further up from
+       it than AA's valley there. */
+    {
+        auto speakGraph = [](const string &io) {
+            return string("name \"voicecheck\";\n\n"
+                          "node ionode {\n"
+                          "    channels = 1;\n"
+                          "    out0 = sp->out;\n"
+                          "    play = sp->play;\n") + io +
+                   "};\n\n"
+                   "node freq misc::midi2freq {\n"
+                   "    note = ionode->note;\n"
+                   "};\n\n"
+                   "node sp osc::speak {\n"
+                   "    freq = freq->out;\n"
+                   "    say = ionode->say;\n"
+                   "    trigger = ionode->trigger;\n"
+                   "};\n\n"
+                   "io ionode;\n";
+        };
+        /* `windows' of channel 0, appended to `out'; `play' is the voice's
+           at the end, or -1 once it is gone. */
+        auto listen = [](thSynth &synth, int windows, vector<float> &out) {
+            for (int w = 0; w < windows; w++)
+            {
+                int ch = 1;
+
+                synth.process();
+
+                const float *o = synth.getChannelOutput(0, &ch);
+                const int len = synth.getWindowlen();
+
+                for (int i = 0; i < len; i++)
+                    out.push_back(o ? o[i * ch] / TH_MAX : 0);
+            }
+        };
+        auto harmonic = [](const vector<float> &v, size_t from, size_t n,
+                           double hz) {
+            double re = 0, im = 0;
+
+            for (size_t i = 0; i < n && from + i < v.size(); i++)
+            {
+                const double w = 2 * M_PI * hz * (double)i /
+                                 TH_DEFAULT_SAMPLES;
+
+                re += v[from + i] * cos(w);
+                im -= v[from + i] * sin(w);
+            }
+
+            return sqrt(re * re + im * im) / (double)n;
+        };
+        const double f0 = 110;
+        const int windows = TH_DEFAULT_SAMPLES / TH_DEFAULT_WINDOW_LENGTH;
+        /* The loudest harmonic of `v' from `from' for a tenth of a second,
+           under 1 kHz; and the loudest from 1.8 to 2.4 kHz over it. */
+        auto vowel = [&](const vector<float> &v, size_t from, double &f1,
+                         double &high) {
+            const size_t n = TH_DEFAULT_SAMPLES / 10;
+            double top = 0;
+
+            high = 0;
+            f1 = 0;
+            for (int k = 2; k * f0 < 1000; k++)
+            {
+                const double a = harmonic(v, from, n, k * f0);
+
+                if (a > top)
+                {
+                    top = a;
+                    f1 = k * f0;
+                }
+            }
+            for (int k = (int)(1800 / f0) + 1; k * f0 < 2400; k++)
+                high = fmax(high, harmonic(v, from, n, k * f0));
+            high /= top > 0 ? top : 1;
+        };
+
+        if (writeFile(file, speakGraph("")))
+        {
+            const struct { const char *name; unsigned char code; double f1; }
+                vowels[] = { { "AA", 1, 700 }, { "IY", 11, 310 },
+                             { "", 0, 700 } };
+            double highOf[3] = { 0, 0, 0 };
+
+            for (int k = 0; k < 3; k++)
+            {
+                thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                              TH_DEFAULT_SAMPLES);
+                const unsigned char say[2] = { vowels[k].code, 0 };
+                vector<float> got;
+                double f1;
+
+                if (synth.loadTree(file, 0, 100) == NULL)
+                {
+                    fail("a graph on osc::speak loads", "");
+                    break;
+                }
+
+                synth.addNote(0, 45, 100, 1, NULL, say);
+                listen(synth, windows / 2, got);
+                vowel(got, TH_DEFAULT_SAMPLES / 4, f1, highOf[k]);
+
+                okOrFail(fabs(f1 - vowels[k].f1) <= f0,
+                         string("osc::speak: ") +
+                         (k == 2 ? "a note that says nothing sings AA"
+                                 : string("a held ") + vowels[k].name +
+                                   " is loudest at its first formant"),
+                         "loudest under 1 kHz at " + num(f1) + " Hz");
+            }
+
+            okOrFail(highOf[1] > pow(10, -30.0 / 20) &&
+                     highOf[1] > highOf[0] * 2,
+                     "osc::speak: IY's second formant is within 30 dB of "
+                     "its first, and 6 dB nearer than AA's 2 kHz",
+                     "IY " + num(20 * log10(highOf[1])) + " dB, AA " +
+                     num(20 * log10(highOf[0])) + " dB");
+        }
+
+        /* The vowel is held while the key is, and the consonant after it
+           is said when the key comes up: AA S held for half a second has
+           no hiss until the release and plenty after, and the voice ends
+           once the S has been said. */
+        if (writeFile(file, speakGraph("")))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+            const unsigned char ahs[] = { 1, 31, 0 };          /* AA S */
+            vector<float> held, after;
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a graph on osc::speak loads", "");
+            else
+            {
+                synth.addNote(0, 45, 100, 1, NULL, ahs);
+                listen(synth, windows / 2, held);
+                synth.delNote(0, 45);
+                listen(synth, windows / 8, after);
+
+                auto hiss = [&](const vector<float> &v, size_t from) {
+                    double e = 0;
+
+                    for (double hz = 5000; hz < 7000; hz += 100)
+                        e += pow(harmonic(v, from, 2048, hz), 2);
+
+                    return e;
+                };
+                const double during = hiss(held, held.size() - 2048);
+                const double then = hiss(after, 1024);
+
+                synth.process();
+                synth.process();
+                listen(synth, windows / 4, after);
+
+                okOrFail(then > during * 100,
+                         "osc::speak: the S after a held AA waits for the "
+                         "release",
+                         "5-7 kHz held " + num(during) + ", released " +
+                         num(then));
+                okOrFail(synth.getChannel(0)->getNote(45) == NULL,
+                         "osc::speak: the voice ends once the S is said", "");
+            }
+        }
+
+        /* A mono slide moves the words on without starting the voice
+           again: AA slid onto IY is IY a tenth of a second later, and S AA
+           slid onto S AA -- the same words, la la -- says its S again. */
+        if (writeFile(file, speakGraph("    mono = 1;\n")))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+            const unsigned char aa[] = { 1, 0 }, iy[] = { 11, 0 };
+            const unsigned char saa[] = { 31, 1, 0 };
+            vector<float> got;
+            double f1, high;
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a mono graph on osc::speak loads", "");
+            else
+            {
+                synth.addNote(0, 45, 100, 1, NULL, aa);
+                listen(synth, windows / 4, got);
+                synth.addNote(0, 45, 100, 1, NULL, iy);
+                got.clear();
+                listen(synth, windows / 4, got);
+                vowel(got, TH_DEFAULT_SAMPLES / 10, f1, high);
+
+                okOrFail(fabs(f1 - 310) <= f0,
+                         "osc::speak: a mono slide onto IY says IY",
+                         "loudest under 1 kHz at " + num(f1) + " Hz");
+
+                auto hiss = [&](const vector<float> &v, size_t from) {
+                    double e = 0;
+
+                    for (double hz = 5000; hz < 7000; hz += 100)
+                        e += pow(harmonic(v, from, 2048, hz), 2);
+
+                    return e;
+                };
+                vector<float> first, again;
+
+                synth.addNote(0, 45, 100, 1, NULL, saa);
+                listen(synth, windows / 4, first);
+                synth.addNote(0, 45, 100, 1, NULL, saa);
+                listen(synth, windows / 4, again);
+
+                okOrFail(hiss(again, 0) > hiss(first, 0) / 4,
+                         "osc::speak: a mono slide onto the same words says "
+                         "them again",
+                         "5-7 kHz in the first S " + num(hiss(first, 0)) +
+                         ", in the second " + num(hiss(again, 0)));
+            }
+        }
+    }
+
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(file, 0, 100) == NULL)
+            fail("a mono graph for note gain loads", "");
+        else
+        {
+            auto level = [&]() {
+                for (int i = 0; i < 8; i++)
+                    synth.process();
+
+                thMidiChan *ch = synth.getChannel(0);
+                const int len = synth.getWindowlen();
+                return rms(vector<float>(ch->output(), ch->output() + len));
+            };
+
+            synth.addNote(0, 60, 40, 1);
+            const double first = level();
+            synth.addNote(0, 64, 40, 0.5);
+            const double slid = level();
+            synth.delNote(0, 64);
+            const double back = level();
+
+            okOrFail(first > 0 && near(slid, first * 0.5, 0.03) &&
+                     near(back, first, 0.03),
+                     "mono slides use each held note's gain",
+                     "first " + num(first) + ", slide " + num(slid) +
+                     ", back " + num(back));
+        }
+    }
+
+    /* ---- polyphony is what `poly' says -------------------------------- */
+
+    /* Three keys at once through a channel that may play one voice. The
+       polyphony check retires from the oldest held voice forward, so what is
+       left is the newest -- and it is one voice, at one pitch, which is what
+       both measurements below say together. */
+    if (writeFile(file, graph("    poly = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `poly = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 20);
+            vector<float> one = s.settled(8);
+
+            s.synth.addNote(0, 64, 20);
+            s.synth.addNote(0, 72, 20);
+
+            vector<float> three = s.settled(8);
+
+            okOrFail(near(rms(three), rms(one), 0.02) &&
+                     near(pitch(three, rate), C5, 0.01),
+                     "poly: three notes on a one-voice channel are one voice, "
+                     "and it is the newest",
+                     "one " + num(rms(one)) + ", three " + num(rms(three)) +
+                     " at " + num(pitch(three, rate)) + " Hz");
+        }
+    }
+
+    /* And with no `poly' at all, the same three notes are three voices. This
+       is the control: without it, the case above would pass on a channel that
+       had simply stopped playing notes. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a graph with no `poly' loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 20);
+            vector<float> one = s.settled(8);
+
+            s.synth.addNote(0, 64, 20);
+            s.synth.addNote(0, 72, 20);
+
+            vector<float> three = s.settled(8);
+
+            /* Three sines at three pitches sum incoherently, so the level
+               goes up by about the root of three. */
+            okOrFail(rms(three) > rms(one) * 1.5,
+                     "poly: a channel that does not ask for a limit plays all "
+                     "three", "one " + num(rms(one)) + ", three " +
+                              num(rms(three)));
+        }
+    }
+
+    /* ---- a stolen voice is ramped out, not cut ------------------------- */
+
+    /* What the case above leaves unsaid: the voice `poly' takes back was
+       *sounding*, and where in its waveform it happened to be is not the
+       channel's to decide. Dropping its contribution between one sample and
+       the next puts a step into the output the size of wherever it stood,
+       which is a click -- at the window boundary, on every note that costs a
+       voice. dsp/bass.dsp asks for `poly = 2' so a retrigger does not cut the
+       previous note's release, and a slide up the keyboard spends that on
+       every step: the output went from half full scale to exactly zero and
+       the next voice attacked from silence.
+
+       Measured at the seam rather than over the window, because the seam is
+       the only sample where the two readings differ by construction: the
+       voice that arrives is a millisecond into an attack that starts at
+       nothing, so whatever crosses the boundary is the voice that is
+       leaving. Against the waveform's own largest step, so the claim is
+       about a discontinuity and not about a level. */
+    if (writeFile(file, graph("    poly = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `poly = 1' graph loads for the steal", "");
+        else
+        {
+            s.synth.addNote(0, 60, 100);
+            s.settled(8);
+
+            s.run(1);
+
+            vector<float> before = s.take();
+
+            /* Over budget, so this one costs the note above its voice. */
+            s.synth.addNote(0, 72, 100);
+
+            s.run(1);
+
+            vector<float> after = s.take();
+
+            const double slope = maxStep(before);
+            const double seam = fabs((double)after.front() - before.back());
+
+            /* The check is only worth anything if the voice was somewhere a
+               cut would show, so say where it was. */
+            okOrFail(slope > 0 && fabs(before.back()) > slope * 4 &&
+                     seam <= slope * 2,
+                     "poly: a stolen voice is ramped out rather than cut",
+                     "seam " + num(seam) + " where the voice stood at " +
+                     num(fabs(before.back())) + " and its own largest step "
+                     "is " + num(slope));
+        }
+    }
+
+    /* ---- choke: a second note cuts the first --------------------------- */
+
+    /* A drummer's pedal, and the reason a graph cannot do it: the hat that
+       has to die is not the note that kills it, so the retrigger path -- same
+       pitch, same voice -- never reaches it. With a release of ten
+       milliseconds, half a window, the cut voice is gone by the time the next
+       measurement starts, and what is left is one voice at the new pitch and
+       at the *new* velocity. `mono' answers the same two notes with one voice
+       at the first note's velocity, and a plain channel with two. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "", "10 ms")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `choke = 1' graph loads", "");
+        else
+        {
+            /* The second note is quieter on purpose: a retune would keep the
+               first note's velocity, and a fresh voice takes its own. */
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 16);
+            vector<float> after = s.settled(8);
+
+            okOrFail(near(pitch(first, rate), C4, 0.01) &&
+                     near(pitch(after, rate), C5, 0.01) &&
+                     near(rms(after), rms(first) * 16 / 40, 0.05),
+                     "choke: a second note leaves one voice, at its own pitch "
+                     "and its own velocity",
+                     num(pitch(first, rate)) + " Hz at " + num(rms(first)) +
+                     " becomes " + num(pitch(after, rate)) + " Hz at " +
+                     num(rms(after)));
+        }
+    }
+
+    /* ---- choke: the voice it cuts is not cut off ----------------------- */
+
+    /* Sent into its release, not silenced, so for as long as that release
+       lasts the two overlap -- which is what a pedal on an open hat sounds
+       like, and what `poly' has to leave room for. Measured a window after
+       the second note, while the first is still most of its own height. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `choke = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> mid = s.take();
+
+            /* Past the 200 ms release: one voice, and at the same level as
+               the one it replaced, because the velocities match. */
+            vector<float> after = s.settled(32);
+
+            okOrFail(rms(mid) > rms(first) * 1.15 &&
+                     near(rms(after), rms(first), 0.02),
+                     "choke: the cut voice keeps its release, and the new one "
+                     "attacks under it",
+                     "release plus attack " + num(rms(mid)) + ", then " +
+                     num(rms(after)) + " against " + num(rms(first)));
+        }
+    }
+
+    /* With two release slots, three hits in quick succession must keep the
+       newest release under the third attack. An older release is at the back
+       of decaying_, even though the mixer visits the list from the front. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a rapid `choke = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 20);
+            s.run(1);
+            const double first = rms(s.take());
+
+            s.synth.addNote(0, 72, 80);
+            s.run(1);
+            s.take();
+
+            s.synth.addNote(0, 84, 1);
+            s.run(1);
+            const double third = rms(s.take());
+
+            okOrFail(third > first * 2,
+                     "choke: a third hit keeps the newest release, not the "
+                     "oldest one",
+                     "first " + num(first) + ", third " + num(third));
+        }
+    }
+
+    /* And the same two notes on a channel that says nothing about voices keep
+       both sounding for ever. That is the control: without it the case above
+       would pass on a channel that had simply stopped playing the first
+       note. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a graph with no `choke' loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+            vector<float> after = s.settled(32);
+
+            /* Two sines at two pitches sum incoherently, so the level goes up
+               by about the root of two. */
+            okOrFail(rms(after) > rms(first) * 1.3,
+                     "choke: without it a second note sums with the first "
+                     "rather than replacing it",
+                     "one " + num(rms(first)) + ", two " + num(rms(after)));
+        }
+    }
+
+    /* ---- choke: a one-shot can tell the pedal from the key ------------- */
+
+    /* A drum ignores the key coming up: how long an open hat rings is its
+       velocity's business and not the sequencer's, which is why every hat in
+       the corpus holds its envelope's trigger at a constant. A choke has to
+       reach one anyway, so the channel marks a voice it has cut by taking
+       `trigger' negative -- and `clamp(1 + trigger, 0, 1)' is then 1 for a
+       key down, 1 for a key up, 1 for the pedal, and 0 only for a voice the
+       choke took. Both halves are heard here: the note-off does nothing, and
+       the next note ends it. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "", "10 ms",
+                              "clamp(1 + ionode->trigger, 0, 1)")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a one-shot `choke = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.delNote(0, 60);
+            vector<float> lifted = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+            vector<float> next = s.settled(8);
+
+            okOrFail(near(rms(lifted), rms(first), 0.02) &&
+                     near(pitch(lifted, rate), C4, 0.01) &&
+                     near(pitch(next, rate), C5, 0.01) &&
+                     near(rms(next), rms(first), 0.02),
+                     "choke: a graph that ignores the key coming up still "
+                     "hears the choke",
+                     num(rms(lifted)) + " after the key came up, then " +
+                     num(pitch(next, rate)) + " Hz at " + num(rms(next)));
+        }
+    }
+
+    /* ---- mono: the second note moves the first voice ------------------ */
+
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            /* The second note is quieter than the first on purpose: a slide
+               that took the new velocity would show up here as a level that
+               moved, and the envelopes read velocity every sample. */
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 16);
+            vector<float> slid = s.settled(8);
+
+            s.synth.delNote(0, 72);
+            vector<float> back = s.settled(8);
+
+            s.synth.delNote(0, 60);
+            vector<float> gone = s.settled(32);
+
+            okOrFail(near(pitch(first, rate), C4, 0.01) &&
+                     near(pitch(slid, rate), C5, 0.01) &&
+                     near(rms(slid), rms(first), 0.02),
+                     "mono: a second note retunes the voice rather than "
+                     "adding one, and keeps the first note's velocity",
+                     num(pitch(first, rate)) + " Hz at " + num(rms(first)) +
+                     " becomes " + num(pitch(slid, rate)) + " Hz at " +
+                     num(rms(slid)));
+
+            okOrFail(near(pitch(back, rate), C4, 0.01) &&
+                     near(rms(back), rms(first), 0.02),
+                     "mono: releasing the newer key falls back to the one "
+                     "still held", num(pitch(back, rate)) + " Hz at " +
+                                   num(rms(back)));
+
+            okOrFail(rms(gone) < rms(first) * 0.01,
+                     "mono: releasing the last key ends the note",
+                     num(rms(gone)));
+        }
+    }
+
+    /* ---- mono: a rest is a retrigger ---------------------------------- */
+
+    /* The previous voice is in its release and nothing is held, so this is a
+       new voice at the new pitch -- not a slide out of a voice that is on its
+       way out. Both are audible: a slide would be one voice, and the release
+       of the first would have been cut off rather than left to finish. */
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.delNote(0, 60);
+
+            /* One window: a twentieth of the 200 ms release, so the old voice
+               is still most of its own height. */
+            s.take();
+            s.run(1);
+            s.take();
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> mid = s.take();
+
+            /* Both sounding: the new voice at its pitch and the old one
+               finishing. Once the release is over, one voice at the new
+               pitch. */
+            vector<float> after = s.settled(32);
+
+            okOrFail(rms(mid) > rms(first) * 1.15 &&
+                     near(pitch(after, rate), C5, 0.01) &&
+                     near(rms(after), rms(first), 0.02),
+                     "mono: a note arriving after the last key came up is a "
+                     "new voice, and the old one's release is not cut off",
+                     "release plus attack " + num(rms(mid)) + ", then " +
+                     num(pitch(after, rate)) + " Hz at " + num(rms(after)));
+        }
+    }
+
+    /* ---- mono and the pedal -------------------------------------------- */
+
+    /* A voice the pedal is holding is sounding, so a new note slides into it
+       rather than starting another. And once a key is down the pedal no
+       longer owns it: mixNote turns a trigger of 2 into a 0 the moment the
+       pedal comes up, so a voice left at 2 would be cut off under a key that
+       is still held. */
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            s.pedal(127);
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.delNote(0, 60);
+            vector<float> pedalled = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+            vector<float> slid = s.settled(8);
+
+            s.pedal(0);
+            vector<float> held = s.settled(8);
+
+            okOrFail(near(rms(pedalled), rms(first), 0.02) &&
+                     near(pitch(slid, rate), C5, 0.01) &&
+                     near(rms(slid), rms(first), 0.02),
+                     "mono: the pedal holds a voice, and a new note slides "
+                     "into it", num(rms(pedalled)) + " held, " +
+                                num(pitch(slid, rate)) + " Hz after");
+
+            okOrFail(near(rms(held), rms(first), 0.02),
+                     "mono: the pedal coming up leaves a voice whose key is "
+                     "down alone", num(rms(held)));
+        }
+    }
+
+    /* ---- CC 64 is the sustain pedal ------------------------------------ */
+
+    /* What a keyboard's pedal sends, arriving as it does from the wire, with
+       nothing bound in MIDI Map: down holds a released note, up lets it go,
+       and SusPedal reads the controller's own value either way. A short
+       release, so that let go means gone within the windows looked at. */
+    if (writeFile(file, graph("", "freq->out", "", "10 ms")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("the voicecheck graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 127);
+            const float down = (*s.synth.getChanArg(0, "SusPedal"))[0];
+
+            s.synth.delNote(0, 60);
+            vector<float> held = s.settled(8);
+
+            s.synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 0);
+            const float up = (*s.synth.getChanArg(0, "SusPedal"))[0];
+            vector<float> gone = s.settled(8);
+
+            okOrFail(down == 127 && up == 0 &&
+                     near(rms(held), rms(first), 0.02) &&
+                     rms(gone) < rms(first) * 0.01,
+                     "CC 64 is the sustain pedal: down holds a released note "
+                     "and up lets it go",
+                     "SusPedal " + num(down) + " then " + num(up) + "; " +
+                     num(rms(first)) + " played, " + num(rms(held)) +
+                     " held, " + num(rms(gone)) + " after");
+        }
+    }
+
+    /* And a MIDI Map binding on CC 64 replaces that on its channel, as a
+       binding replaces what any controller did: the pedal's messages go to
+       the bound arg and the note is let go at once. */
+    if (writeFile(file, graph("", "freq->out", "", "10 ms")))
+    {
+        Session s(pluginPath);
+        thArg bound(string("bound"), 0);
+        thMidiControllerConnection *link =
+            new thMidiControllerConnection(&bound, 0, 1,
+                                           thMidiControllerConnection::LINEAR,
+                                           0, TH_MIDI_CC_SUSTAIN, 0, "bound");
+
+        if (!s.load(file))
+            fail("the voicecheck graph loads", "");
+        else
+        {
+            s.synth.newMidiControllerConnection(0, TH_MIDI_CC_SUSTAIN, link);
+
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 127);
+            s.synth.delNote(0, 60);
+            vector<float> after = s.settled(8);
+
+            const float pedal = (*s.synth.getChanArg(0, "SusPedal"))[0];
+
+            okOrFail(bound[0] == 1 && pedal == 0 &&
+                     rms(after) < rms(first) * 0.01,
+                     "a MIDI Map binding on CC 64 takes it from the pedal",
+                     "bound arg " + num(bound[0]) + ", SusPedal " +
+                     num(pedal) + ", " + num(rms(after)) + " after the key");
+
+            s.synth.newMidiControllerConnection(0, TH_MIDI_CC_SUSTAIN, NULL);
+        }
+
+        delete link;
+    }
+
+    /* ---- the glide ----------------------------------------------------- */
+
+    /* misc::slew on the frequency, inside the graph. The voice persists
+       across the retune, so the lag's state does too and the pitch slides.
+       Measured one window at a time: a hundred milliseconds is four windows,
+       so the first is well short of the new pitch and the last is there. */
+    if (writeFile(file, graph("    mono = 1;\n", "glide->out",
+                              "node glide misc::slew {\n"
+                              "    in = freq->out;\n"
+                              "    time = 100 ms;\n"
+                              "};\n\n")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a glide graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> sliding = s.take();
+
+            vector<float> arrived = s.settled(64);
+
+            const double f0 = pitch(first, rate);
+            const double f1 = pitch(sliding, rate);
+            const double f2 = pitch(arrived, rate);
+
+            okOrFail(near(f0, C4, 0.01) && f1 > f0 * 1.05 && f1 < C5 * 0.85 &&
+                     near(f2, C5, 0.01),
+                     "glide: a misc::slew on the frequency carries across the "
+                     "retune, so the pitch slides into the new note",
+                     num(f0) + " Hz, then " + num(f1) + ", then " + num(f2));
+        }
+    }
+
+    /* And without the slew the same two notes step, which is what makes the
+       case above a measurement of the slew rather than of the window. */
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> stepped = s.take();
+
+            okOrFail(near(pitch(stepped, rate), C5, 0.02),
+                     "mono: with no lag in the graph the retune is a step",
+                     num(pitch(stepped, rate)) + " Hz");
+        }
+    }
+
+#ifdef __linux__
+    /* threads: the render pool's workers run with the scheduling of the
+       thread that renders. Under RtAudio that is SCHED_FIFO, and the audio
+       thread spins on the workers' lanes, so a worker left at the default
+       could be preempted by anything while it waits. SCHED_BATCH stands in
+       for it, being a policy any process may move a thread to. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        auto tasks = []
+        {
+            std::set<long> ids;
+            std::error_code ec;
+
+            for (const auto &e :
+                 std::filesystem::directory_iterator("/proc/self/task", ec))
+                ids.insert(std::stol(e.path().filename().string()));
+
+            return ids;
+        };
+
+        const std::set<long> before = tasks();
+        Session s(pluginPath);
+
+        s.synth.setThreads(3);
+
+        /* Every thread that came with it, which under a sanitizer
+           includes the sanitizer's own: the three workers are the ones
+           expected to follow. */
+        std::set<long> workers;
+
+        for (long id : tasks())
+            if (before.find(id) == before.end())
+                workers.insert(id);
+
+        if (!s.load(file))
+            fail("threads: the graph loads", "");
+        else
+        {
+            std::thread audio([&s]
+            {
+                sched_param p = {};
+
+                pthread_setschedparam(pthread_self(), SCHED_BATCH, &p);
+                s.run(4);
+            });
+
+            audio.join();
+
+            /* A worker takes it when it next wakes, which is its own
+               business; give it a while. */
+            size_t following = 0;
+
+            for (int tries = 0; tries < 200; tries++)
+            {
+                following = 0;
+
+                for (long id : workers)
+                    if (sched_getscheduler((pid_t)id) == SCHED_BATCH)
+                        following++;
+
+                if (following == 3)
+                    break;
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+
+            okOrFail(following == 3,
+                     "threads: every render worker runs with the rendering "
+                     "thread's scheduling",
+                     num((double)following) + " of 3");
+        }
+    }
+#endif
+
+    /* swap: loading a graph onto a channel that is sounding replaces the
+       graph for the notes to come and lets the ones already playing finish
+       on the graph they started on. The new graph is the old one an octave
+       up, so which graph a note is on is a pitch. */
+    const string octave = scratchPath("voicecheck-octave.dsp");
+
+    if (writeFile(file, graph("", "freq->out", "")) &&
+        writeFile(octave, graph("", "freq->out * 2", "")))
+    {
+        /* On one thread and on several: a drained channel renders inside
+           its successor, on whichever thread that lands. */
+        for (int threads : { 0, 4 })
+        {
+            const string on = threads ? " (4 threads)" : "";
+            Session s(pluginPath);
+
+            s.synth.setThreads(threads);
+
+            if (!s.load(file))
+            {
+                fail("swap: the graph loads" + on, "");
+                continue;
+            }
+
+            s.synth.addNote(0, 60, 100);
+
+            const double held = rms(s.settled(16));
+
+            if (s.synth.loadTree(octave, 0, 100) == NULL)
+                fail("swap: the second graph loads" + on, "");
+
+            vector<float> after = s.settled(16);
+
+            okOrFail(near(rms(after), held, 0.05) &&
+                     near(pitch(after, rate), C4, 0.02),
+                     "swap: a note held across it goes on sounding, on the "
+                     "graph it started on" + on,
+                     num(rms(after)) + " against " + num(held) + ", " +
+                     num(pitch(after, rate)) + " Hz");
+
+            s.synth.delNote(0, 60);
+
+            okOrFail(rms(s.settled(40)) < held * 0.01,
+                     "swap: and its note-off still reaches it" + on,
+                     num(rms(s.settled(4))));
+
+            s.synth.addNote(0, 60, 100);
+
+            vector<float> fresh = s.settled(16);
+
+            okOrFail(near(pitch(fresh, rate), C5, 0.02),
+                     "swap: a note after it plays the new graph" + on,
+                     num(pitch(fresh, rate)) + " Hz");
+
+            s.synth.removeChan(0);
+
+            okOrFail(rms(s.settled(4)) == 0,
+                     "swap: taking the channel away still cuts it" + on, "");
+        }
+
+        /* Two swaps under a held note: the graph it started on is two back,
+           and is faded out rather than left to finish. */
+        {
+            Session s(pluginPath);
+
+            if (s.load(file))
+            {
+                s.synth.addNote(0, 60, 100);
+
+                const double held = rms(s.settled(16));
+
+                s.synth.loadTree(octave, 0, 100);
+                s.settled(2);
+                s.synth.loadTree(file, 0, 100);
+
+                const double after = rms(s.settled(16));
+
+                okOrFail(after < held * 0.01,
+                         "swap: a graph two swaps back is faded out",
+                         num(after) + " against " + num(held));
+            }
+            else
+                fail("swap: the graph loads for the second swap", "");
+        }
+
+        /* A key pressed again on the new graph is let go of on the old one:
+           a sequencer re-pressing a held key sends one note-off, for the
+           last press. After the old graph's release only the new one is
+           left, an octave up. And a monophonic graph sounds one key, so a
+           different key on the new graph lets go of what the old held. */
+        static const struct { const char *io; int again; double hz;
+                              const char *what; } handoffs[] = {
+            { "", 60, C5, "swap: a key pressed again on the new graph is let "
+                          "go of on the old one" },
+            { "    mono = 1;\n", 64, 659.2551,
+              "swap: on a monophonic graph, a new key on the new graph lets "
+              "go of what the old one held" },
+        };
+
+        for (const auto &h : handoffs)
+        {
+            Session m(pluginPath);
+
+            if (!writeFile(file, graph(h.io, "freq->out", "")) ||
+                !writeFile(octave, graph(h.io, "freq->out * 2", "")) ||
+                !m.load(file))
+            {
+                fail(h.what, "the graphs did not load");
+                continue;
+            }
+
+            m.synth.addNote(0, 60, 100);
+
+            const double one = rms(m.settled(16));
+
+            if (m.synth.loadTree(octave, 0, 100) == NULL)
+                fail(h.what, "the second graph did not load");
+
+            m.synth.addNote(0, h.again, 100);
+
+            /* One voice, at the new pitch: the old graph's, still held,
+               would be a second at the same level. */
+            vector<float> after = m.settled(40);
+
+            okOrFail(near(rms(after), one, 0.1) &&
+                     near(pitch(after, rate), h.hz, 0.02), h.what,
+                     num(rms(after)) + " against one voice's " + num(one) +
+                     ", " + num(pitch(after, rate)) + " Hz");
+        }
+
+        writeFile(file, graph("", "freq->out", ""));
+        writeFile(octave, graph("", "freq->out * 2", ""));
+
+        /* The pedal is the channel's, whatever graph is on it: a note held
+           by it across a swap comes up when it does. */
+        Session s(pluginPath);
+
+        if (s.load(file))
+        {
+            s.synth.addNote(0, 60, 100);
+            s.settled(8);
+            s.pedal(127);
+            s.synth.delNote(0, 60);
+
+            if (s.synth.loadTree(octave, 0, 100) == NULL)
+                fail("swap: the second graph loads under the pedal", "");
+
+            const double pedalled = rms(s.settled(16));
+
+            s.pedal(0);
+
+            const double lifted = rms(s.settled(40));
+
+            okOrFail(pedalled > 0.1 && lifted < pedalled * 0.01,
+                     "swap: a note the pedal holds across it is let go "
+                     "when the pedal comes up",
+                     num(pedalled) + " then " + num(lifted));
+        }
+    }
+
+    /* ---- a burst the retire queue cannot hold ---------------------------- */
+
+    /* 1536 voices released together finish while nothing on the GUI side
+       calls in to collect them, which is more than the synth's retire
+       queue holds. What it cannot take waits for a collect rather than
+       being freed on the audio thread, with the render pool off and on. */
+    if (writeFile(file, graph("    poly = 0;\n", "freq->out", "", "100 ms")))
+    {
+        const int chans = 12, keys = 128;
+
+        for (int threads = 0; threads <= 2; threads += 2)
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+            const unsigned long before = thSynth::retireFrees();
+            const string pool = threads ? "pool on" : "pool off";
+
+            synth.setThreads(threads);
+
+            for (int c = 0; c < chans; c++)
+                synth.loadTree(file, c, 100);
+
+            for (int pass = 0; pass < 2; pass++)
+                for (int c = 0; c < chans; c++)
+                {
+                    for (int k = 0; k < keys; k++)
+                        if (pass == 0)
+                            synth.addNote(c, (float)k, 100);
+                        else
+                            synth.delNote(c, (float)k);
+
+                    if (c % 4 == 3)
+                        synth.process();
+                }
+
+            for (int w = 0; w < 60; w++)
+                synth.process();
+
+            const auto waiting = [&] {
+                int n = 0;
+
+                for (int c = 0; c < chans; c++)
+                    n += !synth.getChannel(c)->retiring()->empty();
+
+                return n;
+            };
+            const int held = waiting();
+
+            for (int w = 0; w < 4; w++)
+            {
+                synth.collect();
+                synth.process();
+            }
+
+            okOrFail(held > 0 && waiting() == 0,
+                     "burst: what the queue cannot take waits in the "
+                     "channels until it can (" + pool + ")",
+                     std::to_string(held) + " channels waiting, then " +
+                     std::to_string(waiting()));
+            okOrFail(thSynth::retireFrees() == before,
+                     "burst: no voice is freed on the audio thread (" +
+                     pool + ")",
+                     std::to_string(thSynth::retireFrees() - before) +
+                     " freed there");
+        }
+    }
+
+    /* A silent synth renders nothing, but what a command displaces is
+       still handed back: the web page's mirror is silent for good. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        synth.loadTree(file, 0, 100);
+        synth.setSilent(true);
+        const float two[2] = { 1, 2 };
+
+        /* A change of length cannot be made in place, so the second is a
+           replacement the audio thread retires. */
+        synth.setChanArg(0, new thArg(string("silent"), 1.0f));
+        synth.process();
+        synth.setChanArg(0, new thArg(string("silent"), two, 2));
+        synth.process();
+
+        okOrFail(synth.getChannel(0)->retiring()->empty(),
+                 "silent: a replaced chanarg is handed back", "");
+    }
+
+    remove(octave.c_str());
+    remove(file.c_str());
+
+    printf("\n%d failure(s)\n", failed);
+
+    return failed;
+}

@@ -1,0 +1,15 @@
+# Only what the relay reads: the build trees and node_modules beside it
+# run to gigabytes.
+*
+!wasm/web/package.json
+!wasm/web/package-lock.json
+!wasm/web/relay.mjs
+!wasm/web/doc.js
+!wasm/web/commands.js
+!wasm/web/account.js
+!wasm/web/accounts.mjs
+!wasm/web/passkeys.mjs
+!wasm/web/wordlist.mjs
+!wasm/web/confusables.js
+!gen
+!dsp

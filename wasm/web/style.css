@@ -1,0 +1,1794 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * style.css -- the page, on whatever it is being read on.
+ *
+ * Its own file now rather than a <style> block, because there is enough of
+ * it to want reading. Two things it is arranged around:
+ *
+ * A phone is the interesting case, not the awkward one. The whole page is
+ * a thing you play, so what a narrow screen gets is the same page with the
+ * source boxes folded away and the keys given the room -- not a cut-down
+ * one. The keyboard itself takes no width from here at all; main.js counts
+ * the octaves that fit and draws them, so the keys are a finger wide on a
+ * phone and a hand wide on a desktop rather than the same proportion of
+ * two different things.
+ *
+ * And a finger is not a mouse. `pointer: coarse' is what says so -- not
+ * the width, which a laptop in a small window also has -- so the controls
+ * grow to something you can hit only where something will be hitting them.
+ */
+
+:root
+{
+    color-scheme: light dark;
+
+    --fg:        #202020;
+    --bg:        #ffffff;
+    --dim:       #666666;
+    --panel:     #f4f4f4;
+    --line:      #dcdcdc;
+    --ctl:       #f6f6f6;
+    --ctl-edge:  #8a8a8a;       /* 3:1 on white and on --ctl */
+    --key:       #ffffff;
+    --key-edge:  #b0b0b0;
+    --key-black: #202020;
+    --held:      #5050ff;
+    --heard:     #7878ff;       /* 3:1 on a key, white, black or C */
+    --key-held:  var(--held);
+
+    /* Something a person should notice but nothing is broken: a patch
+       edited and not written. Not the red an error gets. */
+    --warn:      #a05000;
+    --key-c:     #eaf7fa;
+    --key-label: #202020;
+
+    /* The source boxes' syntax colors (thinklang.js). */
+    --tok-keyword: #7a3e9d;
+    --tok-string:  #2e7d32;
+    --tok-number:  #a65200;
+    --tok-plugin:  #1f5fa8;
+    --tok-knob:    #a0306a;
+    --tok-field:   #00737d;
+    --tok-invalid: #c62828;
+}
+
+/* What the tiler is drawn in. panes.css reads these names and no others,
+   with a fallback on each, so it stands alone; this is the page saying
+   which of its own colors each one is. Outside the palette blocks on
+   purpose -- it maps names to names, and the names on the right are what
+   change with the scheme. The held color is the exception: it is
+   AccentColor, as the sliders are, so an installed page takes the
+   desktop's accent for both. */
+:root
+{
+    --pane-fg:    var(--fg);
+    --pane-bg:    var(--bg);
+    --pane-dim:   var(--dim);
+    --pane-panel: var(--panel);
+    --pane-line:  var(--line);
+    --pane-held:  AccentColor;
+}
+
+@media (prefers-color-scheme: dark)
+{
+    :root
+    {
+        --fg:        #dddddd;
+        --bg:        #1b1b1b;
+        --dim:       #999999;
+        --panel:     #262626;
+        --line:      #3a3a3a;
+        --ctl:       #2e2e2e;
+        --ctl-edge:  #808080;
+        --key:       #d8d8d8;
+        --key-edge:  #555555;
+        --key-black: #101010;
+        --held:      #6a6aff;
+        /* 3:1 on the light keys this palette keeps and on its black ones,
+           which --held, a border on dark grounds, is not. */
+        --heard:     #6060c0;
+        --key-held:  #5050e0;
+        --warn:      #d09040;
+        /* A white key tinted, as in light: dark here read as a gap in
+           the keyboard rather than a C. */
+        --key-c:     #c2d9de;
+        --key-label: #101010;
+
+        --tok-keyword: #c792ea;
+        --tok-string:  #9ccc65;
+        --tok-number:  #f0a060;
+        --tok-plugin:  #6cb6ff;
+        --tok-knob:    #f08dbd;
+        --tok-field:   #56c7d6;
+        --tok-invalid: #ff6b6b;
+    }
+}
+
+body
+{
+    font: 15px/1.4 system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    max-width: 60em;
+    margin: 2em auto;
+    padding: 0 1em;
+}
+
+h1 { font-size: 1.6em; margin: 0 0 0.4em; }
+
+/* A landmark for a screen reader to jump to, and no box: tiled, the layout
+   is a flex child of <body> and has to stay one. */
+main { display: contents; }
+
+pre, source-box .cm-editor
+{
+    font: 13px/1.35 ui-monospace, monospace;
+}
+
+source-box { display: block; }
+
+source-box .cm-editor
+{
+    height: 26em;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--line);
+}
+
+source-box .cm-scroller { overflow: auto; }
+
+/* The syntax colors, for both pages' editors (thinklang.js). */
+.tok-comment      { color: var(--dim); font-style: italic; }
+.tok-keyword      { color: var(--tok-keyword); font-weight: 600; }
+.tok-string       { color: var(--tok-string); }
+.tok-number,
+.tok-atom         { color: var(--tok-number); }
+.tok-typeName     { color: var(--tok-plugin); }
+.tok-variableName2 { color: var(--tok-knob); }
+.tok-propertyName { color: var(--tok-field); }
+.tok-definition   { font-weight: 600; }
+.tok-invalid
+{
+    color: var(--tok-invalid);
+    text-decoration: underline wavy var(--tok-invalid);
+}
+
+.numbered { color: var(--dim); font-size: 0.9em; }
+
+pre
+{
+    background: var(--panel);
+    padding: 0.6em 0.8em;
+    margin: 0.8em 0;
+    overflow-x: auto;
+}
+
+#log { max-height: 10em; overflow: auto; }
+
+.roomlist
+{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    color: var(--dim);
+}
+
+.roomlist::before
+{
+    content: "Open rooms";
+    color: var(--fg);
+    font-weight: 600;
+}
+
+.roomlist button
+{
+    font: inherit;
+    margin-right: 0.3em;
+}
+
+.row
+{
+    display: flex;
+    gap: 0.6em;
+    align-items: center;
+    margin: 0.8em 0;
+    flex-wrap: wrap;
+}
+
+/* The chrome, which is a row with the title in it rather than a title
+   with rows under it. */
+#chrome h1 { margin: 0; }
+
+/* The link to the source: GitHub's mark beside the title, and quieter
+   than it, since it is not a control of the page's. A mark rather than
+   the word, which on a phone was a menu's worth of the one row. */
+#source { color: var(--dim); display: inline-flex; padding: 0.2em; }
+#source:hover { color: var(--fg); }
+#source svg { width: 1.25em; height: 1.25em; }
+#source .sourceword { display: none; }
+
+/* ---- a phone's menu ----
+ *
+ * A sheet from the left over a dimmed page (index.html, #menu), opened by
+ * the ☰ at the head of the chrome. What is in it is a column: the panes
+ * put away, as rows rather than the dashed buttons of the drawer's row,
+ * the reset, and the source and install links.
+ */
+#menubutton
+{
+    position: relative;
+    padding: 0 0.5em;
+    font-size: 1.3em;
+    line-height: 1;
+    background: none;
+    border: 0;
+    color: var(--fg);
+}
+
+/* Install or Update on offer, behind the menu. */
+#menubutton.offer::after
+{
+    content: "";
+    position: absolute;
+    top: 0.35em;
+    right: 0.3em;
+    width: 0.4em;
+    height: 0.4em;
+    border-radius: 50%;
+    background: AccentColor;
+}
+
+#menu
+{
+    margin: 0;
+    inset: 0 auto 0 0;
+    width: min(80vw, 20em);
+    height: 100dvh;
+    max-height: none;
+    box-sizing: border-box;
+    padding: 0.8em 1em;
+    border: 0;
+    border-right: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--fg);
+    transition: translate 0.18s ease-out, display 0.18s allow-discrete,
+                overlay 0.18s allow-discrete;
+}
+
+@media (prefers-reduced-motion: reduce)
+{
+    #menu { transition: none; }
+}
+
+#menu[open] { display: flex; flex-direction: column; gap: 0.6em; }
+
+@starting-style { #menu[open] { translate: -100% 0; } }
+
+#menu::backdrop { background: rgb(0 0 0 / 0.45); }
+
+#menu .menuhead
+{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#menu .menutitle { font-weight: bold; font-size: 1.2em; }
+
+#menu h2
+{
+    margin: 0.6em 0 0;
+    font-size: 0.85em;
+    font-weight: normal;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+#menuclose { background: none; border: 0; color: var(--fg); font-size: 1.4em; }
+
+#menupanes .panedrawer
+{
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    margin: 0;
+}
+
+#menupanes .panedrawer[hidden] { display: none; }
+#menupanes .panedrawerlabel { display: none; }
+
+#menupanes .paneclosed
+{
+    text-align: left;
+    padding: 0.5em 0.7em;
+    font-size: 1em;
+    color: var(--fg);
+    border-style: solid;
+}
+
+.menunone { display: none; margin: 0; }
+#menupanes:not(:has(.panedrawer:not([hidden]))) .menunone { display: block; }
+
+#menureset { align-self: flex-start; }
+
+#menusite { margin-top: auto; }
+#menusite #site { flex-direction: column; align-items: flex-start; }
+#menusite #source { gap: 0.5em; align-items: center; font-size: 1em; }
+#menusite #source .sourceword { display: inline; }
+
+/* A mode's own controls, wrapping as a group rather than one at a time:
+   a Rewind on a line of its own, away from the Play it belongs with, is
+   not a row wrapping usefully. */
+.group
+{
+    display: flex;
+    gap: 0.6em;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* What the page has to say, at the end of the strip rather than on a
+   line over it: whatever room the controls left, which on a wide screen
+   is none and on a narrow one is a line of its own.
+ *
+   Under `#chrome' and not on its own, because the room page has a
+   status of its own that is a paragraph under a heading and is right to
+   be one -- it is the first thing that page says, not the last thing
+   this one has to add. */
+#chrome #status
+{
+    margin-left: auto;
+    color: var(--dim);
+}
+
+kbd
+{
+    border: 1px solid var(--key-edge);
+    border-radius: 3px;
+    padding: 0 0.3em;
+}
+
+[hidden] { display: none !important; }
+
+/* ---- the controls ----
+ *
+ * One look for the buttons, menus and boxes the page makes, drawn from the
+ * palette, where the browser's own were a different shape in each engine
+ * and beside the tiler's drawn ones. Under :where(), so any rule naming a
+ * control by id or class still wins without having to outrank this; and
+ * not the tiler's, which draws its tabs and chips itself.
+ */
+:where(button:not([class^="pane"], .panereset > button), select,
+       input:is([type="number"], [type="text"], :not([type])))
+{
+    font: inherit;
+    color: var(--fg);
+    background: var(--ctl);
+    border: 1px solid var(--ctl-edge);
+    border-radius: 4px;
+    padding: 0.05em 0.4em;
+}
+
+:where(input:is([type="number"], [type="text"], :not([type])))
+{
+    background: var(--bg);
+}
+
+:where(button:not([class^="pane"], .panereset > button))
+{
+    cursor: pointer;
+}
+
+:where(button:not([class^="pane"], .panereset > button),
+       select):where(:hover:not(:disabled))
+{
+    border-color: var(--dim);
+}
+
+:where(button:not([class^="pane"], .panereset > button), select,
+       input:is([type="number"], [type="text"], :not([type]))):where(:disabled)
+{
+    opacity: 0.45;
+    cursor: default;
+}
+
+:where(button:not([class^="pane"], .panereset > button), select, input,
+       summary, canvas):where(:focus-visible)
+{
+    outline: 2px solid AccentColor;
+    outline-offset: 1px;
+}
+
+/* The one thing to press first, as the thing to press: Start here, and
+   Join on the room page, and Play there once it has started. */
+#start, #join, #play.primary
+{
+    background: AccentColor;
+    color: AccentColorText;
+    border-color: transparent;
+    font-weight: 600;
+    padding: 0.05em 0.9em;
+}
+
+/* The solo page's Play while stopped: as plain to find, but no wider,
+   so the header does not wrap as the band starts and stops. */
+#play.lead
+{
+    background: AccentColor;
+    color: AccentColorText;
+    border-color: transparent;
+}
+
+/* The desktop's accent, no lighter than white text can be read on:
+   Chromium's own is 4.2:1 under it. Where relative colors are not, the
+   accent and the text the system pairs with it. */
+@supports (color: oklch(from red l c h))
+{
+    #start, #join, #play:is(.primary, .lead)
+    {
+        background: oklch(from AccentColor min(l, 0.55) c h);
+        color: white;
+    }
+}
+
+#start:hover:not(:disabled), #join:hover:not(:disabled),
+#play:is(.primary, .lead):hover:not(:disabled)
+{
+    filter: brightness(0.9);
+}
+
+/* Until Start, the panes a synth fills have nothing in them, and a page
+   of empty boxes reads as one that failed to load. Each says what it
+   will hold instead. Both pages' bodies start data-unstarted, and
+   main.js and jam.js take it off once there is a synth. */
+body[data-unstarted] :is(#tracks, #params, #channels):empty::before,
+body[data-unstarted] :is(#roll, #nodescroll)::after
+{
+    display: block;
+    padding: 1.5em 0.5em;
+    color: var(--dim);
+    text-align: center;
+}
+
+body[data-unstarted] #tracks:empty::before
+{
+    content: "Press Start: the sequence's tracks go here.";
+}
+
+body[data-unstarted] #params:empty::before
+{
+    content: "Press Start: the instrument's controls go here.";
+}
+
+body[data-unstarted] #channels:empty::before
+{
+    content: "Press Start: each channel's instrument goes here.";
+}
+
+/* A room's knobs, which a piece may not have any of. */
+#roompanel #knobs:empty::before
+{
+    content: "This piece has no knobs.";
+    display: block;
+    padding: 1.5em 0.5em;
+    color: var(--dim);
+    text-align: center;
+}
+
+body[data-unstarted] #roompanel #knobs:empty::before
+{
+    content: "Press Start: the piece's knobs go here.";
+}
+
+body[data-unstarted] :is(#roll, #nodescroll) { position: relative; }
+
+body[data-unstarted] #nodescroll::after
+{
+    content: "Press Start: the instrument's graph goes here.";
+
+    /* On the canvas's own dark ground in either scheme (.canvasview),
+       where --dim is too dark to read. */
+    color: #a0a4ab;
+}
+
+body[data-unstarted] #roll::after
+{
+    content: "Press Start: what plays is drawn here.";
+}
+
+body[data-unstarted] :is(#roll, #nodescroll)::after
+{
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+
+summary
+{
+    cursor: pointer;
+    padding: 0.3em 0;
+    color: var(--dim);
+}
+
+details { margin: 0.8em 0; }
+
+/* ---- the piece ---- */
+
+/* The piano roll: a canvasview (below) whose drawing is always exactly
+ * its view, so the two rules it adds to that one are a fixed height and
+ * no scrolling.
+ *
+ * Fixed and not `min-height' to a content-sized box, which is the trap
+ * .canvasview's own comment describes: the drawing here is sized to the
+ * box, so a box sized to the drawing would be a box fitting into its own
+ * last answer. And `hidden' rather than a scrollbar because there is
+ * nothing to scroll to -- the roll's x axis is time and a scroller
+ * around it would be a second, silent answer to where "now" is. */
+#roll
+{
+    height: 180px;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
+    background: var(--panel);
+    margin: 0.8em 0;
+}
+
+/* The knobs a piece declared, drawn by panel.js the way the channel's
+   parameters are -- same rows, same wrapping, same column pairs. All this
+   has to say is that a knob is a knob and gets a little more room than a
+   parameter, since a piece declares a handful where a patch declares
+   thirty. */
+#knobs { margin: 0.8em 0; }
+
+/* One line per channel the piece touches: its number, then what is on it.
+   The numbers are a column of their own so the row reads down as a list of
+   channels rather than across as a sentence, and monospaced so 1 and 10
+   line up under each other. */
+#channels { margin: 0.8em 0; }
+
+#channels .row { margin: 0.3em 0; }
+
+#channels .chan
+{
+    font: 13px ui-monospace, monospace;
+    color: var(--dim);
+    min-width: 2em;
+    text-align: right;
+}
+
+/* A channel the piece aimed itself. Nothing to choose, so nothing that
+   looks like a control. */
+#channels .own { color: var(--dim); }
+
+/* A patch that has been changed since it was read. Beside the menu rather
+   than in it: the menu says what was chosen and this says what has happened
+   to it since, and a menu row that changed its own text under somebody
+   would be the wrong place to say so. */
+#channels .edited
+{
+    margin-left: 0.5em;
+    font: 12px ui-monospace, monospace;
+    color: var(--warn);
+}
+
+#channels .save { margin-left: 0.5em; font-size: 12px; }
+
+/* ---- the sequencer ----
+ *
+ * One block per track: a heading that says which channel it is heard on
+ * and what is on it, and under that the grid's own picture at the pane's
+ * full width. The canvas is sized by the script, in both dimensions --
+ * its width is what the element gets from here and its height is the
+ * grid's own row count -- because the pointer's coordinates and the
+ * picture's have to be the same numbers (seqview.js).
+ */
+#tracks { margin: 0.4em 0; }
+
+.track { margin: 0 0 0.6em; }
+
+.trackhead { margin: 0 0 0.2em; align-items: baseline; }
+
+.trackhead .chan
+{
+    font: 13px ui-monospace, monospace;
+    color: var(--dim);
+    min-width: 2em;
+    text-align: right;
+}
+
+.trackhead .what { color: var(--dim); font-size: 0.9em; }
+
+/* What plays this track. Narrow enough that four of them down a pane do
+   not read as a form, wide enough for a drawer's name and a patch's. */
+.trackpick { max-width: 18em; font-size: 0.9em; }
+
+/* Where there is the width, the heading goes beside the grid rather than
+   over it: a row saved per track, and a drum's one-row strip is no longer
+   shorter than the menu above it. Not on a phone, where the width is the
+   cells' -- sixteen of them across a finger's worth each. The tracks'
+   own width and not the window's, since tiled the pane can be narrow on
+   a wide screen. */
+#tracks { container-type: inline-size; }
+
+@container (min-width: 40em)
+{
+    .track
+    {
+        display: grid;
+        grid-template-columns: 13em 1fr;
+        gap: 0.6em;
+        align-items: start;
+    }
+
+    .trackhead { margin: 0; flex-wrap: nowrap; }
+    .trackpick { min-width: 0; flex: 1; }
+}
+
+.trackgrid
+{
+    display: block;
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #14161a;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+.trackgrid:focus-visible
+{
+    outline-offset: -2px;
+}
+
+/* The cell a track's keys are on, over the picture while it has the
+   focus (seqview.js). */
+.trackframe { position: relative; }
+
+.trackcursor
+{
+    position: absolute;
+    display: none;
+    box-sizing: border-box;
+    border: 2px solid #ffffff;
+    outline: 1px solid #000000;
+    pointer-events: none;
+}
+
+.trackgrid:focus + .trackcursor { display: block; }
+
+/* There for a screen reader, and drawn nowhere. */
+.unseen
+{
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+#about { margin: 0.4em 0; color: var(--dim); }
+
+#clock { font: 13px ui-monospace, monospace; }
+
+/* Four digits and the spinner, which is all a bpm ever needs: left to
+   itself a number input takes the width of a text one and pushes the
+   clock off the end of a narrow strip. */
+#tempo { width: 4em; }
+
+/* A control that cannot reach this piece still says what it would be.
+   Dimmed rather than gone, because a tempo box that appears and
+   disappears as pieces load is a strip that jumps. */
+#tempolabel:has(#tempo:disabled),
+#speedlabel:has(#speed:disabled) { color: var(--dim); }
+
+/* Short, because it shares a strip with everything else, and with its
+   reading in a fixed width beside it so that the row does not shuffle
+   sideways between 1.00 and 0.85. */
+#speed { width: 7em; vertical-align: middle; }
+
+#speedis
+{
+    display: inline-block;
+    width: 3.4em;
+    font: 13px ui-monospace, monospace;
+}
+
+/* ---- the keyboard ---- */
+
+/* The keys take whatever width there is and are drawn to fit it: the
+   viewBox is in key units and the element is 100% wide, so one <svg> is a
+   two-octave keyboard on a phone and a four-octave one on a desktop
+   without a second set of measurements anywhere. keyboard.js counts the
+   octaves that fit and writes the viewBox, height and all -- there is no
+   preserveAspectRatio here, and that file says why not.
+
+   touch-action: none, because a finger dragging across the keys is a
+   glissando and not a scroll, and the browser's default is to decide that
+   for itself after a delay -- which eats the first note of every phrase. */
+#keys
+{
+    display: block;
+    width: 100%;
+    height: 132px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    margin: 0.4em 0;
+}
+
+#keys .white { fill: var(--key); stroke: var(--key-edge); stroke-width: 0.02; }
+#keys .black { fill: var(--key-black); stroke: var(--key-edge);
+               stroke-width: 0.02; }
+
+/* Every C, not just middle C, and faintly: two octaves on a phone is not
+   much to find your way around by, and the octave lines are the way. */
+#keys .c     { fill: var(--key-c); }
+/* Sounding but not under this page's hands: a peer's key, or a stamped
+   key of its own that has landed. Before .held, which wins on a key that
+   is both. */
+#keys .heard { fill: url(#keyheard); }
+#keys .held  { fill: var(--key-held); }
+#keys .ground { fill: var(--heard); }
+#keys .stripe { fill: var(--key); }
+
+/* Outlined, because the key under a note name changes colour when it is
+   held and the name has to stay readable on either. paint-order puts the
+   stroke behind the fill, which is what makes it a halo rather than a
+   thickening. */
+#keys text
+{
+    font-family: system-ui, sans-serif;
+    fill: var(--key-label);
+    stroke: var(--key);
+    stroke-width: 0.05;
+    paint-order: stroke;
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+#range
+{
+    font: 13px ui-monospace, monospace;
+    color: var(--dim);
+    min-width: 7em;
+}
+
+.hint { color: var(--dim); font-size: 0.9em; margin: 0.4em 0; }
+
+/* The graph's "no graph to edit": a hint in look, but not a .hint, which
+   a phone hides -- and there it is the only thing in the pane. */
+#nodeempty { color: var(--dim); margin: 0.8em 0; }
+
+/* ---- a finger rather than a mouse ---- */
+
+@media (pointer: coarse)
+{
+    button, select
+    {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    /* 16px or iOS zooms the page in when the box takes focus, and then
+       the page is the wrong size and stays that way. */
+    input, source-box .cm-editor { font-size: 16px; }
+
+    #keys { height: 160px; }
+
+    /* The keyboard's hint is about a computer's keys and a MIDI cable;
+       what it says of the keys and of MIDI is a status, and stays. */
+    #keyboard .hint:not([id$="status"], [id$="state"], [aria-live])
+    {
+        display: none;
+    }
+
+    /* A slider a thumb can find, in the knob strip and in the parameter
+       panel alike -- both are panel.js's rows now. */
+    #knobs input[type="range"], #params input[type="range"] { height: 44px; }
+}
+
+/* ---- a narrow screen ---- */
+
+/* The fold for the speed and the clock, which only a phone has. */
+#more { display: none; }
+
+@media (max-width: 40em)
+{
+    body { margin: 0.8em auto; padding: 0 0.6em; }
+
+
+    /* The sequencer's tracks carry their own menus, so the channels list
+       under them would be the same five menus again; only where the keys
+       go is left of it. */
+    body[data-mode="seq"] #channels { display: none; }
+
+    h1 { font-size: 1.3em; }
+
+    source-box .cm-editor { height: 14em; }
+
+    #roll { height: 120px; }
+}
+
+/* On a phone the hints that explain go, for the room. By the pointer as
+   well as the width: a desktop zoomed to 200% is this width too, and its
+   reader is the one who needs them. Never a status, nor a hint that holds
+   a control. */
+@media (max-width: 40em) and (pointer: coarse),
+       (max-height: 30em) and (orientation: landscape) and (pointer: coarse)
+{
+    .hint:not([id$="status"], [id$="state"], [aria-live], [role="status"],
+              :has(input, select, button)) { display: none; }
+}
+
+/* A phone held sideways is the playing position, and it is also the shape
+   with no room: everything this page has, stacked, is most of two screens
+   at 360 pixels tall. So the keys are pinned to the bottom of the viewport
+   instead of taking their turn in the stack -- the roll, the knobs and the
+   source scroll past above them and the keys stay under the thumbs.
+   Which is what a keyboard is, on a device you hold. */
+@media (max-height: 30em) and (orientation: landscape)
+{
+    body { margin: 0.3em auto; }
+
+    h1, #about { display: none; }
+
+    #roll { height: 80px; }
+
+    #keyboard
+    {
+        position: sticky;
+        bottom: 0;
+        z-index: 1;
+        background: var(--bg);
+        padding-bottom: 0.3em;
+
+        /* Sticky and opaque, so the page has to be told where it ends. */
+        box-shadow: 0 -0.5em 0.5em -0.5em rgb(0 0 0 / 0.3);
+    }
+
+    #keyboard .row { margin: 0.3em 0; }
+
+    #keys { height: 38vh; margin: 0.2em 0; }
+}
+
+/* ---- the room page ---- */
+
+.dim { color: var(--dim); font-weight: normal; }
+
+.peers { display: flex; gap: 0.8em; flex-wrap: wrap; }
+
+.peers .peer
+{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 0.2em 0.6em;
+    border-radius: 0.3em;
+}
+
+.peers .peer.me { border-color: var(--held); }
+.peers .path { color: var(--dim); font-size: 0.85em; margin-left: 0.4em; }
+
+/* The room's header: the title, what is going on and who is here, on one
+   line, and the piece's description in whatever that leaves. */
+#roomhead { margin: 0 0 0.4em; }
+#roomhead h1 { margin: 0; white-space: nowrap; }
+#roomhead > p { margin: 0; }
+#roomhead > p:empty { display: none; }
+
+#roomhead #about
+{
+    flex: 1 1 12em;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* No room beside the title for the description: a line of its own. */
+@media (max-width: 40em)
+{
+    #roomhead #about { flex-basis: 100%; white-space: normal; }
+}
+
+#roomhead .peers { gap: 0.4em; }
+#roomhead .peers .peer { padding: 0 0.5em; }
+
+/* Before joining: the title over a card. */
+body:has(#joinrow:not([hidden])) #roomhead
+{
+    flex-direction: column;
+    margin-top: 2em;
+}
+
+#joinrow
+{
+    max-width: 24em;
+    margin: 1em auto;
+    padding: 1em 1.2em;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+}
+
+#joinrow > p { margin: 0; }
+
+#joinrow > label
+{
+    display: grid;
+    grid-template-columns: 3.5em 1fr;
+    align-items: center;
+}
+
+#joinrow > .roomlist { margin-bottom: 0.4em; }
+#join { align-self: flex-end; }
+#account { align-self: flex-start; }
+
+/* The piece browser (index.html, main.js listPieces). */
+#piecebrowser
+{
+    width: min(calc(100vw - 2em), 40em);
+    max-height: 85vh;
+    box-sizing: border-box;
+    padding: 1em 1.2em;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+#piecebrowser[open] { display: flex; flex-direction: column; gap: 0.6em; }
+#piecebrowser::backdrop { background: rgb(0 0 0 / 0.45); }
+#piecebrowser .browsehead { display: flex; justify-content: space-between; }
+#piecebrowser .browsetitle { font-weight: bold; font-size: 1.2em; }
+#piecebrowserclose
+{
+    background: none;
+    border: 0;
+    color: var(--fg);
+    font-size: 1.4em;
+}
+
+#piecelist { overflow-y: auto; display: flex; flex-direction: column;
+             gap: 0.3em; }
+#piecelist h3 { margin: 0.6em 0 0.1em; font-size: 0.9em; color: var(--dim); }
+.pieceentry { display: flex; flex-direction: column; align-items: flex-start;
+              flex-shrink: 0; height: auto; gap: 0.1em; text-align: left;
+              padding: 0.4em 0.6em; }
+.pieceentry span { font-size: 0.85em; color: var(--dim); }
+.pieceentry[aria-current="true"] { border-color: var(--held);
+                                   box-shadow: inset 3px 0 var(--held); }
+
+/* The account dialog over the join card (accountui.js). */
+#accountdialog
+{
+    width: min(calc(100vw - 2em), 28em);
+    box-sizing: border-box;
+    padding: 1em 1.2em;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+}
+
+#accountdialog::backdrop { background: rgb(0 0 0 / 0.45); }
+#accountdialog .accounthead { display: flex; justify-content: space-between; }
+#accountdialog .accounttitle { font-weight: bold; font-size: 1.2em; }
+#accountclose
+{
+    background: none;
+    border: 0;
+    color: var(--fg);
+    font-size: 1.4em;
+}
+
+#accountdialog .accountbody,
+#accountdialog section,
+#accountdialog form { display: flex; flex-direction: column; gap: 0.6em; }
+
+#accountdialog .accountbody { gap: 1em; }
+#accountdialog h2 { margin: 0; font-size: 1em; }
+#accountdialog p { margin: 0; }
+#accountdialog .accountwarn { color: var(--warn); }
+#accountdialog .passkeys { margin: 0; padding-left: 1.2em; }
+
+#accountdialog label
+{
+    display: grid;
+    grid-template-columns: 4em 1fr;
+    align-items: center;
+}
+
+#accountdialog button { align-self: flex-start; }
+
+/* The controls, grouped: the transport, then where your keys go. */
+#roomtools { margin: 0 0 0.4em; }
+body.tiled #roomtools > .group + .group
+{
+    padding-left: 0.6em;
+    border-left: 1px solid var(--line);
+}
+
+/* A seat's name is long and "none" is short: the menu as wide as what it
+   shows, where the browser can do that. */
+#seat { field-sizing: content; max-width: 16em; }
+#modenote { color: var(--dim); font-size: 0.9em; }
+
+/* The closed panes, in the header rather than on a row of their own over
+   the layout, and not in the lobby, which has no layout to reopen into. */
+#roomdrawer .panedrawer { margin: 0; }
+body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
+
+.tabs { display: flex; gap: 0.3em; flex-wrap: wrap; }
+
+.tab
+{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 0.2em 0.7em;
+    font: inherit;
+    color: var(--fg);
+}
+
+.tab.active { border-color: var(--held); font-weight: bold; }
+
+#editor .cm-editor
+{
+    height: 26em;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    font: 13px/1.35 ui-monospace, monospace;
+}
+
+#editor .cm-scroller { overflow: auto; }
+
+#numbers { min-height: 8em; }
+
+#chatfeed
+{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 16em;
+    overflow: auto;
+    overflow-wrap: anywhere;
+}
+
+#chatfeed .chatactivity { color: var(--dim); font-style: italic; }
+#chatfeed .chatbar { color: var(--dim); font-variant-numeric: tabular-nums; }
+#chatfeed .chatname { font-weight: bold; }
+#chatinput { flex: 1 1 auto; min-width: 0; }
+
+/*
+ * A canvas whose drawing is done in wasm (canvasview.js). The element is
+ * as big as the drawing and this scrolls it, which is the shape a Gtk
+ * scrolled window gives the same canvas on the desktop; the height is a
+ * view's worth, so a piece with twenty chains does not push the keyboard
+ * off the screen.
+ */
+.canvasview {
+    overflow: auto;
+
+    /* A height of its own, which is the whole point of a viewport: the
+       box used to be as tall as whatever was drawn in it, so a canvas
+       that scaled itself to fit the box was fitting into its own last
+       answer -- each redraw a little smaller than the one before. The
+       minimum stops that; the maximum stops a tall drawing from pushing
+       the keyboard off the screen. */
+    min-height: 16rem;
+    max-height: 60vh;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #14161a;
+}
+
+.canvasview canvas {
+    display: block;
+    touch-action: none;         /* a drag paints; it does not pan */
+}
+
+.canvasview canvas:focus-visible {
+    outline-offset: -2px;
+}
+
+/*
+ * The instrument's parameters: a row per control, wrapping into as many
+ * columns as the width allows.
+ *
+ * A flow rather than a fixed column count, for the reason the desktop's
+ * panel uses a FlowBox (src/gui/PanelView.cpp): a count guessed from how
+ * many rows there are is a guess at the width, made before anything has
+ * been given one, and it is wrong in both directions. Each row has a
+ * minimum of its own, the wrapping falls out of how many of those fit, and
+ * a narrow window gets one column rather than sliders squeezed to a nub.
+ */
+#params { margin: 0.5rem 0; font-size: 0.9rem; }
+
+/* One grid for the whole block, and each row a subgrid of it.
+ *
+ * Not a grid per row. A row that sizes its own name column starts its
+ * slider wherever its own label happens to end, so a panel of them is a
+ * ragged left edge and no columns at all -- which is what the desktop's two
+ * SizeGroups exist to stop (src/gui/PanelView.h). `max-content' over a
+ * subgrid is the same answer by the same means: the width is measured off
+ * the widest name actually there rather than guessed at in rem.
+ *
+ * Column *pairs*, because that is what a name and a control are, and how
+ * many pairs there are is the wrapping. A media query rather than auto-fill:
+ * auto-fill cannot repeat a pair and keep the subgrid, and a panel is tens
+ * of rows, so two widths and a phone is the whole of it.
+ *
+ * Each block is its own grid, so a group's names line up with each other and
+ * not with the loose rows above them. The desktop's size groups do cross its
+ * expanders; CSS has no way to make two grids agree, and the alternative --
+ * a width in pixels chosen here -- is the guess this is avoiding. */
+.panelrows
+{
+    display: grid;
+    grid-template-columns: max-content minmax(12rem, 1fr);
+    gap: 0.3rem 1.5rem;
+    align-items: center;
+}
+
+@media (min-width: 60em)
+{
+    .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+@media (min-width: 100em)
+{
+    .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+.panelrow
+{
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: span 2;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Right-aligned, so the names make a column down the panel rather than
+   trailing off into the sliders. */
+.panelrow label
+{
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* The slider and its number box, which share the row's second column. */
+.panelcontrol
+{
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* A slider narrower than this is not draggable in any useful way -- the
+   handle is most of it -- and asking for the width is also what tells the
+   grid how much a row costs, so it is the number the wrapping is decided
+   by. The same 140 pixels the desktop's panel asks for. */
+.panelcontrol input[type="range"]
+{
+    flex: 1 1 140px;
+    min-width: 140px;
+}
+
+.panelrow input[type="number"], .panelrow .value
+{
+    font: 13px ui-monospace, monospace;
+    text-align: right;
+}
+
+/* A value and the menus that qualify it: which unit a composer's duration
+   is written in, which knob it is read through. One cell of the row, so the
+   menus do not fall into the next row's name column. */
+.panelvalue
+{
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.panelvalue .panelunit, .panelvalue .panelbind { flex: 0 0 auto; }
+
+/* A group -- an envelope's four controls, a filter's two -- as its own
+   foldable block, open to begin with: a parameter you cannot see is a
+   parameter you will not remember the patch has. */
+.panelgroup { margin: 0.5rem 0; }
+
+.panelgroup > summary
+{
+    cursor: pointer;
+    font-weight: 600;
+}
+
+@media (max-width: 30em)
+{
+    /* Label over control: a name column and a slider in a phone's width
+       leave the slider too short to aim at. One column of the outer grid
+       and one row of the subgrid each, so the name sits above the thing it
+       names. */
+    .panelrows { grid-template-columns: 1fr; }
+
+    .panelrow
+    {
+        grid-column: span 1;
+        grid-template-columns: subgrid;
+        grid-template-rows: auto auto;
+        gap: 0.1rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .panelrow label { text-align: left; }
+    .panelrow > * { grid-column: 1; }
+}
+
+/* The graph as a list (nodeview.js, outline): a box to choose, and the
+   chosen one's wires. */
+#nodeoutline { margin: 0.5rem 0; }
+
+#nodelist
+{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3em;
+    margin: 0.4em 0;
+    padding: 0;
+    list-style: none;
+}
+
+#nodelist button[aria-current="true"]
+{
+    border-color: AccentColor;
+    font-weight: 600;
+}
+
+#nodewiring h3 { font-size: 1em; margin: 0.6em 0 0.2em; }
+#nodewiring ul { margin: 0 0 0.4em; padding-left: 1.2em; }
+
+/* The selected node's parameters, drawn by panel.js like everything else
+   this page has a panel for. */
+#nodeparams { margin-top: 0.5rem; }
+
+/*
+ * The composer canvas's params popover: a stage's panel, drawn by panel.js
+ * like every other one this page has, in a little box beside the stage it is
+ * about.
+ *
+ * One pair of columns whatever the window is. The media queries above ask
+ * about the viewport, and this is not in the viewport's width -- it is in a
+ * popover a quarter of it wide, where four columns would be four columns of
+ * nothing.
+ */
+#composerparams .panelrows {
+    grid-template-columns: max-content minmax(7rem, 1fr);
+    font-size: 0.9rem;
+}
+
+#composerparams .panelrow { grid-column: span 2; }
+
+/* Wider than the port menu it shares a class with: a stage's row is a name,
+   a number box, a unit menu and a binding menu, and 22rem cuts the last of
+   them off. */
+#composerparams { max-width: 32rem; }
+
+/* A grow stage's edits, under its rows: the one playing marked, the rest
+   pressed to go back to. */
+#composerparams .growthrow {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-size: 0.85rem;
+}
+
+#composerparams .growthrow.playing { font-weight: bold; }
+
+/* A patch growing (growui.js): the same rows, each a graph to go back to,
+   the one chosen marked. */
+.growlist { padding-left: 1.6rem; margin: 0.3rem 0; }
+.growlist button { width: 100%; text-align: left; font-size: 0.85rem; }
+.growlist .chosen button { font-weight: bold; }
+#composerparams .growthplot { display: block; margin: 0.3rem 0; }
+
+/* What a parameter is when it is not a number to type in: an output the
+   plugin writes, or a value something else drives. */
+.paramwhat {
+    color: var(--dim);
+    font-style: italic;
+}
+
+/*
+ * A little menu or panel that sits over the page beside whatever asked
+ * for it: the node canvas's port menu, and the composer canvas's params.
+ * Placed by the script, which is the only thing that knows where the
+ * canvas put the thing it belongs to.
+ */
+.popover {
+    position: absolute;
+    z-index: 10;
+    min-width: 12rem;
+    max-width: 22rem;
+    padding: 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 4px 16px #0006;
+    font-size: 0.9rem;
+}
+
+.popover button {
+    display: block;
+    width: 100%;
+    margin: 0.1rem 0;
+    text-align: left;
+}
+
+.popover .menutitle {
+    display: block;
+    padding: 0.1rem 0.3rem 0.3rem;
+    color: var(--dim);
+    font-family: monospace;
+}
+
+/* The capture meter beside the Live in button. Monospace because it is ten
+   characters of bar and a number, and a proportional font makes the bar
+   change width as it fills. */
+.level {
+    font-family: monospace;
+    white-space: pre;
+}
+
+/*
+ * ---- what this page puts in a pane ----
+ *
+ * Everything below applies only with the tiler on, and every rule in it
+ * names something of this page's: which of these boxes takes the room a
+ * pane has, and which keeps the height it asks for. panes.css cannot
+ * answer that -- a layout knows it has a box to fill and not what is in
+ * it -- so the answer is here, beside the rules that lay the same boxes
+ * out as a document.
+ */
+
+body.tiled h1 { font-size: 1.2em; margin: 0 0 0.2em; }
+body.tiled #about { margin: 0.2em 0; }
+body.tiled .row { margin: 0.4em 0; }
+
+/* The room page keeps everything but the join row in a section of its
+   own, so the column goes through it. */
+body.tiled #roompanel
+{
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The boxes that are meant to take the room there is. The canvas view's
+   maximum goes with them: 60vh is a share of the window, and in a pane
+   the share that matters is the pane's. */
+body.tiled .panebody .canvasview
+{
+    flex: 1 1 8rem;
+    min-height: 6rem;
+    max-height: none;
+}
+
+body.tiled .panebody source-box
+{
+    flex: 1 1 8rem;
+    height: auto;
+    min-height: 4em;
+}
+
+body.tiled .panebody source-box .cm-editor { height: 100%; }
+
+body.tiled .panebody #roll { flex: 1 1 auto; min-height: 4rem; }
+
+body.tiled .panebody #editor { flex: 1 1 8rem; min-height: 0; }
+body.tiled .panebody #chatfeed { flex: 1 1 4rem; max-height: none; }
+body.tiled .panebody #editor .cm-editor { height: 100%; }
+
+/* And the ones that are not: a row of controls is as tall as its
+   controls, and the keys say how tall they are themselves. */
+body.tiled .panebody > .row,
+body.tiled .panebody .row,
+body.tiled .panebody .hint,
+body.tiled .panebody #keys { flex: 0 0 auto; }
+
+/*
+ * A panel wraps into as many column pairs as there is room for, and in a
+ * pane the room there is is the pane's rather than the window's.
+ *
+ * style.css asks the window, because in a document those are the same
+ * question. Tiled they are not, and a panel laid out three pairs wide in
+ * a 300-pixel pane is the answer to the wrong one -- names over their own
+ * sliders and a row that runs off the edge. So the same wrapping again,
+ * asked of the box the rows are actually in. It is the desktop's FlowBox
+ * either way (src/gui/PanelView.cpp): how many fit, rather than how many
+ * were guessed at.
+ */
+body.tiled .panelrows
+{
+    grid-template-columns: max-content minmax(12rem, 1fr);
+}
+
+@container (min-width: 44em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+@container (min-width: 70em)
+{
+    body.tiled .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+/* And a pane narrow enough that a name column would leave the slider too
+   short to aim at: the name over the thing it names, as a phone gets. */
+@container (max-width: 26em)
+{
+    body.tiled .panelrows { grid-template-columns: 1fr; }
+
+    body.tiled .panelrow
+    {
+        grid-column: span 1;
+        grid-template-columns: subgrid;
+        grid-template-rows: auto auto;
+        gap: 0.1rem;
+        margin-bottom: 0.4rem;
+    }
+
+    body.tiled .panelrow label { text-align: left; }
+    body.tiled .panelrow > * { grid-column: 1; }
+}
+
+/* ---- a phone, tiled ----
+ *
+ * On a phone the page is tiled as an app is (main.js, PHONE_LAYOUTS): a
+ * tabbed area per mode and the keys under it. What the tiler draws for a
+ * desktop needs three things changed to fit a thumb.
+ */
+@media (max-width: 40em), (max-height: 30em)
+{
+    /* The status line only when it has something that must be seen
+       (main.js, status): on a phone it is a row of the little height
+       there is. Out of sight rather than gone, so a screen reader still
+       hears it change; and on a phone only, not a desktop zoomed to this
+       size, whose reader is reading it. */
+    @media (pointer: coarse)
+    {
+        #chrome #status:not([data-alert])
+        {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
+        }
+    }
+
+    /* The strip, down to what a phone plays with: the speed and the
+       clock behind the fold. */
+    #more { display: inline-block; }
+    #transport:not(.more) #speedlabel,
+    #transport:not(.more) #clock { display: none; }
+
+    #tempo { width: 4em; }
+
+    /* The chrome in one row where it can be: the menus' own words are
+       left to a screen reader, since a menu showing "a patch" beside one
+       showing "Ladder" says what each is, and the patch or piece menu
+       takes whatever the row has left rather than a row of its own. A
+       long name is cut short in the menu and whole in its list. */
+    #chrome label > .say
+    {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    #patchmode, #piecemode { flex: 1 1 6em; min-width: 0; }
+
+    #patchmode label, #piecemode label
+    {
+        display: flex;
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    #patch, #piece { flex: 1 1 auto; min-width: 0; width: 100%; }
+
+    /* And until Start, which is the one thing to press first, the menu
+       is not in the row: Start has the room it would have taken, and the
+       menu is where it was once Start has gone. */
+    #chrome:has(> #start:not([hidden])) > #patchmode,
+    #chrome:has(> #start:not([hidden])) > #piecemode { display: none; }
+
+    /* The keys take the strip they are given, up to a piano's shape
+       (keyboard.js), and sit at the bottom of it, where the thumbs are. */
+    body.tiled .panebody #keys
+    {
+        flex: 1 1 auto;
+        height: auto;
+        min-height: 6rem;
+    }
+
+    body.tiled #keyboard { justify-content: flex-end; }
+
+    /* A divider a finger can find without spending the height on it:
+       10px of gap drawn as a short handle, and 6px more each side that
+       take a press but draw nothing, over the edges of the panes. */
+    #panes .panebox[data-dir="col"] > .panesplit { z-index: 1; }
+
+    #panes .panebox[data-dir="col"] > .panesplit::before
+    {
+        content: "";
+        position: absolute;
+        inset: -6px 0;
+    }
+
+    #panes .panebox[data-dir="col"] > .panesplit::after
+    {
+        inset: 3px 35%;
+        border-radius: 2px;
+    }
+
+    /* The tabs and the drawer are rows of names, not controls a thumb
+       hunts for: 34px rather than the 44px the page's buttons get, which
+       over a strip per pane and the drawer is most of a pane's worth of
+       height given back. */
+    .panesroot .panetab
+    {
+        min-height: 34px;
+        font-size: 0.95em;
+        padding-block: 0.35em;
+        padding-inline: 0.8em 0.3em;
+    }
+
+    .panesroot .paneshut,
+    .panesroot .paneclosed
+    {
+        min-height: 30px;
+    }
+}
+
+/* The band (bandview.js): a card per player, colored by its role. */
+#players { display: grid; gap: 0.5rem;
+           grid-template-columns:
+               repeat(auto-fill, minmax(min(20rem, 100%), 1fr)); }
+.player
+{
+    --role: var(--dim);
+    /* The role's color as text, far enough from the card's to read. */
+    --role-text: color-mix(in srgb, var(--role) 55%, var(--fg));
+    display: grid;
+    /* The octave's column kept where a drum has none, so every card's
+       picture starts at one place. */
+    grid-template-columns: 8rem minmax(2.2rem, auto) 1fr;
+    /* The picture beside the pad rather than under it, for twice the
+       players in the same room. */
+    grid-template-areas: "who who who" "pad octave moves"
+                         "pad octave takes" "pad octave pic"
+                         "volume volume pic";
+    grid-template-rows: auto auto auto 1fr auto;
+    gap: 0.3rem 0.8rem;
+    align-items: start;
+    transition: background-color 0.3s;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid var(--line);
+    border-left: 5px solid var(--role);
+    border-radius: 8px;
+    background: var(--panel);
+}
+.player.drums   { --role: #d9534f; }
+.player.bass    { --role: #3d8fd6; }
+.player.chords  { --role: #8f6fd6; }
+.player.melody  { --role: #2fae7a; }
+.player.texture { --role: #d98a3d; }
+/* Lit for a moment by each note it plays (not under reduced motion):
+   faint, so that a busy hat is not a flashing light. */
+.player.sounding { background: color-mix(in srgb, var(--role) 12%,
+                                         var(--panel));
+                   transition: none; }
+/* Its controls kept readable: only what it plays is dimmed. */
+.player.resting .bandpad { opacity: 0.4; }
+.player.resting .bandpic { filter: grayscale(1) brightness(0.6); }
+.player .rest[aria-pressed="true"] { background: var(--fg);
+                                     color: var(--bg); }
+.player .who { grid-area: who; display: flex; flex-wrap: wrap;
+               align-items: baseline; gap: 0 0.5rem; }
+.player .who b { font-size: 1.05rem; }
+.player .role, .player .sound, .player .idea { font-size: 0.8rem; }
+.player .role { color: var(--role-text); text-transform: uppercase;
+                letter-spacing: 0.05em; }
+.player .sound, .player .idea { color: var(--dim); }
+.player .octave { grid-area: octave; display: flex; flex-direction: column;
+                  gap: 0.2rem; }
+.player .octave .at { font-size: 0.75rem; text-align: center;
+                      color: var(--dim); }
+.player .octave .at.moved { color: var(--role-text); font-weight: bold; }
+.player .octave button[aria-disabled="true"] { opacity: 0.4; }
+.player .moves { grid-area: moves; display: flex; flex-wrap: wrap;
+                 gap: 0.3rem; }
+.player .volume { grid-area: volume; display: flex; align-items: center;
+                  gap: 0.4rem; font-size: 0.8rem; color: var(--dim); }
+.player .volume input { width: 8rem; accent-color: var(--role); }
+.player .takes { grid-area: takes; display: flex; gap: 0.2rem;
+                 flex-wrap: wrap; }
+.player .takes button { min-width: 1.8rem; min-height: 24px;
+                        padding: 0 0.3rem; }
+.player .takes button.on { border-color: var(--role);
+                           color: var(--role-text);
+                           font-weight: bold; }
+
+/* The player's own picture, as its plugin draws it: a grid to click, a
+   board to paint. */
+.player .bandpic { grid-area: pic; display: block; width: 100%;
+                   border-radius: 4px; background: #14161a; }
+.player .bandpic.control { touch-action: none; }
+
+/* The pad: across calm to busy, up steady to wandering. */
+.bandpad
+{
+    grid-area: pad;
+    align-self: start;
+    position: relative;
+    height: 4.5rem;
+    border: 1px solid var(--ctl-edge);
+    border-radius: 6px;
+    background: var(--bg);
+    touch-action: none;
+    cursor: crosshair;
+}
+.bandpad i
+{
+    position: absolute;
+    font-size: 0.75rem;
+    font-style: normal;
+    color: var(--dim);
+    pointer-events: none;
+}
+.bandpad .l { left: 3px; top: 50%; transform: translateY(-50%); }
+.bandpad .r { right: 3px; top: 50%; transform: translateY(-50%); }
+.bandpad .t { top: 1px; left: 50%; transform: translateX(-50%); }
+.bandpad .b { bottom: 1px; left: 50%; transform: translateX(-50%); }
+.bandpaddot
+{
+    position: absolute;
+    width: 0.9rem;
+    height: 0.9rem;
+    margin: -0.45rem 0 0 -0.45rem;
+    border-radius: 50%;
+    background: var(--role);
+    pointer-events: none;
+}
+
+
+/* The band's bar, its gallery of ideas, and a card's sound and its way
+   out. */
+.bandbar { margin-bottom: 0.5rem; }
+#bandgallery { display: grid; gap: 0.4rem; margin-bottom: 0.6rem;
+               padding: 0.5rem; border: 1px solid var(--line);
+               border-radius: 8px; background: var(--panel); }
+#bandgallery .ideas { display: flex; flex-wrap: wrap; gap: 0.3rem;
+                      align-items: center; }
+#bandgallery .role { min-width: 4.5rem; font-size: 0.8rem;
+                     text-transform: uppercase; color: var(--dim); }
+.player { position: relative; }
+.player select.sound { max-width: 12rem; font-size: 0.8rem; }
+.player .out { position: absolute; top: 0.2rem; right: 0.3rem;
+               min-width: 24px; min-height: 24px;
+               padding: 0 0.4rem; border: 0; background: none;
+               color: var(--dim); font-size: 1rem; }
+
+/* Start from a phrase, while it is being played. */
+#bandphrasebox { margin-bottom: 0.5rem; padding: 0.5rem 0.7rem;
+                 border: 1px solid var(--line); border-radius: 8px;
+                 background: var(--panel); }
+#bandphrasebox[hidden] { display: none; }
+#bandphrasebox p { margin: 0 0 0.4rem; }
+
+/* The energy, and on a scene with a curve, its energy as a bar up its
+   left edge: the scenes in a row are the song's shape. */
+.bandbar .energy input { width: 7rem; vertical-align: middle; }
+.bandscenes .scene.energized { position: relative; padding-left: 0.9rem; }
+.bandscenes .scene.energized::before
+{
+    content: '';
+    position: absolute;
+    left: 0.3rem;
+    bottom: 0.25rem;
+    width: 0.25rem;
+    height: calc(var(--energy) * (100% - 0.5rem));
+    border-radius: 2px;
+    background: currentColor;
+    opacity: 0.6;
+}
+
+/* Record, red while it records, and the takes it has kept. */
+#bandrecord[aria-pressed="true"] { background: #b3261e; border-color: #b3261e;
+                                   color: #fff; font-variant-numeric:
+                                   tabular-nums; }
+#bandtakes { display: grid; gap: 0.3rem; margin-bottom: 0.5rem; }
+#bandtakes[hidden] { display: none; }
+#bandtakes .take { display: flex; flex-wrap: wrap; align-items: center;
+                   gap: 0.5rem; }
+#bandtakes .take span { color: var(--dim); font-variant-numeric:
+                        tabular-nums; }
+#bandtakes audio { height: 2rem; max-width: 18rem; }
+#bandtakes .take button[aria-label] { border: 0; background: none;
+                                      color: var(--dim); }
+
+/* The band's scenes: the piece's sections, the one playing lit. */
+.bandscenes { gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap;
+              align-items: stretch; }
+.bandscenes .scene { display: flex; flex-direction: column;
+                     align-items: flex-start; min-width: 5rem;
+                     padding: 0.2rem 0.6rem; border-radius: 6px; }
+.bandscenes .scene small { color: var(--dim); font-size: 0.7rem; }
+/* Darker than --held, for white to read on it in both themes, with a
+   bar along the bottom as far as it has played. */
+.bandscenes .scene.on { --on: color-mix(in srgb, var(--held) 85%, #000);
+                        background: linear-gradient(#fff, #fff) left bottom /
+                                        var(--done, 0%) 3px no-repeat,
+                                    var(--on);
+                        border-color: var(--on);
+                        color: #fff; }
+.bandscenes .scene.on small { color: inherit; }
+.bandscenes .scene.add { justify-content: center; color: var(--dim); }
+/* Cued: coming in at the next bar. */
+.bandscenes .scene.cued { border: 2px dashed var(--held); }
+.bandscenes .toggle[aria-pressed="true"] { background: var(--fg);
+                                           color: var(--bg); }

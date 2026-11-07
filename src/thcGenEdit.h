@@ -1,0 +1,560 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef THCGENEDIT_H
+#define THCGENEDIT_H
+
+#include <string>
+#include <utility>
+#include <vector>
+
+/*
+ * Changing a .gen file, by editing the text.
+ *
+ * The same decision NodeEdit made for .dsp, for the same reason: a piece
+ * file is the author's document, and re-emitting a parsed model would
+ * lose every comment and every deliberate blank line in it. So each
+ * operation here finds the exact byte span it is aimed at -- through the
+ * loader's own tokenizer, which is what makes "the editor reads the
+ * language the loader reads" true by construction -- and replaces that
+ * span. Everything between the spans is copied through untouched.
+ *
+ * Two properties fall out of splicing token spans rather than lines:
+ * multiple statements on one line (`period = 23.9 s; jitter = 2.0 s;`,
+ * which the shipped piece is full of) are edited independently, and a
+ * value's authored unit is preserved because the caller writes the whole
+ * right-hand side and never sees a folded number.
+ *
+ * docs/GEN_FORMAT.md's writer's rules bind what gets *written into* the
+ * spans: durations always carry a unit, knob bindings are spelled @name, a
+ * stage added by the GUI writes every param the plugin registers, and seed
+ * appears if and only if the user pinned one.
+ *
+ * Everything operates on a file, NodeEdit-style, because the editor
+ * keeps its edits in a work copy and publishes on Save -- the same flow
+ * NodeEditor uses, so a crashed session never half-writes the original.
+ */
+class thcGenEdit {
+public:
+    enum Result {
+        OK = 0,
+        NOT_FOUND,      /* no such chain/stage/knob/... in the file */
+        REFUSED,        /* the edit does not make sense             */
+        UNWRITABLE,     /* no way to spell this value               */
+        IO_ERROR
+    };
+
+    static const char *resultText (Result r);
+
+    /* ---- what the file says, for the editor to draw ------------------
+     *
+     * A structural description with the *authored* right-hand sides:
+     * "19.4 s", "@density", "fmin", "\"F3 Ab3 C4\"" -- exactly the text
+     * a splice would replace, so what the panel shows is what the file
+     * says rather than what the engine folded it to. */
+
+    struct Param { std::string name; std::string valueText; };
+
+    struct Stage
+    {
+        std::string name, category, plugin;
+        std::vector<Param> params;
+    };
+
+    /* A sink's target is one of two things and never both: the name of
+       an instrument the piece declares, or a raw channel for a patch
+       the piece does not own. `instrument' empty means the channel is
+       the answer; `channel' is 0 -- not a number the file format
+       accepts -- when the instrument is. */
+    struct Sink
+    {
+        int channel;
+        std::string instrument;
+        std::string chanarg;
+
+        /* `knob = @runs;': the piece knob it writes, without the `@', and
+           then neither of the two above. */
+        std::string knob;
+    };
+
+    /* One value an instrument sets, with the right-hand side as
+       authored: "900 ms", "0.06", "100%". Same reason a stage param
+       keeps its text -- what the panel shows should be what the file
+       says, not what the engine folded it to. */
+    struct InstrumentValue { std::string name; std::string valueText; };
+
+    struct Instrument
+    {
+        std::string name, dsp;
+        std::vector<InstrumentValue> values;
+
+        /* `midi "port"; midichannel = N;' as written (1-16), or empty
+           and -1: where the instrument plays when a port answers. */
+        std::string midi;
+        int midiChannel = -1;
+    };
+
+    struct Chain
+    {
+        std::string name;
+        std::string startText;  /* empty when the chain starts at zero */
+        bool inputMidi;
+        bool hasSeed = false;   /* `seed N;': its own, not the piece's */
+        unsigned seed = 0;
+        std::vector<Stage> stages;
+        std::vector<Sink> sinks;
+    };
+
+    /* A `stage' whose category is neither gen nor xform is a DSP node run
+       at control rate, not a composer -- see docs/GEN_FORMAT.md. */
+    static bool isNodeStage (const Stage &s)
+    {
+        return s.category != "gen" && s.category != "xform";
+    }
+
+    /* Where doc stage `si' sits in the *scheduler's* stage list, or -1
+       when it is a node.
+     *
+       The two lists stopped agreeing when a chain could hold nodes: the
+       document has every `stage' block in it, and the scheduler has only
+       the composers, because a node is not in the event flow and has no
+       thcStage. Anything walking one while indexing the other has to
+       come through here, or a piece with an LFO at the top of a chain
+       hands you the wrong stage's params -- silently, since both are
+       stages and both have params. */
+    static int liveIndex (const Chain &c, size_t si)
+    {
+        if (si >= c.stages.size() || isNodeStage(c.stages[si]))
+            return -1;
+
+        int at = 0;
+
+        for (size_t i = 0; i < si; i++)
+            if (!isNodeStage(c.stages[i]))
+                at++;
+
+        return at;
+    }
+
+    /* liveIndex the other way: where scheduler stage `live' sits in the
+       document, or -1 when the chain has no such composer.
+
+       Wanted wherever something that counted the scheduler's stages
+       hands an index back to something that indexes the document -- a
+       page enumerating tw_stage_count and then asking for a stage to be
+       enlarged, say. Going only one way is how an index quietly becomes
+       the wrong kind of index halfway across. */
+    static int docIndex (const Chain &c, int live)
+    {
+        if (live < 0)
+            return -1;
+
+        for (size_t i = 0; i < c.stages.size(); i++)
+            if (!isNodeStage(c.stages[i]) && live-- == 0)
+                return (int)i;
+
+        return -1;
+    }
+
+    struct Knob
+    {
+        std::string name;
+        double value;
+        bool   hasMin, hasMax;
+        double min, max;
+        std::string label;
+    };
+
+    struct Scale { std::string name, notes; };
+
+    /* One component of a preset, and the vector it belongs to. In
+       declaration order, because a preset *is* a vector and one whose
+       components arrive sorted by name is a different vector. */
+    struct PresetValue { std::string name; double value; };
+
+    struct Preset
+    {
+        std::string name;
+        std::vector<PresetValue> values;
+    };
+
+    struct Doc
+    {
+        std::string name, author, description, category;
+        bool     hasSeed;
+        unsigned seed;
+        bool     hasTempo;
+        double   tempo;
+        std::vector<Knob>       knobs;
+        std::vector<Scale>      scales;
+        std::vector<Preset>     presets;
+        std::vector<Instrument> instruments;
+        std::vector<Chain>      chains;
+        std::string             masterEffect;   /* empty: none */
+    };
+
+    static Result describe (const std::string &filename, Doc &doc,
+                            std::string &why);
+
+    /* ---- the piece ---------------------------------------------------- */
+
+    /* key is "name", "author" or "description". Empty text removes the
+       line; a piece that never had an author and one whose author was
+       cleared should be the same file. */
+    static Result setInfo (const std::string &filename, const std::string &key,
+                           const std::string &text, std::string &why);
+
+    /* Pinning and unpinning. Written near the top, where the writer's
+       rules put it; clearSeed exists because a generated file keeping a
+       seed the user un-pinned would silently freeze a piece that was
+       meant to breathe. */
+    static Result setSeed (const std::string &filename, unsigned seed,
+                           std::string &why);
+    static Result clearSeed (const std::string &filename, std::string &why);
+
+    static Result setTempo (const std::string &filename, double bpm,
+                            std::string &why);
+    static Result clearTempo (const std::string &filename, std::string &why);
+
+    /* ---- knobs -------------------------------------------------------- */
+
+    static Result setKnobValue (const std::string &filename,
+                                const std::string &name, double value,
+                                std::string &why);
+
+    /* Range and label together, one write -- the same shape as
+       NodeEdit::setControlMeta and for the same reason. An empty label
+       removes the .label line. */
+    static Result setKnobMeta (const std::string &filename,
+                               const std::string &name, double min,
+                               double max, const std::string &label,
+                               std::string &why);
+
+    /* The standard block: @name = v; .widget/.min/.max[/.label]. */
+    static Result addKnob (const std::string &filename,
+                           const std::string &name, double value,
+                           double min, double max, const std::string &label,
+                           std::string &why);
+
+    /* Removes the block and rewrites every `= @name' binding to the
+       plain value `fallback' -- a dangling knob reference is a load
+       error, and the knob's last value is what those params were
+       actually hearing. `rewritten' counts the bindings replaced,
+       which is the part of the delete the user did not ask for. */
+    static Result removeKnob (const std::string &filename,
+                              const std::string &name, double fallback,
+                              int &rewritten, std::string &why);
+
+    /* ---- scales ------------------------------------------------------- */
+
+    static Result addScale (const std::string &filename,
+                            const std::string &name,
+                            const std::string &notes, std::string &why);
+    static Result setScale (const std::string &filename,
+                            const std::string &name,
+                            const std::string &notes, std::string &why);
+
+    /* References are inlined as the scale's literal note list, so the
+       music does not change out from under the chains that used it. */
+    static Result removeScale (const std::string &filename,
+                               const std::string &name, int &rewritten,
+                               std::string &why);
+
+    /* ---- instruments -------------------------------------------------- */
+
+    /* The graph instrument `name' plays: its `dsp' line, and nothing else.
+       Its values stay as written -- they are the channel's args, and one
+       the new graph does not have is refused by the load, which names it.
+       NOT_FOUND for no such instrument, or one with no `dsp' line. */
+    /* The text between the braces of `dsp { ... }' in instrument `name',
+       and the same span replaced: what the node editor reads an inline
+       graph from and saves it back to. NOT_FOUND for no such instrument,
+       or -- for inlineGraph -- one whose graph is a file; setInlineGraph
+       writes over a file's name, which is how a grown graph is kept. */
+    static Result inlineGraph (const std::string &filename,
+                               const std::string &name, std::string &body,
+                               std::string &why);
+    static Result setInlineGraph (const std::string &filename,
+                                  const std::string &name,
+                                  const std::string &body, std::string &why);
+
+    /* An instrument playing graph `dsp' with `values' as its file would
+       write them, and one taken out again -- refused while a sink plays
+       it. */
+    static Result addInstrument (const std::string &filename,
+                                 const std::string &name,
+                                 const std::string &dsp,
+                                 const std::vector<std::pair<std::string,
+                                     std::string> > &values,
+                                 std::string &why);
+    static Result removeInstrument (const std::string &filename,
+                                    const std::string &name,
+                                    std::string &why);
+
+    static Result setInstrumentDsp (const std::string &filename,
+                                    const std::string &name,
+                                    const std::string &dsp,
+                                    std::string &why);
+
+    /* The same, starting the new graph from its own values: every value
+       the instrument sets is removed but `send', which is the mix's. A
+       value tuned for one graph is a refused load or a different sound on
+       another -- `amp' included, since graphs differ in level by far more
+       than a mix would want -- and this is what a pick from a list of
+       graphs means: the graph at the level any graph is put on a channel
+       at (TH_DEFAULT_CHAN_AMP). */
+    static Result setInstrumentGraph (const std::string &filename,
+                                      const std::string &name,
+                                      const std::string &dsp,
+                                      std::string &why);
+
+    /* The piece's own effect, on the mix: replaced as a whole statement,
+       added before the first chain, or taken out when `dsp' is empty. */
+    static Result setMasterEffect (const std::string &filename,
+                                   const std::string &dsp, std::string &why);
+
+    /* ---- presets ------------------------------------------------------ */
+
+    /* A preset arrives whole, with at least one component, because a
+       preset that sets nothing is a load error rather than an empty
+       start -- and every intermediate state this editor writes must
+       load. Component names are chanargs, so they follow the same rule
+       every other name in the file does. */
+    static Result addPreset (const std::string &filename,
+                             const std::string &name,
+                             const std::vector<PresetValue> &values,
+                             std::string &why);
+
+    /* Replaces one component's number, in place. NOT_FOUND if the preset
+       or the component is not there; addPresetValue is how a component
+       that was never written gets in. */
+    static Result setPresetValue (const std::string &filename,
+                                  const std::string &preset,
+                                  const std::string &component,
+                                  double value, std::string &why);
+
+    static Result addPresetValue (const std::string &filename,
+                                  const std::string &preset,
+                                  const std::string &component,
+                                  double value, std::string &why);
+
+    /* Refused for the last component, for the reason addPreset states:
+       what is left would not load. Remove the preset instead. */
+    static Result removePresetValue (const std::string &filename,
+                                     const std::string &preset,
+                                     const std::string &component,
+                                     std::string &why);
+
+    /* Refused while any stage still names it, saying which.
+     *
+     * Unlike a scale, a preset reference cannot be inlined on the way
+     * out: the format has no literal form for a chanarg vector, on
+     * purpose -- one spelled inline is a preset that cannot be morphed
+     * towards or saved under a name. So the choice is refuse or silently
+     * break the file, and there is only one answer to that. */
+    static Result removePreset (const std::string &filename,
+                                const std::string &name, std::string &why);
+
+    /* ---- chains ------------------------------------------------------- */
+
+    /* A new chain arrives whole -- one generator stage with `params'
+       (every registered param, per the writer's rules; the caller
+       builds them from the plugin's defaults) and one note sink --
+       because a chain with no generator and no input does not load,
+       and every intermediate state this editor writes must load.
+
+       The sink takes a target on the same terms addSink does, and for a
+       sharper reason than symmetry: instrument channels are allocated
+       around the numbers sinks claim, so a new chain written
+       `channel = 1' into a piece whose instrument sits on channel 1
+       does not collide -- it *moves the instrument*, onto a different
+       tab, for a chain the person only wanted to hear. */
+    static Result addChain (const std::string &filename,
+                            const std::string &name, int channel,
+                            const std::string &instrument,
+                            const std::string &stageName,
+                            const std::string &category,
+                            const std::string &plugin,
+                            const std::vector<std::pair<std::string,
+                                std::string> > &params,
+                            std::string &why);
+
+    /* The same, with a sink that writes knob `knob' (no `@') rather
+       than playing notes: a chain that moves a piece knob over time. */
+    static Result addKnobChain (const std::string &filename,
+                                const std::string &name,
+                                const std::string &knob,
+                                const std::string &stageName,
+                                const std::string &category,
+                                const std::string &plugin,
+                                const std::vector<std::pair<std::string,
+                                    std::string> > &params,
+                                std::string &why);
+
+    static Result removeChain (const std::string &filename,
+                               const std::string &name, std::string &why);
+    static Result renameChain (const std::string &filename,
+                               const std::string &oldName,
+                               const std::string &newName, std::string &why);
+
+    static Result setChainInput (const std::string &filename,
+                                 const std::string &chain, bool midi,
+                                 std::string &why);
+
+    /* `"93 beats"', or "" to remove the line. Refuses anything the
+       loader would not read back. */
+    static Result setChainStart (const std::string &filename,
+                                 const std::string &chain,
+                                 const std::string &start,
+                                 std::string &why);
+
+    /* `seed N;' in the chain, or the line taken out when !pin. */
+    static Result setChainSeed (const std::string &filename,
+                                const std::string &chain, bool pin,
+                                unsigned seed, std::string &why);
+
+    /* ---- the arrangement ---------------------------------------------- */
+
+    /* A section of `length' (`16 bars', `8 beats', `30 s') after section
+       `after', or last for "", with the chains in `levels' at theirs --
+       and a knob, named with its `@', at the value it sets; one taken
+       out, renamed, or made another length. */
+    static Result addSection (const std::string &filename,
+                              const std::string &name,
+                              const std::string &length,
+                              const std::string &after,
+                              const std::vector<std::pair<std::string,
+                                  double> > &levels,
+                              std::string &why);
+    static Result removeSection (const std::string &filename,
+                                 const std::string &name, std::string &why);
+    static Result renameSection (const std::string &filename,
+                                 const std::string &oldName,
+                                 const std::string &newName,
+                                 std::string &why);
+    static Result setSectionLength (const std::string &filename,
+                                    const std::string &name,
+                                    const std::string &length,
+                                    std::string &why);
+
+    /* `hold' on a section, or taken off: it plays again until cued. */
+    static Result setSectionHold (const std::string &filename,
+                                  const std::string &name, bool hold,
+                                  std::string &why);
+
+    /* `section loop <name>;' closing the list, in place of `section end;'
+       or of another loop; "" takes it out, and the list goes round from
+       the first. */
+    static Result setSectionLoop (const std::string &filename,
+                                  const std::string &name,
+                                  std::string &why);
+
+    /* `cue @knob <grid>;' (`1 bars') at the end of the file, unless knob
+       has one already; refused where another knob has, as a piece
+       follows one. */
+    static Result addCue (const std::string &filename,
+                          const std::string &knob, const std::string &grid,
+                          std::string &why);
+
+    /* A chain's level in one section: 0 mutes it, 1 is as written --
+       which removes the chain from the section, since a section that
+       does not name a chain plays it as written -- and anything else
+       scales its notes' level. `chain' "@name" is the value the section
+       sets knob `name' to, 1 like any other, and a NaN takes it out. */
+    static Result setSectionLevel (const std::string &filename,
+                                   const std::string &section,
+                                   const std::string &chain, double level,
+                                   std::string &why);
+
+    /* ---- stages ------------------------------------------------------- */
+
+    /* Inserted before the first sink: textual order is execution order,
+       and sinks come last. Same all-params rule as addChain. */
+    static Result addStage (const std::string &filename,
+                            const std::string &chain,
+                            const std::string &stageName,
+                            const std::string &category,
+                            const std::string &plugin,
+                            const std::vector<std::pair<std::string,
+                                std::string> > &params,
+                            std::string &why);
+
+    static Result removeStage (const std::string &filename,
+                               const std::string &chain, int stageIndex,
+                               std::string &why);
+
+    /* Reorder: the whole stage block moves; its text moves with it,
+       comments included. */
+    static Result moveStage (const std::string &filename,
+                             const std::string &chain, int from, int to,
+                             std::string &why);
+
+    /* Replaces the right-hand side of `<param> = ...;` in one stage, or
+       inserts the line if the stage body does not have it (the param
+       existed only as the plugin's default). `valueText' is the whole
+       RHS as it should appear: "0.5", "19.4 s", "@density", "fmin",
+       "\"F3 Ab3\"" -- validated against the lexer before anything is
+       written. */
+    static Result setParam (const std::string &filename,
+                            const std::string &chain, int stageIndex,
+                            const std::string &param,
+                            const std::string &valueText, std::string &why);
+
+    /* ---- sinks -------------------------------------------------------- */
+
+    /* A target and a chanarg. `instrument' non-empty writes
+       `instrument = name' and `channel' is ignored; empty writes
+       `channel = N'. There is no authoring surface for instrument
+       *blocks* yet -- the noun landed before its panel, the way a
+       preset did -- but a sink has to be able to point at one from the
+       moment the language can say it, or the editor would silently
+       rewrite an instrument-bound piece into a channel-bound one. */
+    static Result addSink (const std::string &filename,
+                           const std::string &chain, int channel,
+                           const std::string &instrument,
+                           const std::string &chanarg, std::string &why);
+
+    /* Refuses to remove the last one: a chain with no sink is a load
+       error, and every state this editor writes must load. */
+    static Result removeSink (const std::string &filename,
+                              const std::string &chain, int sinkIndex,
+                              std::string &why);
+
+    /* Target and chanarg together. An empty chanarg makes it a note
+       sink (the `chanarg = "...";' is removed, not written empty), and
+       switching between an instrument and a channel replaces the one
+       line that says which -- so a sink can be moved off a piece's own
+       instrument onto an externally loaded patch, and back, without
+       either spelling leaving a residue behind. */
+    static Result setSink (const std::string &filename,
+                           const std::string &chain, int sinkIndex,
+                           int channel, const std::string &instrument,
+                           const std::string &chanarg, std::string &why);
+
+    /* ---- small shared checks ------------------------------------------ */
+
+    /* True if the lexer will read `name' back as one WORD. */
+    static bool validName (const std::string &name);
+
+    /* Plain decimal, no exponent, no trailing zeros -- the only spelling
+       the lexer reads. False when the value cannot be written, which the
+       caller must not paper over. */
+    static bool format (double value, std::string &out);
+};
+
+#endif /* THCGENEDIT_H */

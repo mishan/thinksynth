@@ -1,0 +1,494 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef COMPOSER_CANVAS_H
+#define COMPOSER_CANVAS_H
+
+#include <string>
+#include <vector>
+#include <functional>
+#include <map>
+#include <set>
+
+#include <sigc++/sigc++.h>
+
+#include "libthink/thcomposer.h"   /* thcInputEvent */
+#include "CanvasContent.h"
+#include "thcGenEdit.h"
+
+class thcScheduler;
+struct thcStage;
+
+/* The composer's node view: one row per chain, reading left to right
+ * the way a chain executes -- name, stages, sinks -- with ghost boxes
+ * where something can be added. Events flow along the arrows; that is
+ * the whole topology, which is why this is its own small canvas rather
+ * than NodeCanvas taught new tricks: a .dsp is a graph with ports and
+ * edges, a chain is a sentence.
+ *
+ * A stage that exports composer_draw gets it drawn INSIDE its box --
+ * the algorithm's face on the node that runs it (the euclid ring, the
+ * L-system's contour, evolve's fitness curve). Sink boxes wear their
+ * channel's color, the same golden-angle hue the piano roll gives that
+ * channel's notes, so "which row makes which notes" is answered by
+ * looking.
+ *
+ * A stage box carries its params behind a handle -- the three little
+ * sliders in its title bar -- which selects the stage and asks the
+ * window for a popover beside the box. The box itself never changes
+ * size, and that is the whole of why it is a popover: the first version
+ * of this expanded the box in place with a column of inline tracks, and
+ * a stage with eight params is taller than its chain's row, so opening
+ * one shoved every chain below it down and opening two made the canvas
+ * unreadable. Nothing here is typed into either, at eight pixels a row.
+ * The canvas asks; Composer answers with the Selection pane's own
+ * rows, which already know about units and knob bindings.
+ *
+ * A stage whose module also exports composer_input has a picture that is
+ * a *control*: clicks on it are handed straight to the plugin, in the
+ * coordinates it drew in. Double-clicking such a stage enlarges its draw
+ * to fill the canvas, because a Life board in a hundred-pixel box is six
+ * pixels a cell and nobody can click that. Escape, or another
+ * double-click, puts it back.
+ *
+ * The canvas does not edit anything itself. It reports -- a selection,
+ * a drag that wants stages reordered -- and Composer performs the
+ * edit through thcGenEdit and reloads. One writer, as everywhere else.
+ * Input is not an exception to that: a click goes to the plugin's own
+ * state and changes what is playing, which is a performance, not a file
+ * edit. Capturing it into the file is a separate, deliberate act.
+ *
+ * It is the content of a canvas and not a widget (CanvasContent.h): it
+ * compiles without a toolkit, the desktop wraps it in
+ * ComposerCanvasWidget (src/gui/) for the controllers and the scroller,
+ * and the browser runs the same class in the mirror worker. The
+ * rectangles it emits and the gestures it takes are in shell pixels.
+ */
+class ComposerCanvas : public CanvasContent
+{
+public:
+    ComposerCanvas (void);
+
+    /* What to show. `doc' is the parsed piece (authored spellings and
+       all); `sched' is the live piece, for mute state and for the
+       instance state composer_draw reads. Both stay owned by the
+       caller; SetPiece is called again after every reload. */
+    void SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched);
+
+    struct Selection
+    {
+        enum Kind { NONE, CHAIN, STAGE, SINK, ADD_STAGE, ADD_SINK,
+                    ADD_CHAIN, KNOB } kind;
+
+        size_t chain;        /* meaningful for all but NONE/ADD_CHAIN   */
+        size_t index;        /* stage or sink index                     */
+
+        Selection (void) : kind(NONE), chain(0), index(0) {}
+
+        bool operator== (const Selection &o) const
+        {
+            return kind == o.kind && chain == o.chain && index == o.index;
+        }
+    };
+
+    const Selection &selection (void) const { return sel_; }
+    void select (const Selection &sel);
+
+    /* Selection changed by a click (or by select()). */
+    sigc::signal<void (const Selection &)> sigSelection;
+
+    /* A drag dropped stage `from' at position `to' in chain `chain'. */
+    sigc::signal<void (size_t, int, int)> sigMoveStage;
+
+    /* Someone asked a stage for its params: which stage, and where its
+       box is in widget pixels for the popover to point at.
+     *
+       A popover rather than the box growing in place. Growing was the
+       first try and it does not survive contact with a real piece: a
+       stage with ten params is taller than its chain's row, so opening
+       one shoves the chains below it down, and opening two makes the
+       canvas unreadable -- and the rows are drawn at canvas scale, which
+       is small on purpose. A popover is real widgets at the window's own
+       font, with the panel's spin buttons, unit menus and knob bindings
+       already working in it, and it costs the drawing nothing. */
+    sigc::signal<void (size_t, size_t, CanvasRect)> sigParams;
+
+    /* A knob node dragged: its name, the new value, and whether this is
+       the committing one. Same shape and same reason as sigParams'
+       neighbours -- live all the way down the drag, spliced once at the
+       end. */
+    sigc::signal<void (std::string, double, bool)> sigKnob;
+
+    /* A wire dropped from a knob node onto a stage: the knob's name,
+       which stage, and where its box is for the popover that asks which
+       param the wire is for.
+     *
+       The canvas cannot answer that question itself -- it would need a
+       list of the stage's params with their types, which is the Edit
+       panel's business -- and it should not: dropping a wire on a box
+       with six params is genuinely ambiguous, and guessing would be
+       worse than asking. */
+    sigc::signal<void (std::string, size_t, size_t,
+                       CanvasRect)> sigBindKnob;
+
+    /* A chain collapsed to one short line: its name, M and S, and a pill
+       for each stage and sink. Kept by name, so it survives a reload; a
+       view setting, never written into the file. */
+    bool chainCollapsed (size_t chain) const;
+    void setChainCollapsed (size_t chain, bool on);
+    void setAllCollapsed (bool on);
+
+    /* A chain renamed: a collapsed one stays collapsed under its new
+       name. */
+    void renameCollapsed (const std::string &was, const std::string &now);
+
+    /* The middle of a chain's disclosure triangle, in widget pixels.
+       Public for the reason paramsHandle is. */
+    bool discloseAt (size_t chain, double &x, double &y) const;
+
+    /* Lay the chains out in as many columns as the view is wide enough
+       for, if that has changed since the last layout. True if it did,
+       and the drawing changed size. A shell calls it when its view may
+       have changed width; it is cheap when it has not. */
+    bool fitColumns (void);
+
+    /* The same, whatever the width was last time: for a shell that has
+       just changed the zoom, which changes the room there is in the
+       drawing's own units without the view changing at all. */
+    bool refitColumns (void) { fitWidth_ = 0; return fitColumns(); }
+
+    /* How many columns the chains are in now. */
+    size_t columns (void) const { return columns_; }
+
+    /* Whether each chain's name box wears a stripe of the chain's hue:
+       on while the piano roll is coloring notes by chain, which gives
+       each chain the hue gthChannelColor gives the same number. */
+    void setChainHues (bool on) { chainHues_ = on; requestRedraw(); }
+    bool chainHues (void) const { return chainHues_; }
+
+    /* A chain's mute or solo button was pressed: which chain, and what
+       it asks the flag to become. The canvas only reads the flags; the
+       window sets them on the scheduler, and the browser sends them as
+       commands every instance applies at its time. */
+    sigc::signal<void (size_t, bool)> sigMute;
+    sigc::signal<void (size_t, bool)> sigSolo;
+
+    /* A chain's F: freeze what it just played into a new chain (see
+       thcFreeze.h). The window does the edit; the browser sends it to
+       the page, which splices its text. */
+    sigc::signal<void (size_t)> sigFreeze;
+
+    /* A cell of the arrangement lane was pressed: which section, which
+       chain, and the level it asks that chain to have there. The window
+       writes it into the file and pokes the running piece; the browser
+       sends it as a command. */
+    sigc::signal<void (size_t, size_t, double)> sigSectionLevel;
+
+    /* The probe: which stage's output a probe is showing (kind STAGE),
+       or NONE. Pressing an arrow puts one there, pressing it again or
+       Escape takes it away. A view setting, nothing sent. */
+    const Selection &probe (void) const { return probe_; }
+    void setProbe (const Selection &at);
+
+    /* The middle of the arrow carrying a stage's output, in widget
+       pixels: the arrow a probe on that stage hangs from. */
+    bool probeArrow (size_t chain, size_t stage, double &x, double &y) const;
+
+    /* A section's block was pressed: which section, for the window to
+       seek to where it begins the first time round. */
+    sigc::signal<void (size_t)> sigSeekSection;
+
+    /* The middle of a section's block in the lane, in widget pixels. */
+    bool sectionHead (size_t section, double &x, double &y) const;
+
+    /* The middle of a cell of the arrangement lane, in widget pixels.
+       False for a piece with no sections. */
+    bool sectionCell (size_t section, size_t chain, double &x,
+                      double &y) const;
+
+    /* Which stage is filling the canvas, or NONE. Public so the window
+       can label what it is showing and offer to capture it. */
+    const Selection &enlarged (void) const { return enlarged_; }
+    void setEnlarged (const Selection &sel);
+
+    /* The enlarged stage changed (or went away). */
+    sigc::signal<void (const Selection &)> sigEnlarged;
+
+    /* A gesture the enlarged stage's picture took: which stage, and the
+       event in the coordinates that stage's draw was handed.
+     *
+       Connected, the canvas emits this INSTEAD of calling the plugin.
+       That is the browser: in a room a click is a command, stamped and
+       applied at a time on every peer including the one that made it, so
+       the plugin hears it when the command comes due rather than when the
+       finger went down. Unconnected -- the desktop -- the plugin is
+       called here, where it always was.
+     *
+       Either way the arithmetic that decides which stage was hit, whether
+       the point is inside its picture, and what x, y, w and h are is this
+       one method's, on every platform. That is the whole reason a peer's
+       click lands on the cell the clicker saw. */
+    sigc::signal<void (size_t, size_t, const thcInputEvent &)> sigInput;
+
+    /* A gesture on the enlarged picture ended: which stage, in the
+       document's numbering. What a host that writes a picture's edits
+       into the file at a gesture's end listens for (THC_INPUT_EDITS). */
+    sigc::signal<void (size_t, size_t)> sigGestureEnd;
+
+    /* Where the enlarged picture would go, in laid-out coordinates.
+       False if no stage is enlarged. Answers about the view rather than
+       about whether the stage has a picture to put there.
+     *
+       Public so that "it follows the viewport" is a thing a harness can
+       ask rather than a thing the code claims. */
+    bool enlargedArea (double &x, double &y, double &w, double &h) const;
+
+    /* Where a stage's box is, in widget pixels. */
+    bool stageRect (size_t chain, size_t stage, CanvasRect &at) const;
+
+    /* The middle of a chain's mute (which 0), solo (1) or freeze (2)
+       button, in widget pixels. Public for the reason paramsHandle is. */
+    bool chainChip (size_t chain, int which, double &x, double &y) const;
+
+    /* Where a knob node's value track is, in widget pixels, and where
+       its output port is. False if there is no such knob. */
+    bool knobTrack (const std::string &name,
+                    double &x0, double &x1, double &y) const;
+    bool knobPort (const std::string &name, double &x, double &y) const;
+
+    /* Where its params handle is, in widget pixels.
+     *
+       Public because the only other way to find out is to repeat the
+       layout arithmetic, and a caller that repeated it would be testing
+       its own copy of it. */
+    bool paramsHandle (size_t chain, size_t stage,
+                       double &x, double &y) const;
+
+    /* A gesture, in widget pixels, without a mouse.
+     *
+       The controllers call these and so can a harness, which is the
+       point: every handler converts widget pixels to laid-out
+       coordinates on the way in, and a missed conversion is a click that
+       lands somewhere else -- silently, and only at a zoom nobody tests
+       at. Making the entry public costs nothing and turns "I checked the
+       conversions by reading them" into something ctest can say. */
+    void pressAt (double sx, double sy, int button, int nPress);
+    void motionTo (double sx, double sy);
+    void releaseAt (double sx, double sy, int button);
+
+    void draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+               int height) override;
+    bool keyPressed (Key key) override;
+
+    /* The gestures, in shell pixels: a press, a release and a motion
+       with a button where the shell knows one, and a drag as the offset
+       from where it began, which is how a stage box is carried. The
+       desktop's controllers call these; so does the browser's pointer
+       handling, and pressAt() and friends above are the same calls
+       spelled for a harness. */
+    void onPressed (int nPress, double x, double y, int button);
+    void onDragBegin (double x, double y);
+    void onDragUpdate (double dx, double dy);
+    void onDragEnd (double dx, double dy);
+    void onReleased (int nPress, double x, double y, int button);
+    void onMotion (double x, double y);
+
+protected:
+    /* A chain's mute (solo false) or solo flag, as a button shows it and
+       as a press toggles it. The scheduler's; a shell whose presses
+       reach the scheduler only later, as commands, answers with what it
+       has asked for until the command lands, or two quick presses would
+       both be read against the old flag. */
+    virtual bool mixFlag (size_t chain, bool solo) const;
+
+    /* A chain's level in one section, as its lane cell shows it and a
+       press steps it: the scheduler's, or -- for the same reason as
+       mixFlag -- what a shell has asked for and not yet heard back. */
+    virtual double laneLevel (size_t section, size_t chain) const;
+
+private:
+    /* One clickable box, laid out by rebuild(). */
+    struct Box
+    {
+        Selection what;
+        double x, y, w, h;
+        std::string title;       /* e.g. "gen::lsystem"                 */
+        std::string sub;         /* stage name, or the sink's target    */
+        thcStage *live;          /* for composer_draw; may be NULL      */
+        int channel;             /* sinks: for the hue                  */
+
+        /* Knob nodes: what the knob reads and the range it reads it in.
+           Unused, and left alone, by every other kind. */
+        double kv, klo, khi;
+        double kLive;            /* the live value when kv last took it */
+        int    kHold;            /* frames kv waits for live after a drag */
+        bool ghost;              /* an add-slot                         */
+    };
+
+    void rebuild (void);
+    void relayout (void);
+
+    /* One chain's boxes at (x, y), appended to `out'; the row's width is
+       returned and its height left in `h'. */
+    double layoutRow (size_t chain, double x, double y, double &h,
+                      std::vector<Box> &out) const;
+    const Box *hit (double x, double y) const;
+    const Box *boxFor (size_t chain, size_t stage) const;
+
+    /* How wide and tall the laid-out rows are, for the base's zoom. */
+    void contentExtent (double &w, double &h) const override;
+
+    /* Where the params handle is, in box space. */
+    static void twistyRect (const Box &b, double &x, double &y, double &s);
+
+    /* Where a chain box's disclosure triangle is, in box space. */
+    static void discloseRect (const Box &b, double &x, double &y,
+                              double &s);
+
+    /* Where a chain box's mute (which 0) or solo (1) button is, in box
+       space. */
+    static void chipRect (const Box &b, int which, double &x, double &y,
+                          double &w, double &h);
+
+    /* Whether the mute and the solos let the chain be heard; true with
+       no live piece to ask. */
+    bool chainAudible (size_t chain) const;
+
+    /* How lit an activity light last set at transport time `t' is now:
+       1 at the moment, fading to 0, and 0 while the transport is not
+       running or for a time never set (-1). */
+    double flash (double t) const;
+
+    CanvasRect boxRect (const Box &b) const;
+
+    /* A knob node's value track and its output port, in box space. */
+    static void knobTrackRect (const Box &b, double &x0, double &x1,
+                               double &y);
+    static void knobPortAt (const Box &b, double &x, double &y);
+
+    /* Which knob's port a point is on, or -1. */
+    int knobPortAt (double x, double y) const;
+
+    const Box *knobBox (const std::string &name) const;
+
+    /* Every wire the piece declares: from a knob node's port to the
+       stage box that reads it. Laid out on demand rather than stored,
+       because a binding lives in the live stage and the live stage is
+       replaced on every reload. */
+    void eachWire (const std::function<void (const Box &knob,
+                                             const Box &stage,
+                                             const std::string &param)>
+                   &fn) const;
+
+    void drawLane (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    void drawProbe (const Cairo::RefPtr<Cairo::Context> &cr) const;
+    bool probeRect (double &px, double &py, double &w, double &h,
+                    double &ax, double &ay) const;
+
+    void eachArrow (const std::function<bool (const Selection &, double,
+                                              double, double)> &fn) const;
+    bool arrowAt (double x, double y, Selection &out) const;
+    bool layoutLane (double y);
+
+    void drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
+                   const Box &box, bool selected) const;
+    void drawWires (const Cairo::RefPtr<Cairo::Context> &cr) const;
+
+    /* The live stage filling the canvas, or NULL. */
+    thcStage *enlargedStage (void) const;
+
+    /* Where the enlarged draw sits, in widget coordinates. */
+    void enlargedRect (double &x, double &y, double &w, double &h) const;
+
+    /* Hand a gesture to the enlarged plugin, if there is one and the
+       point is inside its picture. True if it was taken. */
+    bool feedInput (thcInputType type, double x, double y, int button);
+    void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
+                  const Box &box, bool selected) const;
+
+    const thcGenEdit::Doc *doc_;
+    thcScheduler *sched_;
+
+    std::vector<Box> boxes_;
+    std::vector<double> rowX_;   /* left of each chain row              */
+    std::vector<double> rowY_;   /* top of each chain row               */
+    std::vector<double> rowH_;   /* height of each chain row            */
+
+    /* The arrangement lane: a block per section, and a cell per section
+       and chain; where it starts and how far right it reaches. */
+    struct LaneRect { double x, y, w, h; };
+    struct LaneCell
+    {
+        size_t section, chain;
+        double x, y, w, h;
+    };
+
+    std::vector<LaneRect> heads_;
+    std::vector<LaneCell> cells_;
+    double laneY_, laneRight_;
+
+    /* The arrangement's length the lane was laid out for, and the levels
+       the file wrote that a click would otherwise lose. */
+    double laneTotal_ = 0;
+    std::map<std::pair<size_t, std::string>, double> laneWritten_;
+
+    /* The chains collapsed, by name. */
+    std::set<std::string> collapsed_;
+
+    /* The view width the columns were chosen for, in the drawing's
+       units, and how many that gave. 0 before a view has been seen:
+       one column. */
+    double fitWidth_;
+    size_t columns_;
+
+    Selection sel_;
+    Selection probe_;
+    std::string probeChain_, probeStage_;   /* the probe's, by name     */
+
+    bool chainHues_;
+
+    /* NONE unless a stage is filling the canvas. Kept as a Selection
+       rather than a Box index because rebuild() renumbers the boxes and
+       an enlarged view has to survive a reload. */
+    Selection enlarged_;
+
+    /* True between a press the plugin took and its release, so a drag
+       paints rather than selecting or moving anything, and which button
+       started it -- a drag has no button of its own, so the one the
+       press carried is the one the whole gesture is made with. */
+    bool feeding_;
+    int  feedButton_;
+
+    /* The knob node whose value is being dragged, or -1. */
+    int dragKnob_;
+
+    /* The knob a wire is being pulled from, or -1, and where the far end
+       of it is right now, in laid-out coordinates. */
+    int  wireFrom_;
+    double wireX_, wireY_;
+
+    /* Drag state: which stage box is in flight, and where the pointer
+       has carried it. dropAt_ is the insertion index the drop would
+       land on, -1 while the drag has not left its own slot. */
+    int    dragBox_;
+    double dragDx_;
+    int    dropAt_;
+    double pressX_, pressY_;
+};
+
+#endif /* COMPOSER_CANVAS_H */

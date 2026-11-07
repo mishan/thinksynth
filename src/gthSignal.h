@@ -1,0 +1,38 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef GTH_SIGNAL_H
+#define GTH_SIGNAL_H
+
+typedef sigc::signal<void(int, float, float)> sigNoteOn;
+typedef sigc::signal<void(int, float)> sigNoteOff;
+typedef sigc::signal<void()> sigNoteClear;
+
+extern sigNoteOn  m_sigNoteOn;
+extern sigNoteOff m_sigNoteOff;
+extern sigNoteClear m_sigNoteClear;
+
+/* The on-screen keyboard's presses, as a separate pair rather than
+ * folded into m_sigNoteOn: that one means "MIDI arrived" and *lights*
+ * the keyboard, so emitting it from the keyboard would echo. The
+ * composer's roll listens here, and its chains do when its Kbd input
+ * toggle is on. */
+extern sigNoteOn  m_sigKbdNoteOn;
+extern sigNoteOff m_sigKbdNoteOff;
+
+#endif /* GTH_SIGNAL_H */

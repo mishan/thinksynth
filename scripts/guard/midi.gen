@@ -1,0 +1,35 @@
+# genwav --midi's side of the MIDI file: the chains' names on their
+# tracks, a chanarg's controller label in each track that plays its
+# channel, and the markers of an arrangement with no `section end;',
+# which goes round again. See cmake/RunGenwavMidi.cmake.
+
+tempo 120;
+
+section a 1 s { };
+section b 1 s { };
+
+instrument org { dsp "organ0.dsp"; };
+
+chain low {
+    stage src gen::euclid {
+        steps = 1; fills = 1; notes = "C4";
+        period = 0.5 s; hold = 0.25 s;
+    };
+    sink { instrument = org; };
+};
+
+chain high {
+    stage src gen::euclid {
+        steps = 1; fills = 1; notes = "E4";
+        period = 0.5 s; hold = 0.25 s;
+    };
+    sink { instrument = org; };
+};
+
+chain sweep {
+    stage src gen::steps {
+        values = "0 1";
+        period = 0.5 s;  min = 0;  max = 13;
+    };
+    sink { instrument = org; chanarg = "amp"; };
+};

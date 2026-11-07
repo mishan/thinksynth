@@ -1,0 +1,380 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#ifndef THCGENFILE_H
+#define THCGENFILE_H
+
+#include <map>
+#include <set>
+#include <utility>
+#include <string>
+#include <vector>
+
+#include "thExpr.h"
+#include "thLexer.h"
+
+class thArg;
+class thcPlugin;
+class thcScheduler;
+struct thcStage;
+struct thcInstrument;
+
+/* One token of .gen source, with its byte span. Public rather than a
+ * loader detail because thcGenEdit splices files by replacing exact
+ * token spans -- the same lexer feeds the reader and the writer, which
+ * is what guarantees an edit never moves a byte it was not aimed at
+ * (comments included; they live between the spans).
+ *
+ * Not thLexToken itself, though it is built from one. The shared lexer
+ * is deliberately language-neutral: it hands back `-' and `5' as two
+ * tokens because .dsp has arithmetic, and `@' and `density' as two
+ * because .dsp has an operator there. .gen has neither, and its parser
+ * is much clearer reading a NUMBER of -5 and a KNOB called density than
+ * re-deciding that at every call site. tokenize() below is where the
+ * one shape becomes the other. */
+struct thcGenToken
+{
+    enum Kind { WORD, NUMBER, STRING, KNOB, PUNCT, MODSEP, END } kind;
+
+    std::string text;    /* WORD/STRING body/KNOB name, PUNCT char      */
+    double      num;
+    int         line;
+    size_t      off;     /* where the token starts in the source        */
+    size_t      end;     /* one past where it stops (quotes included)   */
+};
+
+/* Loads a .gen file into a scheduler. See docs/GEN_FORMAT.md for the language.
+ *
+ * Recursive descent, as .dsp's parser is (libthink/thDspParser.cpp), but
+ * a separate one: the loader resolves stage names against thcPlugin and
+ * builds thcScheduler chains, both of which live in src/, which libthink
+ * cannot see.
+ *
+ * The *lexical* layer is shared, and that is the half worth sharing. It
+ * began here as a faithful copy of thinklex.ll's rules -- cheap to write
+ * and a standing invitation to drift the next time either language grew
+ * a token. It is now the flex lexer itself, extracted into libthink as
+ * thLexer.h and taught to hand back tokens with byte offsets. `#'
+ * comments, `;', `=', `::', `{ }', quoted strings and numeric literals
+ * are one implementation for both languages, and tokenize() below is a
+ * short adapter rather than a second scanner.
+ *
+ * Everything is validated by name and line: a stage asking gen:: of a
+ * plugin that exports no tick, a param the plugin never registered, a
+ * knob referenced before it is declared, a bare number on a duration --
+ * each error names the file, the line and the thing, and a file with any
+ * error loads nothing (the scheduler is left empty, not half-built).
+ */
+class thcNodeHost;
+struct thExprNode;
+
+class thcGenLoader
+{
+public:
+    /* `plugins' is the loaded-module map, keyed by name ("eno_line"),
+       and must outlive the chains built from it. */
+    explicit thcGenLoader (const std::map<std::string, thcPlugin *> &plugins);
+
+    /* Parses `path' and builds the piece into `sched'. The scheduler's
+       existing chains and knobs are cleared first, success or fail.
+       False on any error; errors() says what and where. */
+    bool load (const std::string &path, thcScheduler *sched);
+
+    const std::vector<std::string> &errors (void) const { return errors_; }
+    const std::vector<std::string> &warnings (void) const
+    { return warnings_; }
+
+    /* Piece info, valid after a successful load. */
+    const std::string &pieceName (void) const { return name_; }
+    const std::string &pieceAuthor (void) const { return author_; }
+    const std::string &pieceDescription (void) const { return description_; }
+
+    /* Where the piece is filed, or empty. Free text in the format and a
+       documented list the shipped corpus is held to (scripts/gencheck), which
+       is the difference between a category and a schema: a piece of one's own
+       may say whatever it likes, and one that says nothing is Uncategorized
+       rather than refused. */
+    const std::string &pieceCategory (void) const { return category_; }
+
+    bool     hasSeed (void) const { return hasSeed_; }
+    unsigned seed (void) const { return seed_; }
+
+    /* The one shared pitch parser the format promises: "F3 Ab3 C4" or
+       "F3,Ab3,C4" to MIDI numbers. [A-G], optional # or b, octave;
+       middle C is C4. On failure `bad' holds the offending token. */
+    static bool parseNoteList (const std::string &text,
+                               std::vector<int> &out, std::string &bad);
+
+    /* The inverse, for anything writing note text: 60 -> "C4". Flats
+       for the black keys, because that is how the shipped piece spells
+       them. Empty for a value off the MIDI range. */
+    static std::string noteName (int midi);
+
+    /* The name an instrument's inline graph -- `dsp { ... }' -- is loaded
+       under (thUtil::addGraphText): the instrument and a hash of `body', the
+       text between the braces. A graph whose text changes gets a new name,
+       which is what tells everything that compares instruments by their dsp
+       that this one is not the graph it was. Not the piece's path, which
+       differs between a piece and the edited copy it is reloaded from. */
+    static std::string inlineGraphName (const std::string &instrument,
+                                        const std::string &body);
+
+    /* The lexical layer in .gen's shape: `out' gets an END-terminated
+       token stream with byte spans. False on a lexical error, with `err'
+       and `errLine' saying what and where. thcGenEdit shares this, which
+       is what keeps "the editor and the loader read the same language"
+       true by construction; thLexString does the scanning under it,
+       which is what keeps that language the same one .dsp is written in.
+       `raw', if given, gets thLexString's own stream, which is what .dsp's
+       expression reader walks. */
+    static bool tokenize (const std::string &text,
+                          std::vector<thcGenToken> &out,
+                          std::string &err, int &errLine,
+                          std::vector<thLexToken> *raw = NULL);
+
+private:
+    typedef thcGenToken Token;
+
+    bool lex (const std::string &path, std::vector<Token> &out);
+
+    /* Recursive descent over the token stream. Each returns false after
+       recording an error; the top level then skips to the next `;' at
+       depth zero so one mistake does not cascade into fifty. */
+    bool parseStatement (thcScheduler *sched);
+    bool parseKnobStatement (thcScheduler *sched);
+    bool parseScale (void);
+    bool parsePreset (void);
+    bool parseInstrument (thcScheduler *sched);
+    /* Into inst.dsp, or inst.effect if `effect'; `label' names the graph
+       and the instrument in messages. */
+    bool parseInlineDsp (const std::string &label, thcInstrument &inst,
+                         bool effect = false);
+    bool parseInstrumentMidi (thcInstrument &inst, const std::string &where,
+                              const Token &key);
+
+    /* `section drop 16 bars { lead = 1.2; };' and `section end;' --
+       the arrangement, docs/GEN_FORMAT.md. */
+    bool parseSection (thcScheduler *sched);
+    bool parseCue (thcScheduler *sched);
+    bool parseMeter (void);
+
+    /* One `name = value;' inside an instrument block. `prefix' is empty for
+       the instrument's own chanargs and TH_EFFECT_PREFIX for its effect's;
+       see the definition. `where' is what an error calls the block --
+       "instrument pad", or "the master effect". */
+    bool parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
+                               const std::string &where, const Token &key,
+                               const std::string &prefix);
+
+    /* `effect "echo.dsp" { delay = 375 ms; };' inside one, and the same
+       clause at the top level, where it is the graph on the mix. */
+    /* `sideOK' is false for the master effect, which has no second channel
+       to name: what it hears is every channel already. */
+    bool parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
+                                const std::string &where,
+                                const Token &key,
+                                const std::string &prefix,
+                                bool sideOK);
+
+    /* `side = carrier;' inside one: the other channel that effect hears. */
+    bool parseEffectSide (thcInstrument &inst, const std::string &where,
+                          const Token &key, bool sideOK);
+
+    /* `effect "fx/limiter.dsp" { ... };' as a statement of its own. */
+    bool parseMasterEffect (thcScheduler *sched, const Token &key);
+    bool parseChain (thcScheduler *sched);
+    bool parseStageBlock (thcScheduler *sched, size_t chain,
+                          const std::string &chainName);
+
+    /* A `stage lfo osc::simple { ... }' -- a DSP node run at control
+       rate rather than a composer. See the definition. */
+    bool parseNodeStage (thcScheduler *sched, size_t chain,
+                         const std::string &chainName,
+                         const Token &stageName, const Token &category,
+                         const Token &plugName);
+
+    /* Recovery inside a stage body: to just past the next `;', or up to
+       the `}' that ends the block. One bad line should read as one bad
+       line. */
+    void skipToNextInBlock (void);
+    bool parseSinkBlock (thcScheduler *sched, size_t chain);
+    bool parseParam (thcScheduler *sched, size_t chainIndex,
+                     thcStage *stage, const std::string &stageName);
+
+    /* ---- arithmetic over signals (docs/GEN_FORMAT.md) -------------------
+     *
+     * `prob = lfo->out * 0.5 + 0.5' and `step = @pace * 2'. The same
+     * sugar .dsp has, over the same thExprNode, desugared into the
+     * chain's own thcNodeHost -- so what a chain gets is the math:: nodes
+     * an author would otherwise have written by hand, three lines at a
+     * time.
+     *
+     * Read by .dsp's own expression rules (thDspParser.h), so one
+     * language cannot read two ways depending on which file it is in.
+     *
+     * NULL having reported, on a syntax error. A caller that is not sure
+     * whether it is looking at an expression at all calls parseExpr()
+     * anyway: a bare number, `@knob' or `node->arg' comes back as the leaf
+     * it is, which is what makes the simple cases the degenerate ones
+     * rather than separate code. */
+    /* True if the value at the cursor has an operator in it. See the
+       definition for why a lookahead rather than a try-and-backtrack. */
+    bool aheadIsExpression (void) const;
+
+    /* `units', if given, receives the unit a folded number carries (`2 *
+       0.5 s'); without it a unit is refused. */
+    thExprNode *parseExpr (thcScheduler *sched, const char **units = NULL);
+
+    /* The math:: nodes `e' stands for, added to `host' and named
+       `<base>#1', `<base>#2'... `out' names where the result is read
+       from: a number, a knob, or a node's output. False having reported. */
+    struct ExprRef
+    {
+        enum { VALUE, NODE, KNOB } kind;
+
+        double       value;
+        std::string  node, arg;
+        thArg       *knob;
+
+        ExprRef (void) : kind(VALUE), value(0), knob(NULL) { }
+    };
+
+    bool emitExpr (thcScheduler *sched, thcNodeHost *host,
+                   const thExprNode *e, const std::string &base,
+                   int &serial, ExprRef &out, int line);
+
+    const Token &peek (void) const;
+    Token        take (void);
+    bool         expectPunct (char c);
+    void         skipStatement (void);
+
+    /* Hands every instrument a channel and every instrument-bound sink
+       the number behind its name. Runs once, after the whole file has
+       parsed cleanly, because it cannot run any earlier: a `channel = N'
+       sink further down the file is a claim on a number, and an
+       instrument allocated before that claim was read would have to
+       either collide with it or refuse a piece that mixes the two.
+       Deferring is what lets both spellings live in one file without
+       either one having to come first. */
+    bool allocateChannels (thcScheduler *sched);
+
+    /* Every instrument-bound chanarg sink names a knob on a graph this
+       load just brought up, so every one of them can be checked against
+       it. Runs after the instruments are applied, for the obvious
+       reason. */
+    void checkSinkArgs (thcScheduler *sched);
+
+    /* Every chain a section names, against the chains the file
+       declares. After the parse, because a section is written above the
+       chains it changes -- the arrangement reads better at the top, and
+       a name it gets wrong is still a name, so it is still catchable. */
+    void checkSections (thcScheduler *sched);
+
+    /* Resolves every parked `param = node->arg' against its chain's
+       built node host. After the parse, for the reason the pass above
+       is. */
+    void bindNodes (thcScheduler *sched);
+
+    void error (int line, const std::string &msg);
+    void warning (int line, const std::string &msg);
+
+    const std::map<std::string, thcPlugin *> &plugins_;
+
+    std::vector<Token> tokens_;
+    std::vector<thLexToken> raw_;   /* the same file, unfused, for parseExpr */
+    size_t             pos_;
+    std::string        path_;
+    std::string        source_;     /* the file's bytes, which tokens span */
+
+    std::vector<std::string> errors_;
+    std::vector<std::string> warnings_;
+
+    std::map<std::string, std::vector<int> > scales_;
+
+    /* Presets, in declaration order within each one: a preset is a
+       *vector*, and a vector whose components arrive in a different order
+       than they were written is a different vector. A map would sort them
+       by name, which is why this is a vector of pairs. */
+    typedef std::vector<std::pair<std::string, double> > Preset;
+
+    std::map<std::string, Preset> presets_;
+
+    /* Instruments, by name, as indices into the scheduler's table --
+       which is where they live, because the piece owns them and the
+       loader is only what read them. The line is kept alongside so a
+       failure to actually load one (a .dsp that is not there, a chanarg
+       the graph does not declare) is reported against the block that
+       asked for it, like every other error in this file. */
+    std::map<std::string, size_t> instruments_;
+    std::set<std::string>         failedInstruments_;
+    std::vector<int>              instrumentLines_;
+
+    /* Channels claimed outright by a `channel = N' sink, and the sinks
+       still waiting to be told the number behind an instrument's name.
+       Both are emptied by allocateChannels at the end of a clean load. */
+    std::vector<int> claimedChannels_;
+
+    struct PendingSink
+    {
+        size_t      chain, sink;
+        std::string instrument;
+        int         line;
+    };
+
+    std::vector<PendingSink> pendingSinks_;
+
+    /* `step = lfo->out' on a composer stage, parked until its chain's
+       node host has been built -- which cannot happen until the chain's
+       last stage has been read, since the host resolves its own wiring
+       by name. Same shape as the sink list above and for the same
+       reason: a reference the file makes before the thing it refers to
+       is finished. */
+    struct PendingNodeBind
+    {
+        size_t      chain;
+        thcStage   *stage;
+        int         param;
+        std::string node, arg;
+        int         line;
+    };
+
+    std::vector<PendingNodeBind> pendingNodeBinds_;
+
+    /* The chain being read: the knobs its stages read, with the stage
+       that reads each, and the knobs its sinks write. A chain that reads
+       a knob it writes feeds its own output back into itself, which the
+       end of parseChain refuses. */
+    std::string stageReading_;
+    std::vector<std::pair<std::string, std::string> > knobsRead_;
+    std::vector<std::pair<std::string, int> > knobsWritten_;
+
+    /* Beats to a bar for sections and chain starts. Both are folded as
+       read, so a later meter must be rejected. */
+    double meter_;
+    bool   sawSection_, sawBarStart_, sawSectionEnd_, sawCue_;
+
+    /* One per section the file declares, in order, so a name a section
+       gets wrong is reported against the line that got it wrong. */
+    std::vector<int> sectionLines_;
+
+    std::string name_, author_, description_, category_;
+    bool        hasSeed_;
+    unsigned    seed_;
+};
+
+#endif /* THCGENFILE_H */

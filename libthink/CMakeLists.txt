@@ -1,0 +1,126 @@
+# libthink -- the synth engine, the arg system, MIDI, and the DSP-language
+# parser.
+
+# The lexer produces thLexToken (thLexer.h) for both .dsp and .gen, into the
+# build tree so the source tree stays clean; thDspParser.cpp maps its tokens
+# onto .dsp's own vocabulary.
+flex_target(ThinkLexer
+            thinklex.ll
+            "${CMAKE_CURRENT_BINARY_DIR}/thinklex.cpp"
+            DEFINES_FILE "${CMAKE_CURRENT_BINARY_DIR}/thinklex.h")
+
+set(THINK_SOURCES
+    thArg.cpp
+    thArrays.cpp
+    thDspParser.cpp
+    thExpr.cpp
+    thChanEffect.cpp
+    thMidiChan.cpp
+    thMidiNote.cpp
+    thSynthTree.cpp
+    thNode.cpp
+    thProbe.cpp
+    thPlugin.cpp
+    thMidiControllerConnection.cpp
+    thMidiController.cpp
+    thSoundFile.cpp
+    thSynth.cpp
+    thUtil.cpp
+    ${FLEX_ThinkLexer_OUTPUTS})
+
+# How a plugin is found and opened: dlopen here, a table the build generated
+# where THINK_STATIC_PLUGINS is defined (thDynLib.h). The only two sources
+# the macro changes, so they are kept apart from the rest -- a build that
+# wants both kinds compiles these twice and the engine once.
+# Absolute, and a global property rather than a variable, because
+# think_embedded is made from the top level, where this directory's
+# variables are out of scope.
+set_property(GLOBAL PROPERTY THINK_LOADER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/thDynLib.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/thPluginManager.cpp")
+
+# Compiled once, linked into both the shared library and the static archive.
+add_library(think_objects OBJECT ${THINK_SOURCES})
+
+target_include_directories(think_objects PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}")
+
+target_link_libraries(think_objects PUBLIC PkgConfig::SIGC)
+
+# THINK_API is dllexport while building the library, dllimport for everyone
+# else. Hidden-by-default makes a forgotten THINK_API fail here rather than
+# only on Windows -- see the comment in thExport.h.
+target_compile_definitions(think_objects PRIVATE THINK_BUILDING_LIB)
+
+set_target_properties(think_objects PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+
+# think_loader_objects(<target>): the loader sources as an object library
+# compiled the way think_objects is. Whatever think_objects says PUBLIC --
+# the browser build's THINK_STATIC_PLUGINS among it -- reaches it through
+# the link.
+function(think_loader_objects target)
+  get_property(sources GLOBAL PROPERTY THINK_LOADER_SOURCES)
+  add_library(${target} OBJECT ${sources})
+  target_link_libraries(${target} PUBLIC think_objects)
+  target_compile_definitions(${target} PRIVATE THINK_BUILDING_LIB)
+  set_target_properties(${target} PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON)
+endfunction()
+
+think_loader_objects(think_loader)
+
+add_library(think SHARED
+    $<TARGET_OBJECTS:think_objects>
+    $<TARGET_OBJECTS:think_loader>)
+
+target_include_directories(think PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_BINARY_DIR}")
+
+target_link_libraries(think PUBLIC PkgConfig::SIGC)
+
+if(THINK_DL_LIBRARY)
+  target_link_libraries(think PUBLIC ${THINK_DL_LIBRARY})
+endif()
+
+# The major version is the soname; keep it aligned with THINK_LIB_MAJOR above.
+set_target_properties(think PROPERTIES
+    OUTPUT_NAME think
+    VERSION   "${THINK_LIB_MAJOR}.${THINK_LIB_MINOR}"
+    SOVERSION "${THINK_LIB_MAJOR}")
+
+if(THINK_BUILD_STATIC_LIB)
+  add_library(think_static STATIC
+      $<TARGET_OBJECTS:think_objects>
+      $<TARGET_OBJECTS:think_loader>)
+  target_include_directories(think_static PUBLIC
+      "${CMAKE_CURRENT_SOURCE_DIR}"
+      "${CMAKE_CURRENT_BINARY_DIR}")
+  target_link_libraries(think_static PUBLIC PkgConfig::SIGC)
+  set_target_properties(think_static PROPERTIES OUTPUT_NAME think)
+endif()
+
+# On Windows the DLL is the RUNTIME artifact and the import library is the
+# ARCHIVE one; naming only LIBRARY would package neither. ARCHIVE goes to the
+# ordinary libdir because it is only of interest to someone linking against
+# libthink, not to someone running thinksynth.
+install(TARGETS think
+        LIBRARY DESTINATION "${THINK_PKG_LIB_DIR}"
+        RUNTIME DESTINATION "${THINK_PKG_LIB_DIR}"
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+
+if(THINK_BUILD_STATIC_LIB)
+  install(TARGETS think_static ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+endif()
+
+# The glob has to exclude the generated names explicitly, or a tree that
+# still has an autotools build lying around installs those stale copies.
+file(GLOB THINK_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+list(FILTER THINK_HEADERS EXCLUDE REGEX "/(thinklang|thinklex)\\.h$")
+
+install(FILES ${THINK_HEADERS}
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libthink")

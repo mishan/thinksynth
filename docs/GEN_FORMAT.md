@@ -1,0 +1,1480 @@
+# The `.gen` format
+
+A `.gen` file describes a generative piece: which composer plugins run, how
+they are chained, what they are allowed to play, and which knobs the piece
+exposes. It is to composers what `.patch` is to DSPs — it names plugins and
+sets their params — but shaped like the DSP language, because a piece is a
+small graph, not a flat list.
+
+The lexical layer is the `.dsp` one — not a copy of it but literally the same
+scanner (`libthink/thLexer.h`): `#` comments, `;` statement ends, `=`, `::`,
+`{ }` blocks, quoted strings, numeric literals with optional units. Units are
+ordinary words to the lexer rather than keywords, so `s` and `beats` cost it
+nothing; what a unit *means* is the loader's question, which is how `.gen`
+keeps seconds where `.dsp` folds milliseconds into samples.
+
+Two marks read differently here than in a `.dsp`, and the loader puts them
+back together after the shared scan: a leading `-` belongs to the number after
+it (there is no arithmetic in this language for it to be an operator in), and
+`@name` is one token (there is no `@` operator either). Both require the mark
+to sit directly against what follows, so `- 5` is an error, not minus five.
+
+## 1. The language
+
+```
+name "Airports";
+author "Misha Nasledov";
+description "In the spirit of Music for Airports 2/1.";
+category "Start here";          # optional; where a menu files it
+
+tempo 60;                       # optional; clocked stages and misc::tempo read it
+seed 1978;                      # optional; present means replayable
+
+@density = 0.85;                # a piece knob -- same syntax, same
+@density.widget = 1;            # metadata, same panel as a .dsp chanarg
+@density.min = 0;
+@density.max = 1;
+@density.label = "Density";
+
+scale fmin "F3 Ab3 C4 Db4 Eb4 F4 Ab4";
+
+instrument pad {                # the piece carries what it is played on
+    dsp  "amb01.dsp";
+    a    = 900 ms;
+    fmin = 0.06;
+};
+
+chain loop1 {
+    stage src gen::eno_line {   # <name> <category>::<plugin>
+        notes  = "Ab3";
+        period = 19.4 s;
+        jitter = 1.5 s;
+        prob   = @density;      # live binding, not a copy
+        hold   = 6 s;
+        vel    = 70;
+    };
+    stage q xform::quantize {
+        scale = fmin;
+    };
+    sink { instrument = pad; };
+};
+```
+
+The seed reaches the instruments as well as the stages. Every random node in a
+`.dsp` mixes it into where its stream starts — `osc::noise` and `osc::static`,
+and `misc::drift` and `osc::grain` on top of their own `seed` — so another seed
+is another hiss, another drift and another scatter of grains as well as other
+notes, and the same seed started twice sounds the same twice. A synth no piece
+has started plays each random node as it always has.
+
+## 2. Time carries units, and the unit decides the clock
+
+A duration param is a number with a unit: `s`, `ms`, or `beats` (alias `b`).
+
+```
+period = 19.4 s;                # free-running: seconds are seconds
+period = 4 beats;               # clocked: converted via tempo at fire time
+```
+
+This is the whole clocked/free distinction — it lives in the *value*, not in
+the plugin. The same `eno_line` is a tape loop with `period = 21.3 s` and a
+step in a pulse with `period = 1 beats`. Because the scheduler integrates
+beats rather than deriving them, a beat-valued duration keeps meaning
+something across tempo changes mid-piece.
+
+A bare number on a duration param is an error, not a defaulted second. Units
+were optional in `.dsp` and the corpus shows what that buys: every reader of
+an old file guessing. Not this time.
+
+`gen::euclid`'s `rotate` moves every onset that many steps earlier, so
+`rotate = 1` puts a lone onset on the last step.
+
+`gen::euclid` normally emits each note when its step arrives. Set
+`ahead = 1` to emit a whole cycle at its start, with each note still dated
+for its own step. This gives a following `xform::run` time to place pickup
+notes before a target. A knob or channel arg driving the ring is sampled
+once per cycle in this mode, rather than once per step. `ahead` itself has
+to be a number: bound to a knob it is a value that can come and go, which
+is not something a placement downstream can be written against, and the
+loader reads it as off. The ring drops its current-step halo here, a cycle
+that left at its start being on no step. The loader warns when a
+transformer that needs future events follows a generator that does not
+supply them; the piece still loads.
+
+## 3. Piece knobs are chanargs
+
+`@density` above is stored, edited and displayed by exactly the machinery
+that handles a `.dsp` chanarg — `.widget`, `.min`, `.max`, `.label`,
+`.units`, `.group` all mean what they already mean. `name`, `author` and
+`description` are stored the same way the DSP parser stores them.
+
+Binding a stage param to a knob (`prob = @density;`) is the composer-world
+`ARG_CHAN`: the param store resolves it live, so dragging the knob changes
+every stage bound to it, mid-piece, with no plumbing in the plugin. The
+plugin just calls `params->get()` as always.
+
+Nothing a stage reads may carry microphone audio. DSP_FORMAT.md's "An effect
+graph" gives live input to effects only; a knob or chanarg fed from it would
+compose different notes on each jam peer, each hearing its own microphone, while
+every offline gate, which captures nothing, would still pass.
+
+A param not bound to a knob is a plain value (`ARG_VALUE`). There is no
+composer equivalent of `ARG_NODE` in v2 — stages do not wire params to each
+other. What flows between stages is events, and only events. If wiring turns
+out to be wanted, it is an extension, not a reinterpretation.
+
+The same `@density` may also drive an instrument's chanarg — see §4b. One
+declaration, one slider, both sides of the boundary.
+
+A chain may move a knob too, through `sink { knob = @density; };` (§5), and
+then everything bound to it follows: "the strings get busier for the chorus"
+is one chain moving one knob. The knob still moves under the hand; a drag holds
+until the chain's next value. A rewind puts it back at the value the text
+declares, as a load would.
+
+## 4. Scales are named objects
+
+```
+scale fmin "F3 Ab3 C4 Db4 Eb4 F4 Ab4";
+```
+
+A `scale` statement parses its note names once, at load, with one shared
+parser — no plugin ever parses pitch text again (`THC_PARAM_NOTESET` receives
+the resolved list). A NOTESET param accepts either a scale identifier or a
+quoted literal list; the literal is for one-off pools like a single-note tape
+loop, the identifier is for the pool three transformers share. Note names are
+`[A-G]`, optional `#`/`b`, octave; middle C is `C4`.
+
+This resolves the question the plugin API left open: pitch pools are not
+strings threaded through param tables — they are declared once and referenced
+by name, and the string form of the param exists only at the file boundary.
+
+A `.` in a note list is a rest. It resolves like a pitch, at load, to a
+value no ladder reads (every plugin that climbs a ladder filters what it is
+given to real pitches), and a pool that is *cycled* — `gen::euclid`'s —
+takes it as an onset that sounds nothing. So `"C4 . E4 ."` is a rhythm as
+well as a pool, which is what lets a ring with every step filled be a step
+sequencer. A `THC_PARAM_NOTE` param, which wants one pitch, refuses it.
+
+## 4a. Presets are named chanarg vectors
+
+```
+preset dusk {
+    res  = 0.86;
+    fmin = 0.04;
+    fmax = 0.30;
+};
+```
+
+A patch's declared chanargs are a vector of floats, and a vector of floats is
+something a composer can interpolate between, breed from, or save. Giving one
+a name is what lets a piece refer to a *timbre* the way it already refers to a
+scale. `THC_PARAM_PRESET` receives the resolved vector — `"res=0.86,fmin=0.04"`
+— exactly as `THC_PARAM_NOTESET` receives resolved pitches, so no plugin ever
+looks a preset up.
+
+The values are plain numbers. A knob inside a preset would make it not a
+vector but an expression that happens to have a value right now, and both
+things a preset exists for want the fixed reading; the knob belongs on the
+stage that *uses* the preset, where it already works. Declaration order is
+kept, because the vector is the point. A preset must be declared before it is
+referenced, like a scale, and a preset that sets nothing is an error rather
+than a silent no-op.
+
+Unlike a note set, there is no quoted-literal form. A one-off pitch pool is a
+reasonable thing to write inline; a one-off timbre vector spelled as text is a
+preset that cannot be morphed towards, bred from or saved under a name, which
+is the whole reason the noun exists.
+
+This is the limit of a composer's reach into an instrument: the args the patch
+chose to declare, and no deeper.
+
+## 4b. Instruments are what the piece is played on
+
+```
+instrument pad {
+    dsp  "amb01.dsp";           # the graph, by name
+    a    = 900 ms;              # the values that make it this instrument
+    fmin = 0.06;
+};
+```
+
+A `.gen` used to name MIDI channels in its sinks and leave the question of
+what was loaded on them to whoever opened the file — which is why every piece
+in `gen/` carried a paragraph at the top telling you what to go and load
+first, and why "open it and press play" was true of none of them. An
+`instrument` block answers that inside the file.
+
+The shape is a `.patch` said out loud: a graph, then the chanarg values that
+make it this instrument rather than that graph's defaults. Two things it can
+do that a `.patch` cannot.
+
+**The values carry units.** A `.patch` stores every chanarg already folded, so
+an envelope in it reads `a 39690` — a sample count at one particular rate. Here
+it is `a = 900 ms`, and the fold happens on the way in, against the unit the
+chanarg was *declared* with and at the rate the synth is actually running. The
+unit has to measure what that declaration measures: any of `ms`, `s` and
+`beats` on an arg written as a duration, `%` on one written as a percentage,
+`dB` and `cents` on their own, and a bare number on everything else. `amp`,
+the channel's level, takes either a bare number in the engine's terms (127 is
+unity) or dB of gain: `amp = -12 dB` is about `amp = 32`. A value in
+`beats` folds at the piece's tempo and follows it when it changes; one in `ms`
+or `s` stays where it was put, whatever the `.dsp` declared. A unit where none belongs is refused, and so
+is a bare number where one does — the same rule §2 applies to a stage's
+durations, for the same reason.
+
+**It has a name, and a sink can bind to the name.** That is the point. Routing
+stops being a number the author and the listener have to agree about out of
+band.
+
+`dsp` is required, and is a keyword inside the block rather than a chanarg that
+happens to take a string. An instrument must be declared before it is
+referenced, like a scale or a preset.
+
+**The graph may be written inline.** Braces instead of a file name, and inside
+them a `.dsp`'s statements, read by the `.dsp` parser itself:
+
+```
+instrument bell {
+    dsp {
+        node ionode { out0 = o->out; channels = 1; play = env->play; };
+        io ionode;
+        node o osc::simple { freq = ionode->note; waveform = 0; };
+        node env env::adsr { a = 5 ms; d = 800 ms; s = 0; r = 300 ms;
+                             trigger = ionode->trigger; };
+    };
+    amp = -6 dB;
+};
+```
+
+A mistake in the graph is reported among the piece's errors, against the
+piece's own line. Plugins are looked up when the instrument is loaded, not
+while the file is read. The graph is loaded under a name made from the
+instrument and a hash of its text (`bell#1a2b3c4d.dsp`), which is what a panel
+shows for it and what changes when the graph does. The node editor opens it
+from its channel's page like any graph, and Save writes it back between the
+braces and reloads the piece; Save As makes a file of it and leaves the piece
+alone. It has no file of its own, so a patch cannot be saved from its channel
+(nor from a channel whose effect is written inline). An effect
+is written inline the same way, with its graph as the block's `dsp` — see
+below.
+
+**An instrument may carry an effect.**
+
+```
+instrument pad {
+    dsp    "amb01.dsp";
+    a      = 900 ms;
+
+    effect "fx/echo.dsp" {      # runs on the sum of this channel's voices
+        delay    = 375 ms;
+        feedback = 0.45;
+    };
+};
+```
+
+`effect` names a second graph — not the one that makes the notes, but one that
+runs on the sum of them, once per window, whether or not a note is sounding.
+That last part is what it is for: a delay throw is precisely the part that
+comes out *after* the key came up, and an echo inside an instrument cannot do
+it, because the ring it keeps lives in the voice and the voice is gone.
+DSP_FORMAT.md's "An effect graph" says what such a file looks like — an
+ordinary `.dsp` whose io node declares `in0`.
+
+The braces after the file name hold the effect's values, so a graph written
+inline needs the other shape, the instrument block's own: `dsp` inside the
+braces, then the values. `dsp "fx/echo.dsp";` works there too, and so does
+either form for the master effect below.
+
+```
+    effect {
+        dsp {
+            @gain = 0.5;
+            node ionode { channels = 1; in0 = 0; out0 = g->out; };
+            node g math::mul { in0 = ionode->in0; in1 = @gain; };
+            io ionode;
+        };
+        gain = 0.8;
+    };
+```
+
+Its values are the effect's own chanargs, and they are kept apart from the
+instrument's: `@a` on an instrument and `@a` on its effect are two different
+numbers. Everywhere else in the engine an effect's chanarg is spelled
+`fx.<name>` — that is what a sink's `chanarg = "fx.delay"` reaches, and what a
+refusal names. Inside this block the prefix is implied by the braces.
+
+**An effect may listen to a second channel.**
+
+```
+instrument voice {
+    dsp    "ts1.dsp";
+
+    effect "fx/vocoder.dsp" {
+        side = carrier;         # the other channel this effect hears
+        mix  = 1;
+    };
+};
+```
+
+An effect is handed the sum of its own channel's voices and nothing else,
+which is enough for a delay and not enough for anything that compares two
+signals. `side` names the instrument whose sound goes into the effect graph's
+`side0`…`side<N-1>` — the carrier a vocoder puts the modulator's envelopes
+onto, the kick a compressor is keyed from — while `in0` stays this channel's
+own. DSP_FORMAT.md's "An effect graph" says what the graph declares.
+
+The instrument, not a channel number: channels are an allocation this file
+never spells out. It must be declared before it is named, like a scale or a
+preset, which is also why a ring cannot be written — an instrument is not
+declared until its own block is closed, so it cannot name itself, and it
+cannot name a later one at all. The engine refuses a cycle again when the
+effect is loaded, because a host may put one anywhere.
+
+The engine runs the named channel first, so the side carries the window being
+mixed rather than the one before it. An effect on a channel whose instrument
+names no side reads its own channel in `side0` instead, so a graph written
+around a side is still the graph it is without one — `fx/comp.dsp` is an
+ordinary compressor until a piece hands it a kick. The master effect takes no
+`side`: what it hears is every channel already.
+
+The braces are optional (`effect "fx/echo.dsp";`), the filename is searched
+the same way `dsp`'s is, and an instrument may name at most one. The effect is
+loaded **after** the instrument, because loading an instrument builds a new
+channel and an effect belongs to the channel it was put on — which also means
+a rewind reloads both and the delay line starts empty both times, so a replay
+is still a replay.
+
+**An effect may also hear the machine**, and that one needs no clause at all.
+An effect graph whose io node declares `live0` is handed what the host is
+capturing — a microphone, a line in — every window, because there is only one
+thing the machine is hearing and so nothing for a piece to name. So the shortest
+live vocoder is one line:
+
+```
+effect "fx/vocoder-mic.dsp";        # the mix as the carrier, the room as the
+                                    # modulator
+```
+
+It works on an instrument too, and there it leaves the master slot free — which
+is what `gen/voice.gen` does, so the piece can still carry a limiter and a
+piece with drums in it need not have them vocoded.
+
+DSP_FORMAT.md's "An effect graph" says what `live<N>` is, what it costs and why
+a piece carrying one still renders the same under `genwav`: an offline path
+captures nothing, and nothing is silence. A piece that wants to be audible
+before anybody switches a microphone on sets the vocoder's `dry`.
+
+**And the piece may carry one of its own.**
+
+```
+effect "fx/limiter.dsp" {       # runs on the sum of every channel
+    drive   = 1.2;
+    ceiling = 0.9;
+};
+```
+
+The same clause as a statement of its own, aimed at the mix: it runs after
+every channel has been summed and before the master gain and the output
+limiter. A reverb belongs here rather than on four channels that each pay for
+a room of their own, and a limiter can be nowhere else, because the thing it
+is limiting is the sum.
+
+The Composer's Piece section and the page's piece source pane choose it from
+the effect graphs, as a channel's is chosen on its patch page. Choosing
+another writes a bare `effect "...";` in place of the old statement, values
+and all, since those were the old graph's chanargs.
+
+Its values carry no `fx.` anywhere — that prefix keeps an instrument's
+chanargs and its effect's apart on one channel, and the mix has no instrument
+to collide with. A piece may name at most one, the braces are optional, and
+the filename is searched the way `dsp`'s is.
+
+A piece that declares none takes off whatever the last one left. Opening a
+piece is opening a piece; a reverb that outlived the file that asked for it
+would be the previous piece still playing.
+
+**An instrument may send to it.**
+
+```
+instrument piano {
+    dsp  "rhodes.dsp";
+    send = 0.3;                 # this much of the channel into the room
+};
+
+effect "fx/space.dsp" { mix = 0; };
+```
+
+`send` is how much of the channel's output — after its own effect — goes onto
+a send bus the master effect hears as `send0`…`send<N-1>`, beside the whole
+mix in `in<N>`. What to do with the two is the graph's: `fx/space.dsp` puts
+the send through its network and, at `mix = 0`, the mix past it dry, so every
+channel is in one room by its own amount and a channel with no `send` is not
+in it at all. A master effect that declares no `send0` hears none, and a piece
+with no master effect has nobody to hear it; the channels are in the mix at
+full level either way.
+
+A keyword rather than a chanarg of the instrument's graph, because it belongs
+to the channel: a channel with no effect still sends. From outside it is
+`fx.send` — what a knob binds and a chain rides with
+`sink { instrument = piano; chanarg = "fx.send"; };` — and it runs 0 to 1. A
+moving send is ramped across each window rather than stepped.
+
+**A sampler's file may be the piece's.**
+
+```
+instrument talk {
+    dsp       "orchhit.dsp";
+    smp.file  = "mytalk.wav";       # node smp's `file', in that graph
+};
+```
+
+The wav an `osc::sample` or `osc::grain` node plays is a quoted name in the
+`.dsp`, not a chanarg — a filename is not a thing a slider moves — so no value
+above can reach it. `node.arg = "name";` does: it names a node in the
+instrument's graph and one of its text args, and the loader writes the name
+onto the channel's prototype tree, so every voice is built playing it. One
+graph is then any number of instruments, each with its own recording, and a
+piece can bring the samples it was written for. The name is found under
+`samples/` on `THINK_DSP_PATH`, as the graph's own would be.
+
+Only an arg the graph already writes as a quoted name: a node the graph does
+not have, or an arg that is a number, is refused at load by name. And only on
+the instrument's graph, not its `effect`, and only where there is a `dsp` to set it
+in. `gen::breed`'s private renders do not carry it yet: an instrument it hears
+-- its `target`, or the one it is breeding -- is heard there with the graph's
+own file.
+
+**A value may be a knob.**
+
+```
+instrument pad {
+    dsp  "amb01.dsp";
+    fmin = @warmth;             # one knob, both worlds
+    r    = @tail ms;            # the unit applies to the knob's numbers
+};
+```
+
+`@warmth` is the same `@warmth` a stage param binds to — one declaration, one
+slider, one entry in the panel, reaching a composer and an instrument at once.
+That is the whole of §3's binding namespace applied on both sides of the
+boundary rather than only on one.
+
+The direction differs, and it is worth knowing why. A stage param bound to a
+knob is *read* through it: a composer asks its param store for a value whenever
+it wants one. A chanarg cannot work that way, because the thing that reads a
+chanarg is the audio graph and the only value it will ever see is the one
+sitting in its `thArg`. So an instrument binding is a **push**: the knob moves,
+the chanarg is set. The knob's current value is pushed at load too, so a piece
+sounds like its file the moment it opens rather than one knob-move later.
+
+The unit rule is the literal's rule, unchanged: `r = @tail ms` because `r` is
+folded from milliseconds, `fmin = @warmth` because `fmin` is not folded at all,
+and getting either backwards is refused. A knob's number is exactly as unitless
+as a number in the file — an envelope on a bare binding would be a slider whose
+top end is forty milliseconds — so the unit is stated at the value site and
+applied on every move.
+
+**A knob and a named chanarg sink may not share an arg.** Both are pushes, so
+both writing `fmin` is last-writer-wins: the walk wins every time it fires and
+the slider appears dead a second after you let go of it. There is no reading of
+the file where that was the intention and it is invisible from either end, so
+the loader refuses it and says which knob. If what was wanted is a starting
+point the walk moves away from, that is a plain number.
+
+`chanarg = "*"` is outside that check, for exactly the reason it is outside the
+"does this arg exist" one: the targets are in the events, and a composer
+emitting a vector may or may not ever name a knob-bound arg. A `*` sink and a
+knob binding on the same instrument is the one way left to write the fight, and
+nothing can catch it for you.
+
+**Chanargs remain the whole of a composer's reach into an instrument.** A knob
+binding widens *who* may drive a declared arg, not *what* may be driven. The
+sentence in §4a still holds: an instrument's surface is what it declares.
+
+**Channels are allocated, not declared.** Each instrument gets the lowest
+channel that no `channel = N` sink in the file has claimed and that nothing
+else is already loaded on, taken in declaration order — so the first instrument
+usually lands on channel 1, where somebody looking for it would look. Opening a
+piece never replaces a patch you loaded yourself; it takes what is free. Given
+the same starting state the assignment is the same every time, which matters
+more than it sounds, because patch tabs, saved mixer settings and the roll's
+per-channel colors all key off it.
+
+Two composers take presets today, and they are the two halves of tier 2.
+`gen::morph` travels the line between two of them. `gen::breed` does not know
+where it is going: it keeps a population of chanarg vectors and breeds them,
+and the corridor it may search is the interval the named presets span, widened
+by its `spread` param. A component neither preset mentions cannot be invented,
+and a component only one of them names has nowhere to travel — so the sentence
+above is arithmetic in that plugin rather than a rule someone has to remember.
+
+`gen::breed` can also be told what to sound like. `target = lead;` names
+another instrument of the piece; `target = "kick.wav";` names a sound file, as
+written or found under `dsp/samples`. The host renders each genome through the
+chain's instrument and its effect on a synth of its own, each value on the
+chanarg the sink delivers it to (an effect's `side` is not heard there),
+measures it against the target
+(`libthink/thSoundFeat.h`: log-mel spectrograms at several sizes, a bass
+layer, noisiness and envelope, in dB), and the distance enters the fitness
+with weight `listen`, a tenth per dB. The plugin never sees the patch: it
+hands over names and numbers and gets a number back (`thcAudition` in
+`libthink/thcomposer.h`). Rendering takes tens of milliseconds a genome, so
+live it happens on a worker thread and a generation is bred the cycle after it
+was played; `genwav` and `gencheck` have the host answer inside the tick, and
+that is the host on which a piece that listens replays exactly. In the
+browser the page hears in a worker of its own, which the worklet and the
+mirror both ask, and the answers come back as they do live — so a seek there,
+which cannot wait for them, lands on what a play-through with a slow ear would.
+
+### Instruments played over MIDI
+
+An instrument can name a device instead of a graph, or as well as one:
+
+```
+instrument lead {
+    midi "Surge XT";          # an output port, matched by name
+    midichannel = 3;          # the device's channel, 1-16
+    midiprogram = 12;         # optional: a program change on load, 1-128
+    cc cutoff = 74 { min = 60; max = 12000; };
+    dsp "lead.dsp";           # optional: what plays where no port answers
+};
+```
+
+`midi` names a MIDI output port by name. The application compares it with
+each port's full name, then as a substring, then as a substring ignoring case,
+and plays the instrument there when one answers. `midichannel` is required
+beside it. Two instruments may share a device's channel, and each ends only
+its own notes, but they share its program and controllers too. The instrument
+still gets an engine channel as above, because sinks and the scheduler address
+instruments by it, but nothing is loaded on that channel while a device plays
+it.
+
+`dsp` is optional beside `midi`. It is what plays where no port answers: a
+machine without the device, `genwav`, a browser page with MIDI out off.
+With no `dsp` such an instrument is silent there. Its chanarg values (`fmin =
+0.2;`) are the graph's, so they need a `dsp`, and they are not sent to the
+device, knob-bound ones included; only what a chain sends through a `cc`
+or a `bend` reaches it.
+
+A chain reaches a device through `cc`. `cc NAME = N;` maps chanarg `NAME` to
+controller `N` (0-119; 120-127 are channel mode messages); a chanarg sink on
+the instrument has to name a mapped one. A value is scaled from `min`..`max`
+onto 0..127 and clamped, and the default range is 0..127, so a chain that
+already speaks controller values is sent as it is. A note's level (section
+fades, accents) goes as expression, CC 11, with 1 as 100, as in the MIDI file
+`genwav --midi` writes.
+
+`bend NAME;` maps a chanarg to the pitch wheel instead, at its full 14 bits:
+`min` is all the way down, `max` all the way up and their middle is center,
+-1..1 unless a block says otherwise (`bend wheel { min = -2; max = 2; };`). How
+far that is in semitones is the device's bend range. One `bend` per
+instrument, and a stop puts a bent wheel back to center. `cc` and `bend` are
+mappings only with a name after them: `bend = 2;` is a chanarg of the graph's,
+as it always was.
+
+Timing: the composer delivers on a 20 ms step, so every event is stamped with
+the moment it is due and sent that long after it, plus a delay (40 ms by
+default). The delay covers the step and lines the device up with the synth's
+own output latency; it is set in the Composer's MIDI out section, and
+changing it while a piece plays moves every note still waiting by the same
+amount. A seek sends each controller's last value once, not every value on
+the way.
+
+In the browser (Chromium and Firefox, which have Web MIDI) the solo page's
+MIDI out button asks for access; each MIDI instrument's channel row then has
+the same choice of where it plays, kept in that browser rather than the
+piece, and the delay is beside the button. The worklet stamps each message
+for the frame it sounds at and the page schedules it with
+`MIDIOutput.send(bytes, time)`, so it lands with the audio rather than when
+the message arrived. A room (jam.html) has the same controls, with a row per
+MIDI instrument under them: every peer composes the same piece and sends it
+to devices of its own.
+
+MIDI clock is a choice of this machine's too, and any piece can drive it,
+with or without an instrument on a device. The MIDI out section (the
+Composer's, the page's) has a check per output port; the checked ones are
+sent 24 ticks to the beat while the transport runs, each stamped at its beat
+and sent with the same delay as the notes, Start when it starts from the
+top, Song Position and Continue when it starts anywhere else -- a resume, a
+seek -- on the next sixteenth, and Stop when it stops. A drum machine or a
+DAW set to follow MIDI clock then keeps the piece's tempo, tempo changes
+included.
+
+Where the instrument plays is also this machine's choice. The Composer's MIDI
+out section lists each MIDI instrument with the port its pattern matched and
+lets you pick any other port, or its `dsp`. The choice is kept in the
+preferences under the pattern, not in the piece, so the file still says what
+somebody else's machine should look for. A channel played on a device loads
+no patch, so the rest of the program counts it as free: a patch loaded onto
+it by hand is replaced if the instrument is later switched to its `dsp`. An
+instrument that names a port and is not on one says so in the Composer's
+status line, with where to change it.
+
+A swap (`gen::swap`) onto an instrument played over MIDI puts the channel on
+its device and takes the channel's graph off, ending what it was sounding --
+its notes' offs go to the device from then on; a swap off one ends what it
+holds on the device and loads the new instrument's graph. Where no port
+answers, a swap onto a MIDI instrument plays its `dsp`, as applying it would.
+When the ports or a route change, a swapped channel is decided again like
+any other.
+
+## 5. Chains
+
+A `chain` is a named, *ordered* pipeline. Order in the file is order of
+execution — which is why the keyword is `stage` and not `node`: in a `.dsp`,
+statement order is irrelevant and edges carry the topology; in a chain, order
+IS the topology, and using the same word for both would invite the wrong
+intuition in whoever edits the file.
+
+No two chains in a piece share a name: a jam room's commands find a chain
+by it.
+
+A chain body holds, in order:
+
+- optionally `start = 93 beats;` — the chain's generators first wake at
+  that transport position. Seconds (`s`), milliseconds (`ms`), beats (`beats`
+  or `b`), and bars are accepted; bars use the piece's `meter`. The default
+  is zero. A rewind arms the generators at the same position again. Live MIDI
+  input is unaffected, so a chain with no generator stage may not set one.
+  Write `meter` before a chain start in bars. The composer panel's chain
+  strip has an entry for it beside the name.
+- optionally `seed 7;` — the chain's own seed, in place of the piece's, for
+  its stages: their choices are the same whatever the piece's `seed` is and
+  whatever chains are added or moved around it, and another number is
+  another take. The chain's name goes into it too, so two chains given one
+  seed do not choose alike, and a renamed chain is another take. A whole
+  number, 0 to 4294967295, before the chain's first stage. A live edit that
+  changes it builds the chain's stages again; one that changes the piece's
+  `seed` leaves them playing.
+- optionally `input midi;` — the chain is fed by live MIDI arriving on the
+  sink channel (arpeggiators, Markov training). A chain may have an input, a
+  generator stage, both, or neither only if it is all transformers reached by
+  `input midi`.
+- zero or more `stage` blocks. A stage whose plugin exports `tick` is a
+  generator; one exporting `receive` is a transformer; the loader checks that
+  what the file asks of a plugin matches what it exports and rejects the
+  file otherwise, by name and line. No two `gen::` or `xform::` stages
+  in a chain share a name: a jam room's commands find a stage by it.
+- one or more `sink` blocks, always last:
+
+```
+sink { instrument = pad; };                     # notes -> the piece's own pad
+sink { instrument = pad; chanarg = "fmin"; };   # values -> that pad's knob
+sink { instrument = pad; chanarg = "fx.mix"; }; # values -> that pad's
+                                                #   *effect's* knob
+sink { channel = 4; };                          # notes -> MIDI channel 4
+sink { channel = 3; chanarg = "cutoff"; };      # values -> a patch knob
+sink { channel = 3; chanarg = "*"; };           # values -> the knob each
+                                                #   event names for itself
+```
+
+A sink may write a piece knob instead (§3):
+
+```
+sink { knob = @runs; };                         # values -> the knob, and
+                                                #   everything bound to it
+```
+
+It takes values and ignores notes, writes each as it is (`.min` and `.max` are
+the slider's travel, not a bound), and names nothing else: no instrument,
+channel or chanarg beside it. A stage
+reading a knob its own chain writes would be fed its own output, and is
+refused at load with both names. Another chain reading it is what it is for.
+
+A note sink takes a value that names its own knob as well, so a stage that
+plays and rides a knob at once needs one sink: `xform::throw` with `knob =
+"fx.input"` throws into the echo through `sink { instrument = snare; }`, and
+`xform::morph` sweeps the bell it strikes through the bell's.
+
+A `chanarg` name is what a `.dsp` could declare — a letter and then letters,
+digits and underscores — optionally behind the `fx.` that names the channel's
+effect rather than its instrument. `fx.` is a prefix and not punctuation a
+name may contain, so `fx.cut off` is refused exactly as `cut off` is. There
+is no `fx.*`: a `*` sink keeps whatever name each event arrived with, so
+there is nothing there for a prefix to go in front of, and a composer that
+wants to reach an effect writes `fx.` on the event itself.
+
+A module may export both, and several do. `gen::markov` trains on what it
+hears and emits its own walk; `gen::life` plays Conway's board and lets an
+upstream stage *draw* on it, turning arriving pitches into cells. A stage
+like that is a generator in first position and a transformer anywhere else,
+which is what makes a chain a pipeline rather than a list — `colony.gen`
+runs a Euclidean rhythm into a Life board into a markov into a harmonizer,
+and each stage hears only the one before it. What a stage does with what it
+hears is its own business, and it does not have to be "pass a modified
+copy along": a stage whose `pass` is 0 consumes its input entirely, so
+everything downstream is a consequence of the input rather than a version
+of it.
+
+A sink names **an instrument or a channel, never both**; a sink that names
+both is refused rather than have the loader pick one. `instrument = pad` is
+the primary spelling and the one a self-contained piece uses. `channel = N`
+stays in the language for the case it was always really for: driving a patch
+this piece does not own and did not load.
+
+**Channels are 1–16.** That is the number on the main window's patch tab and
+in the keyboard's channel spinner, and it is what every sequencer shows; the
+wire and the engine count from zero, and the conversion happens here at the
+file boundary the way note names are resolved here rather than in a plugin.
+`channel = 0` is an error rather than channel 1, and says why — it is the one
+spelling that can tell a file written for the old 0–15 numbering apart from
+one written for this, and a piece silently playing a channel out is worse than
+a piece that refuses to load.
+
+### 5a. A stage can be a DSP node
+
+```
+chain breathing {
+    stage lfo  osc::simple { freq = 0.05; waveform = 0; };
+    stage half math::mul   { in0 = lfo->out;  in1 = 0.45; };
+    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
+
+    stage src gen::eno_line { prob = mid->out; ... };
+    sink { instrument = pad; };
+};
+```
+
+A category that is not `gen` or `xform` names a **plugin family from the other
+world** — the same `.so` files a `.dsp` is built out of, spelled the way a
+`.dsp` spells them, wired to each other with the same `->`. They run on the
+composer's side of the program at fifty windows a second, one sample at a time,
+which is what a control signal is; `freq = 0.05` is a twenty-second cycle here
+and a very low note in a patch, and the plugin cannot tell the difference
+because it divides by whatever rate it is being run at.
+
+**A node is not a stage, though both are spelled `stage`.** Events do not flow
+through it: nothing is handed to it and nothing comes out the far side. It
+holds a value, and the composer stages read that value with `->` at the moment
+they want it — so a chain full of nodes still needs a generator or `input midi`
+in it, and a node never satisfies that. The keyword stays `stage` because
+inside a chain everything is one; what says which world a module comes from is
+the category, exactly as it always was.
+
+**Nothing scales the signal for you** — but the scaling can be written where
+it is used. An oscillator runs −1 to +1 and a `prob` wants 0 to 1, and a stage
+param or a node arg may say so as arithmetic:
+
+```
+chain bass_a {
+    stage lfo osc::simple { freq = @tide; waveform = 0; amp = 1; };
+
+    stage src gen::eno_line {
+        prob = lfo->out * 0.5 + 0.5;    # was a math::mul into a math::add
+        ...
+    };
+};
+```
+
+This is the same sugar `.dsp` has and it means the same thing: the expression
+becomes the `math::` nodes it stands for, in this chain's own host, named
+`src.prob#1`, `src.prob#2`, innermost first. Nothing is hidden — the nodes are
+the ones an author would otherwise have written by hand, and a chain whose only
+nodes are these gets a host on demand. `+ - * /`, parentheses, and the six
+functions `.dsp` has (`pow`, `exp2`, `abs`, `min`, `max`, `clamp`). Grouping is
+`.dsp`'s — `*` and `/` tighter than `+` and `-`, all four grouping to the
+left, a unary minus bound to its operand — because one language should not read two
+ways depending on which file it is in. It is read by `.dsp`'s own parser
+(`libthink/thDspParser.cpp`), so the two cannot disagree.
+
+A leaf is a number, a node's output, or a piece knob (`@depth`) — the same knob
+a stage param binds and an instrument chanarg reads, one world further out. An
+expression whose leaves are all numbers folds at parse, so `step = 2 * 3` is a
+number and no node.
+
+What is refused: arithmetic on a param that is not numeric (a note set, a
+preset, an instrument set); a *folded* expression on a duration, which is a
+bare number and needs a unit like any other (an expression with a signal in it
+carries no unit and is not asked for one, exactly as a knob and a node are
+not); a knob that was never declared; a function that does not exist or is
+given the wrong number of arguments; a unit anywhere but on a duration.
+
+A duration may be scaled, as in a `.dsp`: `period = 2 * 0.5 s` is `period = 1
+s`, and `ms`, `s` and `beats` all work this way (not `b`, which only a plain
+value spells). A unit survives multiplying or dividing a number and nothing
+else, so `1 s + 500 ms` is refused rather than given a unit of its own.
+
+`%` between two numbers is `.dsp`'s modulo, `100 % 60` being 40; over a signal it
+is refused, since there is no node for it. On an instrument value it is still
+the percentage suffix.
+
+Which params the expression path reaches is decided by a lookahead
+(`aheadIsExpression`): a value with an operator, a call or a parenthesis in it
+goes to the expression parser, and every other spelling stays on the branch it
+was already on. That is deliberate — a param's value may be a note list, a
+preset name or an instrument set, and an expression grammar has no business
+reading those. A new `THC_PARAM_*` that is not numeric has to be added to the
+refusal list in `parseParam` by hand; the lookahead cannot tell.
+
+A node arg takes the same expressions, and the same three leaves.
+
+**Families that mean nothing at control rate are refused, by name.** `osc`,
+`env`, `math`, `logic`, `filt` and `misc` are shapes over time, and time at
+fifty a second is still time. `delay` and `fft` count in *samples*, and a sample
+here is a fiftieth of a second rather than twenty microseconds — a 4410-sample
+delay is a hundred milliseconds on the audio thread and a minute and a half on
+this one. They would run, and produce numbers, and the numbers would mean
+something no author intended, which is worse than refusing because it looks
+like it worked. `osc::static` and `osc::noise` are refused for a different
+reason: they draw from a random generator nothing seeds, and a piece using one
+would not replay.
+
+Nodes step on **transport time**, so a pause freezes them where they are and a
+rewind starts them again from the top. How far an LFO has travelled is a
+function of where the transport got to, not of how many frames went by — which
+is what lets a piece with nodes in it pass the same replay gate every other
+piece passes.
+
+Stages step on transport time in the same sense: a stage is ticked at the time
+it asked to be woken at, and the chain's nodes are moved to that time before it
+reads them — not at the end of whichever step the host happened to take. So a
+piece composes the same whether the host steps it a window at a time at
+44.1 kHz, a quarter of a window at 48 kHz, or at whatever interval a timer
+managed. That is what lets the same file and the same seed be the same piece on
+two machines with different sound cards, which is what
+[JAM.md](JAM.md) needs of it.
+
+### 5b. A composer can reshape the instrument
+
+Two event kinds go the other way from a note: instead of asking an instrument
+to play something, they change what the instrument *is*.
+
+```
+instrument voice { dsp "amb01.dsp"; ... };
+instrument bell  { dsp "amb01.dsp"; a = 4 ms; ... };
+
+chain swapping {
+    stage m gen::swap { instruments = "voice,bell"; every = 40 s; };
+    sink { instrument = voice; };        # the slot it rebuilds
+};
+
+chain sensitivity {
+    stage r gen::reshape { node = "fmap"; arg = "inmax";
+                           from = 1; to = 0.25; every = 11 s; };
+    sink { instrument = voice; };
+};
+```
+
+**A swap** rebuilds the sink's channel around a different instrument. It goes
+through the same patch-load path a person clicking in the Patch Selector uses,
+and that path **lets what is sounding finish**: the notes already playing go on
+on the graph they started on, a note-off still reaches them, and the old graph
+is put away once they have ended and its effect's tail has died down. Notes
+after the swap play the new graph. Each graph pays for its own voices while the
+two overlap, so a swap on every beat of a dense part is a CPU cost worth
+noticing. `instruments` is resolved at the
+file boundary exactly as a scale and a preset are: a bare name for one, a quoted
+comma-separated list for several, and every name checked before the piece
+loads.
+
+A swap may only land on a channel the piece **declares an instrument for**.
+Rebuilding a graph is not like writing a chanarg, where the worst case is a
+number: it throws away whatever was on the channel, and a rewind could not put
+it back, because a channel no declaration names is a channel nothing restores
+from. A `sink { channel = 5; }` can still carry a swap chain — the swap is
+simply refused, by name, in the log. And a swap to the instrument already there
+does nothing at all rather than rebuilding a graph into a copy of itself: a
+`gen::swap` has a list and a clock and cannot see what its sink is playing, so
+a list beginning with the sink's own instrument would otherwise cut every
+sounding voice on the opening tick.
+
+**A node-arg edit** changes one constant *inside* the graph — a node in the
+`.dsp` and one of its args, which is emphatically not a chanarg. §4a says the
+args a patch declares are the whole of a composer's reach, and that stays true
+of chanargs. Reaching past the declared surface is a different mechanism
+rather than a widening of that one, deliberately. The consent moved rather than
+vanished: a piece reaching this deep has said so in a line anyone can read.
+
+Only an arg that is **already a constant** may be set. Anything wired is
+refused — to another node's output, to a `@chanarg`, to a note property —
+because writing a number over a wire would silently unwire the graph, which is
+an add/remove/rewire edit wearing a value edit's clothes. The chanarg case is
+the one that bites hardest and is easiest to miss: `outmin = @fmin` looks like a
+number in the file, and a number written over it would kill that channel's
+`fmin` for the rest of the session with the slider still on screen. A module's
+`ARG_STATE` scratch is refused too, and so is an arg the module never declared.
+
+**A growth** changes the graph's shape. `gen::grow` asks, every `every`, for
+one more edit to the graph on its channel or for the last one back:
+
+```
+chain shape {
+    stage g gen::grow { every = 20 s; depth = 4; shrink = 0.3;
+                        kinds = "splice modulate"; };
+    sink { instrument = pad; };
+};
+```
+
+The edits are `src/NodeMutate`'s, the ones `scripts/dspmatch` searches with: a
+filter, a saturator, a delay or a dynamics node spliced into a wire that carries
+the sound (`splice`), an envelope or an LFO on a constant (`modulate`), a second
+oscillator beside one that reads the note (`voice`). The stage sends a number
+from its seed and the host lists the edits the graph can take, so the number
+picks one and the piece replays. An edit arrives untuned, so before one goes on
+it is played on a synth of the host's own — a phrase of overlapping notes over
+four octaves — and passed over unless its level stays within 3 dB above and 12
+below the declared graph's, peak included; sixteen are tried at most. `depth`
+bounds how many edits sit on top of the declaration, and between none and
+`depth` a step goes back with chance `shrink`, so the graph wanders and comes
+home rather than only getting bigger. Each graph goes on as a swap does, so what
+is sounding finishes on the one it started on. In the browser a step's level
+check is a tenth of a second the audio thread does not have, so the page's
+mirror worker grows it and the graph changes when its answer is back, a tenth of
+a second or so after the event. A step that comes while one is still out waits
+behind it, so the steps are the same and in the same order everywhere, but in a
+room each peer's graph changes at its own moment, and one catching up takes them
+late. With a `target`, the edits are heard, and tuned, in the page's ear
+worker, as `gen::breed`'s candidates are. A host that does not link the node
+model — the Node build — refuses growth and says so.
+
+Given a `target` — an instrument of the piece or a sound file, as `gen::breed`
+takes — the walk leans toward it: of the edits that keep the level, the host
+hears up to `listen` (4 unless set) against the target and takes the nearest.
+
+```
+    stage g gen::grow { every = 20 s; depth = 4; target = "bell"; listen = 8; };
+```
+
+An edit arrives with its plugin's defaults, which are rarely what would bring it
+nearer, so each one heard is first tuned toward the target for `tune`
+generations (6 unless set; 0 for none) — only in the constants the edit added,
+with the search Evolve toward uses — and judged, and put on, as tuned. A step
+back is still the dice's, so the graph drifts toward the target rather than
+climbing to it; **Evolve toward**, below, is the climb. Tuning is a few dozen
+renders an edit, a few seconds a step: live, the edits are heard on the ear's
+own thread and the step goes on when the answers are in, so no note waits for
+it; offline, `genwav` hears them in the tick, and renders are deterministic, so
+a piece that leans replays as one that wanders does. Where the host has no ear,
+the first edit is taken, untuned.
+
+What grew is the performance's, not the piece's: the file never changes by
+itself, and a rewind puts the declared graph back. To keep a graph, select the
+`gen::grow` stage in the Composer and press **Keep the grown graph**, which
+writes it into the piece as the instrument's `dsp { ... }` — over its file name
+if it had one — and reloads; from then on that is what the piece declares, and
+growth goes on from there.
+
+Selected, the stage also lists the edits on the declared graph in words, the one
+playing last, for each instrument its chain's sinks reach; choosing a row puts
+that graph back on the channel, and Keep then writes that one. A stage with a
+`target` adds a plot below: each step's edits heard as dots, the one taken
+filled, and the graph on the channel as a line, nearer the target higher, with
+how far it is now and how far it began. On the page the same is in the stage's
+params popover, Keep included; in a room, going back to a row is a command every
+peer applies at the same time.
+
+The channel's node editor shows a grown graph — or a result Evolve toward put on
+the channel — with the nodes it added to the declared graph titled in green, and
+follows each step as it lands. Saving it there writes it into the piece as Keep
+does, with whatever was edited.
+
+**A flock** breeds the instrument rather than walking it. `gen::graft` keeps a
+population of graphs descended from the declared one, and every `every` is a
+generation: the host scores the flock, puts the best on the channel, and breeds
+the next.
+
+```
+chain flock {
+    stage g gen::graft { every = 20 s; population = 6; depth = 4;
+                         kinds = "splice modulate"; };
+    sink { instrument = pad; };
+};
+```
+
+A member is the declared graph and the edits made on it in turn, the same edits
+`gen::grow` makes, so two are crossed by crossing their lists of edits and
+making the child's again on the declared graph (`src/NodeMutate`, `src/NodeBreed`).
+Each generation carries the best `elites` (1 unless set) as they are and breeds
+the rest: a parent by a tournament of two, a second with chance `crossover` (0.7),
+one edit more of `kinds` with chance `mutation` (0.8) — or, at `depth` (4) edits,
+one fewer — and a child that drops under half the declared level, or on either
+side, or rises as growth would not, is bred again. A filter an edit brings
+starts near the declared graph's brightness, not at its plugin's default, and
+each new edit is tuned for `tune` generations (6) before it is judged. With no
+`target`, a member scores by how far it sounds from the champion just played,
+up to 6 dB, so the instrument keeps changing, marked down for moving the
+brightness more than an octave and a half or losing more than half its low
+end; with one — an instrument of the piece or a sound file, as `gen::grow`
+takes — by how near it sounds to it, so the flock climbs. The stage sends the
+generation's dice and the host does the rest, so a piece that grafts replays
+from its seed.
+
+The channel then holds the declared graph and the champion; select the
+`gen::graft` stage in the Composer and press **Keep the bred graph** to write it
+into the piece, as growth's Keep does. A rewind puts the declared graph back and
+the flock is gone. A generation is dozens of renders, more with a target:
+`genwav` breeds in the tick, so a piece that grafts replays exactly, and the
+application breeds on threads of its own and puts the champion on when the
+generation is done, a moment or a few seconds after the event, with anything
+that comes for the channel meanwhile waiting behind it. In the page the ear
+worker breeds it: the worklet and the mirror each ask, as they ask to hear, and
+the page asks the worker once for both, so the champion goes on a moment after
+the event there too. In a room every peer breeds the same flock from the same
+seed, each putting the champion on when its own ear has bred it. On the page the
+stage's params popover lists what the channel holds and has Keep, as a growing
+stage's does.
+
+**All four are events**, and that is the whole rate limit: scheduled, so they
+happen on the transport; sparse, so nothing can thrash a channel; replayed from
+the seed, so a piece sounds the same twice; and drawn on the roll, so you can
+watch one coming. A rewind puts every instrument back as the file declares it,
+because after a swap the channels no longer say what the file says.
+
+**Evolve toward** is not an event but an authoring action: the same vocabulary
+searched rather than walked. From the Composer's menu, pick one of the piece's
+instruments and what it should sound like — another of its instruments, or a
+recording — and how far to go: **Tune** moves its constants, a minute or two;
+**Tune and grow** races edits to its shape as well, several minutes. The search
+is `scripts/dspmatch`'s (`src/NodeEvolve`), run on a thread of its own while the
+piece goes on playing. The window plots how near it has come as it goes, and
+**Listen** puts the nearest graph so far on the instrument's channel. What it
+finds goes on the channel to be heard, as a grown graph does, in place of what
+was listened to on the way while that is still what the channel plays: **Keep**
+writes it into the piece as the instrument's `dsp { ... }`, **Discard** puts
+back what was there. It starts from the graph the channel plays now, so a kept
+or grown graph can be evolved further. Each graph is heard with its instrument's
+values (`a = 900 ms`), as the piece plays it; the values themselves are the
+piece's, and the search leaves them as they are.
+
+On the page it is under Piece source. The browser gives a module no threads, so
+the search runs in a worker of its own and hands each generation to a few more —
+two cores spare, four at most — each scoring candidates on a synth of its own;
+the search waits on them with its module suspended, which takes JSPI (Chrome and
+Firefox have it). In a browser without it the page runs that many searches
+instead, on seeds of their own, and keeps the best: a tune takes longer there.
+Cancel ends the workers and keeps the nearest found. Listen, the result, Keep
+and Discard work as they do in the application. In a room the search runs in the
+browser of whoever started it, what it puts on the channel is a command every
+peer hears at the same time, and Keep writes it into the room's document.
+
+A structure edit reaches **every** sink of its chain. The note/chanarg filter is
+a rule about notes and chanargs; an edit is neither, and both kinds of sink name
+the channel it needs — so fan-out means what fan-out means everywhere else.
+
+Two sinks is fan-out: every event leaving the last stage is delivered to
+each. A `chanarg` sink delivers `THC_EV_CHANARG` events and silently drops
+notes; a plain sink does the reverse. That rule is in the sink, not the
+stage, so one generator can drive a melody and a filter sweep at once.
+
+A named `chanarg` sink *overwrites* the name on every event passing through
+it, which is right for a walk or an envelope: the plugin produces a number
+and has no business knowing which knob it lands on. `chanarg = "*"` is for
+the case that breaks — a composer producing a whole vector, several knobs at
+once, each event already knowing which one it is. One sink per knob cannot
+say that, because every sink would deliver the same value. `*` cannot collide
+with a real name, since a chanarg is a `.dsp` identifier; anything else that
+is not one is refused at load rather than failing silently at delivery.
+
+### 5c. Sections are the arrangement
+
+```
+meter 4;                              # beats to a bar; 4 if unwritten
+
+section intro  8 bars { kick = 0; clap = 0; pad = 0.6; };
+section verse 16 bars { };            # everything as written
+section break  4 bars { kick = 0; bass = 0; hats = 0; };
+section drop  16 bars { lead = 1.2; };
+section end;                          # the piece stops here
+```
+
+A `section` names a stretch of the piece and what that stretch does to the
+chains. A chain named with `0` is **muted** for the section; any other number
+**scales its notes' sound level without changing velocity** -- the voice is
+that much quieter at the mix, and the graph still reads the velocity the
+composer wrote, so a hat under `0.7` is quieter and exactly as open, and a
+bass keeps its accents; a chain the section does not name plays as written. The sections play in the order they
+appear and then cycle, for ever,
+unless `section end;` closes the list — in which case the transport stops
+itself once the last one is over, and a renderer keeps rendering until the
+tails have rung out.
+
+A length is in `bars`, `beats` (alias `b`) or `s`. `bars` is folded to beats
+through `meter`, which is the only thing `meter` is for — a stage's
+`period = 1 beats` means a beat here as it does everywhere. Both `meter` and
+the sections belong above the chains, and `meter` must come before the first
+section: bars are folded as each section is read, so a `meter` below one could
+not mean what it says.
+
+This is what `xform::form` was standing in for. A `form` stage is a pattern of
+marks under **one** chain, so an arrangement meant eight patterns under eight
+chains, kept in step by hand, and there was no way at all to say "the lead is
+louder here". A section says it once, in the order the piece is played, and
+reads like what it is.
+
+**The gate sits where the mute sits** — at the end of the chain, not at the
+source. The generators go on evolving through a section that silences them, so
+a chain that comes back rejoins a living process rather than restarting a cold
+one, exactly as un-muting does. Which section an event belongs to is decided by
+the event's own time and not by when it was emitted, so a grammar that emits
+eight bars in one tick is gated bar by bar.
+
+The composer view draws the sections as a lane above the chains, and a click
+on a chain's cell in a section steps its level there (1, 0, 0.5); the edit is
+written into the section as `chain = level;`, or taken out of it at 1.
+
+A section may also set a piece knob as it begins: `section chorus 8 bars {
+@energy = 0.8; };`. It is set at the section's start however the piece got
+there — in order, round a loop, again under a hold, by a cue or a seek.
+Strictly, it is set at the start of the fiftieth of a second the section
+begins in, the control window a node reads it in, so arithmetic on the knob
+hears it by the section's first beat as a plain binding does. What a chain had
+already composed ahead plays as it was composed, as it does when a chain writes
+a knob, so a seek hears what playing straight there does. A section that does
+not name the knob leaves it where it was, and a rewind puts it where the first
+section says. The knob may be declared anywhere in the file.
+
+The live mute and solo — the M and S on a chain in the composer view — close
+the same gate: a chain they silence is at level 0 whatever the section says.
+Unlike a section they are read when an event reaches the end of the chain, not
+at the event's own time, so notes a chain has already queued ahead still play
+after a mute.
+
+A muted chain is muted in full: its chanargs stop too, and a knob one was
+driving keeps the value it had. Two kinds of event go through whatever the
+level says, and neither of them is sound. A note-off, because a swallowed off
+hangs a voice for the rest of the piece while an off for a note nobody holds is
+a no-op the scheduler already copes with. And a structure edit — a `gen::swap`
+or a `gen::reshape` — because that is the piece rebuilding itself, and one
+dropped leaves a channel holding a graph the piece has moved on from with
+nothing later to catch it up.
+
+A section's length in bars or beats is converted through the tempo when it is
+read, so an arrangement holds at one tempo and drifts under a tempo change —
+the same honest limit `form` has, and the reason a piece with sections counts
+as one the tempo control can reach.
+
+Every chain a section names is checked against the chains the file declares,
+once the whole file has been read. A name it gets wrong is the quietest
+mistake the language could have: `section break 4 bars { kik = 0; }` would
+load, play, and do nothing where a bar of silence was meant.
+
+### Loops, holds and cues
+
+A piece that scores a game cannot know in advance how long a stretch lasts:
+the music waits in the fight until the wave turns, then moves on at the next
+bar line. Three things say that.
+
+```
+@act = 0;
+
+section intro  4 bars { drums = 0; };
+section fight 16 bars hold { };       # plays again until something cues
+section surge  8 bars { };
+section loop fight;                   # round to fight, not to intro
+
+cue @act 1 bars;                      # @act names a section; 1 is the first
+```
+
+- **`section loop <name>;`** closes the list, as `section end;` does, and the
+  list goes round to the section it names instead of the first, so an intro is
+  heard once.
+- **`hold`** after a section's length makes it play again when it ends,
+  instead of giving way to the next.
+- **A cue** moves the arrangement to a section at the next line of a grid, in
+  bars or beats counted from the top of the transport; from there the list
+  runs as written again. `cue @act 1 bars;` cues whichever section the knob
+  names each time it moves: 1 is the first section, and 0 or a number past
+  the last names none, so a knob at rest cues nothing. A cue for a grid
+  line another is already waiting for replaces it, so a knob swept through
+  several sections is heard where it is when the line comes. With no grid,
+  `cue @act;`, the section playing finishes first. A host reaches the knob
+  the way it reaches any knob, and a chain may write it (`sink { knob = @act;
+  };`), which makes the arrangement itself composed. A program holding the
+  scheduler can cue directly: `thcScheduler::cueSection`.
+
+A cue never cuts what is sounding, and it reaches notes a chain emitted before
+it: the section gate is read when an event is delivered, not when it is
+emitted, so a grammar that wrote eight bars at the top of a phrase still goes
+quiet from the bar the cue lands on. A rewind takes the cues back; what the
+file says is what plays from the top. A click on a section in the composer
+view seeks to its place in the first time through, with any hold before it
+let go.
+
+`xform::follow` is the harmony side of the same idea. It moves each note by
+as many scale steps as the root under it has moved from the first of
+`roots`, one root per `every`, read off the note's own time, so a figure
+written once over the tonic follows a progression without a pool entry per
+onset:
+
+```
+scale prog "D3 D3 Bb2 Bb2 D3 D3 E3 A2";
+
+chain footsteps {
+    stage src gen::euclid { steps = 16; fills = 16;
+        notes = "D3 A3 F3 D4 C#4"; period = 0.25 beats; hold = 0.18 beats; };
+    stage f xform::follow { roots = prog; every = 4 beats; scale = hung; };
+    sink { instrument = strings; };
+};
+```
+
+## 6. Grammar
+
+```
+genfile     : statement*
+statement   : infostring | tempo | seed | meter | knob | knobmeta | scale
+            | preset | instrument | section | cue | chain | mastereffect
+infostring  : ("name" | "author" | "description" | "category") STRING ";"
+tempo       : "tempo" NUMBER ";"
+seed        : "seed" NUMBER ";"
+meter       : "meter" NUMBER ";"                       # before any section,
+                                                       # cue or start in bars
+section     : "section" WORD NUMBER seclen "hold"? "{" seclevel* "}" ";"
+            | "section" "end" ";"                      # closes the list
+            | "section" "loop" WORD ";"                # closes it, and goes
+                                                       #   round to WORD
+cue         : "cue" CHANARG (NUMBER ("bars" | "beats" | "b"))? ";"
+                                                       # at most one
+seclen      : "bars" | "beats" | "b" | "s"
+seclevel    : WORD "=" NUMBER ";"                      # chain = level
+            | KNOB "=" NUMBER ";"                      # @knob = value
+knob        : CHANARG "=" NUMBER ";"
+knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
+scale       : "scale" WORD STRING ";"
+preset      : "preset" WORD "{" presetval* "}" ";"
+presetval   : WORD "=" NUMBER ";"
+mastereffect: effect                                   # at most one,
+                                                       #   on the mix
+instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # one dsp, or a
+                                                       #   midi, or both
+instrstmt   : "dsp" graph ";"
+            | effect                                   # at most one
+            | "send" "=" (NUMBER | CHANARG) ";"         # fx.send, 0..1
+            | "midi" STRING ";"                         # an output port
+            | "midichannel" "=" NUMBER ";"              # 1-16; with midi
+            | "midiprogram" "=" NUMBER ";"              # 1-128; optional
+            | "cc" WORD "=" NUMBER ccrange? ";"         # 0-119
+            | "bend" WORD ccrange? ";"                  # the pitch wheel
+            | WORD "." WORD "=" STRING ";"              # a node's text arg
+            | instrval
+ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
+graph       : STRING | "{" dspstmt* "}"                # a file, or a .dsp's
+                                                       #   statements inline
+                                                       #   (DSP_FORMAT.md)
+effect      : "effect" STRING effectblock? ";"
+            | "effect" "{" effectstmt* "}" ";"         # exactly one dsp
+effectstmt  : "dsp" graph ";" | effectside | instrval
+effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs
+effectside  : "side" "=" WORD ";"                      # at most one; an
+                                                       #   instrument, and
+                                                       #   not on the mix
+instrval    : WORD "=" (NUMBER | CHANARG) argunit? ";"  # CHANARG = a knob
+argunit     : "ms" | "%" | "s" | "dB" | "cents" | "beats"  # what .dsp folds
+chain       : "chain" WORD "{" (start | chainseed | input | stage)* sink+
+              "}" ";"
+start       : "start" "=" NUMBER startunit ";"       # once per chain
+chainseed   : "seed" NUMBER ";"            # once, before the first stage
+startunit   : "s" | "ms" | "beats" | "b" | "bars"
+input       : "input" "midi" ";"
+stage       : "stage" WORD WORD "::" WORD "{" param* "}" ";"
+                                                       # gen/xform: a
+                                                       #   composer
+                                                       # anything else: a
+                                                       #   dsp node (5a)
+param       : WORD "=" value ";"
+value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
+                                                       #   preset ref
+            | WORD "->" WORD                           # a node's output
+            | expr                                     # 5a
+nodearg     : WORD "=" (NUMBER | CHANARG | WORD "->" WORD | expr) ";"
+expr        : term (("+" | "-") expr)?                 # .dsp's grouping
+term        : factor (("*" | "/") term)?
+factor      : "(" expr ")" | "-" factor | NUMBER | CHANARG
+            | WORD "->" WORD
+            | WORD "(" expr ("," expr)* ")"
+unit        : "s" | "ms" | "beats" | "b"
+sink        : "sink" "{" sinkparam* "}" ";"
+sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
+              | "chanarg" "=" STRING | "knob" "=" CHANARG) ";"
+                                                       # instrument or
+                                                       #   channel, not both
+                                                       # knob alone
+                                                       # channel is 1-16
+                                                       # STRING = a name,
+                                                       #   "fx." a name,
+                                                       #   or "*"
+```
+
+`CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
+`.dsp` tokens. `ms` is already a token; `s`, `beats`/`b` and `bars` join it. `->` is a
+`.dsp` token too and means in a `.gen` exactly what it means in a `.dsp`:
+reading a node's output. `+ - * / ( ) ,` are the arithmetic §5a added. `%`
+reaches `.gen` for one purpose only — the unit suffix an instrument value needs
+when the chanarg it lands on was declared as a percentage — and is not the
+modulo it is in a `.dsp`.
+
+A `-` glued to a number is part of it (`= -5` is one token) **unless something
+before it could have ended a value**, so `a - 5` and `a -5` are both a
+subtraction and `= -5` is still one literal.
+
+## 7. Rules for anything that writes these files
+
+A param whose value is arithmetic is **not editable in place**:
+`thcGenEdit::setParam` refuses one rather than splicing a number across the
+author's expression, the same refusal `NodeEdit` makes on the `.dsp` side.
+Changing one means editing the text.
+
+**Removing a knob rewrites every reference to it, wherever it sits.**
+`thcGenEdit::removeKnob` replaces each `@name` with the value the params were
+hearing — the whole value where the value was just the knob, the reference
+alone where it is a term of something larger, so `step = @pace * 2` becomes
+`step = 0.25 * 2` and keeps the multiplication. The point of the rewriting is
+that deleting a knob cannot leave a dangling `@name` behind, and a file with
+one does not load.
+
+One gap, older than the arithmetic and not closed: a *duration* param bound to
+a knob reads the knob's number as seconds, and a bare number in its place is
+refused by the loader for want of a unit. So removing a knob that drives a
+`step` or a `period` still writes a file that does not load. Which params are
+durations is the plugin's answer, and this writer has no plugin map by design.
+Closing it means handing `removeKnob` the catalogue or having the caller name
+the durations.
+
+The GUI writes `.gen` files by *editing the text* (`src/thcGenEdit.cpp`),
+not by regenerating it from a model — the same decision NodeEdit made for
+`.dsp`, so an author's comments and blank lines survive any sequence of
+GUI edits. Each operation replaces exactly the token span it is aimed at,
+located through the loader's own lexer. The rules below bind what gets
+written *into* those spans, and what a freshly generated block (a new
+stage, a new chain) contains:
+
+- Write stages in execution order; there is no other order to recover.
+- Write durations back in the unit the author used. A user who wrote
+  `4 beats` and reads back `4.000000 s` at tempo 60 has been lied to, even
+  though the piece sounds identical.
+- Write every param the plugin registers, including ones still at their
+  defaults. A `.gen` should survive a plugin's defaults changing — which is
+  the lesson of the `noargs/` drawer, whose files leaned on defaults and
+  drifted out of tune with the plugins underneath them over twenty years.
+- Knob bindings round-trip as `@name`, never as the knob's current value.
+- A preset reference round-trips as the preset's bare name. There is no
+  literal form to fall back on, so a writer that could not name it would have
+  nothing to write.
+- A preset's components stay in the order its author wrote them, and a new one
+  is appended rather than filed into a canonical slot. The vector is the point,
+  and reshuffling someone's file into the order this writer prefers is an edit
+  nobody asked for — the same rule the `.dsp` writer follows for `@x.min`.
+- A preset that sets nothing does not load, so no editor operation may leave
+  one: removing the last component is refused, and a new preset arrives with at
+  least one. Removing a preset something still names is refused too, and says
+  which stage — unlike a scale, there is no literal to inline in its place.
+- An instrument value round-trips in the unit its author wrote, exactly as a
+  duration does, and for the same reason: `900 ms` read back as `39690` is a
+  file that has been lied to about what it says.
+- A sink round-trips in the spelling it was written in. Switching between
+  `instrument = pad` and `channel = 4` replaces that one statement — there is
+  no sense in which one can be edited into the other, and a sink left carrying
+  both would not load.
+- The arrangement is written by hand, except for one edit: a chain's level in
+  a section (`setSectionLevel`), which writes `chain = level;` into it, or
+  takes the entry out at 1. Nothing creates or removes a `section`. What the
+  editor owes it besides is that no *other* edit can invalidate one — renaming a chain rewrites every section that names it, and removing a
+  chain a section names is refused and says which section. A dangling name in
+  a section is a file that does not load, which is the same reason `removeKnob`
+  rewrites every `@name`.
+- `seed` is written if and only if the user pinned it. A generated file with
+  a seed the user never chose silently freezes a piece that was meant to
+  breathe.
+
+## 7a. Where a piece is filed
+
+`category "Game music";` beside `name`, `author` and `description`. It is what
+the Composer's Open and the page's piece menu group by, and nothing else reads
+it — a piece with no category still loads, and lands under Uncategorized.
+
+The eight the shipped corpus uses are `gen/README.md`'s own sections: *Start
+here*, *Playing it yourself*, *Algorithms*, *Timbre as material*, *Pieces*,
+*Game music*, *The floor*, *The eighties*. That grouping was already real and
+already curated; what it was not was anywhere a program could see, and it had
+drifted — three pieces were in no section at all by the time the field was
+added.
+
+Both menus are drawn from `src/GenCatalog.h`, which reads a piece's header
+through `thcGenEdit::describe` — the `.gen` reader the Composer splices edits
+with — rather than running the shared lexer over the same bytes a second time.
+`wasm/web/gencatalogcheck.mjs` diffs the module's list against
+`scripts/gencheck --json` byte for byte, so the page's menu and the Composer's
+Open are one list.
+
+**Free text in the format, a list the shipped corpus is gated against.**
+`scripts/gencheck` fails a shipped piece that declares no category or one
+outside the eight. A piece of your own may say whatever it likes and lands in
+its own group; that is the difference between a category and a schema.
+
+`category` is a *contextual* keyword, like the other three: the lexer hands
+every identifier over as a `WORD` and the loader decides which words it has
+opinions about, so a chain, a knob or an instrument may still be called
+`category`. (A `.dsp`'s keywords are hard, which is why the same field there
+is a permanent reservation — docs/DSP_FORMAT.md § *The DSP language*.) What it
+is reserved from is a *chain name* the editor would write, since a file
+reading `chain category { ... }` is a trap rather than a feature.
+
+## 8. Where each piece lands
+
+| in the file            | in the engine                                       |
+| ---------------------- | --------------------------------------------------- |
+| `stage` block          | `thcStage`: plugin instance + `thcParamStore`       |
+| param `= number`       | store value (the composer-world `ARG_VALUE`)        |
+| param `= @knob`        | live binding (the composer-world `ARG_CHAN`)        |
+| `= n beats`            | converted via transport tempo when the value is read|
+| `scale`                | resolved note list, shared by reference             |
+| `preset`               | resolved chanarg vector, shared by reference        |
+| `instrument` block     | `thcInstrument`: a graph loaded onto an allocated channel |
+| `sink { instrument = }`| that instrument's channel, filled in after the parse |
+| instrument `= @knob`   | a push: the knob's changed signal sets the chanarg   |
+| `chanarg = "*"`        | a sink that keeps the name each event carries       |
+| `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
+| a `dsp` family stage   | a node in the chain's `thcNodeHost`, at control rate |
+| `gen::swap`            | `THC_EV_PATCH`: the sink's channel is rebuilt        |
+| `gen::reshape`         | `THC_EV_NODEARG`: a constant in that channel's graph |
+| `gen::grow`            | `THC_EV_GROW`: that channel's graph an edit on, or back |
+| `gen::graft`           | `THC_EV_GRAFT`: a generation of that channel's flock |
+| param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
+| `input midi`           | `thcScheduler::injectMidi` routing entry            |
+| `tempo`, `seed`        | transport init; master seed for `reset()` replays   |
+| `category`             | nothing at play time; the menus group by it (7a)     |
+| `section`              | `thcSection` on the scheduler: the gate in `propagate` |
+| `section end`          | the transport stops itself after the last section    |
+| `section loop`, `hold` | where `thcScheduler::sectionSpanAt` walks the list   |
+| `cue`                  | `thcScheduler::cueOnKnob`; a move is `cueSection`    |
+| `meter`                | beats to a bar, folding a section's `bars` to beats  |
+| `@knobs` + metadata    | the existing chanarg/param-panel machinery          |
+
+## Rendering and measuring
+
+`scripts/genwav --levels --sections gen/anthem.gen` renders once and reports
+each loaded channel's peak, RMS and integrated loudness beside its instrument
+name, then the same three for the mix, followed by the final mix's RMS in each
+section. Loudness is in LUFS, as ITU-R BS.1770 and EBU R 128 measure it
+(scripts/Loudness.h): K-weighted, gated so silence and passages 10 LU under the
+rest do not count. It is the number a streaming service levels a track by, so
+it is the one to match between pieces; a channel that never sounds reads
+`-inf`. Channel levels are measured after the
+channel effect, before the master mix, over the whole render including the
+release tail. Section levels are measured after the master effect and output
+limiter, during the arrangement; release tails after the transport stops are
+excluded. A section that has not played yet reads zero. Repeated sections
+accumulate into one row per section name.
+
+The level table names a channel twice: `channel` is the one-based number the
+application shows, `engine` the zero-based one every event line carries.
+
+`genwav --knob NAME=A` sets the piece's `@NAME` to A before Play. `--knob
+NAME=A,B` renders the piece a second time with it at B, on the same seed and in
+step with the first, and the level table gains a `diff RMS` column: the RMS of
+the difference between the two renders, per channel and for the mix. Zero is a
+knob that does nothing to that channel. Only the render at A is written.
+
+With `-t`, the tape begins with `# channel N = name` lines for the piece's
+instruments, where `N` is that engine number. The event lines keep their
+existing format.
+
+`genwav --midi FILE.mid` writes the delivered events as a Standard MIDI File
+(src/thcMidiFile.h says what each becomes). So do the Composer's **Export
+MIDI...** and the page's **Export MIDI** button, without a command line:
+they compose the loaded piece on a silent synth of their own
+(src/thcMidiExport.h), with the seed, the transport step and the chains
+muted and soloed that it is playing with, so the file is the piece as it
+plays from the top. What is not in the file is not in the export: a knob
+moved or a section's level changed while it plays. On the page that is the
+text last loaded, not edits in the box since. A piece whose arrangement
+ends is exported to its end; one that does not, for the length chosen.

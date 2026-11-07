@@ -1,0 +1,658 @@
+#!/usr/bin/env node
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * genwav.mjs -- scripts/genwav.cpp, under Node, on the WebAssembly build.
+ *
+ *   node wasm/genwav.mjs -s 180 -o ebb.wav gen/ebb.gen
+ *   node wasm/genwav.mjs -t - gen/round.gen | head
+ *
+ * The same options and the same output as the native tool, and
+ * wasm/compare.mjs renders a piece with both and says where they part. The
+ * loop, the tail, the level summary and the WAV writer are genwav.cpp's,
+ * transcribed; the synth, the scheduler and every plugin are the real ones,
+ * compiled to wasm -- see thinkwasm.cpp for the seam and wasm/CMakeLists.txt
+ * for the build.
+ *
+ * The native build is glibc and libstdc++, this one musl and libc++, and
+ * nothing a piece does may depend on which: the scheduler breaks ties by
+ * push order, the composers draw through thcRandom.h and sort stably, and
+ * osc::static carries its own generator. What is left is libm, whose last
+ * bit the two do not always agree on -- now and then a sample lands one
+ * step away in the 16-bit output, and that is the whole difference.
+ *
+ * A transcription has two things to get right that the C gets for free.
+ * genwav.cpp's arithmetic on samples is float arithmetic, and a double
+ * standing in for a float rounds differently: Math.fround is where the C
+ * has a float. And printf rounds an exact tie to even where toFixed rounds
+ * it away from zero, which on a tape of beat-aligned times happens often
+ * enough to see -- fixed() below is printf's rounding.
+ *
+ * -p defaults to the build tree's plugins rather than an install prefix,
+ * since nothing installs these. THINK_WASM_BUILD names another build tree.
+ */
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { Loudness } from './loudness.mjs';
+import { drain as drainTape, fixed, tapeLine } from './tape.mjs';
+
+/* genwav.cpp's TAIL_SILENT and TAIL_MAX, and its clip threshold -- the
+   float ones as the floats they are. */
+const TAIL_SILENT = Math.fround(1e-4);
+const TAIL_MAX    = 8.0;
+const CLIP_LEVEL  = Math.fround(0.999);
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const buildDir = process.env.THINK_WASM_BUILD ??
+    path.join(here, '..', 'build-wasm');
+
+function usage (argv0)
+{
+    process.stdout.write(
+        `usage: ${argv0} [-p PATH] [-s SECONDS] [-o FILE.wav] [-t FILE] file.gen\n` +
+        '\n' +
+        '  -p, --plugin-path PATH  where to find plugin .so files\n' +
+        '  -s, --seconds N         how long to run the transport (default 120)\n' +
+        '  -o, --output FILE       write the audio here, 16-bit PCM WAV\n' +
+        '  -t, --tape FILE         write the delivered events here (- for stdout)\n' +
+        '      --levels            peak, RMS and loudness (LUFS) by ' +
+        'instrument\n' +
+        '                          channel and for the mix\n' +
+        '      --sections          mix RMS by arrangement section\n' +
+        '  -c, --command "AT OP..."  apply a scheduler command at transport\n' +
+        '                          time AT: "AT knob NAME VALUE", "AT tempo BPM",\n' +
+        '                          "AT edit FILE.gen", "AT midi CH NOTE VEL",\n' +
+        '                          "AT instrument NAME FILE.dsp",\n' +
+        '                          "AT midioff CH NOTE" or "AT stop";\n' +
+        '                          repeatable\n' +
+        '  -q, --quiet             no summary\n');
+}
+
+/* lrintf: to nearest, ties to even. Math.round sends every tie up. */
+function lrint (v)
+{
+    const r = Math.round(v);
+
+    return (r - v === 0.5 && r % 2 !== 0) ? r - 1 : r;
+}
+
+/* genwav.cpp's writeWav, clamp and all. */
+function wavBytes (windows, samples, channels, rate)
+{
+    const dataBytes = samples * 2;
+    const b = Buffer.alloc(44 + dataBytes);
+    const d = new DataView(b.buffer, b.byteOffset, b.length);
+
+    b.write('RIFF', 0, 'latin1');
+    d.setUint32(4, (36 + dataBytes) >>> 0, true);
+    b.write('WAVE', 8, 'latin1');
+    b.write('fmt ', 12, 'latin1');
+    d.setUint32(16, 16, true);
+    d.setUint16(20, 1, true);
+    d.setUint16(22, channels, true);
+    d.setUint32(24, rate, true);
+    d.setUint32(28, rate * channels * 2, true);
+    d.setUint16(32, channels * 2, true);
+    d.setUint16(34, 16, true);
+    b.write('data', 36, 'latin1');
+    d.setUint32(40, dataBytes >>> 0, true);
+
+    let o = 44;
+
+    for (const w of windows)
+    {
+        for (let v of w)
+        {
+            if (v > 1)  v = 1;
+            if (v < -1) v = -1;
+
+            d.setInt16(o, lrint(Math.fround(v * 32767)), true);
+            o += 2;
+        }
+    }
+
+    return b;
+}
+
+/* genwav.cpp's lufsText: to a tenth, or `-inf' below the gate. */
+const lufsText = (loud) =>
+{
+    const l = loud ? loud.integrated() : -Infinity;
+
+    return Number.isFinite(l) ? fixed(l, 1) : '-inf';
+};
+
+async function main (argv0, args)
+{
+    let pluginPath = path.join(buildDir, 'plugins');
+    let genFile = '', wavFile = '', tapeFile = '';
+    let seconds = 120;
+    let quiet = false;
+    let levels = false, sections = false;
+    const commands = [];
+
+    for (let i = 0; i < args.length; i++)
+    {
+        const a = args[i];
+
+        if (a === '-p' || a === '--plugin-path')
+        {
+            if (++i >= args.length) { usage(argv0); return 2; }
+            pluginPath = args[i];
+        }
+        else if (a === '-s' || a === '--seconds')
+        {
+            if (++i >= args.length) { usage(argv0); return 2; }
+            seconds = parseFloat(args[i]) || 0;     /* atof */
+        }
+        else if (a === '-o' || a === '--output')
+        {
+            if (++i >= args.length) { usage(argv0); return 2; }
+            wavFile = args[i];
+        }
+        else if (a === '-t' || a === '--tape')
+        {
+            if (++i >= args.length) { usage(argv0); return 2; }
+            tapeFile = args[i];
+        }
+        else if (a === '-c' || a === '--command')
+        {
+            if (++i >= args.length) { usage(argv0); return 2; }
+
+            const [at, op, ...rest] = args[i].trim().split(/\s+/);
+            const c = { at: parseFloat(at), op, rest };
+
+            if (!(c.at >= 0) ||
+                !((op === 'knob' && rest.length === 2) ||
+                  (op === 'tempo' && rest.length === 1) ||
+                  (op === 'edit' && rest.length === 1) ||
+                  (op === 'instrument' && rest.length === 2) ||
+                  (op === 'midi' && rest.length === 3) ||
+                  (op === 'midioff' && rest.length === 2) ||
+                  (op === 'stop' && rest.length === 0)))
+            {
+                process.stderr.write(`${argv0}: cannot read command ` +
+                                     `"${args[i]}"\n`);
+                return 2;
+            }
+
+            commands.push(c);
+        }
+        else if (a === '-q' || a === '--quiet')
+            quiet = true;
+        else if (a === '--levels')
+            levels = true;
+        else if (a === '--sections')
+            sections = true;
+        else if (a === '-h' || a === '--help')
+        {
+            usage(argv0);
+            return 0;
+        }
+        else if (genFile === '')
+            genFile = a;
+        else
+        {
+            usage(argv0);
+            return 2;
+        }
+    }
+
+    if (genFile === '' || seconds <= 0)
+    {
+        usage(argv0);
+        return 2;
+    }
+
+    if (wavFile === '' && tapeFile === '' && quiet && !levels && !sections)
+    {
+        process.stderr.write(`${argv0}: nothing to write and nothing to say\n`);
+        return 2;
+    }
+
+    if (!pluginPath.endsWith('/'))
+        pluginPath += '/';
+
+    let createThink;
+
+    try
+    {
+        ({ default: createThink } = await import(
+            pathToFileURL(path.join(buildDir, 'thinksynth.mjs')).href));
+    }
+    catch (e)
+    {
+        process.stderr.write(`${argv0}: no wasm build under ${buildDir} -- ` +
+                             `see wasm/CMakeLists.txt (${e.message})\n`);
+        return 2;
+    }
+
+    /* The environment is Emscripten's own unless it is handed ours, and the
+       dsp/ search reads THINK_DSP_PATH from it.
+
+       And one variable of the module's own. MAIN_MODULE=1 links every
+       system library whole, Emscripten's compiler-rt carries LLVM's
+       profiling runtime, and that runtime's constructor truncates a
+       default.profraw into the working directory on every run -- an empty
+       file left wherever genwav.mjs was run from. This is the runtime's own
+       "already done" flag, so it skips the truncate; the write it would do
+       at exit never comes, since the module never runs its atexit list. */
+    const M = await createThink({
+        preRun: [ (m) =>
+        {
+            Object.assign(m.ENV, process.env);
+            m.ENV.__LLVM_PROFILE_RT_INIT_ONCE = '1';
+        } ],
+    });
+
+    if (M.ccall('tw_open', 'number', ['string'], [pluginPath]) === 0)
+    {
+        process.stderr.write(`${argv0}: no composer modules under ` +
+                             `${pluginPath} -- build the plugins first, or ` +
+                             'pass -p\n');
+        return 2;
+    }
+
+    if (!M.ccall('tw_load', 'number', ['string'], [genFile]))
+    {
+        for (let k = 0; k < M._tw_error_count(); k++)
+            process.stderr.write(M.UTF8ToString(M._tw_error(k)) + '\n');
+
+        return 1;
+    }
+
+    let tape = null;
+
+    if (tapeFile === '-')
+        tape = 1;
+    else if (tapeFile !== '')
+    {
+        try
+        {
+            tape = fs.openSync(tapeFile, 'w');
+        }
+        catch
+        {
+            process.stderr.write(`${argv0}: cannot write ${tapeFile}\n`);
+            return 1;
+        }
+    }
+
+    let notes = 0;
+    let tapeText = '';
+
+    if (tape !== null)
+        for (let i = 0; i < M._tw_instrument_count(); i++)
+            tapeText += `# channel ${M._tw_instrument_channel(i)} = ` +
+                        `${M.UTF8ToString(M._tw_instrument_name(i))}\n`;
+
+    /* genwav.cpp's sigDelivered handler, run after the fact: the events a
+       step delivered are queued on the wasm side and taken here. */
+    const drain = () =>
+    {
+        for (const e of drainTape(M))
+        {
+            if (e.kind === 'N')
+                notes++;
+
+            if (tape !== null)
+                tapeText += tapeLine(e);
+        }
+
+        if (tape !== null && tapeText.length > 65536)
+        {
+            fs.writeSync(tape, tapeText);
+            tapeText = '';
+        }
+    };
+
+    const channels = M._tw_channels();
+    const window = M._tw_window();
+    const rate = M._tw_rate();
+    const dt = window / rate;
+    const frame = channels * window;
+
+    const meter = () => ({ sumsq: 0, count: 0, peak: 0 });
+    const channelLevels = levels
+        ? Array.from({ length: M._tw_midi_channels() }, meter) : [];
+    const channelLoudness = channelLevels.map(() => null);
+    const mixLoudness = new Loudness(channels, rate);
+    const sectionLevels = sections
+        ? Array.from({ length: M._tw_section_count() }, meter) : [];
+    const sectionNames = sectionLevels.map((_, i) =>
+        M.UTF8ToString(M._tw_section_name(i)));
+    const addSample = (stat, value) =>
+    {
+        stat.peak = Math.max(stat.peak, Math.abs(value));
+        stat.sumsq += value * value;
+        stat.count++;
+    };
+
+    const windows = [];
+
+    /* One window of audio per step of the clock, copied out of the heap
+       before the next one overwrites it -- and interleaved on the way, as
+       genwav.cpp does, since the synth's window is planar. */
+    const renderWindow = (transportWindow, windowStart) =>
+    {
+        const p = M._tw_process() >> 2;
+        const planar = M.HEAPF32.subarray(p, p + frame);
+        const buf = new Float32Array(frame);
+
+        for (let i = 0; i < window; i++)
+            for (let c = 0; c < channels; c++)
+                buf[i * channels + c] = planar[c * window + i];
+
+        let peak = 0;
+
+        for (let i = 0; i < frame; i++)
+        {
+            const a = Math.abs(buf[i]);
+
+            if (a > peak)
+                peak = a;
+        }
+
+        if (levels)
+            for (let ch = 0; ch < channelLevels.length; ch++)
+            {
+                const outputs = M._tw_channel_outputs(ch);
+                const q = M._tw_channel_output(ch) >> 2;
+
+                if (outputs <= 0 || q === 0)
+                    continue;
+
+                for (let i = 0; i < outputs * window; i++)
+                    addSample(channelLevels[ch], M.HEAPF32[q + i]);
+
+                channelLoudness[ch] ??= new Loudness(outputs, rate);
+
+                for (let i = 0; i < window; i++)
+                    channelLoudness[ch].add(M.HEAPF32, q + i * outputs);
+            }
+
+        if (levels)
+            for (let i = 0; i < window; i++)
+                mixLoudness.add(buf, i * channels);
+
+        if (sections && transportWindow)
+            for (let i = 0; i < window; i++)
+            {
+                const section = M._tw_section_at(
+                    windowStart + (i + 0.5) / rate);
+
+                if (section >= 0)
+                    for (let ch = 0; ch < channels; ch++)
+                        addSample(sectionLevels[section],
+                                  planar[ch * window + i]);
+            }
+
+        windows.push(buf);
+
+        return peak;
+    };
+
+    /* The commands, in order of their time. A knob's name is resolved
+       when it applies, since an edit before it can add or take away a
+       knob and move every index after it; an unknown one is an error
+       rather than a silent no-op. Sorted stably, so two commands at one
+       time apply in the order they were given. */
+    commands.sort((a, b) => a.at - b.at);
+
+    let next = 0;
+    let stopped = false;
+    let picks = null;
+
+    M._tw_start();
+
+    /* One window per step, as before -- and a command stamped inside a
+       window is applied at its own time: the transport is stepped to it,
+       the command applied, the step carried on to the window's end. That
+       is how the browser host applies one (thinkweb.cpp, step()), and
+       what makes a tape composed under a command stream the same tape
+       from either host.
+     *
+       Stepping *to* a time rather than *by* one leaves the transport on
+       the same double: the target is `now + dt', which is the sum the
+       old step made. The beat counter is read off the last tempo change
+       rather than added up a step at a time (thcScheduler), so it does
+       not depend on the steps either. */
+    /* `_tw_running()' as well as the clock: a piece that ends itself --
+       `section end;' -- stops the transport where it says, and nothing
+       after that would move. */
+    while (!stopped && M._tw_running() && M._tw_now() < seconds)
+    {
+        const windowStart = M._tw_now();
+        const target = M._tw_now() + dt;
+
+        for (; next < commands.length && commands[next].at <= target; next++)
+        {
+            const c = commands[next];
+
+            if (c.at > M._tw_now())
+                M._tw_step_to(c.at);
+
+            if (c.op === 'knob')
+            {
+                const k = M.ccall('tw_knob_index', 'number', ['string'],
+                                  [c.rest[0]]);
+
+                if (k < 0)
+                {
+                    process.stderr.write(`${argv0}: ${genFile} declares no ` +
+                                         `knob '${c.rest[0]}' at ${c.at}\n`);
+                    return 1;
+                }
+
+                M._tw_knob(k, parseFloat(c.rest[1]));
+            }
+            else if (c.op === 'edit')
+            {
+                if (!M.ccall('tw_edit', 'number', ['string'], [c.rest[0]]))
+                {
+                    process.stderr.write(`${argv0}: the edit at ${c.at} ` +
+                                         'did not load:\n');
+
+                    for (let k = 0; k < M._tw_edit_error_count(); k++)
+                        process.stderr.write(
+                            `  ${M.ccall('tw_edit_error', 'string',
+                                         ['number'], [k])}\n`);
+
+                    return 1;
+                }
+            }
+            else if (c.op === 'instrument')
+            {
+                /* The piece as it now is, with the instrument on its new
+                   graph, is a file of its own, as an edit's text is. */
+                if (picks === null)
+                {
+                    picks = fs.mkdtempSync(path.join(os.tmpdir(), 'pick-'));
+                    process.on('exit', () => fs.rmSync(picks,
+                                                       { recursive: true,
+                                                         force: true }));
+                }
+
+                const file = path.join(picks, `${next}.gen`);
+
+                if (!M.ccall('tw_pick', 'number',
+                             ['string', 'string', 'string'],
+                             [c.rest[0], c.rest[1], file]))
+                {
+                    process.stderr.write(`${argv0}: the pick at ${c.at} ` +
+                                         'did not load:\n');
+
+                    for (let k = 0; k < M._tw_edit_error_count(); k++)
+                        process.stderr.write(
+                            `  ${M.ccall('tw_edit_error', 'string',
+                                         ['number'], [k])}\n`);
+
+                    return 1;
+                }
+            }
+            else if (c.op === 'midi' || c.op === 'midioff')
+                M._tw_midi(parseInt(c.rest[0], 10), parseInt(c.rest[1], 10),
+                           c.op === 'midi' ? parseInt(c.rest[2], 10) : 0,
+                           c.op === 'midi' ? 1 : 0);
+            else if (c.op === 'tempo')
+                M._tw_tempo(parseFloat(c.rest[0]));
+            else
+            {
+                stopped = true;
+                break;
+            }
+        }
+
+        if (!stopped)
+            M._tw_step_to(target);
+
+        drain();
+        renderWindow(true, windowStart);
+    }
+
+    /* stop() flushes the note-offs for whatever is still sounding; the
+       releases that follow are part of the piece. */
+    M._tw_stop();
+    drain();
+
+    for (let tail = 0; tail < TAIL_MAX; tail += dt)
+        if (renderWindow(false, 0) < TAIL_SILENT)
+            break;
+
+    if (tape !== null)
+    {
+        if (tapeText !== '')
+            fs.writeSync(tape, tapeText);
+
+        if (tape !== 1)
+            fs.closeSync(tape);
+    }
+
+    let peak = 0;
+    let sumsq = 0;
+    let clipped = 0;
+
+    for (const w of windows)
+    {
+        for (const v of w)
+        {
+            const a = Math.abs(v);
+
+            if (a > peak)
+                peak = a;
+
+            if (a >= CLIP_LEVEL)
+                clipped++;
+
+            sumsq += v * v;
+        }
+    }
+
+    const samples = windows.length * frame;
+
+    if (wavFile !== '')
+    {
+        try
+        {
+            fs.writeFileSync(wavFile,
+                             wavBytes(windows, samples, channels, rate));
+        }
+        catch
+        {
+            process.stderr.write(`${argv0}: cannot write ${wavFile}\n`);
+            return 1;
+        }
+    }
+
+    /* genwav.cpp's `non-finite voices' line and its exit 4. */
+    const badVoices = M._tw_nonfinite();
+
+    /* The comparison runner captures stderr through a pipe. Node can leave
+       an asynchronous stream write behind when the module exits, so reports
+       use the descriptor directly. */
+    if (!quiet)
+    {
+        fs.writeSync(2,
+            `${genFile}: ${fixed(samples / frame * dt, 1)} s rendered, ` +
+            `${notes} notes, peak ${fixed(peak, 3)}, ` +
+            `RMS ${fixed(samples === 0 ? 0 : Math.sqrt(sumsq / samples), 4)}, ` +
+            `${clipped} clipped sample${clipped === 1 ? '' : 's'}\n`);
+
+        if (badVoices > 0)
+            fs.writeSync(2,
+                `${genFile}: non-finite voices: ${badVoices}\n`);
+    }
+
+    if (levels)
+    {
+        fs.writeSync(2,
+            'channel  engine  instrument               peak     RMS     ' +
+            'LUFS\n');
+
+        for (let ch = 0; ch < channelLevels.length; ch++)
+        {
+            const stat = channelLevels[ch];
+
+            if (stat.count === 0)
+                continue;
+
+            const name = M.UTF8ToString(M._tw_channel_name(ch)) || '-';
+
+            fs.writeSync(2,
+                `${String(ch + 1).padStart(7)}  ${String(ch).padStart(6)}  ` +
+                `${name.padEnd(24)} ` +
+                `${fixed(stat.peak, 3)}  ` +
+                `${fixed(Math.sqrt(stat.sumsq / stat.count), 4)}  ` +
+                `${lufsText(channelLoudness[ch])}\n`);
+        }
+
+        fs.writeSync(2,
+            `${'mix'.padEnd(41)} ${fixed(peak, 3)}  ` +
+            `${fixed(samples === 0 ? 0 : Math.sqrt(sumsq / samples), 4)}  ` +
+            `${lufsText(mixLoudness)}\n`);
+    }
+
+    if (sections)
+    {
+        fs.writeSync(2, 'section                   mix RMS\n');
+
+        for (let i = 0; i < sectionLevels.length; i++)
+        {
+            const stat = sectionLevels[i];
+            const rms = stat.count ? Math.sqrt(stat.sumsq / stat.count) : 0;
+
+            fs.writeSync(2,
+                `${sectionNames[i].padEnd(24)}  ${fixed(rms, 4)}\n`);
+        }
+    }
+
+    /* 4 before 3, as in genwav.cpp. */
+    if (badVoices > 0)
+        return 4;
+
+    return clipped > 0 ? 3 : 0;
+}
+
+process.exitCode = await main(
+    path.relative(process.cwd(), process.argv[1]) || process.argv[1],
+    process.argv.slice(2));

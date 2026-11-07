@@ -1,0 +1,125 @@
+# The plugin set.
+#
+# Lists are explicit, one name per plugin, and deliberately not file(GLOB).
+# What is *missing* here is load-bearing:
+#
+#   - input/ (wav, alsa) and test/ were excluded by the old build too, and
+#     stay excluded here. wav.cpp's own description string reads "Wav Input
+#     (BROKEN)", and test.cpp still calls SetState/SetDesc, renamed years ago.
+#   - misc/wlan is in the directory but has never been built: it needs libiw.
+#
+# No shipped DSP references any of them any more, and every .dsp in the tree
+# loads. There were eleven that did not, all of them in the effects/, old/
+# and noargs/ drawers, and all three drawers have since gone. A glob here
+# would start building these and change what the corpus does, which is the
+# same reason the list was explicit when those files still existed.
+
+include(ThinkPlugin)
+
+add_custom_target(plugins)
+
+think_add_plugin_category(analysis pitch yin)
+
+think_add_plugin_category(delay    echo fir allpass chorus fdn pitchshift varispeed reverse stutter)
+
+think_add_plugin_category(dist     clip saturate waveman inksat crush)
+
+think_add_plugin_category(dyn      compressor)
+
+think_add_plugin_category(env      adsr adsfr ad dx dynmap follower followavg map)
+
+think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
+                                   inkshape rds ds dshape divbuf res1pole
+                                   res2pole res2pole2 resgrav moog svf
+                                   vowel pianostring sympathetic)
+
+think_add_plugin_category(impulse  sine parabola square blackman)
+
+think_add_plugin_category(logic    and not)
+
+think_add_plugin_category(math     add sub mul div sin
+                                   pow exp2 abs min max clamp)
+
+think_add_plugin_category(misc     latch noisegate midi2freq midi2range
+                                   freq2samples print decibel slew vibrato
+                                   drift tempo snap)
+
+think_add_plugin_category(mixer    add fade mul pan)
+
+think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
+                                   fmop blep sample grain stretch pad speak
+                                   bandosc shapeo multiwave multisined window
+                                   noise)
+
+# Visualizers. Not DSP plugins: a different ABI, loaded by the GUI rather than
+# by the parser, drawing with cairo and linking neither libthink nor sigc++.
+# See src/thVisual.h and think_add_visual in cmake/ThinkPlugin.cmake.
+#
+# A .dsp cannot name one of these, so nothing in the corpus depends on which
+# are built and the "what is missing is load-bearing" warning above does not
+# apply to this list.
+# Composers. A third ABI again: loaded by the GUI's scheduler, never by the
+# parser, emitting note and chanarg events rather than samples. They link
+# neither libthink nor cairo -- see think_add_composer in ThinkPlugin.cmake
+# and libthink/thcomposer.h. As with the visuals, nothing in the DSP corpus
+# can name one, so this list carries no compatibility weight.
+think_add_composer(eno_line)
+think_add_composer(walk)
+think_add_composer(quantize)
+think_add_composer(humanize)
+think_add_composer(euclid)
+think_add_composer(lsystem)
+think_add_composer(evolve)
+think_add_composer(markov)
+think_add_composer(ca)
+think_add_composer(arp)
+think_add_composer(morph)
+think_add_composer(breed)
+think_add_composer(life)
+think_add_composer(swap)
+think_add_composer(reshape)
+think_add_composer(grow)
+think_add_composer(graft)
+think_add_composer(harmonize)
+think_add_composer(form)
+think_add_composer(echo)
+think_add_composer(swing)
+think_add_composer(chance)
+think_add_composer(ratchet)
+think_add_composer(progression)
+think_add_composer(bassline)
+think_add_composer(counterpoint)
+think_add_composer(level)
+think_add_composer(steps)
+think_add_composer(say)
+think_add_composer(throw)
+think_add_composer(pump)
+think_add_composer(stutter)
+think_add_composer(transpose)
+think_add_composer(follow)
+think_add_composer(vary)
+think_add_composer(cloud)
+think_add_composer(accent)
+think_add_composer(run)
+think_add_composer(grid)
+
+# The exception that proves the no-cairo rule: a module with a
+# composer_draw (euclid's onset ring, lsystem's contour, evolve's
+# fitness curve, markov's transition heat, ca's rows, morph's lanes,
+# breed's population, life's board, grid's pattern, accent's steps)
+# calls cairo functions and links cairo. The others still don't. Without
+# cairo (THINK_GUI off) they are built with THC_NO_DRAW and compose the same.
+foreach(_drawn euclid lsystem evolve markov ca morph breed life grid accent)
+  if(TARGET PkgConfig::CAIRO)
+    target_link_libraries(composer_${_drawn} PRIVATE PkgConfig::CAIRO)
+  else()
+    target_compile_definitions(composer_${_drawn} PRIVATE THC_NO_DRAW)
+  endif()
+endforeach()
+
+if(TARGET PkgConfig::CAIRO)
+  think_add_visual(meter)
+  think_add_visual(scope)
+  think_add_visual(spectrum)
+  think_add_visual(spectrogram)
+endif()

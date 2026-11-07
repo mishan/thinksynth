@@ -1,0 +1,123 @@
+# scratch.gen -- the piece you click.
+#
+# Five tracks, each one a `gen::grid': rows are degrees of a ladder,
+# columns are steps, and what plays is what is drawn. Nothing here
+# generates anything, decides anything or varies -- there is no seed to
+# pin because there is nothing to replay differently. It is the plainest
+# piece in the folder on purpose. Press Play, double-click a grid to
+# enlarge it, and click cells while it runs: a cell lands on the next
+# step, not the next bar.
+#
+# WHERE TO START. Drag a row of hats in. Move the snare a step late.
+# Put a second note in a column of the bass and hear it become two.
+# Then change an instrument underneath it -- the patterns do not care
+# what plays them, which is the whole point of a scratch pad.
+#
+# THE KEYS TRACK LISTENS. Its chain declares `input midi', so notes from
+# the Keyboard window (once Kbd input is on) or from a MIDI port land on
+# the grid, quantized to the nearest step of the row their pitch names.
+# Play a phrase and watch it draw itself, then loop. A pitch the ladder
+# cannot spell has no row and is dropped rather than approximated, so
+# what the grid holds is always in the scale; `pass = 1' means you hear
+# what you played either way.
+#
+# A CLICKED PATTERN IS NOT A SAVED ONE. The grid you are looking at and
+# the `cells' line in this file are two different things the moment you
+# touch one -- Capture writes the grid back into the text, and Save
+# keeps it.
+
+name "Scratch";
+author "Misha Nasledov";
+category "Playing it yourself";
+description "Five grids, a ladder each. Click them.";
+
+tempo 112;
+
+# One ladder for the two melodic tracks, so anything clicked into either
+# agrees with the other. Five degrees, and the rows above them wrap an
+# octave, so the bass reaches A3 and the keys reach D4.
+scale amin "A2 C3 D3 E3 G3";
+
+instrument kick  { dsp "kick909.dsp";  amp = 34; };
+instrument snare { dsp "snare808.dsp"; amp = 24; };
+instrument hat   { dsp "hat808.dsp";   amp = 15; };
+instrument bass  { dsp "ebass.dsp";    amp = 26; };
+instrument keys  { dsp "rhodes.dsp";   amp = 21; };
+
+# A drum track is a grid one row tall: the ladder is the one note the
+# instrument answers to, and the pattern is rhythm and nothing else.
+chain drums_kick {
+    stage seq gen::grid {
+        notes  = "C2";
+        steps  = 16;
+        rows   = 1;
+        cells  = "x...|x...|x...|x...";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 104;
+    };
+    sink { instrument = kick; };
+};
+
+chain drums_snare {
+    stage seq gen::grid {
+        notes  = "D2";
+        steps  = 16;
+        rows   = 1;
+        cells  = "....|x...|....|x...";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 92;
+    };
+    sink { instrument = snare; };
+};
+
+# The accents are what make a straight row of eighths a hi-hat part
+# rather than a metronome: X is `accent' more velocity than x.
+chain drums_hat {
+    stage seq gen::grid {
+        notes  = "F#2";
+        steps  = 16;
+        rows   = 1;
+        cells  = "X.x.|X.x.|X.x.|X.x.";
+        period = 0.25 beats;
+        hold   = 0.1 beats;
+        vel    = 64;
+        accent = 34;
+    };
+    sink { instrument = hat; };
+};
+
+# Ties are length. `x---' is one note four steps long, which is how a
+# bass line gets a held root under a bar that moves.
+chain bassline {
+    stage seq gen::grid {
+        notes  = amin;
+        steps  = 16;
+        rows   = 6;
+        cells  = "................/................/................/..........x...../......x---....../x---....x.....x.";
+        period = 0.25 beats;
+        hold   = 0.2 beats;
+        vel    = 96;
+    };
+    sink { instrument = bass; };
+};
+
+# Two cells in one column are a chord: the grid emits every hit in the
+# step it is on, so polyphony costs it nothing and needs no syntax.
+chain keys {
+    input midi;
+
+    stage seq gen::grid {
+        notes  = amin;
+        steps  = 16;
+        rows   = 8;
+        cells  = "................/................/........x......./................/x.............../................/x......x......../................";
+        period = 0.25 beats;
+        hold   = 1.5 beats;
+        vel    = 72;
+        listen = 1;
+        pass   = 1;
+    };
+    sink { instrument = keys; };
+};

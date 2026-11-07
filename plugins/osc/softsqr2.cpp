@@ -1,0 +1,150 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <math.h>
+
+#include "think.h"
+
+static const char desc[] = "Square wave with sine-like transitions, proportional to the frequency";
+thPlugin::State    mystate = thPlugin::ACTIVE;
+
+enum {OUT_ARG, INOUT_LAST, IN_FREQ, IN_PW, IN_SW};
+
+std::atomic<int> args[IN_SW + 1];
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+/* ModuleLoad() invokes this function with a pointer to the plugin
+ * instance. */
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The wave");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
+    args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PW],
+                       "Pulse width: how the flat time splits high to low");
+    plugin->setArgRange(args[IN_PW], 0, 1);
+    args[IN_SW] = plugin->regArg("sw", thPlugin::ARG_IN);
+    /* `sinewidth = wavelength * sw', and there are two edges, so 0.5 leaves no
+       flat at all -- which is where this differs from osc::softsqr, whose
+       edges are a frequency rather than a fraction. The floor is where the
+       callback clamps: the sine segments divide by their own width, so a zero
+       is a division by zero rather than a square wave. */
+    plugin->setArgDesc(args[IN_SW],
+                       "Edge length as a fraction of the cycle; 0.5 is all "
+                       "edge");
+    plugin->setArgRange(args[IN_SW], TH_SW_MIN, 0.5);
+    
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    int i;
+    float *out;
+    float *out_last;
+    float wavelength, ratio;
+    float sinewidth, minsqrwidth, maxsqrwidth;
+    float position;
+    int phase;
+    thArg *in_freq, *in_pw, *in_sw;
+    thArg *out_arg;
+    thArg *inout_last;
+
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+    position = (*inout_last)[0];
+    phase = (int)(*inout_last)[1];
+    out_last = inout_last->allocate(2);
+    out = out_arg->allocate(windowlen);
+
+    in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_pw = mod->getArg(node, args[IN_PW]); // Pulse Width
+    in_sw = mod->getArg(node, args[IN_SW]); // Sine Width
+
+    /*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
+
+    for(i=0; i < (int)windowlen; i++) {
+        wavelength = samples * (1.0/thBoundFreq((*in_freq)[i], samples));
+
+        /* The two sine segments divide by their own width, so an sw of zero
+           is 0/0 on the first sample of every cycle. Half a cycle each is the
+           other end: past that the flat sections are negative. */
+        sinewidth = wavelength * thClampArg((*in_sw)[i], TH_SW_MIN, 0.5f);
+
+        maxsqrwidth = (wavelength - (2*sinewidth)) * (*in_pw)[i];
+        minsqrwidth = (wavelength - (2*sinewidth)) * (1-(*in_pw)[i]);
+        switch(phase) {
+        case 0:    /* Sine segment from low to high */
+            ratio = position++/sinewidth;
+            ratio = (ratio/2)+0.75; // We need the right part of the sine wave
+            if(position >= sinewidth) { // End when its over
+                position = 0;
+                phase++;
+            }
+            out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+            break;
+        case 1:    /* Maximum square */
+            if(position++>maxsqrwidth) {
+                position = 0;
+                phase++;
+            }
+            out[i] = TH_MAX;
+            break;
+        case 2:    /* Sine segment from high to low */
+            ratio = position++/sinewidth;
+            ratio = (ratio/2)+0.25; // We need the right part of the sine wave
+            if(position >= sinewidth) {
+                position = 0;
+                phase++;
+            }
+            out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+            break;
+        case 3:    /* Minimum square */
+            if(position++>minsqrwidth) {
+                position = 0;
+                phase = 0;
+            }
+            out[i] = TH_MIN;
+            break;
+        }
+    }
+    
+/*    node->SetArg("out", out, windowlen); */
+    out_last[0] = position;
+    out_last[1] = (float)phase;
+/*    node->SetArg("position", (float*)last, 2); */
+    
+    return 0;
+}

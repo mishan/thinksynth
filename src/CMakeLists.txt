@@ -1,0 +1,372 @@
+# thinksynth -- the application.
+#
+# src/Makefile.in built src/gui into a gth.a archive and linked it in; that
+# split existed only so the gui/ directory could have its own Makefile. Here
+# it is one target, and the GTK-free graph model (NodeGraph, NodeEdit,
+# NodeLayout, NodeCatalog) is a separate object library because scripts/ links
+# those sources directly without wanting gtkmm.
+
+# Deliberately GTK-free so the harnesses can exercise it headlessly -- see the
+# comment in the harnesses.
+add_library(think_nodemodel OBJECT
+    NodeGraph.cpp
+    NodeEdit.cpp
+    NodeLayout.cpp
+    NodeCatalog.cpp
+    NodeMutate.cpp
+    NodeEvolve.cpp
+    NodeBreed.cpp)
+
+target_include_directories(think_nodemodel PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
+target_link_libraries(think_nodemodel PUBLIC think Threads::Threads)
+
+# The host side of the visual plugin ABI: dlopen, look up six symbols, clip and
+# call. Its own object library rather than a member of think_nodemodel because
+# it needs cairo and the node model does not -- and "GTK-free" above is a claim
+# worth keeping narrow enough to stay true.
+#
+# It links libthink only for thDynLib, the dlopen shim -- there is no reason
+# for a second one of those, and docs/PORTING.md records why the first one exists.
+# The dependency that matters is the other direction: nothing in libthink and
+# none of the 62 DSP plugins sees cairo, and a visual *module* links neither
+# libthink nor sigc++, which is what stops a visualizer reaching into the graph
+# it is drawing.
+if(THINK_GUI)
+  add_library(think_visualhost OBJECT thVisual.cpp)
+
+  target_include_directories(think_visualhost PUBLIC
+      "${PROJECT_SOURCE_DIR}"
+      "${CMAKE_CURRENT_SOURCE_DIR}")
+
+  target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
+endif()
+
+# The host side of the composer framework: the dlopen wrapper for composer
+# modules and the scheduler that drives them. Its own object library for the
+# same reason the other two are: it needs neither glib nor a toolkit -- the
+# application's timer calls tick(), a harness or a game steps the transport
+# itself -- and the replay-determinism harness (scripts/gencheck) links
+# exactly this.
+#
+# Deliberately in src/ rather than libthink/: composers are loaded by the
+# GUI and never by the parser, and the scheduler touches the synth only
+# through the same GUI-thread calls the on-screen keyboard uses.
+add_library(think_composerhost OBJECT
+    thcPlugin.cpp
+    thcScheduler.cpp
+    thcNodeHost.cpp
+    thcGenFile.cpp
+    thcGenEdit.cpp
+    thcGenDiff.cpp
+    thcFreeze.cpp
+    thcAudition.cpp
+    thcMidiFile.cpp
+    thcMidiExport.cpp
+    thcMidiRouter.cpp)
+
+target_include_directories(think_composerhost PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
+find_package(Threads REQUIRED)
+target_link_libraries(think_composerhost PUBLIC think Threads::Threads)
+
+# The three canvases' content -- what they draw and what a click on them
+# means -- with no toolkit in it, so the same classes compile to wasm and run
+# in the browser under a different shell (the header of CanvasContent.h
+# says how). Four object libraries rather than one:
+# the node canvas needs the graph model, and the composer canvas and the
+# piano roll need the composer host, and a harness that wants one should not
+# have to link the others' dependencies to get it. None of them links gtkmm,
+# and that is the guard on the claim: the first Gtk:: in any of these files
+# fails to build.
+# What a parameter panel is -- the rows, the units, the resolution, the
+# groups -- and the providers that build one from live state. Toolkit-free for
+# the reason the canvases are: src/PanelModel.h says it at length. The guard
+# is that scripts/panelcheck links this and no gtkmm, so the first Gtk:: here
+# fails to build.
+add_library(think_panel OBJECT PanelModel.cpp ArgPanel.cpp KnobPanel.cpp
+                            NodePanel.cpp)
+target_include_directories(think_panel PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_panel PUBLIC think)
+
+# What a .patch says (src/PatchFile.h), with no file and no synth around it.
+# Toolkit-free for the reason the panel is, and filesystem-free besides: the
+# format had two readings, one of them in JavaScript, and they had drifted.
+# Its own object library because scripts/patchcheck wants exactly this and a
+# corpus directory -- no plugins, no channels, nothing to load onto -- which
+# is what lets the format be a gate on every platform rather than something
+# only the application starting up ever exercised.
+#
+# PatchApply joins it: putting a document on a channel needs a synth but not a
+# file, and it is the other half both shells were writing twice -- the load
+# order, the side clamp and the rule about a name nothing declares. So does
+# PatchSet, the slots: which channel holds which document, whether it has been
+# edited and what it was called needs neither a file nor a synth. It links
+# sigc++ for its three signals, which libthink already does.
+add_library(think_patch OBJECT PatchFile.cpp PatchApply.cpp PatchSet.cpp)
+target_include_directories(think_patch PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_patch PUBLIC think)
+
+# What a .dsp *says*, before anything loads it (src/DspCatalog.h): the title
+# and the description its author wrote, and whether the io node declares in0.
+# Its own object library rather than a member of think_nodemodel, for the
+# reason think_patch is one: scripts/dspcatalog wants exactly this and a
+# corpus directory -- no plugins, no graph, nothing dlopened -- which is what
+# lets a chooser's list be a gate on every platform. It links libthink for
+# thLexer, the scanner .dsp and .gen share, and for nothing else.
+add_library(think_dspcatalog OBJECT DspCatalog.cpp)
+target_include_directories(think_dspcatalog PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_dspcatalog PUBLIC think)
+
+# And the same for what a .gen says (src/GenCatalog.h). Not a member of the
+# one above, because it reads its headers through thcGenEdit -- the .gen
+# reader, which is the composer host's -- where the DSP side runs the lexer
+# itself.
+add_library(think_gencatalog OBJECT GenCatalog.cpp)
+target_include_directories(think_gencatalog PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_gencatalog PUBLIC think)
+# The fourth provider, on its own because of what it needs: a composer
+# stage's parameters are the plugin's registered ParamInfo crossed with the
+# .gen's own text and the running stage's param store, so this is the one
+# that wants the composer host behind it. Same argument the
+# canvases are three libraries for -- a harness drawing a channel's
+# parameters should not have to link the scheduler to get them.
+add_library(think_stagepanel OBJECT StagePanel.cpp)
+target_include_directories(think_stagepanel PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_stagepanel PUBLIC think)
+
+# Everything below draws, and is the application.
+if(NOT THINK_GUI)
+  return()
+endif()
+
+add_library(think_canvas OBJECT CanvasContent.cpp)
+target_include_directories(think_canvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_canvas PUBLIC think PkgConfig::CAIROMM)
+
+add_library(think_nodecanvas OBJECT NodeCanvas.cpp)
+target_include_directories(think_nodecanvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_nodecanvas PUBLIC think PkgConfig::CAIROMM)
+
+add_library(think_composercanvas OBJECT ComposerCanvas.cpp)
+target_include_directories(think_composercanvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_composercanvas PUBLIC think PkgConfig::CAIROMM)
+
+# And the piano roll, whose whole input is a scheduler; still no gtkmm. Its
+# own object library rather than a member of think_composercanvas: the two
+# share a channel colour and nothing else, and a harness that wants one
+# should not link the other.
+add_library(think_rollcanvas OBJECT RollCanvas.cpp)
+target_include_directories(think_rollcanvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_rollcanvas PUBLIC think PkgConfig::CAIROMM)
+
+set(THINKSYNTH_SOURCES
+    main.cpp
+    gthPrefs.cpp
+    gthTheme.cpp
+    gthThemePolicy.cpp
+    gthPatchfile.cpp
+    gthDummyAudio.cpp
+    gthSynthSource.cpp
+    gthAudioRate.cpp
+    gthGtkRuntime.cpp
+    gthRtAudio.cpp
+    gthRtMidi.cpp
+    gthMidiOut.cpp
+    gthMidiQueue.cpp
+    gui/AboutBox.cpp
+    gthConsole.cpp
+    gui/ArgPanelView.cpp
+    gui/ColumnUtil.cpp
+    gui/Dialogs.cpp
+    gui/ItemBrowser.cpp
+    gui/Keyboard.cpp
+    gui/KeyboardPanel.cpp
+    gui/MainSynthWindow.cpp
+    gui/MidiMap.cpp
+    gui/GraphCanvas.cpp
+    gui/NodeCanvasWidget.cpp
+    gui/NodePalette.cpp
+    gui/NodeParamsView.cpp
+    gui/StageParamsView.cpp
+    gui/NodeEditor.cpp
+    gui/PanelView.cpp
+    gui/Panes.cpp
+    gui/SaveButton.cpp
+    gui/PatchSelPanel.cpp
+    gui/PianoRoll.cpp
+    gui/SeqView.cpp
+    gui/GrowthView.cpp
+    gui/ComposerCanvasWidget.cpp
+    gui/Composer.cpp)
+
+# ---------------------------------------------------------------------------
+# Windows resources: icon, manifest, version block
+#
+# A MinGW binary has none of these by default -- no icon in Explorer, nothing
+# behind File -> Properties -> Details, and no manifest, which means Windows
+# assumes the program predates high-DPI displays and bitmap-stretches its
+# window on one.
+#
+# To be clear about what this is not: it is metadata, not a signature. An
+# unsigned executable stays unsigned and SmartScreen will still say so.
+# ---------------------------------------------------------------------------
+
+if(WIN32)
+  # project(VERSION 0.1) leaves PROJECT_VERSION_PATCH empty, and an empty
+  # field in a FILEVERSION is a windres syntax error rather than a zero.
+  set(THINK_VER_MAJOR "${PROJECT_VERSION_MAJOR}")
+  set(THINK_VER_MINOR "${PROJECT_VERSION_MINOR}")
+  set(THINK_VER_PATCH "${PROJECT_VERSION_PATCH}")
+
+  foreach(_f THINK_VER_MAJOR THINK_VER_MINOR THINK_VER_PATCH)
+    if(NOT ${_f})
+      set(${_f} 0)
+    endif()
+  endforeach()
+
+  enable_language(RC)
+
+  # The script names the .ico and the .manifest by absolute path, because the
+  # configured copy lives in the build tree while both of those are in the
+  # source tree, and windres resolves a bare filename against its include path
+  # rather than against the script that named it. Forward slashes: both windres
+  # and rc.exe accept them, and a backslash inside an RC string literal is an
+  # escape.
+  set(THINK_RC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+  configure_file(thinksynth.rc.in
+                 "${CMAKE_CURRENT_BINARY_DIR}/thinksynth.rc" @ONLY)
+
+  list(APPEND THINKSYNTH_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/thinksynth.rc")
+endif()
+
+# ---------------------------------------------------------------------------
+# macOS bundle icon
+#
+# Finder draws thinksynth.app with whatever Contents/Resources file the
+# Info.plist names in CFBundleIconFile. That is two separate things, and they
+# are set in two places on purpose:
+#
+#   the plist key is a target property, MACOSX_BUNDLE_ICON_FILE, and lives in
+#   cmake/Packaging.cmake with the rest of the bundle metadata;
+#
+#   getting the file itself into Contents/Resources is a *source file*
+#   property, and source file properties are scoped to the directory that
+#   defines the target -- which is this one. Setting it next to its sibling in
+#   Packaging.cmake would be tidier and would silently do nothing.
+#
+# Like the .ico above, the .icns is committed rather than rendered here, so a
+# macOS build needs no rasteriser. scripts/make-icons.py produces both from
+# data/org.thinksynth.thinksynth.svg.
+# ---------------------------------------------------------------------------
+
+if(APPLE)
+  set(THINK_ICNS "${CMAKE_CURRENT_SOURCE_DIR}/thinksynth.icns")
+
+  set_source_files_properties("${THINK_ICNS}" PROPERTIES
+                              MACOSX_PACKAGE_LOCATION Resources)
+
+  list(APPEND THINKSYNTH_SOURCES "${THINK_ICNS}")
+endif()
+
+add_executable(thinksynth
+    ${THINKSYNTH_SOURCES}
+    $<TARGET_OBJECTS:think_nodemodel>
+    $<TARGET_OBJECTS:think_visualhost>
+    $<TARGET_OBJECTS:think_composerhost>
+    $<TARGET_OBJECTS:think_panel>
+    $<TARGET_OBJECTS:think_patch>
+    $<TARGET_OBJECTS:think_dspcatalog>
+    $<TARGET_OBJECTS:think_gencatalog>
+    $<TARGET_OBJECTS:think_stagepanel>
+    $<TARGET_OBJECTS:think_canvas>
+    $<TARGET_OBJECTS:think_nodecanvas>
+    $<TARGET_OBJECTS:think_composercanvas>
+    $<TARGET_OBJECTS:think_rollcanvas>)
+
+# The GUI subsystem on Windows, so launching this does not also open a
+# terminal. Without it the linker defaults to the console subsystem and
+# Windows gives every run a console window whether it wants one or not.
+#
+# Output is not given up for it: gthAttachConsole() reconnects stdout and
+# stderr to the terminal when a terminal is what launched us. See
+# src/gthConsole.cpp.
+#
+# main() still works -- MinGW's runtime provides the WinMain that calls it --
+# so this is a link-time change and not a source-level one.
+if(WIN32)
+  # timeBeginPeriod, for gthMidiOut's sending thread.
+  target_link_libraries(thinksynth PRIVATE winmm)
+  set_target_properties(thinksynth PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+
+target_include_directories(thinksynth PRIVATE
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# gthTheme.cpp reads AppleInterfaceStyle and subscribes to the distributed
+# notification centre, which is CoreFoundation. Nothing else in the tree needs
+# a framework, so it is named here rather than anywhere more general.
+if(APPLE)
+  find_library(THINK_COREFOUNDATION CoreFoundation REQUIRED)
+endif()
+
+target_link_libraries(thinksynth PRIVATE
+    think
+    PkgConfig::GTKMM
+    PkgConfig::GTHREAD
+    PkgConfig::CAIRO
+    Threads::Threads
+    ${THINK_MULLION_LIB}
+    ${THINK_RTAUDIO_LIB}
+    ${THINK_RTMIDI_LIB}
+    ${THINK_COREFOUNDATION})
+
+# acinclude.m4's AC_LINKER_DYNAMIC put -Wl,-export-dynamic,--no-as-needed on
+# the link line so that a dlopen'd plugin can resolve against symbols in the
+# executable itself. libthink is a shared library, so in practice plugins
+# resolve against it rather than against the binary -- but reproducing the
+# flag keeps this build equivalent to the one it replaces, and it costs
+# nothing.
+set_target_properties(thinksynth PROPERTIES ENABLE_EXPORTS ON)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_options(thinksynth PRIVATE "LINKER:--no-as-needed")
+endif()
+
+# libthink.dll next to thinksynth.exe. See think_copy_runtime_dlls.
+think_copy_runtime_dlls(thinksynth)
+
+# The app dlopens plugins at parse time, so they have to exist before it is
+# worth running -- but not before it links.
+add_dependencies(thinksynth plugins)
+
+# On macOS and Windows the app and its dependency closure are installed by
+# cmake/Packaging.cmake, which needs to name the same target in one
+# install(TARGETS) call as the RUNTIME_DEPENDENCY_SET.
+if(NOT APPLE AND NOT WIN32)
+  install(TARGETS thinksynth RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()

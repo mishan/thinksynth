@@ -1,0 +1,50 @@
+.TH THINKSYNTH "1" "September 2004" "thinksynth @PACKAGE_VERSION@"
+.SH NAME
+thinksynth \- ALSA/JACK based MIDI synthesizer
+.SH SYNOPSIS
+.B thinksynth
+[\fI\-d OUTPUT\fR] [\fI\-p PATH\fR] [\fI\-r RATE\fR] [\fI\-l WINDOW\fR]
+.SH DESCRIPTION
+.PP
+thinksynth is a modular synthesizer that utilizes either JACK or ALSA for
+audio output and ALSA for MIDI.
+.SH OPTIONS
+.TP
+\fB\-d\fR OUTPUT
+This specifies the audio output module to use during your Thinksynth session.
+Currently, `alsa' and `jack' are supported. The default output module to use is `@DEFAULT_OUTPUT@'.
+.TP
+\fB\-p\fR PATH
+This specifies an alternate path to search in for plugin modules. By default,
+it is `@plugin_path@'.
+.TP
+\fB\-r\fR RATE
+This modifies the sample rate of the output; the default may vary depending on
+which audio output module is used
+.TP
+\fB\-l\fR WINDOW
+This modifies the window length, which is currently synonymous with audio buffer size, for audio output. Please note that at the time of writing of this manpage, thinksynth will not automatically match up the buffer size with JACK, so you must specify the correct buffer size on the command line.
+.SH AUTHORS
+.TP
+\fBThe thinksynth authors\fR are...
+
+Misha Nasledov <misha@nasledov.com>
+.br
+Leif Ames <ink@bespin.org>
+.br
+Aaron Lehmann <aaronl@vitelus.com>
+.br
+Joshua Kwan <joshk@triplehelix.org>
+.br
+Brandon Lewis
+.SH "REPORTING BUGS"
+Report bugs to thinksynth-users@thinksynth.org.
+.SH COPYRIGHT
+Copyright \(co 2004-2026 The thinksynth authors
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+.SH "SEE ALSO"
+.B ardour(1),
+.B jackd(1),
+.B qjackctl(1)

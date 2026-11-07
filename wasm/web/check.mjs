@@ -1,0 +1,1244 @@
+#!/usr/bin/env node
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * check.mjs -- the browser build, played from Node.
+ *
+ *   node wasm/web/check.mjs [BUILD_DIR]
+ *
+ * Every .dsp the page offers is loaded into the module the page runs, and a
+ * note is played through it the way the worklet plays one: stamped, a
+ * 128-frame block at a time, at 48 kHz in windows of 256. Each must load,
+ * make sound, make nothing that is not a number, and make the same sound
+ * twice. Then one stamp is checked for where it lands -- in the window its
+ * frame falls in, not before and not a window late.
+ *
+ * What this cannot see is the browser: the worklet, its messages, and the
+ * quanta a real audio thread asks for. browsertest.mjs holds that against
+ * this, to the bit.
+ *
+ * Exit status is the number of failures.
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { renderDirect } from './render.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const build = path.resolve(process.argv[2] ??
+                           path.join(here, '..', '..', 'build-web'));
+
+const { default: createThinkWeb } =
+    await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
+
+const RATE = 48000;
+const FRAMES = RATE;           /* one second */
+const NOTE = { note: 60, velocity: 100 };
+
+let failures = 0;
+
+const fail = (what) =>
+{
+    process.stdout.write(`FAIL  ${what}\n`);
+    failures++;
+};
+
+const dspDir = path.join(build, 'dsp');
+const names = JSON.parse(fs.readFileSync(path.join(dspDir, 'index.json'),
+                                         'utf8'));
+
+/* The kit, as bytes, handed to every render below. A graph with an
+   osc::sample node in it -- dsp/linn.dsp, dsp/orchhit.dsp -- has nothing
+   to play without them, and a sampler with no file is silence, which is
+   exactly what this gate calls a failure. */
+const kit = Object.fromEntries(
+    names.filter((n) => n.startsWith('samples/'))
+         .map((n) => [n, new Uint8Array(fs.readFileSync(
+                            path.join(dspDir, n)))]));
+
+/* Half a second of a 16-bit mono sine at 440 Hz, as a RIFF. */
+function standIn ()
+{
+    const frames = RATE / 2;
+    const out = Buffer.alloc(44 + 2 * frames);
+
+    out.write('RIFF', 0);
+    out.writeUInt32LE(36 + 2 * frames, 4);
+    out.write('WAVEfmt ', 8);
+    out.writeUInt32LE(16, 16);
+    out.writeUInt16LE(1, 20);
+    out.writeUInt16LE(1, 22);
+    out.writeUInt32LE(RATE, 24);
+    out.writeUInt32LE(2 * RATE, 28);
+    out.writeUInt16LE(2, 32);
+    out.writeUInt16LE(16, 34);
+    out.write('data', 36);
+    out.writeUInt32LE(2 * frames, 40);
+
+    for (let i = 0; i < frames; i++)
+        out.writeInt16LE(Math.round(16000 * Math.sin(2 * Math.PI * 440 * i /
+                                                      RATE)), 44 + 2 * i);
+
+    return new Uint8Array(out);
+}
+
+for (const name of names)
+{
+    /* An effect graph has no note to play and is not an instrument; the
+       index carries it so the worklet can be handed it. fxcheck is its
+       gate. */
+    if (name.startsWith('fx/'))
+    {
+        process.stdout.write(`skip  ${name}: an effect graph\n`);
+        continue;
+    }
+
+    /* And the kit is not a graph at all -- it is the wavs osc::sample
+       plays, carried in the same index because the worklet has to be
+       handed them and cannot fetch. statecheck is their gate. */
+    if (name.startsWith('samples/'))
+    {
+        process.stdout.write(`skip  ${name}: a sample, not a graph\n`);
+        continue;
+    }
+
+    const text = fs.readFileSync(path.join(dspDir, name), 'utf8');
+
+    /* A sampled instrument plays a pack the site downloads when asked
+       (packs.js), not one it ships, so here every file a graph names and
+       the kit does not have is a stand-in tone: what is under test is the
+       graph -- its zones, its layers, its envelope -- not the recording. */
+    const samples = { ...kit };
+
+    for (const m of text.matchAll(/([\w./-]+\.wav)(?:@\d+)?/g))
+        samples[`samples/${m[1]}`] ??= standIn();
+
+    const events = [
+        { on: true, frame: 0, ...NOTE },
+        { on: false, frame: RATE / 2, note: NOTE.note },
+    ];
+
+    const a = await renderDirect(createThinkWeb,
+                                 { rate: RATE, text, events, samples,
+                                   frames: FRAMES });
+
+    if (!a.ok)
+    {
+        fail(`${name}: did not load\n      ${a.log.join('\n      ')}`);
+        continue;
+    }
+
+    let peak = 0, bad = 0;
+
+    for (const v of a.out)
+    {
+        if (!Number.isFinite(v))
+            bad++;
+        else
+            peak = Math.max(peak, Math.abs(v));
+    }
+
+    const b = await renderDirect(createThinkWeb,
+                                 { rate: RATE, text, events, samples,
+                                   frames: FRAMES });
+    const same = Buffer.from(a.out.buffer).equals(Buffer.from(b.out.buffer));
+
+    if (bad > 0)
+        fail(`${name}: ${bad} samples that are not numbers`);
+    else if (peak === 0)
+        fail(`${name}: silent`);
+    else if (!same)
+        fail(`${name}: two renders differ`);
+    else
+        process.stdout.write(`ok    ${name.padEnd(14)} peak ${peak.toFixed(3)}\n`);
+}
+
+/* A note stamped at frame 1000 is applied in the window 768-1023, and a note
+   sounds from the window after the one it is added in -- the engine's own
+   onset, the desktop's too. So: nothing before 1024, something before 1280.
+   A stamp a window late or early moves that by a window either way. */
+{
+    const text = fs.readFileSync(path.join(dspDir, 'ts1.dsp'), 'utf8');
+    const r = await renderDirect(createThinkWeb, {
+        rate: RATE, text, frames: 4096,
+        events: [ { on: true, frame: 1000, ...NOTE } ],
+    });
+
+    let first = -1;
+
+    for (let i = 0; i < r.out.length; i++)
+        if (r.out[i] !== 0) { first = i >> 1; break; }
+
+    const applied = Math.floor(1000 / r.windowlen) * r.windowlen;
+    const heard = applied + r.windowlen;
+
+    if (first < heard || first >= heard + r.windowlen)
+        fail(`stamp: a note at frame 1000 first sounded at ${first}, not in ` +
+             `the window ${heard}-${heard + r.windowlen - 1}`);
+    else
+        process.stdout.write(`ok    stamp          frame 1000 -> applied at ` +
+                             `${applied}, first sound at ${first}\n`);
+}
+
+/* A sample pack downloaded while an instrument naming it is loaded: the
+ * note before it arrives is silent, and the one after plays it, with no
+ * load in between (tw_sample, thSynth::prepareTrees). */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const graph =
+        'node ionode { channels = 1; out0 = smp->out; play = smp->play; };\n' +
+        'io ionode;\n' +
+        'node smp osc::sample { file = "checklate.wav"; freq = 261.63;\n' +
+        '    trigger = ionode->trigger; };\n';
+
+    M._tw_create(RATE, 256, 128);
+
+    const loaded = M.ccall('tw_load', 'number', ['number', 'string'],
+                           [0, graph]) !== 0;
+    const peakOf = (at) =>
+    {
+        let peak = 0;
+
+        M._tw_note_on(at, 0, 60, 100);
+
+        for (let done = 0; done < 4096; done += 128)
+        {
+            const p = M._tw_render(128) >> 2;
+
+            for (let i = 0; i < 256; i++)
+                peak = Math.max(peak, Math.abs(M.HEAPF32[p + i]));
+        }
+
+        M._tw_note_off(at + 4096, 0, 60);
+
+        return peak;
+    };
+
+    const before = peakOf(0);
+    const bytes = standIn();
+    const at = M._tw_alloc(bytes.length);
+
+    M.HEAPU8.set(bytes, at);
+    M.ccall('tw_sample', 'number', ['string', 'number', 'number'],
+            ['samples/checklate.wav', at, bytes.length]);
+    M._tw_free(at);
+
+    const after = peakOf(4096);
+
+    if (!loaded || before !== 0 || !(after > 0))
+        fail(`late pack: loaded ${loaded}, before ${before}, after ${after}`);
+    else
+        process.stdout.write('ok    late pack      a file that arrives after ' +
+                             'its instrument plays on the next note\n');
+}
+
+/* Played keys (tw_keys): a key is recorded where it is played, and one
+ * played in the window a rewind lands in, ahead of it, is the old run's
+ * and goes with it -- the page would draw it at the old run's time on the
+ * new run's roll. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+
+    const keys = () =>
+    {
+        const base = M._tw_keys() >>> 0;
+
+        return Array.from({ length: M._tw_key_count() }, (_, i) =>
+            [M.HEAP32[(base + i * 24 + 12) >> 2],
+             M.HEAP32[(base + i * 24 + 20) >> 2]]);
+    };
+
+    const render = () =>
+    {
+        for (let done = 0; done < 2048; done += 128)
+            M._tw_render(128);
+    };
+
+    M._tw_note_on(1000, 0, 60, 100);
+    render();
+
+    const played = JSON.stringify(keys());
+    const epoch = M._tw_epoch();
+
+    M._tw_keys_clear();
+    M._tw_note_off(4000, 0, 60);
+    M._tw_transport(4000, 2, 0);
+    M._tw_note_on(4000, 0, 62, 100);
+    render();
+
+    const after = JSON.stringify(keys());
+
+    if (played !== '[[60,1]]' || M._tw_epoch() === epoch ||
+        after !== '[[62,1]]')
+        fail(`keys: played ${played}, then across a rewind ${after}`);
+    else
+        process.stdout.write('ok    keys           a key is recorded, and ' +
+                             'one ahead of a rewind in its window is not\n');
+}
+
+/* MIDI out (twMidiOut): a piece whose instrument names a port, given a
+ * port list that matches. The program change goes when it attaches; every
+ * note, its off and a mapped chanarg come out as bytes for the page, each
+ * stamped with the AudioContext time of its frame -- frameOf(at), in
+ * microseconds -- and a stop is a flush record. With the ports taken away
+ * the instrument is detached and plays its dsp. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+    M.ccall('tw_instrument', 'number', ['string', 'string'],
+            ['organ0.dsp', fs.readFileSync(path.join(dspDir, 'organ0.dsp'),
+                                           'utf8')]);
+
+    const piece =
+        'tempo 60;\n' +
+        'instrument ext { midi "Surge"; midichannel = 3; midiprogram = 5;\n' +
+        '    cc cutoff = 74 { min = 100; max = 1100; }; dsp "organ0.dsp"; };\n' +
+        'chain notes { stage g gen::grid { notes = "C4"; steps = 1;\n' +
+        '    rows = 1; cells = "x"; period = 1 beats; hold = 0.5 beats; };\n' +
+        '    sink { instrument = ext; }; };\n' +
+        'chain sweep { stage s gen::steps { values = "0 1";\n' +
+        '    period = 1 beats; min = 100; max = 600; };\n' +
+        '    sink { instrument = ext; chanarg = "cutoff"; }; };\n';
+
+    const state = () => M.UTF8ToString(M._tw_instrument_midi_state(0));
+    const msgs = [];
+
+    const drainMidi = () =>
+    {
+        const base = M._tw_midiout_events() >>> 0;
+
+        for (let i = 0; i < M._tw_midiout_count(); i++)
+        {
+            const at = base + i * 32;
+            const len = M.HEAP32[(at + 20) >> 2];
+
+            msgs.push({
+                when: M.HEAPF64[at >> 3],
+                kind: M.HEAP32[(at + 8) >> 2],
+                channel: M.HEAP32[(at + 12) >> 2],
+                port: M.HEAP32[(at + 16) >> 2],
+                generation: M.HEAP32[(at + 28) >> 2],
+                bytes: [0, 8, 16].slice(0, len)
+                    .map((b) => (M.HEAP32[(at + 24) >> 2] >>> b) & 0xff),
+            });
+        }
+
+        M._tw_midiout_clear();
+    };
+
+    const render = (frames) =>
+    {
+        for (let done = 0; done < frames; done += 128)
+        {
+            M._tw_render(128);
+            drainMidi();
+        }
+    };
+
+    const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                       [piece, 1]) !== 0;
+    const before = state();
+
+    const ports = (names, enabled, generation) =>
+        M.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+                [names, enabled, generation]);
+
+    ports('Dev A\nSurge XT Out', 1, 1);
+    drainMidi();
+
+    const on = state();
+    const program = msgs.shift();
+
+    M._tw_transport(0, 0, 0);
+    render(Math.round(2.2 * RATE));
+
+    const origin = M._tw_origin();
+    const us = (at) => Math.round((origin + at * RATE) / RATE * 1e6);
+    const of = (status, d1) =>
+        msgs.filter((m) => m.kind === 0 && m.bytes[0] === status &&
+                           m.bytes[1] === d1);
+
+    const ons = of(0x92, 60), offs = of(0x82, 60), ccs = of(0xb2, 74);
+
+    if (!ok)
+        fail('midi out: the piece did not load');
+    else if (!before.includes('no MIDI access') ||
+             on !== 'on Surge XT Out, channel 3')
+        fail(`midi out: state "${before}" then "${on}"`);
+    else if (program === undefined ||
+             JSON.stringify(program.bytes) !== '[194,4]' || program.port !== 1 ||
+             program.generation !== 1)
+        fail(`midi out: no program change on attach (${JSON.stringify(program)})`);
+    else if (ons.length !== 3 || offs.length < 2 ||
+             ons.some((m, k) => m.when !== us(k)) ||
+             offs.slice(0, 2).some((m, k) => m.when !== us(k + 0.5)))
+        fail('midi out: notes not stamped at their frames: ' +
+             JSON.stringify({ origin, ons: ons.map((m) => m.when),
+                              offs: offs.map((m) => m.when) }));
+    else if (ccs.length < 2 || ccs[0].bytes[2] !== 0 || ccs[1].bytes[2] !== 64)
+        fail(`midi out: cutoff as CC 74 ${JSON.stringify(ccs.map((m) => m.bytes))}`);
+    else
+    {
+        /* The same list again, then the same device at another index: the
+           instrument is left on it, not detached and attached again --
+           which would end what it is sounding -- and only renumbered. */
+        msgs.length = 0;
+        const same = ports('Dev A\nSurge XT Out', 1, 2);
+        const moved = ports('Surge XT Out\nDev B\nDev A', 1, 3);
+
+        drainMidi();
+        render(Math.round(1.1 * RATE));
+
+        const next = msgs.find((m) => m.kind === 0 && m.bytes[0] === 0x92);
+
+        if (same !== 0 || moved !== 0 || msgs.some((m) => m.kind !== 0) ||
+            next === undefined || next.port !== 0 || next.generation !== 3)
+            fail('midi out: an unchanged device was applied again, or not ' +
+                 `renumbered: ${same} ${moved} ` +
+                 JSON.stringify(msgs.map((m) => [m.kind, m.port,
+                                                 m.generation])));
+
+        msgs.length = 0;
+        M._tw_transport(M._tw_frame(), 1, 0);
+        render(1024);
+
+        const flush = msgs.find((m) => m.kind === 1);
+
+        ports('', 0, 4);
+        drainMidi();
+
+        const detach = msgs.find((m) => m.kind === 2);
+
+        if (flush === undefined || detach === undefined)
+            fail(`midi out: stop and losing access did not flush and detach ` +
+                 JSON.stringify(msgs.map((m) => m.kind)));
+        else if (!state().includes('no MIDI access'))
+            fail(`midi out: back on its dsp, state "${state()}"`);
+        else
+            process.stdout.write(`ok    midi out       program, ${ons.length} ` +
+                                 `notes stamped at their frames, cc, a moved ` +
+                                 `port renumbered, flush, detach\n`);
+    }
+}
+
+/* The page's sender (midiout.js), on a clock of its own: a fake MIDIAccess
+ * whose output opens on its first send and says so, as a browser's does;
+ * a clock that is the identity; and the pump driven by hand.
+ *
+ *   - a port opening is not a new list: what is queued stays queued, and
+ *     the worklet is not told again;
+ *   - a message for an older list is dropped;
+ *   - a retrigger ends the key first; an off for a key another channel
+ *     took over is not sent;
+ *   - a flush drops what is queued and ends what was handed over, no
+ *     earlier than it was to start. */
+{
+    const { MidiSender } = await import('./midiout.js');
+
+    let now = 1000;
+    const sent = [];
+    let told = 0;
+    const access = { inputs: new Map(), outputs: new Map(),
+                     onstatechange: null };
+    const plug = (id, name) =>
+    {
+        const port = {
+            id, name, type: 'output', state: 'connected',
+            connection: 'closed',
+            send (bytes, at)
+            {
+                if (port.connection === 'closed')
+                {
+                    port.connection = 'open';
+                    access.onstatechange?.({ port });
+                }
+
+                sent.push({ id, bytes: [...bytes], at });
+            },
+        };
+
+        access.outputs.set(id, port);
+        return port;
+    };
+
+    plug('a', 'Synth A');
+    Object.defineProperty(globalThis, 'navigator', {
+        value: { requestMIDIAccess: async () => access },
+        configurable: true,
+    });
+
+    const sender = new MidiSender({
+        clock: { perfAt: (s) => s * 1000 },
+        now: () => now,
+        onPorts: () => { told++; },
+    });
+
+    await sender.open();
+    clearInterval(sender.timer);           /* pumped by hand below */
+
+    const gen = sender.generation;
+    const msg = (ms, bytes, channel = 0, generation = gen) =>
+        ({ kind: 0, when: ms * 1000, channel, port: 0, generation, bytes });
+
+    /* A note now, its off and the next note later: the first send opens
+       the port. */
+    sender.take([msg(1000, [0x90, 60, 100]), msg(1500, [0x80, 60, 64]),
+                 msg(2000, [0x90, 62, 100]),
+                 msg(1000, [0x90, 70, 100], 0, gen - 1)]);
+
+    const queuedAfterOpen = sender.queue.length;
+    const toldAfterOpen = told;
+
+    for (now = 1005; now <= 2000; now += 5)
+        sender.pump();
+
+    /* Channel 1 retriggers 62, which channel 0 holds; channel 0's off for
+       it is then stale. */
+    now = 2100;
+    sender.take([msg(2100, [0x90, 62, 90], 1), msg(2200, [0x80, 62, 64], 0)]);
+
+    for (now = 2105; now <= 2200; now += 5)
+        sender.pump();
+
+    now = 2200;
+
+    /* A note handed over for later, a flush before it starts. */
+    sender.take([msg(2220, [0x90, 64, 100], 1), msg(2400, [0x90, 65, 100], 1)]);
+    sender.flush(1);
+    now = 3000;
+    sender.pump();
+    sender.close();
+
+    const show = (m) => `${m.bytes.map((b) => b.toString(16)).join(' ')}@${m.at}`;
+    const got = sent.map(show).join(', ');
+    const want = ['90 3c 64@1000', '80 3c 40@1500', '90 3e 64@2000',
+                  '80 3e 40@2100', '90 3e 5a@2100', '90 40 64@2220',
+                  '80 3e 40@2200', '80 40 40@2221'].join(', ');
+
+    if (queuedAfterOpen !== 2 || toldAfterOpen !== 1)
+        fail(`midi sender: a port opening was taken for a new list ` +
+             `(${queuedAfterOpen} queued, told ${toldAfterOpen} times)`);
+    else if (got !== want)
+        fail(`midi sender: sent ${got}\n      wanted ${want}`);
+    else
+        process.stdout.write('ok    midi sender    a port opening, an old ' +
+                             'list, a retrigger, a stale off, a flush\n');
+}
+
+/* gen::grow in the browser module, both ways it is hosted: growing in
+ * place, as the mirror does, and asking and being answered, as the
+ * worklet is -- here by the same module standing in for the mirror, at
+ * once or only after every step has been asked, as a mirror busy for
+ * seconds would. All three reach the same graph. And a splice is among
+ * the edits, from the plugins compiled in. */
+{
+    const piece = (kinds) =>
+        'seed 11;\n' +
+        'instrument pad { dsp {\n' +
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+        'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n' +
+        '}; };\n' +
+        'chain m { stage s gen::eno_line { notes = "A3 C4"; period = 0.5 s;\n' +
+        '    prob = 1; }; sink { instrument = pad; }; };\n' +
+        'chain g { stage s gen::grow { every = 1 s; depth = 3; shrink = 0;\n' +
+        `    kinds = "${kinds}"; }; sink { instrument = pad; }; };\n`;
+
+    /* `mode' 1 grows in place; 2 answers each ask as it comes, 3 holds
+       the answers until the end. */
+    const grownBy = async (mode, kinds = 'modulate voice') =>
+    {
+        const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+        const held = [];
+        const answer = (ask) =>
+        {
+            const a = JSON.parse(ask);
+            const r = JSON.parse(M.ccall('tw_grow', 'string',
+                ['string', 'string', 'number', 'string', 'number'],
+                [a.text, a.base, a.choice, a.kinds, a.want]));
+
+            M.ccall('tw_grow_answer', null,
+                    ['number', 'string', 'string', 'string'],
+                    [a.ticket, r.grown, r.what, r.why]);
+        };
+        const asks = () =>
+        {
+            const out = [];
+
+            for (let ask; (ask = M.UTF8ToString(M._tw_grow_next())); )
+                out.push(ask);
+
+            return out;
+        };
+
+        M._tw_create(RATE, 256, 128);
+        M._tw_grow_mode(mode === 1 ? 1 : 2);
+
+        const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                           [piece(kinds), 1]) !== 0;
+
+        M._tw_transport(0, 0, 0);       /* TW_START */
+
+        for (let done = 0; ok && done < RATE * 3.5; done += 128)
+        {
+            M._tw_render(128);
+
+            for (const ask of asks())
+                mode === 3 ? held.push(ask) : answer(ask);
+        }
+
+        /* The slow mirror at last: each answer lets the step queued
+           behind it ask in turn. */
+        for (let ask; (ask = held.shift() ?? asks()[0]); )
+            answer(ask);
+
+        return M.ccall('tw_grown_text', 'string', ['string'], ['pad']);
+    };
+
+    const here = await grownBy(1);
+    const asked = await grownBy(2);
+    const late = await grownBy(3);
+    const spliced = await grownBy(1, 'splice');
+
+    if (here === '')
+        fail('grow: nothing grew in the browser module');
+    else if (asked !== here)
+        fail('grow: asked of another instance, the graph grew otherwise');
+    else if (late !== here)
+        fail('grow: answered late, the steps asked meanwhile were lost');
+    else if (spliced === '')
+        fail('grow: no splice among the browser module\'s edits');
+    else
+        process.stdout.write('ok    grow           grown in place, asked of ' +
+                             'a worker, or answered late: the same graph; ' +
+                             'and spliced\n');
+}
+
+/* gen::graft in the browser module: the worklet's instance asks for each
+ * generation and another breeds it with tw_graft, as the ear worker does
+ * -- answered as it is asked, or only once every generation has been, as
+ * an ear busy for seconds would. Both breed the same champion, and it is
+ * not the declared graph. */
+{
+    const piece =
+        'seed 11;\n' +
+        'instrument pad { dsp {\n' +
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity;\n' +
+        '    waveform = 1; };\n' +
+        'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n' +
+        '}; };\n' +
+        'chain m { stage s gen::eno_line { notes = "A3 C4"; period = 0.5 s;\n' +
+        '    prob = 1; }; sink { instrument = pad; }; };\n' +
+        'chain g { stage s gen::graft { every = 1 s; population = 3;\n' +
+        '    depth = 2; kinds = "splice"; }; sink { instrument = pad; }; };\n';
+    const ear = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    ear._tw_create(RATE, 256, 128);
+    ear._tw_silent();
+
+    const bredBy = async (late) =>
+    {
+        const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+        const held = [];
+        const answer = (ask) =>
+        {
+            const a = JSON.parse(ask);
+            const r = JSON.parse(ear.ccall('tw_graft', 'string',
+                ['string', 'string', 'string', 'string', 'string', 'string',
+                 'string', 'number', 'number', 'number', 'number', 'number',
+                 'number', 'number', 'number'],
+                [a.base, a.flock, a.kinds, a.tgraph, a.twav, a.args, a.targs,
+                 a.dice, a.population, a.elites, a.crossover, a.mutation,
+                 a.depth, a.tune, a.rate]));
+
+            M.ccall('tw_graft_answer', null,
+                    ['number', 'number', 'string', 'string', 'number',
+                     'string'],
+                    [a.ticket, r.ok ? 1 : 0, r.flock, r.champion, r.depth,
+                     r.why]);
+        };
+        const asks = () =>
+        {
+            const out = [];
+
+            for (let ask; (ask = M.UTF8ToString(M._tw_graft_next())); )
+                out.push(ask);
+
+            return out;
+        };
+
+        M._tw_create(RATE, 256, 128);
+        M._tw_graft_mode(2);
+
+        const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                           [piece, 1]) !== 0;
+
+        M._tw_transport(0, 0, 0);       /* TW_START */
+
+        for (let done = 0; ok && done < RATE * 2.5; done += 128)
+        {
+            M._tw_render(128);
+
+            for (const ask of asks())
+                late ? held.push(ask) : answer(ask);
+        }
+
+        /* Each answer lets the generation queued behind it ask in turn. */
+        for (let ask; (ask = held.shift() ?? asks()[0]); )
+            answer(ask);
+
+        return M.ccall('tw_grown_text', 'string', ['string'], ['pad']);
+    };
+
+    const asked = await bredBy(false);
+    const late = await bredBy(true);
+
+    if (asked === '')
+        fail('graft: nothing was bred in the browser module');
+    else if (late !== asked)
+        fail('graft: answered late, the generations bred otherwise');
+    else
+        process.stdout.write('ok    graft          bred by another instance, '
+                             + 'answered at once or late: the same champion\n');
+}
+
+/* The ear in the browser: three instances as the page has them -- the
+ * worklet's, which asks to grow and to hear; the mirror's, which grows;
+ * and the ear worker's, which hears -- carried between by hand. A growth
+ * toward a graph one edit away, every edit heard, reaches it. */
+{
+    const body =
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+        'node env env::adsr { a = 5 ms; d = 200 ms; s = 0.5; r = 100 ms;\n' +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+    const piece = (aim, target) =>
+        'seed 11;\n' +
+        `instrument pad { dsp {\n${body}}; };\n` +
+        `instrument aim { dsp {\n${aim}}; };\n` +
+        'chain m { stage s gen::eno_line { notes = "A3 C4"; period = 0.5 s;\n' +
+        '    prob = 1; }; sink { instrument = pad; }; };\n' +
+        'chain g { stage s gen::grow { every = 1 s; depth = 1; shrink = 0;\n' +
+        `    kinds = "voice"; listen = 16; tune = 0; target = "${target}"; };\n` +
+        '    sink { instrument = pad; }; };\n';
+    const make = async (grow, ear) =>
+    {
+        const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+        M._tw_create(RATE, 256, 128);
+        M._tw_grow_mode(grow);
+        M._tw_ear_mode(ear);
+
+        return M;
+    };
+    const mirror = await make(1, 2);
+    const ear = await make(0, 1);
+    let base = null;
+
+    const grown = async (text) =>
+    {
+        const W = await make(2, 2);
+        const next = (f) => W.UTF8ToString(W[f]());
+
+        W.ccall('tw_piece_load', 'number', ['string', 'number'], [text, 1]);
+        W._tw_transport(0, 0, 0);       /* TW_START */
+
+        /* Past the step at 1 s, short of the one back at 2 s. */
+        for (let done = 0; done < RATE * 1.5; done += 128)
+        {
+            W._tw_render(128);
+
+            for (let ask; (ask = next('_tw_grow_next')); )
+            {
+                const a = JSON.parse(ask);
+                const r = JSON.parse(mirror.ccall('tw_grow', 'string',
+                    ['string', 'string', 'number', 'string', 'number'],
+                    [a.text, a.base, a.choice, a.kinds, a.want]));
+
+                base ??= a.base;
+                W.ccall('tw_grow_answer', null,
+                        ['number', 'string', 'string', 'string'],
+                        [a.ticket, r.grown, r.what, r.why]);
+            }
+
+            for (let ask; (ask = next('_tw_ear_next')); )
+            {
+                const a = JSON.parse(ask);
+
+                for (const [id, text] of Object.entries(a.texts))
+                    ear.ccall('tw_ear_text', null, ['string', 'string'],
+                              [id, text]);
+
+                const r = JSON.parse(ear.ccall('tw_hear', 'string',
+                    ['string', 'string', 'string', 'string', 'string',
+                     'string', 'string', 'string', 'number', 'string'],
+                    [a.dsp, a.effect, a.args, a.key, a.tdsp ?? '',
+                     a.teffect ?? '', a.targs ?? '', a.file ?? '', a.tune,
+                     a.from]));
+
+                W.ccall('tw_ear_answer', null,
+                        ['number', 'number', 'number', 'string'],
+                        [a.ticket, r.ok ? 1 : 0, r.distance, r.tuned]);
+            }
+        }
+
+        return W.ccall('tw_grown_text', 'string', ['string'], ['pad']);
+    };
+
+    /* Where the walk alone goes, and the edits it could have taken. */
+    const wander = await grown(piece(body, ''));
+    const options = base === null ? [] : JSON.parse(mirror.ccall('tw_grow',
+        'string', ['string', 'string', 'number', 'string', 'number'],
+        [base, base, 0, 'voice', 16])).grown.split('\x1e');
+    const aim = options.find((o) => o !== wander);
+
+    if (aim === undefined)
+        fail('ear: no second voice to aim at');
+    else if (await grown(piece(aim, 'aim')) !== aim)
+        fail('ear: a growth heard through the ear worker did not reach the ' +
+             'graph it was aimed at');
+    else
+        process.stdout.write('ok    ear            heard in another ' +
+                             'instance, a growth reaches what it aims at\n');
+}
+
+/* Evolve toward in the browser module: where a search starts, from what
+ * the instance plays, and the search itself on one synth -- as each of the
+ * page's evolve workers runs one -- coming nearer than it started, and
+ * saying so on the way. */
+{
+    const graphWith = (s) =>
+        'node ionode { channels = 1; out0 = vca->out; play = env->play; };\n' +
+        'io ionode;\n' +
+        'node freq misc::midi2freq { note = ionode->note; };\n' +
+        'node osc osc::simple { freq = freq->out; amp = ionode->velocity; };\n' +
+        `node env env::adsr { a = 5 ms; d = 200 ms; s = ${s}; r = 100 ms;\n` +
+        '    trigger = ionode->trigger; };\n' +
+        'node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n';
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const said = { started: null, nearer: 0 };
+
+    M._tw_create(RATE, 256, 128);
+    M.ccall('tw_piece_load', 'number', ['string', 'number'],
+            [`instrument pad { dsp {\n${graphWith('0.05')}}; };\n` +
+             `instrument ref { dsp {\n${graphWith('0.7')}}; };\n`, 1]);
+    M.onEvolve = (kind, value) =>
+    {
+        if (kind === 1)
+            said.started = value;
+        else if (kind === 2)
+            said.nearer++;
+    };
+
+    const spec = JSON.parse(M.ccall('tw_evolve_spec', 'string',
+                                    ['string', 'string'], ['pad', 'ref']));
+    const r = spec.why !== '' ? { ok: false, why: spec.why }
+        : JSON.parse(M.ccall('tw_evolve', 'string',
+            ['string', 'string', 'string', 'string', 'string', 'number',
+             'number', 'number', 'number'],
+            [spec.start, spec.startArgs, spec.target, spec.targetArgs, '', 0,
+             1, 20, 0]));
+
+    if (!r.ok)
+        fail(`evolve: the search failed: ${r.why}`);
+    else if (!(r.distance < said.started) || said.nearer < 2 ||
+             !r.found.includes('node env'))
+        fail(`evolve: ${said.started} dB to ${r.distance} dB, ` +
+             `${said.nearer} times nearer on the way`);
+    else
+        process.stdout.write('ok    evolve         a search in the module ' +
+                             'comes nearer, and says so on the way\n');
+
+    /* A listener for a search elsewhere hears what the search heard: the
+       graph it began from as far away, and what it found as near. */
+    const heard = M.ccall('tw_evolve_listen', 'string',
+        ['string', 'string', 'string', 'string', 'string'],
+        [spec.start, spec.startArgs, spec.target, spec.targetArgs, '']);
+    const score = (g) => M.ccall('tw_evolve_score', 'number', ['string'],
+                                 [g]);
+    const near = (a, b) => Math.abs(a - b) < 1e-6;
+
+    if (heard !== '' || !r.ok || !near(score(spec.start), said.started) ||
+        !near(score(r.found), r.distance))
+        fail(`evolve: a listener ${heard || 'heard'} ` +
+             `${score(spec.start)} and ${score(r.found)} dB where the ` +
+             `search heard ${said.started} and ${r.distance}`);
+    else
+        process.stdout.write('ok    evolve         a listener elsewhere ' +
+                             'hears what the search heard\n');
+}
+
+/* The pitch wheel: a chain's `bend' mapping goes as 14-bit pitch bend,
+ * and a stop puts a bent wheel back to center -- after the flush record, so
+ * the page's flush, which drops what is queued, does not drop it. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+
+    const piece =
+        'tempo 60;\n' +
+        'instrument ext { midi "Surge"; midichannel = 2;\n' +
+        '    bend wheel { min = -1; max = 1; }; };\n' +
+        'chain w { stage s gen::steps { values = "1";\n' +
+        '    period = 1 beats; min = -1; max = 1; };\n' +
+        '    sink { instrument = ext; chanarg = "wheel"; }; };\n';
+    const msgs = [];
+    const drain = () =>
+    {
+        const base = M._tw_midiout_events() >>> 0;
+
+        for (let i = 0; i < M._tw_midiout_count(); i++)
+        {
+            const at = base + i * 32;
+            const len = M.HEAP32[(at + 20) >> 2];
+
+            msgs.push({
+                kind: M.HEAP32[(at + 8) >> 2],
+                bytes: [0, 8, 16].slice(0, len)
+                    .map((b) => (M.HEAP32[(at + 24) >> 2] >>> b) & 0xff),
+            });
+        }
+
+        M._tw_midiout_clear();
+    };
+
+    const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                       [piece, 1]) !== 0;
+
+    M.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+            ['Surge XT', 1, 1]);
+    M._tw_transport(0, 0, 0);
+
+    for (let done = 0; done < RATE / 2; done += 128)
+    {
+        M._tw_render(128);
+        drain();
+    }
+
+    M._tw_transport(M._tw_frame(), 1, 0);
+
+    for (let done = 0; done < 1024; done += 128)
+    {
+        M._tw_render(128);
+        drain();
+    }
+
+    /* Bent again and then detached -- the ports going -- with no stop in
+       between: the detach centers it too. */
+    const before = msgs.length;
+
+    M._tw_transport(M._tw_frame(), 0, 0);
+
+    for (let done = 0; done < RATE / 2; done += 128)
+    {
+        M._tw_render(128);
+        drain();
+    }
+
+    M.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+            ['', 0, 2]);
+    drain();
+
+    const tail = msgs.slice(before);
+    const detach = tail.findIndex((m) => m.kind === 2);
+    const centered = tail.findIndex((m, i) => i > detach && m.kind === 0 &&
+                                              m.bytes[0] === 0xe1 &&
+                                              m.bytes[2] === 64);
+
+    if (detach < 0 || centered < 0)
+        fail('midi out: a detach left the wheel bent: ' +
+             tail.map((m) => `${m.kind}:${m.bytes.join(' ')}`).join(', '));
+
+    const shown = msgs.map((m) => `${m.kind}:${m.bytes.join(' ')}`).join(', ');
+    const up = msgs.findIndex((m) => m.kind === 0 && m.bytes[0] === 0xe1 &&
+                                     m.bytes[1] === 127 && m.bytes[2] === 127);
+    const flush = msgs.findIndex((m) => m.kind === 1);
+    const center = msgs.findIndex((m) => m.kind === 0 && m.bytes[0] === 0xe1 &&
+                                         m.bytes[1] === 0 && m.bytes[2] === 64);
+
+    if (!ok || up < 0 || flush < up || center < flush)
+        fail(`midi out: the wheel up and back to center after a stop: ${shown}`);
+    else
+        process.stdout.write('ok    midi out       a bend is the pitch wheel, ' +
+                             'centered again after the flush on stop\n');
+}
+
+/* MIDI clock in the browser module: asked for, Start and then a tick
+ * every 24th of a beat stamped at its frame's context time, Stop with the
+ * transport; not asked for, none. */
+{
+    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    M._tw_create(RATE, 256, 128);
+
+    const recs = [];
+    const drain = () =>
+    {
+        const base = M._tw_midiout_events() >>> 0;
+
+        for (let i = 0; i < M._tw_midiout_count(); i++)
+        {
+            const at = base + i * 32;
+            const len = M.HEAP32[(at + 20) >> 2];
+
+            recs.push({
+                when: M.HEAPF64[at >> 3],
+                kind: M.HEAP32[(at + 8) >> 2],
+                bytes: [0, 8, 16].slice(0, len)
+                    .map((b) => (M.HEAP32[(at + 24) >> 2] >>> b) & 0xff),
+            });
+        }
+
+        M._tw_midiout_clear();
+    };
+    const render = (frames) =>
+    {
+        for (let done = 0; done < frames; done += 128)
+        {
+            M._tw_render(128);
+            drain();
+        }
+    };
+
+    M.ccall('tw_piece_load', 'number', ['string', 'number'],
+            ['tempo 120;\nchain c { stage s gen::eno_line { };' +
+             ' sink { channel = 1; }; };\n', 1]);
+    M._tw_midiout_clock(1);
+    M._tw_transport(0, 0, 0);
+    render(RATE / 2);
+    M._tw_transport(M._tw_frame(), 1, 0);
+    render(1024);
+
+    const origin = M._tw_origin();
+    const clock = recs.filter((r) => r.kind === 3);
+    const ticks = clock.filter((r) => r.bytes[0] === 0xf8);
+    const exact = ticks.every((r, k) =>
+        r.when === Math.round((origin + k * RATE / 48) / RATE * 1e6));
+
+    M._tw_midiout_clock(0);
+    recs.length = 0;
+    M._tw_transport(M._tw_frame(), 0, 0);
+    render(RATE / 4);
+
+    if (clock[0]?.bytes[0] !== 0xfa || clock.at(-1)?.bytes[0] !== 0xfc ||
+        ticks.length < 23 || !exact)
+        fail(`midi clock: ${clock.length} records, ${ticks.length} ticks, ` +
+             `exact ${exact}`);
+    else if (recs.some((r) => r.kind === 3))
+        fail('midi clock: sent with nobody asking for it');
+    else
+        process.stdout.write(`ok    midi clock     start, ${ticks.length} ticks ` +
+                             'at their frames, stop\n');
+}
+
+/* The page's sender: a clock record goes to the outputs checked for clock,
+   as it is, and to no other. */
+{
+    const { MidiSender } = await import('./midiout.js');
+    const sent = [];
+    const out = (id) => ({ id, name: id, type: 'output', state: 'connected',
+                           send: (bytes, at) => sent.push({ id, bytes: [...bytes],
+                                                            at }) });
+    const access = { inputs: new Map(), outputs: new Map([['a', out('a')],
+                                                          ['b', out('b')]]),
+                     onstatechange: null };
+
+    Object.defineProperty(globalThis, 'navigator', {
+        value: { requestMIDIAccess: async () => access }, configurable: true,
+    });
+
+    const sender = new MidiSender({ clock: { perfAt: (s) => s * 1000 },
+                                    now: () => 1000 });
+
+    await sender.open();
+    clearInterval(sender.timer);
+    sender.setClock(['b']);
+    sender.take([{ kind: 3, when: 1000 * 1000, channel: -2, port: -1,
+                   generation: 0, bytes: [0xf8] }]);
+    sender.close();
+
+    if (sent.length !== 1 || sent[0].id !== 'b' || sent[0].bytes[0] !== 0xf8 ||
+        sent[0].at !== 1000)
+        fail(`midi sender: clock went ${JSON.stringify(sent)}`);
+    else
+        process.stdout.write('ok    midi sender    clock to the checked output only\n');
+}
+
+/* A band's key (bandkey.js): a line moved through keys and back is where
+   it was, a pentatonic's third goes to a third, a note between steps keeps
+   its distance, and a key is read from notes the way a person would. */
+{
+    const { retune, nameOf, pitchOf, keyOf, keyOps } =
+        await import(pathToFileURL(path.join(here, 'bandkey.js')).href);
+    const key = (root, mood) => ({ root, mood });
+    const line = (notes, from, to) => notes.split(' ').map((n) =>
+        nameOf(retune(pitchOf(n), from, to), to)).join(' ');
+    const through = (notes, keys) =>
+    {
+        let from = key(9, 'dark');
+
+        for (const to of keys)
+        {
+            notes = line(notes, from, to);
+            from = to;
+        }
+
+        return notes;
+    };
+    const heard = (notes) => keyOf({ scales: [], chains: [{ name: 'x',
+        stages: [{ params: [{ name: 'notes',
+                              valueText: `"${notes}"` }] }] }] },
+                                   new Set(['x']));
+    const start = 'A1 C2 E2 A3 C4 D4 E4 G4';
+    const cases = [
+        ['a tritone and back, three times',
+         through(start, [3, 9, 3, 9, 3, 9].map((r) => key(r, 'dark'))),
+         start],
+        ['round the fourths',
+         through(start, [2, 7, 0, 5, 10, 3, 8, 1, 6, 11, 4, 9]
+             .map((r) => key(r, 'dark'))), start],
+        ['C open to C dark',
+         line('C4 D4 E4 G4 A4', key(0, 'open'), key(0, 'dark')),
+         'C4 D4 Eb4 G4 Ab4'],
+        ['C bluesy to C bright',
+         line('C4 Eb4 F4 G4 Bb4', key(0, 'bluesy'), key(0, 'bright')),
+         'C4 E4 F4 G4 B4'],
+        ['C bright to C dark, between steps',
+         line('C4 C#4 D4 F#4', key(0, 'bright'), key(0, 'dark')),
+         'C4 Db4 D4 Gb4'],
+        ['an A minor line is in A', JSON.stringify(heard(
+            'A3 C4 E4 A4 C5 E5 D4 G4 B3')),
+         JSON.stringify({ root: 9, mood: 'dark', written: false })],
+        ['notes parted by commas', JSON.stringify(heard(
+            'G3, A3, B3, C4, D4, E4, F#4')),
+         JSON.stringify({ root: 7, mood: 'bright', written: false })],
+        ['a scale into fewer steps has each note once',
+         keyOps({ scales: [{ name: 'tune',
+                             notes: 'G3 A3 B3 C4 D4 E4 F#4' }],
+                  chains: [{ name: 'x', stages: [{ params: [
+                      { name: 'notes', valueText: 'tune' }] }] }] },
+                new Set(['x']), key(7, 'bright'), key(7, 'bluesy'))
+             .find(([op, name]) => op === 'scale' && name === 'tune')[2],
+         'G3 Bb3 C4 D4 F4'],
+        ['no notes at all',
+         JSON.stringify(keyOf({ scales: [], chains: [] }, new Set())),
+         JSON.stringify({ root: 9, mood: 'dark', written: false })],
+    ];
+
+    for (const [what, got, want] of cases)
+        if (got !== want)
+            fail(`band key: ${what}: ${got}, not ${want}`);
+        else
+            process.stdout.write(`ok    band key       ${what}\n`);
+}
+
+/* Chords that follow a phrase (bandchords.js): each bar's chord is the one
+   that holds what the bar plays, a passing note does not move it, an empty
+   bar keeps the chord before it, and the bass plays each chord's root and
+   fifth. A phrase is written a bar a string, a note a beat, `.' a rest. */
+{
+    const { fitChords, followers } =
+        await import(pathToFileURL(path.join(here, 'bandchords.js')).href);
+    const { pitchOf } =
+        await import(pathToFileURL(path.join(here, 'bandkey.js')).href);
+    const aMinor = { root: 9, mood: 'dark' };
+    /* Beats as cells: a note a beat, held to the next. */
+    const grid = (bars) =>
+    {
+        const beats = bars.flatMap((b) => b.split(' '));
+        const ladder = [...new Set(beats.filter((n) => n !== '.'))]
+            .sort((a, b) => pitchOf(a) - pitchOf(b));
+        const rows = ladder.map((n) => beats.map((b) =>
+            (b === n ? 'x---' : '....')).join('')).reverse();
+
+        return { notes: `"${ladder.join(' ')}"`, cells: `"${rows.join('/')}"`,
+                 steps: String(beats.length * 4) };
+    };
+    /* A grid player's notes in the order they play. */
+    const played = (stage) =>
+    {
+        const ladder = stage.notes.replace(/"/g, '').split(' ');
+        const rows = stage.cells.replace(/"/g, '').split('/');
+        const out = [];
+
+        for (let s = 0; s < rows[0].length; s++)
+            rows.forEach((r, i) =>
+            {
+                if (r[s] === 'x')
+                    out.push(ladder[rows.length - 1 - i]);
+            });
+
+        return out.join(' ');
+    };
+    const fit = (bars, key = aMinor) =>
+        fitChords(grid(bars), key, 4).join(' ');
+    const both = followers([0, 3], aMinor, 4);
+    const cases = [
+        ['i iv v III', fit(['A4 C5 E5 C5', 'D4 F4 A4 F4', 'E4 G4 B4 G4',
+                            'C5 E5 G5 E5']), '0 3 4 2'],
+        ['a passing note', fit(['C4 D4 E4 G4']), '2'],
+        ['an empty bar keeps its chord', fit(['A3 C4 E4 A4', '. . . .']),
+         '0 0'],
+        ['an empty first bar is home', fit(['. . . .', 'G3 B3 D4 G4']),
+         '0 6'],
+        ['in a pentatonic, the chords it can make',
+         fit(['G4 C5 E5 C5'], { root: 0, mood: 'open' }), '3'],
+        ['the chords, a bar each', played(both.chords.stages[0][2]),
+         'A3 D4'],
+        ['the bass, root, root and fifth',
+         played(both.bass.stages[0][2]), 'A1 A1 E2 D2 D2 A2'],
+        ['a pentatonic bass\'s fifth, in C an octave up',
+         played(followers([1], { root: 0, mood: 'open' }, 4)
+             .bass.stages[0][2]), 'D2 D2 A2'],
+        ['a note held into the next bar is in it', fitChords({
+             notes: '"C4 G4"', steps: '32',
+             cells: `"${'.'.repeat(24)}x${'.'.repeat(7)}/` +
+                    `x${'-'.repeat(31)}"` },
+             { root: 0, mood: 'bright' }, 4).join(' '), '0 0'],
+        ['a lone leading note is not a diminished chord',
+         fit(['B3 B3 B3 B3'], { root: 0, mood: 'bright' }), '4'],
+    ];
+
+    for (const [what, got, want] of cases)
+        if (got !== want)
+            fail(`band chords: ${what}: ${got}, not ${want}`);
+        else
+            process.stdout.write(`ok    band chords    ${what}\n`);
+}
+
+process.stdout.write(`\n${failures === 0 ? 'all passed' : failures + ' failed'}\n`);
+process.exitCode = failures;

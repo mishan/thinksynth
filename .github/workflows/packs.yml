@@ -1,0 +1,77 @@
+# The sample packs, as a release of their own.
+#
+# scripts/packs.py builds them from their CC0 sources -- a couple of hundred
+# megabytes of downloads and an ffmpeg pass -- and this publishes the result
+# as the release scripts/packs.py names in RELEASE (packs-1, packs-2, ...):
+# a tar per pack and the index, about 17 MB. The site's deploy and
+# `packs.py install' download that and never touch the sources.
+#
+# By hand, and apart from a thinksynth release: the packs change when a pack
+# is added or rebuilt, not when the program does. To publish, bump RELEASE,
+# merge, and run this on master. It refuses a tag that already exists -- a
+# release the deploy points at is not replaced under it -- marks its
+# release as not the latest, so the program's own releases stay what
+# /releases/latest is, and then runs the ci workflow on master, whose
+# deploy is what puts the release on the site: the deploy that came with
+# the merge ran before the release existed.
+
+name: sample packs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  publish:
+    name: build and publish the sample packs
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ffmpeg
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      # The tag, not only the release: a bare tag left behind would pass a
+      # release check and the release would be made on that old commit.
+      - name: The release this would make, not made already
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(python3 scripts/packs.py tag)
+          # Free only on a 404: any other failure is not an answer.
+          if out=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" 2>&1); then
+            echo "::error::the tag $tag exists already; bump RELEASE in scripts/packs.py"
+            exit 1
+          elif ! grep -q "HTTP 404" <<< "$out"; then
+            echo "::error::could not look up the tag $tag: $out"
+            exit 1
+          fi
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: The packs, from their sources
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/packs.py build out
+          python3 scripts/packs.py archive out
+
+      - name: The release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" out/*.tar out/index.json \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "Sample packs ($TAG)" \
+            --notes "Recorded instruments for the sampled_*.dsp graphs, built by scripts/packs.py at $GITHUB_SHA. Public domain (CC0): VSCO 2 Community Edition (Versilian Studios / Sam Gossner) and Big Rusty Drums (Karoryfer Samples)."
+
+      - name: The site, deployed with it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref master

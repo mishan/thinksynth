@@ -1,0 +1,1674 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <algorithm>
+#include <cmath>
+#include "config.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* For the one write(2) in reportNonFinite(). */
+#ifdef _WIN32
+# include <io.h>
+#else
+# include <unistd.h>
+#endif
+
+#include "think.h"
+
+/* Never reset, never reused. See thMidiChan::serial(). */
+std::atomic<unsigned long> thMidiChan::nextSerial_(1);
+
+thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
+                        long samplerate)
+{
+    const thArg *chanarg = NULL;
+
+    serial_ = nextSerial_.fetch_add(1, std::memory_order_relaxed);
+
+    modnode_ = mod;
+    effect_ = NULL;
+    windowlength_ = windowlen;
+    samplerate_ = (samplerate > 0) ? samplerate : TH_DEFAULT_SAMPLES;
+    dirty_ = 1;
+    channels_ = 1;
+    output_ = NULL;
+    bufmix_ = NULL;
+    bufamp_ = NULL;
+    ampPrimed_ = false;
+    ampY_ = 0;
+    playindex_ = -1;
+    triggerindex_ = -1;
+
+    for (int i = 0; i < TH_MAX_CHANNELS; i++)
+    {
+        outindex_[i] = -1;
+    }
+
+    polymax_ = TH_DEFAULT_POLY;
+    notecount_ = 0;
+    notecount_decay_ = 0;
+    mono_ = false;
+    choke_ = false;
+    monoCount_ = 0;
+    argSustain_ = NULL;
+    amp_ = NULL;
+
+    /* See describe(). Until then the guard still drops the voice; it just
+       has nothing to say and nowhere to count. */
+    channum_ = -1;
+    nonFinite_ = NULL;
+    saidNonFinite_ = false;
+    saidNonFiniteEffect_ = false;
+
+    if (!mod) {
+        /* This used to print and then dereference mod anyway. */
+        fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
+    }
+    else {
+        copyChanArgs(mod);
+        assignChanArgPointers(mod);
+    }
+
+    /* The channel's own level. Given a range, a label and a widget type so
+       it shows up as a slider wherever a channel's parameters are listed --
+       it is the one control every patch has, and it was the one control you
+       had to open another window to reach. 0..MIDIVALMAX because that is the
+       scale process() mixes with, dividing by it per sample. */
+    {
+        thArg *a = new thArg(string("amp"), amp);
+
+        a->setMin(0);
+        a->setMax(MIDIVALMAX);
+        a->setLabel("Amplitude");
+        a->setWidgetType(thArg::SLIDER);
+
+        ownArg(a);
+        amp_ = a;
+    }
+
+    /* The send, described like amp so a panel can draw it. */
+    send_ = new thArg(string(TH_SEND_ARG), 0);
+    send_->setMin(0);
+    send_->setMax(1);
+    send_->setLabel("Send");
+    send_->setWidgetType(thArg::SLIDER);
+    lastSend_ = 0;
+
+    if (modnode_) {
+        chanarg = modnode_->getArg("channels");
+    }
+
+    /* `channels' comes straight out of the .dsp, so it can be absent, zero, or
+       absurd. It sizes an allocation and drives the mix loop in thSynth. */
+    if (chanarg && chanarg->values()) {
+        channels_ = (int)chanarg->values()[0];
+    }
+
+    if (channels_ < 1 || channels_ > TH_MAX_CHANNELS) {
+        fprintf(stderr, "thMidiChan::thMidiChan: channel count %d out of "
+                "range, clamping to 1\n", channels_);
+        channels_ = 1;
+    }
+
+    /* `poly', `mono' and `choke', the three things a .dsp can say about how
+     * its voices are allocated. All are io-node constants like `channels',
+     * read once here, and the first two were literals in this constructor
+     * before.
+     *
+     * thNode::getArg rather than thSynthTree::getArg: the latter invents a
+     * zero-valued arg for a name it cannot find, and for `poly' a zero is not
+     * the absence of a setting -- it is "no limit". An absent `poly' has to
+     * stay absent, on the prototype the notes are copied from and on the io
+     * node the editor draws.
+     */
+    if (modnode_ && modnode_->IONode()) {
+        thNode *io = modnode_->IONode();
+
+        const thArg *polyarg = io->getArg("poly");
+
+        if (polyarg && polyarg->values()) {
+            polymax_ = (int)polyarg->values()[0];
+
+            /* A negative limit reads as "no limit" through the `polymax_ > 0'
+               test in process(), which is what 0 already means. Spelled here
+               so the two ways of saying it are one number. */
+            if (polymax_ < 0)
+                polymax_ = 0;
+        }
+
+        const thArg *monoarg = io->getArg("mono");
+
+        mono_ = (monoarg && monoarg->values() && monoarg->values()[0] != 0);
+
+        const thArg *chokearg = io->getArg("choke");
+
+        /* Exclusive with `mono', and `mono' wins. Retuning the voice that is
+           sounding and cutting it off are opposite answers to the same
+           question, so a graph that asks for both has asked twice; resolving
+           it here keeps the note path with one branch per mode rather than
+           four. */
+        choke_ = (!mono_ && chokearg && chokearg->values() &&
+                  chokearg->values()[0] != 0);
+    }
+
+    poolmax_ = (polymax_ > 0 && polymax_ < TH_POOL_MAX) ? polymax_
+                                                          : TH_POOL_MAX;
+    pool_.reserve(poolmax_);
+    restarts_ = 0;
+
+    output_ = new float[thOutputSamples(channels_, windowlength_)];
+    memset(output_, 0,
+           thOutputSamples(channels_, windowlength_) * sizeof(float));
+
+    /* windowlength_ never changes for a given channel -- a window-length change
+       builds new channels -- so the mix loop's scratch is allocated here rather
+       than grown on the stack of every call. Value-initialised for the same
+       reason thArg::allocate() is: getBuffer() leaves the buffer alone when the
+       arg it was handed is not a plain value, and a window of stale stack is
+       not something to hand to an output mixer. */
+    if (windowlength_ > 0)
+    {
+        bufmix_ = new float[windowlength_]();
+        bufamp_ = new float[windowlength_]();
+    }
+
+    indexIOArgs();
+
+    argSustain_ = new thArg(string("SusPedal"), 0);
+    argSustain_->setWidgetType(thArg::CHANARG);
+    argSustain_->setLabel(string("Sustain Pedal"));
+    ownArg(argSustain_);
+}
+
+void thMidiChan::ownArg (thArg *arg)
+{
+    thArg *&slot = args_[arg->name()];
+
+    if (slot)
+        shadowed_.push_back(slot);
+
+    slot = arg;
+}
+
+thMidiChan::~thMidiChan (void)
+{
+    /* clearAll() covers notes_, decaying_, fading_ and noteorder_; the old
+       destructor only walked notes_ and leaked every decaying note. Notes
+       hold copies of modnode_, so they have to go first.
+
+       NULL retire queue: by the time a channel is destroyed the GUI thread has
+       already taken it back off the audio thread, so there is nobody left to
+       hand the notes to and they are freed directly. */
+    clearAll(NULL);
+
+    /* What the synth's queue had no room for when this channel last
+       rendered, or what was retired into it after it was swapped out. */
+    thRetired item;
+
+    while (retiring_.pop(item))
+        item.destroy();
+
+    DestroyMap(args_);
+
+    for (thArg *a : shadowed_)
+        delete a;
+
+    delete send_;
+    send_ = NULL;
+
+    /* We own the tree (see the constructor comment). */
+    delete modnode_;
+    modnode_ = NULL;
+
+    delete effect_;
+    effect_ = NULL;
+
+    delete[] output_;
+    output_ = NULL;
+
+    delete[] bufmix_;
+    bufmix_ = NULL;
+
+    delete[] bufamp_;
+    bufamp_ = NULL;
+
+    emptyPool();
+}
+
+/* GUI thread, once, at construction.
+ *
+ * Two jobs, and the second is the one that matters. It records where the io
+ * node keeps out0..outN-1 and play so process() can reach them by subscript;
+ * and where the .dsp did not write one, it creates it *here*, so that every
+ * note copied from this tree already has it.
+ *
+ * That second half is not tidiness. thSynthTree::getArg(node, name) invents a
+ * zero-valued arg for a name it cannot find, which allocates and inserts into a
+ * std::map -- and process() called it by name, on the note's own tree. So a
+ * .dsp whose io node declares `channels = 2' and only ever assigns out0 had the
+ * first window of every note allocate and insert, on the audio thread. It is
+ * the same argument finishParse() already makes for note, velocity and trigger,
+ * one layer down.
+ *
+ * On the channel's prototype and not in finishParse() with those three,
+ * deliberately: the node editor parses its own tree through the same call, and
+ * its tree should hold only the args the author wrote. The engine's copy is
+ * where an arg the engine invents belongs.
+ */
+void thMidiChan::indexIOArgs (void)
+{
+    if (modnode_ == NULL || modnode_->IONode() == NULL)
+    {
+        return;
+    }
+
+    thNode *io = modnode_->IONode();
+
+    /* One digit: TH_MAX_CHANNELS is ten for exactly this reason. */
+    string name;
+
+    for (int i = 0; i < channels_ && i < TH_MAX_CHANNELS; i++)
+    {
+        name = OUTPUTPREFIX;
+        name += (char)(i + '0');
+
+        thArg *arg = io->getArg(name);
+
+        if (arg == NULL)
+        {
+            arg = io->setArg(name, 0);
+        }
+
+        if (arg)
+        {
+            outindex_[i] = arg->index();
+        }
+    }
+
+    /* play and trigger by the same rule. trigger is already guaranteed by
+       finishParse(); asking for it here costs nothing and means this function
+       does not depend on that staying true. */
+    thArg *play = io->getArg("play");
+
+    if (play == NULL)
+    {
+        play = io->setArg("play", 0);
+    }
+
+    if (play)
+    {
+        playindex_ = play->index();
+    }
+
+    thArg *trigger = io->getArg("trigger");
+
+    if (trigger == NULL)
+    {
+        trigger = io->setArg("trigger", 0);
+    }
+
+    if (trigger)
+    {
+        triggerindex_ = trigger->index();
+    }
+}
+
+/* Audio thread. */
+thArg *thMidiChan::resolveIOArg (thSynthTree *tree, int index)
+{
+    if (tree == NULL || index < 0)
+    {
+        return NULL;
+    }
+
+    thArg *arg = tree->getArg(tree->IONode(), index);
+
+    /* See the header: the indexed overload dereferences a chanarg before its
+       pointer chase and not after, so a chase that ends on one comes back
+       undereferenced. The by-name overload this replaced did it at the end. */
+    if (arg && arg->type() == thArg::ARG_CHANNEL)
+    {
+        arg = arg->argPtr();
+    }
+
+    return arg;
+}
+
+void thMidiChan::retireNote (thMidiNote *note, RetireQueue *retire)
+{
+    if (note == NULL)
+        return;
+
+    thRetired item;
+
+    item.kind = thRetired::NOTE;
+    item.note = note;
+
+    /* Destroying a note tears down a whole synth tree, so hand it to the GUI
+       thread. If the queue is backed up, take the hit here rather than leak. */
+    thRetire(retire, item);
+}
+
+void thMidiChan::setArg (thArg *arg, thArg *old, RetireQueue *retire)
+{
+    if (arg == NULL || arg == old)
+    {
+        return;
+    }
+
+    if (arg->name() == "SusPedal")
+    {
+        argSustain_ = arg;
+    }
+    else if (arg->name() == "amp")
+    {
+        amp_ = arg;
+    }
+
+    /* Node args hold raw thArg* into this map (see assignChanArgPointers),
+       in every voice copied from the prototype, so swapping an arg out from
+       under them leaves those pointers dangling. The prototype itself was
+       pointed at `arg' by the GUI thread before this was queued (see
+       pointPrototype), so every voice that is here now was copied either
+       before that -- and points at the old arg -- or after, and points at
+       this one already. Only the old pointers move: a pointer compare an arg,
+       and no lookups. */
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+        repoint(n, old, arg);
+
+    for (thMidiNote *n = decaying_.front(); n; n = NoteList::next(n))
+        repoint(n, old, arg);
+
+    for (thMidiNote *n = fading_.front(); n; n = NoteList::next(n))
+        repoint(n, old, arg);
+
+    /* Only now is nothing left pointing at it. */
+    if (old)
+    {
+        thRetired item;
+
+        item.kind = thRetired::ARG;
+        item.arg = old;
+        thRetire(retire, item);
+    }
+}
+
+/* Audio thread. See setArg. Every chanarg reference in `note' that named
+   `arg' and pointed at `old' -- NULL for an arg that did not exist -- now
+   points at `arg'. No allocation: a walk over maps that already exist. */
+void thMidiChan::repoint (thMidiNote *note, const thArg *old, thArg *arg)
+{
+    if (note == NULL)
+        return;
+
+    const thSynthTree::NodeMap &nodes = note->synthTree()->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        if (i->second == NULL)
+            continue;
+
+        const thArgMap &args = i->second->args();
+
+        for (thArgMap::const_iterator j = args.begin(); j != args.end(); ++j)
+        {
+            thArg *ref = j->second;
+
+            if (ref && ref->type() == thArg::ARG_CHANNEL &&
+                ref->argPtr() == old && ref->argPtrName() == arg->name())
+                ref->setArgPtr(arg);
+        }
+    }
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::setEffect (thChanEffect *effect, RetireQueue *retire)
+{
+    thChanEffect *old = effect_;
+
+    if (old == effect)
+    {
+        return;
+    }
+
+    effect_ = effect;
+
+    /* Unreachable from this channel now, so the GUI thread may destroy it --
+       which means tearing down a whole synth tree, the reason nothing here
+       deletes one. */
+    if (old != NULL)
+    {
+        thRetired item;
+
+        item.kind = thRetired::EFFECT;
+        item.effect = old;
+        thRetire(retire, item);
+    }
+
+    /* An effect runs on silence as readily as on a voice, and the buffer it
+       is handed has to be the silence rather than the last window that was
+       mixed into it. Taking one off leaves the buffer needing one more clear
+       for the same reason. */
+    dirty_ = true;
+}
+
+/* GUI thread.
+ *
+ * All this does is allocate. It reads modnode_, which the audio thread never
+ * writes -- notes run on their own copies of the tree, not on the prototype.
+ */
+thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
+                                   const float *aux, const unsigned char *say)
+{
+    if (modnode_ == NULL)
+        return NULL;
+
+    velocity = velocity * TH_MAX / MIDIVALMAX;
+
+    while (!pool_.empty())
+    {
+        thMidiNote *voice = pool_.back();
+
+        pool_.pop_back();
+
+        if (voice->restart(modnode_, note, velocity, level, aux, say))
+        {
+            restarts_++;
+            voice->synthTree()->prepare(true);
+            return voice;
+        }
+
+        delete voice;
+    }
+
+    thMidiNote *voice = new thMidiNote(modnode_, note, velocity, level, aux,
+                                       say);
+
+    voice->setChannel(serial_);
+
+    /* Every plugin output and state arg, and every smoothing ramp, grows to
+       the window on the voice's first one; done here, that is a memset on
+       the audio thread. */
+    const thSynthTree::NodeMap &nodes = voice->synthTree()->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        thPlugin *plug = i->second ? i->second->plugin() : NULL;
+
+        for (size_t k = 0; plug && k < i->second->smoothing().size(); k++)
+            i->second->smoothing()[k].ramp->reserve(windowlength_);
+
+        for (int a = 0; plug && a < plug->argCount(); a++)
+        {
+            thArg *arg = i->second->getArg(a);
+
+            if (arg && arg->type() == thArg::ARG_VALUE &&
+                plug->getArgDir(a) != thPlugin::ARG_IN)
+                arg->reserve(windowlength_);
+        }
+    }
+
+    voice->synthTree()->prepare(true);
+
+    return voice;
+}
+
+/* GUI thread. See the header. */
+void thMidiChan::emptyPool (void)
+{
+    for (size_t i = 0; i < pool_.size(); i++)
+        delete pool_[i];
+
+    pool_.clear();
+}
+
+/* GUI thread. See the header. */
+bool thMidiChan::recycle (thMidiNote *note)
+{
+    if (note == NULL || note->channel() != serial_ ||
+        pool_.size() >= poolmax_)
+        return false;
+
+    pool_.push_back(note);
+
+    return true;
+}
+
+/* GUI thread. See the header. */
+void thMidiChan::pointPrototype (const string &name, thArg *arg)
+{
+    if (modnode_ == NULL)
+        return;
+
+    const thSynthTree::NodeMap &nodes = modnode_->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        if (i->second == NULL)
+            continue;
+
+        const thArgMap &args = i->second->args();
+
+        for (thArgMap::const_iterator j = args.begin(); j != args.end(); ++j)
+        {
+            thArg *ref = j->second;
+
+            if (ref && ref->type() == thArg::ARG_CHANNEL &&
+                ref->argPtrName() == name)
+                ref->setArgPtr(arg);
+        }
+    }
+}
+
+/* Audio thread. Takes a voice out of notes_ and leaves it sounding in
+   decaying_: it is no longer anybody's pitch, but its release still has to be
+   heard. Was written out inside insertNote's same-pitch case. */
+void thMidiChan::decayNote (thMidiNote *note)
+{
+    /* Make sure to turn off the old note, or it will hang! */
+    setTrigger(note, 0);
+
+    notes_.remove(note);
+    noteorder_.remove(note);
+    decaying_.push_front(note);
+    notecount_decay_++; /* we are keeping track of polyphony this way until
+                          the advanced cool method is implemented */
+
+    /* And off the held count, because the voice has left notes_.
+     *
+     * This used to be left alone, on the grounds that the new note replaces
+     * this one -- but every caller then counts that new note itself, so the
+     * voice that moved was counted twice until the recount at the end of
+     * process(). The polyphony test runs *before* that recount, so a channel
+     * with `poly' voices held read as `poly + 1' the moment one of them was
+     * struck again, and retired the release it had just started. That is the
+     * opposite of what a `poly' of two is for: dsp/bass.dsp asks for it so a
+     * retrigger does not cut the previous note's release off where it stood,
+     * and the arithmetic was cutting it off. */
+    if (notecount_ > 0)
+        notecount_--;
+}
+
+/* Audio thread. See the header, and TH_VOICE_FADE_MS for the length. */
+void thMidiChan::fadeNote (thMidiNote *note)
+{
+    if (note == NULL)
+        return;
+
+    note->beginFade((int)((samplerate_ * TH_VOICE_FADE_MS) / 1000));
+
+    fading_.push_back(note);
+}
+
+/* Audio thread. See the header. */
+thMidiNote *thMidiChan::findNote (int id)
+{
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+        if (n->id() == id)
+            return n;
+
+    return NULL;
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::keyNote (thMidiNote *note)
+{
+    thMidiNote *at = notes_.front();
+
+    while (at && at->id() < note->id())
+        at = NoteMap::next(at);
+
+    notes_.insert(at, note);
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::setTrigger (thMidiNote *note, float value)
+{
+    thNode *io = note->synthTree()->IONode();
+    thArg *trigger = io ? io->getArg(triggerindex_) : NULL;
+
+    if (trigger)
+        trigger->setArg(trigger->name(), value);
+    else
+        note->setArg("trigger", value);
+}
+
+/* Audio thread. The one voice a mono channel is playing, or NULL. See the
+   header for why a releasing voice does not count. */
+thMidiNote *thMidiChan::monoVoice (void)
+{
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+    {
+        thArg *trigger = resolveIOArg(n->synthTree(), triggerindex_);
+
+        /* `> 0' and not `!= 0': 1 is a key down and 2 is the pedal holding
+           one, and both are voices to slide into. A negative one is a voice
+           the choke has cut, which is not this channel's mode but is a value
+           this arg now carries. */
+        if (trigger && (*trigger)[0] > 0)
+            return n;
+    }
+
+    return NULL;
+}
+
+/* Audio thread. Last-note priority: the top of the stack is what sounds. */
+void thMidiChan::monoPush (float note, float level)
+{
+    monoPop(note);
+
+    /* Full means a hundred and twenty-eight distinct pitches held at once,
+       which a keyboard cannot do. Drop the oldest rather than allocate. */
+    if (monoCount_ >= TH_MONO_STACK)
+    {
+        memmove(monoStack_, monoStack_ + 1,
+                (TH_MONO_STACK - 1) * sizeof(float));
+        memmove(monoLevels_, monoLevels_ + 1,
+                (TH_MONO_STACK - 1) * sizeof(float));
+        monoCount_ = TH_MONO_STACK - 1;
+    }
+
+    monoStack_[monoCount_] = note;
+    monoLevels_[monoCount_++] = level;
+}
+
+/* Audio thread. True if the pitch was on the stack. */
+bool thMidiChan::monoPop (float note)
+{
+    for (int i = 0; i < monoCount_; i++)
+    {
+        if ((int)monoStack_[i] != (int)note)
+            continue;
+
+        memmove(monoStack_ + i, monoStack_ + i + 1,
+                (monoCount_ - i - 1) * sizeof(float));
+        memmove(monoLevels_ + i, monoLevels_ + i + 1,
+                (monoCount_ - i - 1) * sizeof(float));
+        monoCount_--;
+
+        return true;
+    }
+
+    return false;
+}
+
+/* Audio thread. This is what used to be the second half of addNote(), and it
+   is the part that has to be here: touching notes_ and noteorder_ from the GUI
+   thread while process() walked them is what produced the static.
+ *
+ * In mono the note that arrives may never be installed at all. The GUI thread
+ * cannot know whether a voice is sounding without racing this one, so it
+ * builds a voice for every note press; here, if there is one to slide, the
+ * new voice goes straight back on the retire queue and the sounding one is
+ * retuned instead. That copy is the price of not sharing state across the
+ * boundary, and it is the same copy every note already pays.
+ */
+void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
+{
+    if (midinote == NULL)
+        return;
+
+
+    int id = midinote->id();
+
+    /* A key pressed again on this graph is a key let go of on the one being
+       drained. A sequencer that presses a held key again sends one note-off,
+       for the last press, so the old graph's copy of the key would
+       otherwise wait for an off that only comes when the new graph's does
+       -- and, re-pressed again before then, never. */
+    if (draining_ != NULL)
+    {
+        draining_->releaseNote(id);
+
+        /* And a monophonic instrument sounds one key: the new graph's takes
+           the old one's place, as it would have taken over the voice had
+           the graph not changed. */
+        if (mono_)
+            draining_->releaseHeld();
+    }
+
+    if (mono_)
+    {
+        thMidiNote *voice = monoVoice();
+
+        monoPush(midinote->note(), midinote->level());
+
+        if (voice != NULL)
+        {
+            /* A slide. The voice keeps its envelopes, its filter state and
+               its velocity -- only the pitch moves, and a misc::slew on the
+               frequency inside the graph is what turns that move into a
+               glide. */
+            notes_.remove(voice);
+            voice->retune(midinote->note());
+            voice->setLevel(midinote->level());
+            voice->takeSay(midinote);
+            keyNote(voice);
+
+            /* A key is down again, so the pedal no longer owns this voice.
+               Without this, releasing the new key with the pedal up would
+               leave a 2 that nothing turns into a 0. */
+            setTrigger(voice, 1);
+
+            retireNote(midinote, retire);
+            return;
+        }
+
+        /* Nothing to slide into: the previous voice, if any, is in its
+           release, and a rest between two notes is a retrigger. It has to
+           leave notes_ first -- mono keys that map by pitch, and the new
+           voice may be at the same one. */
+        while (!notes_.empty())
+            decayNote(notes_.front());
+    }
+
+    /* The choke: every voice that is keyed, not only the one at this pitch.
+       A closed hat and the open one it has to kill are different notes, which
+       is the whole reason a choke group is not a retrigger. They go where a
+       retrigger's voice goes -- into decaying_, still sounding, with their
+       envelopes in release -- and the new voice below attacks from the start.
+       `poly' is what decides how much of that overlap the channel can
+       afford.
+
+       `trigger' goes to -1 rather than 0, which is the same protocol the
+       pedal's 2 is: every envelope in the tree tests `> 0' for held, so a
+       negative one is a release exactly as a zero is. What it adds is a
+       voice that can tell the two apart -- a one-shot drum ignores the key
+       coming up and has to answer the choke, and `clamp(1 + trigger, 0, 1)'
+       inside the graph is that distinction and nothing else. */
+    if (choke_)
+    {
+        while (!notes_.empty())
+        {
+            thMidiNote *cut = notes_.front();
+
+            decayNote(cut);
+            setTrigger(cut, -1);
+        }
+    }
+
+    if (thMidiNote *same = findNote(id)) {
+        decayNote(same);
+    }
+    notecount_++; /* see notecount_decay_++ comment */
+
+    keyNote(midinote);
+    noteorder_.push_back(midinote);
+
+    (void)retire;
+}
+
+/* Audio thread. Was thSynth::delNote poking the note's `trigger' arg directly
+   from the GUI thread. */
+void thMidiChan::releaseNote (int note)
+{
+    int sustain = sustainNow();
+
+    /* A key held across a swap was pressed on the graph being drained. */
+    if (draining_ != NULL)
+        draining_->releaseNote(note);
+
+    if (mono_)
+    {
+        /* The stack is the keys that are down, and it is the only thing that
+           knows which pitch this was: after a slide the voice is keyed under
+           the pitch it slid *to*, so notes_.find(note) would miss the key
+           that started it.
+         *
+           A pitch that is not on the stack is a note-off for something this
+           channel never sounded, which is what an unmatched one has always
+           been. */
+        if (!monoPop((float)note))
+            return;
+
+        thMidiNote *voice = monoVoice();
+
+        if (voice == NULL)
+            return;
+
+        if (monoCount_ > 0)
+        {
+            /* Another key is still down: fall back to the newest of them.
+               That is the same pitch again when the key released was not the
+               one sounding, in which case the retune is a no-op. */
+            notes_.remove(voice);
+            voice->retune(monoStack_[monoCount_ - 1]);
+            voice->setLevel(monoLevels_[monoCount_ - 1]);
+            keyNote(voice);
+
+            return;
+        }
+
+        /* 2 means "released but held by the pedal"; process() turns it into 0
+           when the pedal comes up. */
+        setTrigger(voice, sustain ? 2 : 0);
+
+        return;
+    }
+
+    thMidiNote *voice = findNote(note);
+
+    /* find() returning end() was not checked, so an unknown note dereferenced
+       the past-the-end iterator. */
+    if (voice == NULL)
+    {
+        return;
+    }
+
+    setTrigger(voice, sustain ? 2 : 0);
+}
+
+/* Audio thread (or the destructor, once the audio thread has stopped). */
+void thMidiChan::clearAll (RetireQueue *retire)
+{
+    /* This used to be:
+     *
+     *   for (i = notes_.begin(); i != notes_.end(); i++) {
+     *       delete i->second; notes_.erase(i);
+     *   }
+     *
+     * -- erase() invalidates i, and then i++ advances the dead iterator. The
+     * decaying_ loop had the same bug plus a double advance (erase() returns
+     * the next element and the loop then incremented past it).
+     *
+     * noteorder_ was never cleared either, so it was left holding pointers to
+     * every note this function had just freed.
+     */
+    for (thMidiNote *n = notes_.front(), *next; n; n = next)
+    {
+        next = NoteMap::next(n);
+        retireNote(n, retire);
+    }
+    notes_.clear();
+
+    for (thMidiNote *n = decaying_.front(), *next; n; n = next)
+    {
+        next = NoteList::next(n);
+        retireNote(n, retire);
+    }
+    decaying_.clear();
+
+    /* Mid-ramp, and there is no window left to finish the ramp in. */
+    for (thMidiNote *n = fading_.front(), *next; n; n = next)
+    {
+        next = NoteList::next(n);
+        retireNote(n, retire);
+    }
+    fading_.clear();
+
+    noteorder_.clear();
+
+    notecount_ = 0;
+    notecount_decay_ = 0;
+
+    /* Every key is up as far as this channel is concerned: it has no voices
+       left to hand them to. */
+    monoCount_ = 0;
+
+    /* Nor any graph it was letting finish. */
+    if (draining_ != NULL)
+    {
+        thRetired item;
+
+        item.kind = thRetired::CHANNEL;
+        item.channel = draining_;
+        thRetire(retire, item);
+
+        draining_ = NULL;
+    }
+}
+
+/* Audio thread. Every key this channel holds, released as its note-off
+   would release it. */
+void thMidiChan::releaseHeld (void)
+{
+    /* Oldest first. Each release pops the bottom of the stack and leaves the
+       voice keyed at the top, so the walk below sees the keys it had. */
+    while (monoCount_ > 0)
+        releaseNote((int)monoStack_[0]);
+
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+        releaseNote(n->id());
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::silence (int samples)
+{
+    /* The held voices leave noteorder_ for fading_ on the same link. */
+    noteorder_.clear();
+
+    for (thMidiNote *n = notes_.front(); n; n = NoteMap::next(n))
+    {
+        n->beginFade(samples);
+        fading_.push_back(n);
+    }
+
+    notes_.clear();
+
+    for (thMidiNote *n = decaying_.front(), *next; n; n = next)
+    {
+        next = NoteList::next(n);
+        n->beginFade(samples);
+        fading_.push_back(n);
+    }
+
+    decaying_.clear();
+
+    /* Those already fading keep the ramp they have, which is shorter:
+       beginFade does not restart one. */
+
+    notecount_ = 0;
+    notecount_decay_ = 0;
+    monoCount_ = 0;
+
+    if (effect_)
+        effect_->fadeOut(samples);
+
+    if (draining_ != NULL)
+        draining_->silence(samples);
+}
+
+thMidiNote *thMidiChan::getNote (int note)
+{
+    return findNote(note);
+}
+
+int thMidiChan::setNoteArg (int note, const string &name, float value)
+{
+    if (thMidiNote *voice = findNote(note)) {
+        voice->setArg(name, value);
+        return 1;
+    }
+
+    return 0;
+}
+
+int thMidiChan::setNoteArg (int note, const string &name, const float *value,
+                            int len)
+{
+    if (thMidiNote *voice = findNote(note)) {
+        voice->setArg(name, value, len);
+        return 1;
+    }
+
+    return 0;
+}
+
+void thMidiChan::copyChanArgs (thSynthTree *tree)
+{
+    thArg *data, *newdata;
+
+    if (tree == NULL)
+    {
+        return;
+    }
+
+    const thArgMap &sourceargs = tree->chanArgs();
+
+    for (thArgMap::const_iterator i = sourceargs.begin();
+         i != sourceargs.end(); i++)
+    {
+        data = i->second;
+
+        if (data == NULL)
+        {
+            continue;
+        }
+
+        newdata = new thArg(data);
+
+        /* Don't leak the arg this replaces. */
+        thArgMap::iterator existing = args_.find(i->first);
+
+        if (existing != args_.end())
+        {
+            delete existing->second;
+            existing->second = newdata;
+        }
+        else
+        {
+            args_[i->first] = newdata;
+        }
+    }
+}
+
+void thMidiChan::retempo (double bpm)
+{
+    if (modnode_)
+        modnode_->retempo(bpm, args_);
+}
+
+void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
+                          int nprobes, const float *side, int sidechannels,
+                          const float *drainSide, int drainSidechannels)
+{
+    if (output_ == NULL || bufmix_ == NULL || bufamp_ == NULL ||
+        windowlength_ <= 0)
+    {
+        return;
+    }
+
+    if (dirty_)
+    {
+        memset(output_, 0,
+               thOutputSamples(channels_, windowlength_) * sizeof(float));
+    }
+    dirty_ = false;
+
+
+    thMidiNote *data;
+    thArg *amp, *play;
+
+    int sustain = sustainNow();
+
+    amp = amp_;
+
+    if (amp == NULL)
+    {
+        return;
+    }
+
+    /* Once, rather than per channel per note. amp is the channel's own arg, not
+       the note's: it was the same buffer every time round both loops, fetched
+       afresh each time. */
+    amp->getBuffer(bufamp_, windowlength_);
+
+    /* A level ride is a knob like any other; see thSynthTree::smoothArgs. */
+    if (amp->len() == 1)
+    {
+        const float x = bufamp_[0];
+
+        if (!ampPrimed_ || !thIsFinite(x) || !thIsFinite(ampY_))
+            ampY_ = x;
+
+        ampPrimed_ = true;
+
+        if (ampY_ != x)
+            thGlide(bufamp_, windowlength_, ampY_, x, TH_SMOOTH_MS,
+                    samplerate_);
+    }
+
+    /* Before any processing, we shall do a polyphony test. */
+    if (notecount_ + notecount_decay_ > polymax_ && polymax_ > 0) 
+    {
+        /* we have too many notes, and polyphony > 0 */
+
+        if (notecount_decay_ > 0) /* there are some notes not being held down */
+        {
+            /* decayNote pushes new releases at the front, so the oldest
+               release is at the back. Keep the recent cut audible when a
+               third quick hit exceeds a two-voice choke group's limit. */
+            while (!decaying_.empty() && notecount_decay_ > 0 &&
+                   notecount_ + notecount_decay_ > polymax_)
+            {
+                thMidiNote *oldest = decaying_.back();
+
+                decaying_.remove(oldest);
+                fadeNote(oldest);
+                notecount_decay_--;
+            }
+        }
+        if (notecount_ > polymax_) /* too many notes held down */
+        {
+            while (!noteorder_.empty() && notecount_ > polymax_)
+            {
+                thMidiNote *oldest = noteorder_.front();
+
+                notes_.remove(oldest);
+                noteorder_.remove(oldest);
+                fadeNote(oldest);
+                notecount_--;
+            }
+        }
+    }
+
+    /* re-count the notes as we process, just to be sure nothing screws up */
+    notecount_ = 0;
+    notecount_decay_ = 0;
+
+    thMidiNote *next;
+
+    for (data = notes_.front(); data; data = next)
+    {
+        notecount_++;
+
+        next = NoteMap::next(data);
+
+        play = mixNote(data, sustain, probes, nprobes);
+
+        if (play && (*play)[windowlength_ - 1] == 0)
+        {
+            noteorder_.remove(data);
+            notes_.remove(data);
+            notecount_--;  /* polyphony stuff */
+
+            /* Hand it to the GUI thread: this frees an entire synth tree. */
+            retireNote(data, retire);
+        }
+    }
+
+    /* Now, the [almost] exact same thing for the list of decaying notes -- the
+       `almost' being only the bookkeeping below, which is why the rest of it is
+       mixNote() rather than a second copy. */
+    for (data = decaying_.front(); data; data = next)
+    {
+        notecount_decay_++;
+        next = NoteList::next(data);
+
+        play = mixNote(data, sustain, probes, nprobes);
+
+        if (play && (*play)[windowlength_ - 1] == 0)
+        {
+            decaying_.remove(data);
+            retireNote(data, retire);
+            notecount_decay_--;  /* more polyphony stuff */
+        }
+    }
+
+    /* And the voices that were stolen, which are neither held nor released:
+       they are being ramped out by mixNote() and retired when the ramp runs
+       out. Not counted by either counter above -- see fading_ -- so a channel
+       already at its limit does not pay for a steal with another steal.
+
+       Retired early on `play' as well, because a voice whose graph has
+       finished anyway has nothing left to ramp. */
+    for (data = fading_.front(); data; data = next)
+    {
+        next = NoteList::next(data);
+
+        play = mixNote(data, sustain, probes, nprobes);
+
+        if (data->advanceFade(windowlength_) ||
+            (play && (*play)[windowlength_ - 1] == 0))
+        {
+            fading_.remove(data);
+            retireNote(data, retire);
+        }
+    }
+
+    /* And then the channel's own graph, on what the voices summed to.
+     *
+     * Every window, whether or not a voice sounded: a delay's tail is
+     * precisely the part that comes out after the last note-off, and an
+     * effect that only ran while something was playing would cut off the one
+     * thing it exists for. dirty_ below is what feeds it the silence -- the
+     * mix loop above sets dirty_ only when it mixes a voice, so without this
+     * the buffer would stop being cleared and the effect would be handed the
+     * last window that was mixed, over and over.
+     *
+     * One tree per window per channel that has one, which is cheaper than a
+     * single voice. */
+    if (effect_ != NULL)
+    {
+        /* The controller's 0..127, as the fraction a graph wants. */
+        const float pedal = sustainNow() / 127.0f;
+
+        if (!effect_->process(output_, channels_, windowlength_, side,
+                              sidechannels, pedal))
+        {
+            reportNonFinite(GUARD_EFFECT);
+        }
+
+        dirty_ = true;
+    }
+
+    if (draining_ != NULL)
+        mixDraining(retire, drainSide, drainSidechannels);
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::drain (thMidiChan *old)
+{
+    /* One graph finishing behind this one, and the one it was letting
+       finish faded out now: a patch stepped through under a held chord
+       stacked every graph on the way, each rendering with its effect for
+       as long as thirty seconds. */
+    if (old != NULL && old->draining_ != NULL && old->drainFade_ < 0)
+        old->drainFade_ =
+            (int)(old->samplerate_ / 10 / old->windowlength_) + 1;
+
+    draining_ = old;
+    drainQuiet_ = 0;
+    drainSilentVoices_ = 0;
+    drainWindows_ = 0;
+    drainFade_ = -1;
+    drainAmp_ = amp_ != NULL ? (*amp_)[0] : 0;
+}
+
+/* Below -100 dB, which a 16-bit render rounds to nothing. */
+static const float TH_DRAIN_QUIET = 1e-5f;
+
+/* Audio thread. See drain(). */
+void thMidiChan::mixDraining (RetireQueue *retire, const float *side,
+                              int sidechannels)
+{
+    thMidiChan *old = draining_;
+
+    old->pedalFrom_ = (float)sustainNow();
+    old->process(retire, NULL, 0, side, sidechannels);
+
+    /* Quiet for a quarter of a second once its voices are done, and it is
+       put away as it is. A tail that never gets there -- an effect making
+       sound of its own, the room through a microphone -- has ten seconds
+       after the last voice, and anything at all half a minute, and is then
+       faded rather than cut. */
+    const int quietWindows = (int)(samplerate_ / 4 / windowlength_) + 1;
+    const int tailWindows = (int)(samplerate_ * 10 / windowlength_) + 1;
+    const int maxWindows = (int)(samplerate_ * 30 / windowlength_) + 1;
+    const int fadeWindows = (int)(samplerate_ / 10 / windowlength_) + 1;
+
+    const float *in = old->output();
+    float peak = 0;
+
+    if (in != NULL && old->channels_ > 0)
+    {
+        const int oc = old->channels_;
+        const float fade0 = drainFade_ < 0 ? 1 : (float)drainFade_ / fadeWindows;
+        const float fade1 = drainFade_ < 0 ? 1
+                          : (float)std::max(drainFade_ - 1, 0) / fadeWindows;
+
+        for (int j = 0; j < windowlength_; j++)
+        {
+            /* This channel's level now against its level at the swap, so the
+               fader reaches the tail as it reaches everything else on the
+               channel; and the fade, if one is running. */
+            float g = drainAmp_ > 0 ? bufamp_[j] / drainAmp_ : 1;
+
+            g *= fade0 + (fade1 - fade0) * j / windowlength_;
+
+            /* A graph wider than this one is folded into its last output
+               rather than losing a side; a narrower one is heard in every
+               output past its own. */
+            for (int c = 0; c < channels_; c++)
+            {
+                float x;
+
+                if (c < channels_ - 1 || oc <= channels_)
+                    x = in[j * oc + std::min(c, oc - 1)];
+                else
+                {
+                    x = 0;
+
+                    for (int k = c; k < oc; k++)
+                        x += in[j * oc + k];
+
+                    x /= (float)(oc - c);
+                }
+
+                output_[j * channels_ + c] += x * g;
+                peak = std::max(peak, std::fabs(x));
+            }
+        }
+
+        dirty_ = true;
+    }
+
+    const bool voices = !old->notes_.empty() || !old->decaying_.empty() ||
+                        !old->fading_.empty() || old->draining_ != NULL;
+
+    drainQuiet_ = (!voices && peak < TH_DRAIN_QUIET) ? drainQuiet_ + 1 : 0;
+    drainSilentVoices_ = voices ? 0 : drainSilentVoices_ + 1;
+    drainWindows_++;
+
+    if (drainFade_ < 0 && (drainSilentVoices_ >= tailWindows ||
+                           drainWindows_ >= maxWindows))
+        drainFade_ = fadeWindows;
+    else if (drainFade_ > 0)
+        drainFade_--;
+
+    if (drainQuiet_ < quietWindows && drainFade_ != 0)
+        return;
+
+    thRetired item;
+
+    item.kind = thRetired::CHANNEL;
+    item.channel = old;
+
+    /* A full queue is tried again next window rather than freeing a whole
+       channel here. The fade has ended, so it is silent while it waits. */
+    if (retire != NULL && retire->push(item))
+        draining_ = NULL;
+}
+
+/* GUI thread, once, from thSynth::loadTree.
+ *
+ * The line reportNonFinite() writes is built here rather than there, so that
+ * the audio thread's part in saying a voice went non-finite is one write(2) of
+ * a buffer that already exists. */
+void thMidiChan::describe (int channum, const string &graph,
+                           std::atomic<unsigned long> *nonFinite)
+{
+    channum_ = channum;
+    graph_ = graph;
+    nonFinite_ = nonFinite;
+
+    char line[256];
+    const char *name = graph_.empty() ? "unnamed graph" : graph_.c_str();
+
+    int n = snprintf(line, sizeof(line),
+                     "thMidiChan: channel %d (%s): a voice went "
+                     "non-finite; note retired\n", channum_, name);
+
+    if (n > 0)
+    {
+        const size_t len = (n < (int)sizeof(line)) ? (size_t)n
+                                                   : sizeof(line) - 1;
+
+        message_.assign(line, len);
+    }
+
+    /* The effect's line names the channel rather than its own file, because
+       describe() is called when the instrument loads and an effect may be put
+       on afterwards or not at all. What it has to say is which channel went
+       quiet, and it says that. */
+    n = snprintf(line, sizeof(line),
+                 "thMidiChan: channel %d (%s): the effect went non-finite; "
+                 "the dry signal is going out instead\n", channum_, name);
+
+    if (n > 0)
+    {
+        const size_t len = (n < (int)sizeof(line)) ? (size_t)n
+                                                   : sizeof(line) - 1;
+
+        effectMessage_.assign(line, len);
+    }
+}
+
+/* Audio thread. The io node's outputs and nothing else: plugin state and
+ * intermediate nodes are not what reaches the sum. bufmix_ is the mix loop's
+ * scratch, borrowed -- the loop refills it per channel before use.
+ */
+bool thMidiChan::voiceIsFinite (thSynthTree *tree)
+{
+    if (bufmix_ == NULL)
+    {
+        return true;
+    }
+
+    for (int i = 0; i < channels_; i++)
+    {
+        thArg *arg = resolveIOArg(tree, outindex_[i]);
+
+        if (arg == NULL)
+        {
+            continue;
+        }
+
+        arg->getBuffer(bufmix_, windowlength_);
+
+        for (int j = 0; j < windowlength_; j++)
+        {
+            if (!thIsFinite(bufmix_[j]))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+/* Audio thread. */
+void thMidiChan::reportNonFinite (Guard which)
+{
+    if (nonFinite_ != NULL)
+    {
+        nonFinite_->fetch_add(1, std::memory_order_relaxed);
+    }
+
+    bool &said = (which == GUARD_EFFECT) ? saidNonFiniteEffect_
+                                         : saidNonFinite_;
+    const string &message = (which == GUARD_EFFECT) ? effectMessage_
+                                                    : message_;
+
+    if (said)
+    {
+        return;
+    }
+
+    said = true;
+
+    /* One write(2) of a line built on the GUI thread, not an fprintf.
+     *
+     * stdio takes a lock and can allocate on first use, so formatting here
+     * would put both on the audio thread -- and a stderr nobody is draining
+     * would block it outright. describe() does the formatting, at load time;
+     * what is left is one syscall on a buffer that already exists, which is
+     * what a signal handler is allowed to do and so is safe here.
+     *
+     * A short write is ignored. The alternative is a loop on the audio thread
+     * to say something that is already only a diagnostic. */
+    if (!message.empty())
+    {
+#ifdef _WIN32
+        (void)_write(2, message.data(), (unsigned int)message.size());
+#else
+        ssize_t ignored = write(2, message.data(), message.size());
+
+        (void)ignored;
+#endif
+    }
+}
+
+/* Audio thread. One note: run it, tap it, apply the pedal, and mix its channels
+ * into output_. Returns the note's `play' arg, which is the only thing the two
+ * loops in process() do differently with -- one erases from a map and a list,
+ * the other from a list.
+ *
+ * Nothing here looks anything up by name. Every arg it needs was resolved to an
+ * index at construction (see indexIOArgs), and both halves of an arg's address
+ * survive the per-note tree copy, so reaching the same arg in this voice's own
+ * tree is a subscript.
+ */
+thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
+                            thProbe *const *probes, int nprobes)
+{
+    if (note == NULL)
+    {
+        return NULL;
+    }
+
+    dirty_ = true;
+
+    note->process(windowlength_);
+
+    thSynthTree *tree = note->synthTree();
+
+    if (tree == NULL)
+    {
+        return NULL;
+    }
+
+    /* Called for held and decaying notes alike, not just the held ones. A note
+       in release is still sounding, and a display that went blank the instant a
+       key came up would be wrong in the most visible way available. */
+    for (int p = 0; p < nprobes; p++)
+    {
+        probes[p]->accumulate(tree);
+    }
+
+    thArg *play = resolveIOArg(tree, playindex_);
+    thArg *trigger = resolveIOArg(tree, triggerindex_);
+
+    /* 2 means "released but held by the pedal". */
+    if (trigger && (*trigger)[0] == 2 && sustain < 0x40)
+    {
+        trigger->setValue(0);
+    }
+
+    /* The per-voice non-finite guard, before any of this voice is mixed.
+     *
+     * NaN plus anything is NaN, so a bad voice added into output_ takes every
+     * other voice on the channel with it for the rest of the window, and
+     * thSoftLimit turns that into silence downstream. A voice that went
+     * non-finite therefore contributes nothing, is retired and is counted,
+     * leaving the rest of the mix alone.
+     *
+     * The limiter stays the backstop: this only sees what a voice hands the io
+     * node, and a graph can still diverge somewhere no channel reads. */
+    if (!voiceIsFinite(tree))
+    {
+        reportNonFinite(GUARD_VOICE);
+
+        /* Both loops in process() retire from play's last sample. Written
+           through the existing buffer rather than setValue(0), which
+           reallocates to length one -- on the audio thread. */
+        if (play != NULL && play->values() != NULL)
+        {
+            memset(play->values(), 0, play->len() * sizeof(float));
+        }
+
+        return play;
+    }
+
+    /* A voice ends at the sample its `play' falls to 0, not at the end of
+       the window that sample is in: one sample a window, that is where it
+       is retired, and a voice must sound the same at any window. The rest
+       of `play' is zeroed so that the loops in process() retire it on its
+       last sample, as they would have one window at a time. */
+    int end = windowlength_;
+
+    for (int j = 0; play != NULL && j < windowlength_; j++)
+    {
+        if ((*play)[j] == 0)
+        {
+            end = j + 1;
+            break;
+        }
+    }
+
+    if (end < windowlength_ && play->len() >= (unsigned)windowlength_)
+    {
+        memset(play->values() + end, 0,
+               (windowlength_ - end) * sizeof(float));
+    }
+
+    const bool fading = note->fading();
+
+    /* channels_ is clamped to TH_MAX_CHANNELS in the constructor, which is what
+       makes outindex_ big enough. */
+    for (int i = 0; i < channels_; i++)
+    {
+        thArg *arg = resolveIOArg(tree, outindex_[i]);
+
+        /* A DSP whose io node declares more channels than it wires up now has a
+           zero-valued out<i> put there by indexIOArgs(), so reaching this means
+           the pointer chase itself failed. */
+        if (arg == NULL)
+        {
+            continue;
+        }
+
+        arg->getBuffer(bufmix_, windowlength_);
+
+        int index = i;
+
+        if (fading)
+        {
+            /* A stolen voice, on its way out. The ramp is per window rather
+               than per channel, so every channel of the voice is scaled by
+               the same number at the same sample and the image does not move
+               while it goes. The window is charged against the ramp once,
+               by the loop in process() that owns fading_. */
+            for (int j = 0; j < end; j++)
+            {
+                output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX) *
+                                  note->level() * note->fadeGain(j);
+                index += channels_;
+            }
+        }
+        else
+        {
+            for (int j = 0; j < end; j++)
+            {
+                output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX) *
+                                  note->level();
+                index += channels_;
+            }
+        }
+    }
+
+    return play;
+}
+
+/* XXX: the tree this walks is shared between every channel that loaded the same
+   .dsp (thSynth::treelist_), so the last channel constructed wins and the
+   others are left pointing into a thMidiChan that may since have been
+   destroyed. Fixing that properly means giving each channel its own tree, or
+   resolving chanargs at process time rather than caching pointers. */
+void thMidiChan::assignChanArgPointers (thSynthTree *tree)
+{
+    thNode *curnode;
+    thArg *curarg;
+
+    if (tree == NULL)
+    {
+        return;
+    }
+
+    const thSynthTree::NodeMap &sourcenodes = tree->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = sourcenodes.begin();
+         i != sourcenodes.end(); i++)
+    {
+        curnode = i->second;
+
+        if (curnode == NULL)
+        {
+            continue;
+        }
+
+        const thArgMap &sourceargs = curnode->args();
+
+        for (thArgMap::const_iterator j = sourceargs.begin();
+         j != sourceargs.end(); j++)
+        {
+            curarg = j->second;
+
+            if (curarg && curarg->type() == thArg::ARG_CHANNEL)
+            {
+                /* getArg() rather than args_[...]: the latter inserted a NULL
+                   for every unknown chanarg name, and the NULL then got handed
+                   to the audio thread as an arg pointer. */
+                thArg *target = getArg(curarg->argPtrName());
+
+                if (target == NULL)
+                {
+                    fprintf(stderr, "thMidiChan: node '%s' arg '%s' references "
+                            "undeclared chanarg '@%s'\n",
+                            curnode->name().c_str(), curarg->name().c_str(),
+                            curarg->argPtrName().c_str());
+
+                    /* A node reads its args without asking whether
+                       they are there, so it reads a 0, kept in args_ so
+                       setChanArg can replace it like any other. */
+                    target = new thArg(curarg->argPtrName(), 0);
+                    args_[target->name()] = target;
+                }
+
+                curarg->setArgPtr(target);
+            }
+        }
+    }
+}

@@ -1,0 +1,2532 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include "config.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <ctype.h>      /* isalnum, isdigit -- used by the RHS parsing */
+
+#include <sys/stat.h>   /* stat, chmod -- writeText preserves the mode */
+#include <unistd.h>     /* access -- and refuses a read-only target */
+
+#include <fstream>
+#include <vector>
+
+#include "think.h"
+#include "thUnits.h"
+#include "NodeEdit.h"
+
+const char *NodeEdit::resultText (Result r)
+{
+    switch (r)
+    {
+        case OK:          return "written";
+        case NO_NODE:     return "no such node in the file";
+        case NOT_A_VALUE: return "that parameter is wired to something";
+        case UNWRITABLE:  return "that number cannot be written in a .dsp";
+        case REFUSED:     return "that edit does not make sense";
+        case IO_ERROR:    return "could not read or write the file";
+    }
+
+    return "unknown";
+}
+
+/* ---- small text helpers ------------------------------------------------ */
+
+static bool isWordChar (char c)
+{
+    return isalnum((unsigned char)c) || c == '_';
+}
+
+/* The part of a line that is code: comment removed, string bodies blanked.
+ *
+ * The old comment here claimed "a `#' inside a value is not a thing that can
+ * happen". It is: the lexer's comment rule is `#.*$' and its string rule is
+ * `"[^"\n]*"', flex takes the longest match at each position, so a `#' inside
+ * a string belongs to the string and a `"' inside a comment belongs to the
+ * comment. Cutting the line at the first `#' therefore chops
+ * `name = "C# lead";' in half and loses whatever followed -- including any
+ * brace, which is how findIoLine came to miscount depth and place a new node
+ * after the `io' line, in a file that then would not parse.
+ *
+ * String bodies become spaces rather than disappearing, so that every offset
+ * into the result is still an offset into the original line: callers hand
+ * rhsFrom/rhsTo to the splicer, which slices the untouched line. Blanking also
+ * stops the scanners here finding `{', `@blim' or `osc->out' inside a label
+ * and acting on it.
+ *
+ * A string cannot span lines -- the pattern excludes `\n' -- so each line can
+ * be read on its own with no state carried in from the one before. */
+static string codeOf (const string &line)
+{
+    string out;
+
+    out.reserve(line.size());
+
+    bool inString = false;
+
+    for (string::size_type i = 0; i < line.size(); i++)
+    {
+        const char c = line[i];
+
+        if (inString)
+        {
+            out += (c == '"') ? '"' : ' ';
+
+            if (c == '"')
+                inString = false;
+
+            continue;
+        }
+
+        if (c == '#')
+            break;              /* a comment: the rest of the line is gone */
+
+        if (c == '"')
+            inString = true;
+
+        out += c;
+    }
+
+    return out;
+}
+
+static string trim (const string &s)
+{
+    string::size_type a = s.find_first_not_of(" \t\r");
+
+    if (a == string::npos)
+        return "";
+
+    string::size_type b = s.find_last_not_of(" \t\r");
+
+    return s.substr(a, b - a + 1);
+}
+
+/* ---- formatting -------------------------------------------------------- */
+
+/* Plain decimal, no exponent, no trailing zeros -- the lexer's number pattern
+   is `[0-9]+(\.[0-9]*)?' and nothing else. */
+static bool plainDecimal (double value, int places, string &out)
+{
+    char buf[64];
+
+    snprintf(buf, sizeof(buf), "%.*f", places, value);
+
+    string s = buf;
+
+    if (s.find('.') != string::npos)
+    {
+        string::size_type last = s.find_last_not_of('0');
+
+        if (s[last] == '.')
+            last--;             /* "5." is not in the grammar; "5" is */
+
+        s = s.substr(0, last + 1);
+    }
+
+    if (s == "-0")
+        s = "0";
+
+    out = s;
+
+    return true;
+}
+
+bool NodeEdit::format (double value, string &out)
+{
+    return formatWithUnits(value, "", out);
+}
+
+string NodeEdit::unitsOf (const string &rhs)
+{
+    const string s = trim(rhs);
+
+    if (!s.empty() && s[s.size() - 1] == '%')
+        return "%";
+
+    /* The word at the end: `ms', or one of thUnitWord's. */
+    string::size_type w = s.size();
+
+    while (w > 0 && isalpha((unsigned char)s[w - 1]))
+        w--;
+
+    const string word = s.substr(w);
+
+    if (word != "ms" && thUnitWord(word) == NULL)
+        return "";
+
+    /* Both `5 ms' and `80ms' occur -- 65 and 33 times respectively -- so
+       the space cannot be required. What distinguishes a unit from the
+       tail of an identifier is that a number comes before it: `th_params'
+       has no number, `80ms' does. */
+    const string head = trim(s.substr(0, w));
+
+    if (!head.empty() && (isdigit((unsigned char)head[0]) ||
+                          head[0] == '.' || head[0] == '-'))
+        return word;
+
+    return "";
+}
+
+/* The exact trailing text of a right-hand side, so a rewrite keeps `80ms'
+   spelled that way rather than turning it into `80 ms'. */
+static string suffixTextOf (const string &rhs)
+{
+    const string s = trim(rhs);
+    const string u = NodeEdit::unitsOf(s);
+
+    if (u.empty())
+        return "";
+
+    if (u == "%")
+        return "%";
+
+    /* everything from where the number stops to the end */
+    string::size_type p = s.size() - u.size();
+
+    while (p > 0 && (s[p - 1] == ' ' || s[p - 1] == '\t'))
+        p--;
+
+    return s.substr(p);
+}
+
+/* "The same number", at the precision that matters.
+ *
+ * Not exact equality, and it cannot be. The loader folds `0.5 ms' and stores
+ * the result in a float, this side works in double, and libthink is built
+ * with -ffast-math, which lets the compiler reassociate the fold and turn
+ * its division into a multiply by a reciprocal. So the engine holds
+ * 22.0500011 where honest arithmetic gives 22.0499992 -- a couple of ULP
+ * apart. Re-deriving the literal exactly is therefore impossible, and
+ * demanding it would rewrite `0.5 ms' as `0.50000003 ms' every time anyone
+ * saved.
+ *
+ * Four ULP is comfortably more than that gap and comfortably less than any
+ * edit a person could mean. (docs/DSP_FORMAT.md records this as one concrete thing
+ * the global -ffast-math costs.) */
+static bool sameValue (double a, double b)
+{
+    const float x = (float)a, y = (float)b;
+
+    if (x == y)
+        return true;
+
+    if ((x < 0) != (y < 0))
+        return false;
+
+    float lo = x < y ? x : y;
+    float hi = x < y ? y : x;
+
+    for (int i = 0; i < 4; i++)
+    {
+        lo = nextafterf(lo, hi);
+
+        if (lo == hi)
+            return true;
+    }
+
+    return false;
+}
+
+/* The named constants the lexer knows. 229 uses of th_max and th_min across
+   the corpus, so a writer that did not recognise them would turn `inmax =
+   th_max' into `inmax = 1' on the first save of any file containing one. */
+static long editRate (void);
+
+static bool namedConstant (const string &word, double &out)
+{
+    if (word == "th_max")      { out = TH_MAX;      return true; }
+    if (word == "th_min")      { out = TH_MIN;      return true; }
+    if (word == "th_range")    { out = TH_RANGE;    return true; }
+    if (word == "th_midimax")  { out = MIDIVALMAX;  return true; }
+    /* A second at the rate the loader folded with, as the grammar reads it
+       (`1000 ms'); see editRate. */
+    if (word == "th_sample")   { out = editRate();  return true; }
+
+    return false;
+}
+
+/* The loader's unit conversions, and their inverses. Both are exact.
+ *
+ * The arithmetic is thUnits.h's -- one implementation, so that a writer
+ * cannot come to disagree with the loader about what `5 ms' is. What is
+ * decided here is the rate to hand it: the synth's, because that is what
+ * folded the value being written back, falling back to the compile-time
+ * TH_SAMPLE for an editor with no synth behind it. Getting this wrong is
+ * silent and permanent -- the file would be rewritten with numbers that
+ * mean something else -- which is why it is one function rather than two
+ * call sites each making their own decision. */
+static long editRate (void)
+{
+    thSynth *synth = thSynth::instance();
+
+    return synth ? synth->getSampleRate() : TH_SAMPLE;
+}
+
+/* And the tempo `beats' were folded at, for the same reason. */
+static double editTempo (void)
+{
+    thSynth *synth = thSynth::instance();
+
+    return synth ? synth->tempo() : 120;
+}
+
+static double applyUnits (double literal, const string &units)
+{
+    return thFoldUnit(literal, units, editRate(), editTempo());
+}
+
+static double removeUnits (double value, const string &units)
+{
+    return thUnfoldUnit(value, units, editRate(), editTempo());
+}
+
+/* The number alone, correctly scaled for `units' but with no suffix. */
+static bool formatLiteral (double value, const string &units, string &out);
+
+bool NodeEdit::formatWithUnits (double value, const string &units, string &out)
+{
+    string n;
+
+    if (!formatLiteral(value, units, n))
+        return false;
+
+    out = n + ((units.empty() || units == "%") ? units : " " + units);
+
+    return true;
+}
+
+static bool formatLiteral (double value, const string &units, string &out)
+{
+    if (!(value == value) || value > 1e30 || value < -1e30)
+        return false;           /* NaN or infinity: no spelling exists */
+
+    const double want = value;
+
+    const double literal = removeUnits(value, units);
+
+    if (!std::isfinite(literal))
+        return false;
+
+    /* Shortest decimal that comes back as the same float.
+     *
+     * Writing the value out at full precision looks safe and is not: the value
+     * being written came from a float, so `0.5 ms' -- which folds to 22.05,
+     * stored as 22.049999237 -- would be written back as `0.499999983 ms'.
+     * Numerically indistinguishable, and it turns every saved file into a
+     * diff full of noise. Searching from the short end gives `0.5 ms' back.
+     *
+     * The comparison is in float rather than double because a float is what
+     * the engine ends up holding, so it is the only precision at which two
+     * spellings are genuinely the same value. */
+    for (int places = 0; places <= 9; places++)
+    {
+        string cand;
+
+        plainDecimal(literal, places, cand);
+
+        if (sameValue(applyUnits(atof(cand.c_str()), units), want))
+        {
+            /* A tiny value that rounded away to nothing is not the same
+               number, whatever the float comparison says about zero. */
+            if (literal != 0.0 && atof(cand.c_str()) == 0.0)
+                continue;
+
+            out = cand;
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/* Reads a right-hand side that is a single value: a number or a named
+ * constant, optionally negated, optionally with a unit.
+ *
+ * Deliberately narrow. Eight right-hand sides in the corpus are arithmetic
+ * (`a * 2', `b + 1'), and this returns false for those rather than guessing --
+ * rewriting one would replace the author's expression with a constant, which
+ * is exactly the kind of silent damage the whole splicing approach exists to
+ * avoid. */
+static bool parseRhs (const string &rhs, double &out)
+{
+    string s = trim(rhs);
+
+    if (s.empty())
+        return false;
+
+    double sign = 1.0;
+
+    if (s[0] == '-')
+    {
+        sign = -1.0;
+        s = trim(s.substr(1));
+    }
+
+    /* strip the unit, which unitsOf() has already identified */
+    const string units = NodeEdit::unitsOf(s);
+
+    if (!units.empty())
+        s = trim(s.substr(0, s.size() - units.size()));
+
+    if (s.empty())
+        return false;
+
+    double literal;
+
+    if (isdigit((unsigned char)s[0]) || s[0] == '.')
+    {
+        /* the whole of what is left must be the number */
+        char *end = NULL;
+
+        literal = strtod(s.c_str(), &end);
+
+        if (end == NULL || *end != 0)
+            return false;
+    }
+    else if (!namedConstant(s, literal))
+        return false;
+
+    /* The sign is the author's number's, so it goes on before the fold:
+       `-6 dB' is a gain of a half, not minus two. */
+    out = applyUnits(sign * literal, units);
+
+    return true;
+}
+
+/* ---- the splice -------------------------------------------------------- */
+
+/* Finds the line range of `node <name> ... { ... }'.
+ *
+ * An element of an array, `tone[1]', is found as the block `node tone[2]'
+ * that makes every element, and `element' says so: an edit there is an
+ * edit to all of them.
+ *
+ * Brace counting rather than anything cleverer: the grammar nests exactly one
+ * level, but counting costs nothing and does not care. */
+static bool findNodeBlock (const vector<string> &lines, const string &name,
+                           size_t &open, size_t &close, bool *element = NULL)
+{
+    string node = name;
+    const string::size_type bracket = name.find('[');
+
+    if (bracket != string::npos && !name.empty() &&
+        name[name.size() - 1] == ']')
+        node = name.substr(0, bracket);
+
+    if (element)
+        *element = (node != name);
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+        const string t = trim(code);
+
+        if (t.compare(0, 5, "node ") != 0 && t.compare(0, 5, "node\t") != 0)
+            continue;
+
+        /* the name is the next word */
+        string::size_type a = t.find_first_not_of(" \t", 4);
+
+        if (a == string::npos)
+            continue;
+
+        string::size_type b = a;
+
+        while (b < t.size() && isWordChar(t[b]))
+            b++;
+
+        if (t.substr(a, b - a) != node)
+            continue;
+
+        /* `tone' and `tone[2]' are two different blocks: an element is
+           found only in an array's, and a plain name only in a plain one. */
+        const string::size_type after = t.find_first_not_of(" \t", b);
+        const bool isArray = after != string::npos && t[after] == '[';
+
+        if (isArray != (node != name))
+            continue;
+
+        int depth = 0;
+
+        for (size_t j = i; j < lines.size(); j++)
+        {
+            const string c = codeOf(lines[j]);
+
+            for (size_t k = 0; k < c.size(); k++)
+            {
+                if (c[k] == '{') depth++;
+                else if (c[k] == '}')
+                {
+                    depth--;
+
+                    if (depth == 0)
+                    {
+                        open = i;
+                        close = j;
+
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;       /* unterminated block; leave it alone */
+    }
+
+    return false;
+}
+
+/* Locates `<arg> = <rhs>;' within a block, returning the line and the extent
+   of the right-hand side within it. */
+/* True if a right-hand side is arithmetic rather than one of the three shapes
+ * this writer knows how to rewrite: a number (with or without a unit), a
+ * `node->port', or an `@name'.
+ *
+ * Phrased as "not one of the three" rather than "contains an operator",
+ * because `freq->out' contains a `-' and `5 ms' contains a space, and a rule
+ * that hunted for operators would have to unpick both. A writer that cannot
+ * name the shape in front of it must not rewrite it: the value in the file is
+ * the author's arithmetic, and replacing a term of it with a wire is exactly
+ * the re-emission splicing exists to prevent.
+ */
+/* `file = "kick808.wav"' -- the one right-hand side that is neither a
+   number, a wire nor arithmetic. It is refused everywhere a number would
+   be written, and it is worth telling apart from an expression so the
+   message can say what is actually there: "disconnect it first" is
+   advice that does not apply to a name. */
+static bool isTextRhs (const string &rhs)
+{
+    const string t = trim(rhs);
+
+    return t.size() >= 2 && t[0] == '"' && t[t.size() - 1] == '"';
+}
+
+static bool isExpressionRhs (const string &rhs)
+{
+    const string t = trim(rhs);
+
+    if (t.empty())
+        return false;
+
+    size_t i = 0;
+
+    if (t[0] == '@')
+        i = 1;
+
+    /* A name, or a name->name. */
+    if (i < t.size() && (isalpha((unsigned char)t[i]) || t[i] == '_'))
+    {
+        while (i < t.size() &&
+               (isalnum((unsigned char)t[i]) || t[i] == '_'))
+            i++;
+
+        /* An element of an array: `tone[1]'. */
+        if (t[0] != '@' && i < t.size() && t[i] == '[')
+        {
+            size_t j = i + 1;
+
+            while (j < t.size() && isdigit((unsigned char)t[j]))
+                j++;
+
+            if (j > i + 1 && j < t.size() && t[j] == ']')
+                i = j + 1;
+        }
+
+        if (t[0] != '@' && i + 1 < t.size() && t[i] == '-' && t[i + 1] == '>')
+        {
+            i += 2;
+
+            while (i < t.size() &&
+                   (isalnum((unsigned char)t[i]) || t[i] == '_'))
+                i++;
+        }
+
+        return i != t.size();
+    }
+
+    /* A number, optionally signed, optionally with a unit after it. */
+    if (t[i] == '-' || t[i] == '+')
+        i++;
+
+    bool digits = false;
+
+    while (i < t.size() && isdigit((unsigned char)t[i]))
+    { i++; digits = true; }
+
+    if (i < t.size() && t[i] == '.')
+    {
+        i++;
+
+        while (i < t.size() && isdigit((unsigned char)t[i]))
+        { i++; digits = true; }
+    }
+
+    if (!digits)
+        return true;
+
+    const string rest = trim(t.substr(i));
+
+    return !(rest.empty() || rest == "ms" || rest == "%" ||
+             thUnitWord(rest) != NULL);
+}
+
+/* Replaces every whole occurrence of `ref' in `rhs' with `with'.
+ *
+ * `ref' is `@name' for a control, or `node->' for a node -- with takesPort,
+ * in which case the port name after the arrow is part of what goes. False if
+ * there was none, and `out' is then untouched.
+ *
+ * What this is for: removing a control or a node used to replace the entire
+ * right-hand side with `0', which is right when the value *is* the reference
+ * and wrong once it can be a term of something larger. Deleting `@detune'
+ * turned ladder.dsp's `freq = freq->out + @detune' into `freq = 0' -- the
+ * oscillator lost its pitch, not its detune, and the edit reported success.
+ * The reference has to go because it will not resolve; the arithmetic around
+ * it does not.
+ */
+static bool substituteRef (const string &rhs, const string &ref,
+                           bool takesPort, const string &with, string &out)
+{
+    string built;
+    string::size_type taken = 0, at = 0;
+    bool any = false;
+
+    while ((at = rhs.find(ref, taken)) != string::npos)
+    {
+        string::size_type end = at + ref.size();
+
+        if (takesPort)
+            while (end < rhs.size() && isWordChar(rhs[end]))
+                end++;
+
+        /* `myosc->out' is not `osc->out' and `@warmth' is not `@warm'. An
+           arrow with no port after it is not a reference at all. */
+        const bool bounded =
+            (at == 0 || !isWordChar(rhs[at - 1])) &&
+            (takesPort ? end > at + ref.size()
+                       : (end >= rhs.size() || !isWordChar(rhs[end])));
+
+        built += rhs.substr(taken, (bounded ? at : end) - taken);
+
+        if (bounded)
+        {
+            built += with;
+            any = true;
+        }
+
+        taken = end;
+    }
+
+    if (!any)
+        return false;
+
+    built += rhs.substr(taken);
+    out = built;
+
+    return true;
+}
+
+static bool findAssign (const vector<string> &lines, size_t open, size_t close,
+                        const string &arg, size_t &line,
+                        string::size_type &rhsFrom, string::size_type &rhsTo)
+{
+    for (size_t i = open; i <= close && i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+
+        string::size_type p = code.find(arg);
+
+        while (p != string::npos)
+        {
+            const bool leftOk = (p == 0 || !isWordChar(code[p - 1]));
+            const string::size_type after = p + arg.size();
+            const bool rightOk = (after >= code.size() ||
+                                  !isWordChar(code[after]));
+
+            if (leftOk && rightOk)
+            {
+                /* What may come before an assignment on its line: nothing,
+                 * the block's own `{', or the `;' that ended the statement
+                 * before it.
+                 *
+                 * The test is here to reject an occurrence that is somebody
+                 * else's right-hand side -- `in = ionode->cutoff;' is not an
+                 * assignment to `cutoff' -- and "nothing precedes it" said
+                 * that correctly only for as long as every node body in the
+                 * corpus put one statement on a line. A node written on one
+                 * line had every arg in it read as absent, whereupon
+                 * insertAssign was asked to add the one that was already
+                 * there.
+                 */
+                const string before = trim(code.substr(0, p));
+                const char last = before.empty() ? '\0'
+                                                 : before[before.size() - 1];
+
+                if (before.empty() || last == '{' || last == ';')
+                {
+                    string::size_type eq = code.find('=', after);
+
+                    if (eq != string::npos &&
+                        trim(code.substr(after, eq - after)).empty())
+                    {
+                        string::size_type semi = code.find(';', eq);
+
+                        if (semi == string::npos)
+                            return false;   /* spans lines; not handled */
+
+                        string::size_type s = code.find_first_not_of(" \t",
+                                                                    eq + 1);
+
+                        if (s == string::npos || s > semi)
+                            return false;
+
+                        string::size_type e = semi;
+
+                        while (e > s && (code[e - 1] == ' ' || code[e - 1] == '\t'))
+                            e--;
+
+                        line = i;
+                        rhsFrom = s;
+                        rhsTo = e;
+
+                        return true;
+                    }
+                }
+            }
+
+            p = code.find(arg, p + 1);
+        }
+    }
+
+    return false;
+}
+
+/* ---- text in, text out --------------------------------------------------
+ *
+ * Every edit below works on the file's text and nothing else: lines in,
+ * lines out, and a Result. Where the text came from is somebody else's
+ * business -- a file on the desktop, a CRDT in a browser tab where the
+ * document *is* the patch and there is no file at all. The filename
+ * overloads at the bottom of this file are the file case, and they are
+ * three lines each.
+ *
+ * This was always the shape of the code; what it lacked was the seam. The
+ * bodies below are unchanged except for their first and last step.
+ */
+
+static void splitLines (const string &all, vector<string> &lines,
+                        bool &endsWithNewline)
+{
+    endsWithNewline = all.empty() || all[all.size() - 1] == '\n';
+
+    string cur;
+
+    lines.clear();
+
+    for (size_t i = 0; i < all.size(); i++)
+    {
+        if (all[i] == '\n') { lines.push_back(cur); cur.clear(); }
+        else cur += all[i];
+    }
+
+    if (!cur.empty())
+        lines.push_back(cur);
+}
+
+static string joinLines (const vector<string> &lines, bool endsWithNewline)
+{
+    string all;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        all += lines[i];
+
+        if (i + 1 < lines.size() || endsWithNewline)
+            all += "\n";
+    }
+
+    return all;
+}
+
+static bool readText (const string &filename, string &all)
+{
+    ifstream in(filename.c_str(), ios::binary);
+
+    if (!in)
+        return false;
+
+    all.assign((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
+
+    return true;
+}
+
+/* Into a temporary beside the target, then renamed over it.
+ *
+ * This used to open the real file with ios::trunc and write into it, so a full
+ * disk, a crash or a kill left a half-written .dsp -- and that is someone's
+ * patch, possibly the only copy. Every writer in this file goes through here,
+ * so all ten of them were destructive on failure. NodeLayout::write already
+ * worked this way; the two now agree.
+ *
+ * rename() is atomic within a directory, so the file ends up either the old
+ * one or the new one and never a prefix of the new one. The temporary sits
+ * beside the target because rename cannot cross a filesystem.
+ *
+ * The mode of an existing file is carried across: rename replaces the inode,
+ * so without this a .dsp that was group-writable would quietly come back with
+ * whatever the umask happened to say. */
+static bool writeText (const string &filename, const string &all)
+{
+    /* Refuse a target that exists and cannot be written.
+     *
+     * Renaming over a file needs write permission on the *directory*, not on
+     * the file, so temp-and-rename will happily replace a read-only .dsp that
+     * happens to sit in a directory you own. The old ios::trunc write failed
+     * on one, as it should. Making the write atomic must not also quietly
+     * strip the meaning off a read-only bit, so this puts that back.
+     *
+     * The node editor never reaches this on a read-only patch anyway -- it
+     * edits a scratch copy and offers Save As -- but NodeEdit is not only
+     * called by the node editor, and "the file said no" is the answer here. */
+    if (access(filename.c_str(), F_OK) == 0 &&
+        access(filename.c_str(), W_OK) != 0)
+        return false;
+
+    const string tmp = filename + ".edit-tmp";
+
+    {
+        ofstream out(tmp.c_str(), ios::binary | ios::trunc);
+
+        if (!out)
+            return false;
+
+        out << all;
+        out.flush();
+
+        if (!out.good())
+        {
+            out.close();
+            remove(tmp.c_str());
+            return false;
+        }
+    }
+
+    /* Carry the original's permissions onto the replacement, so saving a .dsp
+       does not quietly change who can read or write it.
+     *
+     * Unix only. Windows has no POSIX mode worth preserving -- st_mode there
+     * carries little beyond a read-only bit -- and chmod is declared in
+     * <io.h> rather than <sys/stat.h>, so this would not compile. Nothing is
+     * lost by skipping it: what governs access on Windows is the ACL the file
+     * inherits from its directory, which the rename below leaves alone. */
+#ifndef _WIN32
+    struct stat st;
+
+    if (stat(filename.c_str(), &st) == 0)
+        chmod(tmp.c_str(), st.st_mode & 07777);
+#endif
+
+    /* thUtil::replaceFile rather than rename(): Windows' rename
+       refuses a target that exists, which is every save after the
+       first. */
+    if (!thUtil::replaceFile(tmp, filename))
+    {
+        remove(tmp.c_str());
+        return false;
+    }
+
+    return true;
+}
+
+/* The indentation already used inside a block, so an inserted line looks like
+   the ones around it rather than like an editor got at the file. */
+static string indentOf (const vector<string> &lines, size_t open, size_t close)
+{
+    for (size_t i = open + 1; i < close; i++)
+    {
+        const string::size_type a = lines[i].find_first_not_of(" \t");
+
+        if (a != string::npos && a > 0)
+            return lines[i].substr(0, a);
+    }
+
+    return "    ";
+}
+
+/* Puts `<arg> = <text>;' inside a node block, wherever that block keeps its
+ * closing brace.
+ *
+ * A node written across several lines gets a line of its own, indented like
+ * the ones around it -- which is what this always did, by inserting above the
+ * line the `}' is on.
+ *
+ * A node written on one line has no such line to insert above: `close' is the
+ * declaration itself, so inserting there put the assignment *above* the node,
+ * outside every block. Depending on what followed, the file then either
+ * stopped parsing or kept parsing with a statement in it that nothing reads --
+ * and the caller was told OK either way. One-line bodies are not a curiosity;
+ * dsp/supersaw.dsp writes seven oscillators as seven one-line nodes precisely
+ * so that they read as seven variations of one line. So the assignment is
+ * spliced in ahead of the closing brace instead, where a reader would have
+ * put it.
+ *
+ * False if the block has no closing brace to splice before, which
+ * findNodeBlock has already ruled out; the caller refuses rather than
+ * returning OK for a write it did not make.
+ */
+static bool insertAssign (vector<string> &lines, size_t open, size_t close,
+                          const string &arg, const string &text)
+{
+    if (open != close)
+    {
+        lines.insert(lines.begin() + close,
+                     indentOf(lines, open, close) + arg + " = " + text + ";");
+
+        return true;
+    }
+
+    /* The brace that closes this node, counted the way findNodeBlock counts
+       it, and over codeOf so that a `}' inside a comment or a string is not
+       mistaken for it. */
+    const string code = codeOf(lines[close]);
+    int depth = 0;
+
+    for (string::size_type k = 0; k < code.size(); k++)
+    {
+        if (code[k] == '{')
+        {
+            depth++;
+            continue;
+        }
+
+        if (code[k] != '}' || --depth != 0)
+            continue;
+
+        /* Indices into codeOf() are indices into the line: it replaces what
+           it removes rather than shortening, up to the comment it drops. */
+        const bool spaced = (k > 0 && (code[k - 1] == ' ' ||
+                                       code[k - 1] == '\t'));
+
+        lines[close] = lines[close].substr(0, k) + (spaced ? "" : " ") +
+                       arg + " = " + text + "; " + lines[close].substr(k);
+
+        return true;
+    }
+
+    return false;
+}
+
+/* ---- the edits --------------------------------------------------------- */
+
+/* Why writtenPerChannel refused `arg'. */
+static string perChannelWhy (const string &arg)
+{
+    if (arg == "channels")
+        return "`channels' says how many lines a `[]' writes; edit it in "
+               "the text";
+
+    return "`" + arg + "' is one of the lines a `[]' writes, one per "
+           "channel; edit that line in the text";
+}
+
+/* True if `arg', `out1' say, is one of the lines `out[] = ...' writes, one
+   per channel: no single line to edit. And `channels' in a block with such
+   a line, since it says how many there are. */
+static bool writtenPerChannel (const vector<string> &lines, size_t open,
+                               size_t close, const string &arg)
+{
+    if (arg == "channels")
+    {
+        for (size_t i = open; i <= close && i < lines.size(); i++)
+            if (codeOf(lines[i]).find("[]") != string::npos)
+                return true;
+
+        return false;
+    }
+
+    size_t d = arg.size();
+
+    while (d > 0 && isdigit((unsigned char)arg[d - 1]))
+        d--;
+
+    if (d == 0 || d == arg.size())
+        return false;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    return findAssign(lines, open, close, arg.substr(0, d) + "[]", line, from,
+                      to);
+}
+
+NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
+                                     const string &arg, double value,
+                                     string &why)
+{
+    why.clear();
+
+    if (node.empty() || arg.empty())
+    {
+        why = "no node or parameter named";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t open = 0, close = 0;
+
+    if (!findNodeBlock(lines, node, open, close))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NO_NODE;
+    }
+    if (writtenPerChannel(lines, open, close, arg))
+    {
+        why = perChannelWhy(arg);
+        return REFUSED;
+    }
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (findAssign(lines, open, close, arg, line, from, to))
+    {
+        const string oldRhs = lines[line].substr(from, to - from);
+
+        /* An expression is a graph, not a number with a spelling. Typing
+           over one would drop the author's arithmetic; removing it is
+           disconnect's job. Named separately from the wire case below so the
+           message says which it is. */
+        if (isTextRhs(oldRhs))
+        {
+            why = arg + " is the name " + trim(oldRhs) +
+                  ", not a number. Edit it in the file.";
+            return NOT_A_VALUE;
+        }
+
+        if (isExpressionRhs(oldRhs))
+        {
+            why = arg + " is the expression `" + trim(oldRhs) +
+                  "'. Remove it first.";
+            return NOT_A_VALUE;
+        }
+
+        /* Refuse to turn a connection into a number. Disconnecting is a
+           deliberate act and belongs to edge editing, not to typing in a
+           box. */
+        if (oldRhs.find("->") != string::npos || oldRhs.find('@') == 0)
+        {
+            why = arg + " is driven by " + oldRhs +
+                  ". Remove the connection first.";
+            return NOT_A_VALUE;
+        }
+
+        double oldValue;
+
+        if (!parseRhs(oldRhs, oldValue))
+        {
+            why = arg + " is currently `" + oldRhs +
+                  "', which this editor will not rewrite.";
+            return UNWRITABLE;
+        }
+
+        /* If the text already says this number, say nothing.
+         *
+         * Not an optimisation -- it is what makes "open a file, save it,
+         * nothing changed" true. The value on screen came from a float, so
+         * re-deriving its spelling can differ from what the author wrote even
+         * when nothing was edited: `0.5 ms' folds to 22.05, is held as
+         * 22.049999237, and comes back as `0.499999983 ms'. It also keeps
+         * `th_max' spelled that way. Comparing at float precision -- what the
+         * engine actually holds -- and leaving the line alone when they agree
+         * means only genuinely changed values are ever touched. */
+        if (sameValue(oldValue, value))
+            return OK;
+
+        const string units = unitsOf(oldRhs);
+
+        string text;
+
+        if (!formatLiteral(value, units, text))
+        {
+            why = "cannot write that value in a .dsp";
+            return UNWRITABLE;
+        }
+
+        lines[line] = lines[line].substr(0, from) + text +
+                      suffixTextOf(oldRhs) + lines[line].substr(to);
+    }
+    else
+    {
+        /* The file never mentioned this arg -- buildArgMap() invented it. Add
+           a line rather than rewriting the block, matching the indentation of
+           whatever is already inside it. */
+        string text;
+
+        if (!formatWithUnits(value, "", text))
+        {
+            why = "cannot write that value in a .dsp";
+            return UNWRITABLE;
+        }
+
+        if (!insertAssign(lines, open, close, arg, text))
+        {
+            why = "the `node " + node + "' block has no closing brace to "
+                  "write " + arg + " before";
+            return UNWRITABLE;
+        }
+    }
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+/* Points an arg at whatever `text' says, adding the line if there is none. */
+static NodeEdit::Result bindArg (string &source, const string &node,
+                                 const string &arg, const string &text,
+                                 string &why)
+{
+    /* An empty destination would be catastrophic rather than merely wrong:
+       string::find("") returns 0, so findAssign would match at the start of
+       the first line it looked at and rewrite whatever assignment happened to
+       be there. Every caller passes a real name; this guards the one that
+       someday does not. Here rather than in connect() so connectControl gets
+       it too. */
+    if (node.empty() || arg.empty())
+    {
+        why = "no destination for the connection";
+        return NodeEdit::REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t open = 0, close = 0;
+    bool element = false;
+
+    if (!findNodeBlock(lines, node, open, close, &element))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NodeEdit::NO_NODE;
+    }
+
+    /* One element of an array is the block that makes every element:
+       wiring or removing it here would do so to all of them. */
+    if (element)
+    {
+        why = "`" + node + "' is one element of an array; edit the "
+              "array's block in the text";
+        return NodeEdit::REFUSED;
+    }
+    if (writtenPerChannel(lines, open, close, arg))
+    {
+        why = perChannelWhy(arg);
+        return NodeEdit::REFUSED;
+    }
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (findAssign(lines, open, close, arg, line, from, to))
+    {
+        /* Already says exactly this: leave the file alone. Same reasoning as
+           setValue -- connecting something to where it already is connected
+           must not produce a diff. */
+        if (trim(lines[line].substr(from, to - from)) == text)
+            return NodeEdit::OK;
+
+        /* Wiring into an expression would keep one term of the author's
+           arithmetic and silently drop the rest. Removing the whole thing is
+           a gesture that exists -- disconnect rewrites the arg to `= 0'. */
+        if (isTextRhs(lines[line].substr(from, to - from)))
+        {
+            why = arg + " is a name, and nothing can be wired to one";
+            return NodeEdit::REFUSED;
+        }
+
+        if (isExpressionRhs(lines[line].substr(from, to - from)))
+        {
+            why = arg + " is an expression; disconnect it first";
+            return NodeEdit::REFUSED;
+        }
+
+        lines[line] = lines[line].substr(0, from) + text +
+                      lines[line].substr(to);
+    }
+    else if (!insertAssign(lines, open, close, arg, text))
+    {
+        why = "the `node " + node + "' block has no closing brace to write " +
+              arg + " before";
+        return NodeEdit::UNWRITABLE;
+    }
+
+    source = joinLines(lines, endsWithNewline);
+
+    return NodeEdit::OK;
+}
+
+NodeEdit::Result NodeEdit::Text::connect (string &source, const string &node,
+                                    const string &arg, const string &srcNode,
+                                    const string &srcPort, string &why)
+{
+    why.clear();
+
+    /* No self-reference check here.
+     *
+     * It would be wrong: three shipped DSPs contain `ionode.fade78 =
+     * ionode->velocity', because the io node is one node in the file but two
+     * things in reality -- the MIDI source and the audio sink. Whether a
+     * connection makes sense is a question about the graph, where that split
+     * is visible; see NodeGraph::canConnect. This function writes faithfully
+     * what it is told. */
+    if (srcNode.empty() || srcPort.empty())
+    {
+        why = "no source for the connection";
+        return REFUSED;
+    }
+
+    /* Every one of the 3476 node-to-node connections in the corpus is spelled
+       exactly `name->port', with no spaces around the arrow, so writing it
+       this way reproduces the existing text byte for byte. */
+    return bindArg(source, node, arg, srcNode + "->" + srcPort, why);
+}
+
+NodeEdit::Result NodeEdit::Text::connectControl (string &source, const string &node,
+                                           const string &arg,
+                                           const string &control, string &why)
+{
+    why.clear();
+
+    if (control.empty())
+    {
+        why = "no control to connect to";
+        return REFUSED;
+    }
+
+    return bindArg(source, node, arg, "@" + control, why);
+}
+
+NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
+                                       const string &arg, double value,
+                                       string &why)
+{
+    why.clear();
+
+    if (node.empty() || arg.empty())
+    {
+        why = "no node or parameter named";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t open = 0, close = 0;
+    bool element = false;
+
+    if (!findNodeBlock(lines, node, open, close, &element))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NO_NODE;
+    }
+
+    /* One element of an array is the block that makes every element:
+       wiring or removing it here would do so to all of them. */
+    if (element)
+    {
+        why = "`" + node + "' is one element of an array; edit the "
+              "array's block in the text";
+        return REFUSED;
+    }
+    if (writtenPerChannel(lines, open, close, arg))
+    {
+        why = perChannelWhy(arg);
+        return REFUSED;
+    }
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findAssign(lines, open, close, arg, line, from, to))
+        return OK;      /* nothing there to disconnect */
+
+    const string oldRhs = trim(lines[line].substr(from, to - from));
+
+    /* Three things count as connected: a node's output, a control, and an
+       expression. Controls became nodes on the canvas, so `a = @a' is a wire
+       like any other; an expression is a whole subgraph, and cutting it is
+       the one edit that can be made to one without rewriting its text. */
+    if (!isExpressionRhs(oldRhs) && oldRhs.find("->") == string::npos &&
+        (oldRhs.empty() || oldRhs[0] != '@'))
+    {
+        why = arg + " is not connected to anything";
+        return REFUSED;
+    }
+
+    /* The line is rewritten rather than deleted.
+     *
+     * To the engine `in = 0;' and no line at all are the same thing. Not
+     * because buildArgMap() writes a zero -- it writes the plugin's declared
+     * default -- but because a declared default is a transcription of what the
+     * callback already substitutes for 0, so the two spellings run on the same
+     * number whichever way round it is stored. Keeping the line preserves
+     * whatever trailing comment was on it, and it means a disconnect followed
+     * by a reconnect restores the file exactly, because only the right-hand
+     * side ever moved. Deleting and re-inserting would put the line somewhere
+     * else with different indentation. */
+    string text;
+
+    if (!formatWithUnits(value, "", text))
+    {
+        why = "cannot write that value in a .dsp";
+        return UNWRITABLE;
+    }
+
+    lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+bool NodeEdit::Text::shared (const string &source, const string &node,
+                             const string &arg)
+{
+    vector<string> lines;
+    bool endsWithNewline = false;
+    size_t open = 0, close = 0;
+    bool element = false;
+
+    splitLines(source, lines, endsWithNewline);
+
+    if (!findNodeBlock(lines, node, open, close, &element))
+        return false;
+
+    return element || writtenPerChannel(lines, open, close, arg);
+}
+
+NodeEdit::Result NodeEdit::Text::find (const string &source,
+                                       const string &node, const string &arg)
+{
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t open = 0, close = 0;
+
+    if (!findNodeBlock(lines, node, open, close))
+        return NO_NODE;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findAssign(lines, open, close, arg, line, from, to))
+        return NOT_A_VALUE;
+
+    return OK;
+}
+
+/* Locates a top-level `@<name> = <rhs>;'.
+ *
+ * "Top level" means at brace depth zero: the control declarations sit outside
+ * every node block, indented only by convention. Restricting to depth zero
+ * means a node's `freq = @filt1' -- which mentions the same name -- cannot be
+ * mistaken for the declaration.
+ */
+/* A top-level `<want> = <rhs>;', where `want' is the whole spelling: `@blim'
+   for the declaration, `@blim.min' for one of its metadata lines.
+
+   Taking the spelling rather than the control name is what lets the metadata
+   share this. The guard below is `not a word character', so `@blim' declines to
+   match `@blim2' -- and also declines to match `@blim.min', because what
+   follows `@blim' there is a `.' and then no `='. */
+static bool findDecl (const vector<string> &lines, const string &want,
+                      size_t &line, string::size_type &rhsFrom,
+                      string::size_type &rhsTo)
+{
+    int depth = 0;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+
+        if (depth == 0)
+        {
+            const string t = trim(code);
+
+            if (t.compare(0, want.size(), want) == 0)
+            {
+                string::size_type p = want.size();
+
+                if (p >= t.size() || !isWordChar(t[p]))
+                {
+                    while (p < t.size() && (t[p] == ' ' || t[p] == '\t'))
+                        p++;
+
+                    if (p < t.size() && t[p] == '=')
+                    {
+                        /* back to an offset in the original line */
+                        const string::size_type base =
+                            code.find_first_not_of(" \t");
+
+                        const string::size_type eq = base + p;
+                        const string::size_type semi = code.find(';', eq);
+
+                        if (semi == string::npos)
+                            return false;
+
+                        string::size_type s =
+                            code.find_first_not_of(" \t", eq + 1);
+
+                        if (s == string::npos || s > semi)
+                            return false;
+
+                        string::size_type e = semi;
+
+                        while (e > s &&
+                               (code[e - 1] == ' ' || code[e - 1] == '\t'))
+                            e--;
+
+                        line = i;
+                        rhsFrom = s;
+                        rhsTo = e;
+
+                        return true;
+                    }
+                }
+            }
+        }
+
+        for (size_t k = 0; k < code.size(); k++)
+        {
+            if (code[k] == '{') depth++;
+            else if (code[k] == '}' && depth > 0) depth--;
+        }
+    }
+
+    return false;
+}
+
+static bool findChanArg (const vector<string> &lines, const string &name,
+                         size_t &line, string::size_type &rhsFrom,
+                         string::size_type &rhsTo)
+{
+    return findDecl(lines, "@" + name, line, rhsFrom, rhsTo);
+}
+
+NodeEdit::Result NodeEdit::Text::setChanArg (string &source, const string &name,
+                                       double value, string &why)
+{
+    why.clear();
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findChanArg(lines, name, line, from, to))
+    {
+        why = "no `@" + name + " = ...' line in the file";
+        return NO_NODE;
+    }
+
+    const string oldRhs = lines[line].substr(from, to - from);
+
+    double oldValue;
+
+    if (!parseRhs(oldRhs, oldValue))
+    {
+        why = "@" + name + " is currently `" + oldRhs +
+              "', which this editor will not rewrite.";
+        return UNWRITABLE;
+    }
+
+    if (sameValue(oldValue, value))
+        return OK;
+
+    string text;
+
+    if (!formatLiteral(value, unitsOf(oldRhs), text))
+    {
+        why = "cannot write that value in a .dsp";
+        return UNWRITABLE;
+    }
+
+    lines[line] = lines[line].substr(0, from) + text + suffixTextOf(oldRhs) +
+                  lines[line].substr(to);
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+/* ---- adding and removing whole nodes ----------------------------------- */
+
+bool NodeEdit::validName (const string &name)
+{
+    /* The lexer's WORD is [A-Za-z_][A-Za-z0-9_]*, and a name that does not
+       match comes back as something else entirely -- or as a parse error on
+       the next load, which is a bad way to find out. */
+    if (name.empty() || isdigit((unsigned char)name[0]))
+        return false;
+
+    for (string::size_type i = 0; i < name.size(); i++)
+        if (!isWordChar(name[i]))
+            return false;
+
+    /* Not a keyword either. `node', `io' and the info words would produce a
+       file that parses as something the author did not write. */
+    static const char *reserved[] = {
+        "node", "io", "name", "author", "description", "desc", "category",
+        "th_max", "th_min", "th_range", "th_midimax", "th_sample", "ms", NULL
+    };
+
+    for (int i = 0; reserved[i]; i++)
+        if (name == reserved[i])
+            return false;
+
+    return true;
+}
+
+/* The line index of `io <something>;', or lines.size() if there is none. */
+static size_t findIoLine (const vector<string> &lines)
+{
+    int depth = 0;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+
+        if (depth == 0)
+        {
+            const string t = trim(code);
+
+            if (t.compare(0, 3, "io ") == 0 || t.compare(0, 3, "io\t") == 0)
+                return i;
+        }
+
+        for (size_t k = 0; k < code.size(); k++)
+        {
+            if (code[k] == '{') depth++;
+            else if (code[k] == '}' && depth > 0) depth--;
+        }
+    }
+
+    return lines.size();
+}
+
+NodeEdit::Result NodeEdit::Text::addNode (string &source, const string &node,
+                                    const string &plugin,
+                                    const vector<pair<string, double> > &initial,
+                                    string &why)
+{
+    why.clear();
+
+    if (!validName(node))
+    {
+        why = "`" + node + "' is not a usable node name";
+        return REFUSED;
+    }
+
+    if (plugin.find("::") == string::npos)
+    {
+        why = "`" + plugin + "' is not a <category>::<plugin> name";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t open = 0, close = 0;
+
+    if (findNodeBlock(lines, node, open, close))
+    {
+        why = "the file already has a node called `" + node + "'";
+        return REFUSED;
+    }
+
+    /* Before the io line: the grammar needs every node to exist by the time
+       `io' names one, and it is where the last node sits in every shipped
+       file anyway. */
+    const size_t at = findIoLine(lines);
+
+    vector<string> block;
+
+    block.push_back("node " + node + " " + plugin + " {");
+
+    /* The plugin's declared defaults, written out rather than left implied.
+     *
+     * buildArgMap() loads them into every registered arg a .dsp does not
+     * mention, so the file and the engine agree without this -- osc::simple's
+     * amp is full scale either way. Writing them is for the reader: a node
+     * added here comes out saying what it does rather than saying nothing and
+     * meaning full scale. The sound is identical to leaving them out.
+
+       An unwritable number is skipped rather than failing the whole add. The
+       node is still a valid node without the line, and refusing to add a node
+       because one of its defaults needs an exponent would be a strange place
+       to draw that line. */
+    for (size_t i = 0; i < initial.size(); i++)
+    {
+        string text;
+
+        if (!validName(initial[i].first) || !format(initial[i].second, text))
+            continue;
+
+        block.push_back("    " + initial[i].first + " = " + text + ";");
+    }
+
+    block.push_back("};");
+    block.push_back("");
+
+    lines.insert(lines.begin() + at, block.begin(), block.end());
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
+                                       int &removed, string &why)
+{
+    why.clear();
+    removed = 0;
+
+    if (node.empty())
+    {
+        why = "no node named";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t open = 0, close = 0;
+    bool element = false;
+
+    if (!findNodeBlock(lines, node, open, close, &element))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NO_NODE;
+    }
+
+    /* One element of an array is the block that makes every element:
+       wiring or removing it here would do so to all of them. */
+    if (element)
+    {
+        why = "`" + node + "' is one element of an array; edit the "
+              "array's block in the text";
+        return REFUSED;
+    }
+
+    /* Anything reading from it has to stop, or the file loads with
+       "setPointers: Node x not found!!" and the arg silently reads zero.
+       Rewritten to 0 rather than deleted, the same as disconnect(): the line
+       keeps its place and its trailing comment.
+
+       Inside arithmetic only the reference is replaced. There is no value a
+       departed node's output could stand for, so it becomes the 0 a plain
+       binding becomes -- but `freq = a->out + @detune' comes back
+       `freq = 0 + @detune' and keeps the control, rather than losing the
+       whole arg to a node that was one term of it. */
+    const string ref = node + "->";
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        if (i >= open && i <= close)
+            continue;                   /* the block itself, going away */
+
+        const string code = codeOf(lines[i]);
+        const string::size_type eq = code.find('=');
+
+        if (eq == string::npos)
+            continue;
+
+        const string::size_type at = code.find(ref, eq);
+
+        if (at == string::npos)
+            continue;
+
+        /* `osc->out' and not `myosc->out' */
+        if (at > 0 && isWordChar(code[at - 1]))
+            continue;
+
+        const string::size_type semi = code.find(';', eq);
+
+        if (semi == string::npos || at > semi)
+            continue;
+
+        string::size_type from = code.find_first_not_of(" \t", eq + 1);
+        string::size_type to = semi;
+
+        while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
+            to--;
+
+        const string oldRhs = code.substr(from, to - from);
+        string cut;
+
+        if (!isExpressionRhs(oldRhs) ||
+            !substituteRef(oldRhs, ref, true, "0", cut))
+            cut = "0";
+
+        lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
+        removed++;
+    }
+
+    /* Take a blank line after the block with it, so deleting nodes does not
+       leave the file gappier each time. */
+    size_t last = close;
+
+    if (last + 1 < lines.size() &&
+        trim(codeOf(lines[last + 1])).empty() &&
+        lines[last + 1].find_first_not_of(" \t\r") == string::npos)
+        last++;
+
+    lines.erase(lines.begin() + open, lines.begin() + last + 1);
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::Text::createFile (string &source, const string &name,
+                                       const string &author, string &why)
+{
+    why.clear();
+
+    /* The name goes inside `name "..."', and the lexer's string has no escape
+       for a quote -- `"[^"\n]*"' and nothing else. The GUI derives this from a
+       filename the user typed, and a quote is legal in one, so a file called
+       `my "best" patch.dsp' would produce a .dsp that does not parse. Refuse
+       rather than write it. */
+    if (!validLabel(name) || !validLabel(author))
+    {
+        why = "a name or author cannot contain a quote";
+        return UNWRITABLE;
+    }
+
+    /* The smallest file that loads.
+     *
+     * finishParse rejects anything without an io node, so a genuinely empty
+     * .dsp is not a thing that can exist -- "new" means this. out0 and out1
+     * are wired to nothing yet, which is legal: buildArgMap invents them as
+     * zero and the DSP renders silence until something is connected. */
+    vector<string> lines;
+
+    lines.push_back("# " + name);
+
+    if (!author.empty())
+        lines.push_back("# " + author);
+
+    lines.push_back("");
+    lines.push_back("name \"" + name + "\";");
+    lines.push_back("author \"" + author + "\";");
+    lines.push_back("description \"\";");
+    lines.push_back("");
+    lines.push_back("node ionode {");
+    lines.push_back("    channels = 2;");
+    lines.push_back("};");
+    lines.push_back("");
+    lines.push_back("io ionode;");
+
+    source = joinLines(lines, true);
+
+    return OK;
+}
+
+/* ---- controls ---------------------------------------------------------- */
+
+bool NodeEdit::validLabel (const string &label)
+{
+    /* The lexer's string is `"[^"\n]*"'. No escapes, so a quote or a newline
+       cannot be represented at all -- not "would look odd", cannot. */
+    for (string::size_type i = 0; i < label.size(); i++)
+        if (label[i] == '"' || label[i] == '\n' || label[i] == '\r')
+            return false;
+
+    return true;
+}
+
+/* The first `node ...' at brace depth zero, or lines.size(). */
+static size_t findFirstNodeLine (const vector<string> &lines)
+{
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string t = trim(codeOf(lines[i]));
+
+        if (t.compare(0, 5, "node ") == 0 || t.compare(0, 5, "node\t") == 0)
+            return i;
+    }
+
+    return lines.size();
+}
+
+NodeEdit::Result NodeEdit::Text::addControl (string &source, const string &name,
+                                       double value, double min, double max,
+                                       const string &label,
+                                       const string &group, string &why)
+{
+    why.clear();
+
+    if (!validName(name))
+    {
+        why = "`" + name + "' is not a usable control name";
+        return REFUSED;
+    }
+
+    if (!validLabel(label))
+    {
+        why = "a label cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (!validLabel(group))
+    {
+        why = "a group name cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (max <= min)
+    {
+        why = "the maximum must be above the minimum";
+        return REFUSED;
+    }
+
+    if (value < min) value = min;
+    if (value > max) value = max;
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    /* Already declared? Two `@blim = ...' lines would have the second quietly
+       win, which is not what anyone means by adding one. */
+    {
+        size_t line = 0;
+        string::size_type from = 0, to = 0;
+
+        if (findChanArg(lines, name, line, from, to))
+        {
+            why = "the file already has a control called `@" + name + "'";
+            return REFUSED;
+        }
+    }
+
+    string sv, smin, smax;
+
+    if (!format(value, sv) || !format(min, smin) || !format(max, smax))
+    {
+        why = "cannot write those numbers in a .dsp";
+        return UNWRITABLE;
+    }
+
+    vector<string> block;
+
+    block.push_back("    @" + name + " = " + sv + ";");
+    block.push_back("    @" + name + ".widget = 1;");
+    block.push_back("    @" + name + ".min = " + smin + ";");
+    block.push_back("    @" + name + ".max = " + smax + ";");
+
+    if (!label.empty())
+        block.push_back("    @" + name + ".label = \"" + label + "\";");
+
+    if (!group.empty())
+        block.push_back("    @" + name + ".group = \"" + group + "\";");
+
+    block.push_back("");
+
+    /* Before the first node, where every shipped file keeps them. The order
+       within the block matters too: `@x.min' before `@x' has nothing to
+       modify, and the parser says so and ignores it. */
+    lines.insert(lines.begin() + findFirstNodeLine(lines),
+                 block.begin(), block.end());
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+/* ---- editing a control's metadata -------------------------------------- */
+
+/* The last line at depth zero belonging to `@name' -- the declaration itself or
+   any `@name.something'. Where a metadata line the file does not have goes.
+ *
+ * The end of the block rather than a particular slot in it, because the only
+ * ordering the parser cares about is that `@x.min' comes after `@x': before it
+ * there is nothing to modify, and the parser says so and ignores the line. The
+ * canonical order addControl() writes -- value, widget, min, max, label -- is
+ * for a reader's benefit, and reordering someone else's file to match it would
+ * be a change they did not ask for. */
+static bool findControlBlockEnd (const vector<string> &lines,
+                                 const string &name, size_t &last)
+{
+    const string ref = "@" + name;
+
+    bool found = false;
+    int depth = 0;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+
+        if (depth == 0)
+        {
+            const string t = trim(code);
+
+            if (t.compare(0, ref.size(), ref) == 0)
+            {
+                const char next = (t.size() > ref.size()) ? t[ref.size()] : 0;
+
+                /* `@blim = ', `@blim.min = ' -- but not `@blim2'. */
+                if (next == 0 || next == '.' || next == ' ' || next == '\t' ||
+                    next == '=')
+                {
+                    last = i;
+                    found = true;
+                }
+            }
+        }
+
+        for (size_t k = 0; k < code.size(); k++)
+        {
+            if (code[k] == '{') depth++;
+            else if (code[k] == '}' && depth > 0) depth--;
+        }
+    }
+
+    return found;
+}
+
+/* The leading whitespace of `line'. A control block is indented in most of the
+   shipped files and flush left in some; a line added to one should look like
+   the lines around it rather than like this function's opinion. */
+static string leadingSpaceOf (const string &line)
+{
+    const string::size_type n = line.find_first_not_of(" \t");
+
+    if (n == string::npos)
+        return "";
+
+    return line.substr(0, n);
+}
+
+/* Adds `@<name>.<field> = <text>;' at the end of the block.
+ *
+ * Split out because inserting a line is the half the numeric and the string
+ * case do identically, and rewriting one is the half where they differ. */
+static void addControlField (vector<string> &lines, const string &name,
+                             const string &field, const string &text,
+                             const string &indent, size_t &blockEnd)
+{
+    lines.insert(lines.begin() + blockEnd + 1,
+                 indent + "@" + name + "." + field + " = " + text + ";");
+
+    blockEnd++;
+}
+
+/* Rewrites `@<name>.<field> = <text>;' where the field holds a *number* --
+ * `.min' and `.max' -- adding the line if the file has none.
+ *
+ * Compared by value and not by spelling, which is the whole reason this is not
+ * the string case with a different argument. `@x.max = th_max' means 1, so a
+ * no-op write of 1 has to leave those six characters alone; comparing the text
+ * would replace them with `1' the first time anyone opened the dialog and
+ * pressed Apply. That is precisely the damage splicing exists to prevent, and
+ * it is the same rule setChanArg already follows for a value -- the reason 229
+ * uses of th_max and th_min across the corpus survive a save.
+ *
+ * Returns false for a right-hand side parseRhs will not read: arithmetic, or a
+ * name it does not know. Refusing is the point rather than a limitation. An
+ * editor that quietly replaced someone's `th_max * 2' with the constant it
+ * currently evaluates to would be doing the same damage the other way round.
+ *
+ * Works on `lines' in memory, so a caller changing four fields writes the file
+ * once.
+ */
+static bool spliceControlNumber (vector<string> &lines, const string &name,
+                                 const string &field, double value,
+                                 const string &text, const string &indent,
+                                 size_t &blockEnd)
+{
+    const string want = "@" + name + "." + field;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findDecl(lines, want, line, from, to))
+    {
+        addControlField(lines, name, field, text, indent, blockEnd);
+        return true;
+    }
+
+    const string rhs = lines[line].substr(from, to - from);
+
+    double old;
+
+    if (!parseRhs(rhs, old))
+        return false;
+
+    if (sameValue(old, value))
+        return true;            /* already that number: leave the bytes alone */
+
+    lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
+
+    return true;
+}
+
+/* The same for a field holding a *string* -- `.label' and `.group'. Compared by
+   spelling, because for these the spelling is the value; and it cannot fail,
+   because there is no right-hand side here that means something this does not
+   understand. Hence void: a caller has nothing to check. */
+static void spliceControlString (vector<string> &lines, const string &name,
+                                 const string &field, const string &text,
+                                 const string &indent, size_t &blockEnd)
+{
+    const string want = "@" + name + "." + field;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findDecl(lines, want, line, from, to))
+    {
+        addControlField(lines, name, field, text, indent, blockEnd);
+        return;
+    }
+
+    if (lines[line].compare(from, to - from, text) == 0)
+        return;                 /* already says that: leave the bytes alone */
+
+    lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
+}
+
+/* Deletes `@<name>.<field> = ...;' if it is there. For a label being cleared:
+   writing `""' would parse, but the file would then carry a declaration of
+   nothing, and a control that never had a label would stop matching one whose
+   label was removed. */
+static void dropControlField (vector<string> &lines, const string &name,
+                              const string &field, size_t &blockEnd)
+{
+    const string want = "@" + name + "." + field;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findDecl(lines, want, line, from, to))
+        return;
+
+    lines.erase(lines.begin() + line);
+
+    /* `>=', not `>': dropping the line the block currently ends on leaves the
+       block one shorter, and an insertion after a blockEnd that had not moved
+       would land past the block rather than in it. */
+    if (blockEnd >= line)
+        blockEnd--;
+}
+
+/* Formats `value' the way `@<name>.<field>' is already spelled: same unit, same
+ * spacing.
+ *
+ * All 67 units on a range in the corpus are on a `.max', and every one of them
+ * is a millisecond envelope time. `@a.max = 20000ms' is written that way
+ * because twenty seconds is what the author meant; the lexer folds it to
+ * 882000 and re-deriving the literal is only possible because the grammar's
+ * conversion is exactly invertible. Writing the folded number back would be
+ * correct and unreadable, and would do it to a line nobody asked to change.
+ */
+static bool formatLikeField (const vector<string> &lines, const string &name,
+                             const string &field, double value, string &out)
+{
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+    string units, suffix;
+
+    if (findDecl(lines, "@" + name + "." + field, line, from, to))
+    {
+        const string rhs = lines[line].substr(from, to - from);
+
+        units = NodeEdit::unitsOf(rhs);
+        suffix = suffixTextOf(rhs);
+    }
+
+    string body;
+
+    if (!formatLiteral(value, units, body))
+        return false;
+
+    out = body + suffix;
+
+    return true;
+}
+
+NodeEdit::Result NodeEdit::Text::setControlMeta (string &source, const string &name,
+                                           double min, double max,
+                                           const string &label,
+                                           const string &group, string &why)
+{
+    why.clear();
+
+    if (!validLabel(label))
+    {
+        why = "a label cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (!validLabel(group))
+    {
+        why = "a group name cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (max <= min)
+    {
+        why = "the maximum must be above the minimum";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    size_t declLine = 0;
+    string::size_type declFrom = 0, declTo = 0;
+
+    if (!findChanArg(lines, name, declLine, declFrom, declTo))
+    {
+        why = "no `@" + name + " = ...' line in the file";
+        return NO_NODE;
+    }
+
+    size_t blockEnd = declLine;
+
+    findControlBlockEnd(lines, name, blockEnd);
+
+    const string indent = leadingSpaceOf(lines[declLine]);
+
+    /* Units first, from whatever the file already says. `@a.max = 2000ms' is
+       written that way because 2000 milliseconds is what the author meant; the
+       lexer folds it to 88200 and re-deriving the literal is only possible
+       because the conversion is exactly invertible. Handing back a raw sample
+       count would be correct and unreadable. */
+    string minText, maxText;
+
+    if (!formatLikeField(lines, name, "min", min, minText))
+    {
+        why = "cannot write that minimum in a .dsp";
+        return UNWRITABLE;
+    }
+
+    if (!formatLikeField(lines, name, "max", max, maxText))
+    {
+        why = "cannot write that maximum in a .dsp";
+        return UNWRITABLE;
+    }
+
+    /* An unwritable `.max' takes the `.min' down with it. The splice above has
+       already edited `lines' by the time this one refuses, but `lines' is a
+       copy and the file is written once at the end -- so returning here leaves
+       the .dsp exactly as it was, rather than with a new minimum against an old
+       maximum it was never meant to pair with. */
+    if (!spliceControlNumber(lines, name, "min", min, minText, indent,
+                             blockEnd) ||
+        !spliceControlNumber(lines, name, "max", max, maxText, indent,
+                             blockEnd))
+    {
+        why = "@" + name + "'s range is written with arithmetic or a name this "
+              "editor will not rewrite.";
+        return UNWRITABLE;
+    }
+
+    if (label.empty())
+        dropControlField(lines, name, "label", blockEnd);
+    else
+        spliceControlString(lines, name, "label", "\"" + label + "\"", indent,
+                            blockEnd);
+
+    if (group.empty())
+        dropControlField(lines, name, "group", blockEnd);
+    else
+        spliceControlString(lines, name, "group", "\"" + group + "\"", indent,
+                            blockEnd);
+
+    /* The value last, and only if the new range no longer contains it.
+     *
+     * Narrowing a range around a value outside it leaves a slider that cannot
+     * reach the number the file says, and moves it the instant it is touched --
+     * a change to the sound that looks like it came from nowhere. Clamping here
+     * makes it happen at the moment the range was changed, which is the moment
+     * it can be understood. A range that still contains the value changes
+     * nothing, which is what keeps a no-op write a no-op. */
+    {
+        /* findChanArg again: the splices above may have moved the line. */
+        if (findChanArg(lines, name, declLine, declFrom, declTo))
+        {
+            const string rhs = lines[declLine].substr(declFrom,
+                                                      declTo - declFrom);
+
+            double value;
+
+            if (parseRhs(rhs, value) && (value < min || value > max))
+            {
+                const double clamped = (value < min) ? min : max;
+
+                string text;
+
+                if (formatLiteral(clamped, unitsOf(rhs), text))
+                {
+                    lines[declLine] = lines[declLine].substr(0, declFrom) +
+                                      text + suffixTextOf(rhs) +
+                                      lines[declLine].substr(declTo);
+                }
+            }
+        }
+    }
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &name,
+                                          int &removed, string &why)
+{
+    why.clear();
+    removed = 0;
+
+    if (name.empty())
+    {
+        why = "no control named";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    splitLines(source, lines, endsWithNewline);
+
+    /* What the control held, to put where an expression was reading it.
+     *
+     * The declared text verbatim rather than a reformatted number, so
+     * `th_max' stays `th_max' and nobody's `0.18' becomes `0.180000'. Empty
+     * when there is nothing an expression could take: a unit, which no
+     * expression may carry, or arithmetic of its own. */
+    string stood;
+
+    {
+        size_t line = 0;
+        string::size_type from = 0, to = 0;
+
+        if (!findChanArg(lines, name, line, from, to))
+        {
+            why = "no `@" + name + "' in the file";
+            return NO_NODE;
+        }
+
+        const string decl = trim(lines[line].substr(from, to - from));
+
+        if (unitsOf(decl).empty() && !isExpressionRhs(decl))
+            stood = decl;
+    }
+
+    /* Everything reading it stops reading it, for the same reason as
+       removeNode: left alone the arg resolves to nothing and silently reads
+       zero, which is a change to the sound nobody asked for.
+
+       Inside arithmetic it is the reference that goes and not the arg: the
+       control's own value stands in its place, so `freq = freq->out +
+       @detune' becomes `freq = freq->out + 1.3' and the oscillator keeps
+       its pitch. Where the control carried a unit there is nothing to stand
+       in -- an expression may not hold one -- and the arg falls back to the
+       0 it used to get. */
+    const string ref = "@" + name;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+        const string::size_type eq = code.find('=');
+
+        if (eq == string::npos)
+            continue;
+
+        const string::size_type at = code.find(ref, eq);
+
+        if (at == string::npos)
+            continue;
+
+        /* `@blim' and not `@blim2'. */
+        const string::size_type after = at + ref.size();
+
+        if (after < code.size() && isWordChar(code[after]))
+            continue;
+
+        const string::size_type semi = code.find(';', eq);
+
+        if (semi == string::npos || at > semi)
+            continue;
+
+        string::size_type from = code.find_first_not_of(" \t", eq + 1);
+        string::size_type to = semi;
+
+        while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
+            to--;
+
+        const string oldRhs = code.substr(from, to - from);
+        string cut;
+
+        if (stood.empty() || !isExpressionRhs(oldRhs) ||
+            !substituteRef(oldRhs, ref, false, stood, cut))
+            cut = "0";
+
+        lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
+        removed++;
+    }
+
+    /* The block itself: `@name = ...' and every `@name.something = ...'.
+       Collected first, erased after, so the indices stay valid. */
+    vector<size_t> drop;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string t = trim(codeOf(lines[i]));
+
+        if (t.compare(0, ref.size(), ref) != 0)
+            continue;
+
+        const char next = (t.size() > ref.size()) ? t[ref.size()] : 0;
+
+        /* `@blim = ', `@blim.min = ' -- but not `@blim2'. */
+        if (next != 0 && next != '.' && next != ' ' && next != '\t' &&
+            next != '=')
+            continue;
+
+        drop.push_back(i);
+    }
+
+    /* Plus a blank line left behind by the block. */
+    if (!drop.empty())
+    {
+        const size_t after = drop.back() + 1;
+
+        if (after < lines.size() &&
+            lines[after].find_first_not_of(" \t\r") == string::npos)
+            drop.push_back(after);
+    }
+
+    for (size_t i = drop.size(); i > 0; i--)
+        lines.erase(lines.begin() + drop[i - 1]);
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+/* ---- the same, over a file ---------------------------------------------
+ *
+ * Read, edit, write -- and write nothing at all when the edit changed no
+ * byte, which several of the edits above go out of their way to arrange
+ * and which a wrapper that always wrote would undo.
+ *
+ * The write is a temporary renamed into place (writeText), so a full disk
+ * or a kill leaves the old file rather than half the new one.
+ */
+
+template <typename Edit>
+static NodeEdit::Result overFile (const string &filename, string &why,
+                                  Edit edit)
+{
+    string source;
+
+    if (!readText(filename, source))
+    {
+        why = "could not open " + filename;
+        return NodeEdit::IO_ERROR;
+    }
+
+    const string was = source;
+    const NodeEdit::Result r = edit(source);
+
+    if (r != NodeEdit::OK || source == was)
+        return r;
+
+    if (!writeText(filename, source))
+    {
+        why = "could not write " + filename;
+        return NodeEdit::IO_ERROR;
+    }
+
+    return NodeEdit::OK;
+}
+
+NodeEdit::Result NodeEdit::setValue (const string &filename,
+                                     const string &node, const string &arg,
+                                     double value, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::setValue(source, node, arg, value, why); });
+}
+
+NodeEdit::Result NodeEdit::connect (const string &filename,
+                                    const string &node, const string &arg,
+                                    const string &srcNode,
+                                    const string &srcPort, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::connect(source, node, arg, srcNode, srcPort, why); });
+}
+
+NodeEdit::Result NodeEdit::connectControl (const string &filename,
+                                           const string &node,
+                                           const string &arg,
+                                           const string &control,
+                                           string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::connectControl(source, node, arg, control, why); });
+}
+
+NodeEdit::Result NodeEdit::disconnect (const string &filename,
+                                       const string &node, const string &arg,
+                                       double value, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::disconnect(source, node, arg, value, why); });
+}
+
+NodeEdit::Result NodeEdit::setChanArg (const string &filename,
+                                       const string &name, double value,
+                                       string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::setChanArg(source, name, value, why); });
+}
+
+NodeEdit::Result NodeEdit::addNode (const string &filename,
+                                    const string &node, const string &plugin,
+                                    const vector<pair<string, double> > &initial,
+                                    string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::addNode(source, node, plugin, initial, why); });
+}
+
+NodeEdit::Result NodeEdit::removeNode (const string &filename,
+                                       const string &node, int &removed,
+                                       string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::removeNode(source, node, removed, why); });
+}
+
+NodeEdit::Result NodeEdit::addControl (const string &filename,
+                                       const string &name, double value,
+                                       double min, double max,
+                                       const string &label,
+                                       const string &group, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::addControl(source, name, value, min, max, label, group,
+                            why); });
+}
+
+NodeEdit::Result NodeEdit::setControlMeta (const string &filename,
+                                           const string &name, double min,
+                                           double max, const string &label,
+                                           const string &group, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::setControlMeta(source, name, min, max, label, group, why); });
+}
+
+NodeEdit::Result NodeEdit::removeControl (const string &filename,
+                                          const string &name, int &removed,
+                                          string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::removeControl(source, name, removed, why); });
+}
+
+NodeEdit::Result NodeEdit::find (const string &filename, const string &node,
+                                 const string &arg)
+{
+    string source;
+
+    if (!readText(filename, source))
+        return IO_ERROR;
+
+    return Text::find(source, node, arg);
+}
+
+/* The one that is not an edit to a file that is there: a new patch.
+ *
+ * The question this answers and the text version cannot is whether the
+ * file already exists -- which is why `replace' is here and not there. */
+NodeEdit::Result NodeEdit::createFile (const string &filename,
+                                       const string &name,
+                                       const string &author, bool replace,
+                                       string &why)
+{
+    why.clear();
+
+    if (!replace)
+    {
+        ifstream probe(filename.c_str());
+
+        if (probe)
+        {
+            why = filename + " already exists";
+            return REFUSED;
+        }
+    }
+
+    string source;
+    const Result r = Text::createFile(source, name, author, why);
+
+    if (r != OK)
+        return r;
+
+    if (!writeText(filename, source))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}

@@ -1,0 +1,692 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/* PADsynth: partials with a bandwidth each, rendered once into a table.
+ *
+ * A saw's partials are lines, one frequency each, and a stack of detuned
+ * saws is a handful of lines each. A choir, a string section, the lush
+ * pad of every ambient record is not lines but bands: sixty violins are
+ * sixty slightly different pitches, and what the ear hears at the second
+ * harmonic is a smear of energy a few cents wide. Paul Nasca's PADsynth
+ * builds that directly. For every partial n it lays a Gaussian into a
+ * magnitude spectrum,
+ *
+ *     centered on  base * n * sqrt(1 + stretch * n^2)
+ *     width        (2^(bandwidth / 1200) - 1) * base * n^bwscale  Hz
+ *     height       tilt dB per octave above the fundamental
+ *
+ * gives every bin a random phase, and inverse-transforms the lot. What
+ * comes back is one long table -- 2^18 samples, six seconds at 44.1 kHz
+ * -- whose every partial is already a band, and which loops without a
+ * seam because an inverse FFT is periodic in its own length. Played back
+ * by `freq' it is a pad with no LFO and no detune in it, that never
+ * repeats in any way the ear can find.
+ *
+ *   partials   how many
+ *   bandwidth  each band's width at the fundamental, in cents; 0 is a
+ *              line, and the table is then a sum of sines
+ *   bwscale    how the width grows up the series: 1 keeps it the same
+ *              number of cents on every partial, 0 the same number of
+ *              hertz, which is narrower and more like one instrument
+ *   tilt       dB per octave; -6 is a saw's slope, -12 a triangle's
+ *   stretch    inharmonicity, the stiffness of a string: 0 is harmonic
+ *
+ * ONE TABLE PER OCTAVE. A table is rendered at a base pitch and read
+ * faster or slower for every other, and reading it an octave up doubles
+ * every partial in it -- so a table with partials up to Nyquist at its
+ * base would fold them back down at the top of the keyboard. Each voice
+ * picks the octave nearest its first `freq', a table is rendered for that
+ * octave's C with only the partials that stay under Nyquist half an
+ * octave above it, and the voice reads that one from then on. Two voices
+ * in one octave with the same params share one table.
+ *
+ * THE PARAMS ARE READ ONCE, when a voice starts. A table is an FFT of a
+ * quarter of a million points, about twelve milliseconds natively, so a
+ * knob swept under a sounding voice must not ask for a new one every
+ * window. A sweep changes the next note. That note's table is built as
+ * its voice is (module_prepare), from the note and the params as they
+ * stand -- off the audio thread on the desktop, where voices are built on
+ * the GUI thread. A voice whose params come from other nodes, or whose
+ * `freq' is not its note's pitch, builds its own on its first window, on
+ * the thread that renders.
+ * PAD_TABLES tables are kept per synth; a new one past that replaces the
+ * one used longest ago, unless that one is still being read -- every
+ * voice reads its table every window -- and then the new one is kept as
+ * well. Replacing a table a voice reads built it again the next window,
+ * twelve milliseconds a window for as long as more than PAD_TABLES
+ * tables sounded.
+ *
+ * DETERMINISTIC. The phases come from a fixed seed through splitmix64,
+ * written out below, and are turned into radians by hand: the same params
+ * make the same table on every host. Not <random>: the browser build
+ * compiles each plugin inside a namespace of its own, and a standard
+ * header first included from inside one does not survive it.
+ *
+ * `out2' reads the same table 0.38 of its length away, which is a
+ * different stretch of the same noise-like wave: the same pad,
+ * decorrelated, for a stereo pair from one table.
+ *
+ * THE TRANSFORM is a radix-2 complex FFT; docs/cleanroom/SPEC.md says
+ * what it must do.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <stdint.h>
+
+#include <atomic>
+#include <chrono>
+#include <map>
+#include <mutex>
+#include <vector>
+
+#include "think.h"
+
+enum {IN_FREQ, IN_PARTIALS, IN_BANDWIDTH, IN_BWSCALE, IN_TILT, IN_STRETCH,
+      OUT_ARG, OUT_ARG2, INOUT_STATE};
+std::atomic<int> args[INOUT_STATE + 1];
+
+static const char desc[] = "PADsynth (partials with a bandwidth each)";
+thPlugin::State    mystate = thPlugin::ACTIVE;
+
+#define PAD_BITS 18
+#define PAD_LEN (1u << PAD_BITS)
+#define PAD_TABLES 16
+#define PAD_PARTIALS_MAX 256
+#define PAD_BASE 261.63           /* middle C: octave 0's table */
+
+/* Where `out2' reads, ahead of `out': a prime near 0.38 of the table and
+   not half of it. Half would turn every bin's phase by pi times its index,
+   which is one sign for the even bins and the other for the odd, and a
+   pad with most of its power on one parity comes out correlated with its
+   own inverse. */
+#define PAD_SECOND 100003u
+
+/* The state: the voice's table, as the params it was built from and the
+   octave, then the read position as a whole number of samples and a
+   fraction -- two floats, because one float at a quarter of a million
+   holds a position to a sixty-fourth of a sample, which is thirteen cents
+   of pitch error in the step. */
+enum { S_STARTED, S_OCTAVE, S_PARTIALS, S_BANDWIDTH, S_BWSCALE, S_TILT,
+       S_STRETCH, S_WHOLE, S_FRAC, S_COUNT };
+
+/* ---- the tables ---------------------------------------------------------
+ *
+ * Keyed on the plugin, for osc/sampleslot.h's reason: one thPlugin per
+ * file per synth, so a slot keyed on it belongs to one synth. Published
+ * the way that table is, too: the audio thread reads a map that is never
+ * changed once it is out, and whoever adds -- the thread that builds
+ * voices, or the audio thread on a key nobody built -- takes `adding' and
+ * publishes a new one. */
+
+struct PadKey
+{
+    float octave, partials, bandwidth, bwscale, tilt, stretch;
+
+    bool operator< (const PadKey &o) const
+    {
+        return memcmp(this, &o, sizeof(PadKey)) < 0;
+    }
+};
+
+struct PadTable
+{
+    std::vector<float> wave;
+    std::atomic<unsigned long> used{0};
+    std::atomic<double> seen{0};   /* seconds, on a clock that only goes up */
+};
+
+typedef std::map<PadKey, PadTable *> PadMap;
+
+/* How long a table nobody has read is still taken to be sounding: a few
+   windows at any rate a host renders at. */
+#define PAD_IDLE_SEC 0.5
+
+/* How long a map or a table taken out of the published one is kept. A
+   reader holds a map for one lookup and a table for one window, and marks
+   a table seen as it takes it; this is far longer than either. */
+#define PAD_KEEP_SEC 2.0
+
+static double padNow (void)
+{
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+/* Something no longer published, and when it stopped being. */
+template <typename T> struct PadGone
+{
+    T *what;
+    double at;
+};
+
+struct PadSlot
+{
+    std::atomic<const thPlugin *> owner;
+    std::atomic<const PadMap *> map;
+    std::atomic<unsigned long> clock;
+
+    /* Held by whoever adds. The published map, and what has been taken
+       out of it and is not yet freed. */
+    std::mutex adding;
+    PadMap *current;
+    std::vector<PadGone<PadMap> > oldMaps;
+    std::vector<PadGone<PadTable> > oldTables;
+};
+
+#define PAD_SLOTS 64
+static PadSlot padSlots[PAD_SLOTS];
+
+static PadSlot *padSlotFor (const thPlugin *plugin)
+{
+    for (int i = 0; i < PAD_SLOTS; i++)
+        if (padSlots[i].owner.load(std::memory_order_acquire) == plugin)
+            return &padSlots[i];
+
+    return NULL;
+}
+
+/* Steele, Lea and Flood's splitmix64: one 64-bit add and a mix, so the
+   phases are the same sequence on every compiler. */
+static uint64_t padDice (uint64_t &x)
+{
+    uint64_t z = (x += 0x9E3779B97F4A7C15ull);
+
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+
+    return z ^ (z >> 31);
+}
+
+/* What every table's build shares: the FFT's twiddle factors, and each
+   bin's phase as a cosine and a sine, which are the same for every table
+   since the phases come from one fixed seed. Made once, by module_init on
+   the loading thread, so that a voice's first window does not pay for
+   them. */
+struct PadConst
+{
+    std::vector<double> wr, wi, cosPhase, sinPhase;
+};
+
+static const PadConst &padConst (void)
+{
+    static const PadConst c = []
+    {
+        PadConst made;
+        const size_t n = PAD_LEN;
+        uint64_t dice = 20260922u;
+
+        made.wr.resize(n / 2);
+        made.wi.resize(n / 2);
+
+        for (size_t j = 0; j < n / 2; j++)
+        {
+            made.wr[j] = cos(M_PI * (double)j / (double)(n / 2));
+            made.wi[j] = -sin(M_PI * (double)j / (double)(n / 2));
+        }
+
+        made.cosPhase.resize(n / 2);
+        made.sinPhase.resize(n / 2);
+
+        for (size_t k = 1; k < n / 2; k++)
+        {
+            const double phase = 2 * M_PI * (double)(padDice(dice) >> 11) /
+                                 9007199254740992.0;
+
+            made.cosPhase[k] = cos(phase);
+            made.sinPhase[k] = sin(phase);
+        }
+
+        return made;
+    }();
+
+    return c;
+}
+
+/* Forward, in place, natural order in and out; `re' and `im' are 2^m
+   long. To be written: docs/cleanroom/SPEC.md. */
+static void padFft (std::vector<double> &re, std::vector<double> &im, int m);
+
+/* One table: see the head. Peak-normalized to 1, since the shape of the
+   wave is noise-like and its crest factor depends on the params; a pad
+   that clipped at some settings and whispered at others would be worse
+   than one whose level moves a few decibels with its bandwidth. */
+static bool padBuild (const PadKey &key, unsigned rate,
+                      std::vector<float> &wave)
+{
+    const double base = PAD_BASE * pow(2.0, key.octave);
+    /* Half an octave above the base is the fastest this table is read. */
+    const double ceiling = rate * 0.49 / sqrt(2.0);
+    const double bwRatio = pow(2.0, key.bandwidth / 1200.0) - 1;
+    const double binHz = (double)rate / PAD_LEN;
+    std::vector<double> mag(PAD_LEN / 2, 0.0);
+
+    for (int n = 1; n <= (int)key.partials; n++)
+    {
+        const double hz = base * n * sqrt(1 + key.stretch * (double)n * n);
+
+        if (hz >= ceiling)
+            break;
+
+        const double amp = pow(10.0, key.tilt * log2((double)n) / 20.0);
+        const double width = bwRatio * base * pow((double)n, key.bwscale);
+        const double center = hz / binHz;
+        const double sigma = width / binHz / 2;
+
+        /* Narrower than a bin is a line: all of it in the nearest one,
+           which is what makes `bandwidth = 0' a sum of sines rather than
+           a Gaussian sampled at one point and lost between bins. */
+        if (sigma < 0.5)
+        {
+            const size_t k = (size_t)floor(center + 0.5);
+
+            if (k > 0 && k < mag.size())
+                mag[k] += amp;
+
+            continue;
+        }
+
+        const long lo = (long)floor(center - 4 * sigma);
+        const long hi = (long)ceil(center + 4 * sigma);
+
+        /* The Gaussian with its area held to `amp', so a wide band is as
+           loud as a narrow one and bandwidth is not a level knob. */
+        for (long k = lo < 1 ? 1 : lo; k <= hi && k < (long)mag.size(); k++)
+        {
+            const double x = ((double)k - center) / sigma;
+
+            mag[(size_t)k] += amp * exp(-0.5 * x * x) /
+                              (sigma * sqrt(2 * M_PI));
+        }
+    }
+
+    std::vector<double> re(PAD_LEN, 0.0), im(PAD_LEN, 0.0);
+    const PadConst &c = padConst();
+
+    for (size_t k = 1; k < mag.size(); k++)
+    {
+        /* The conjugate of what the inverse wants, so that the forward
+           transform below is the inverse: conj(FFT(conj(X))) is N times
+           IFFT(X), and the real part is all that is kept. */
+        re[k] = mag[k] * c.cosPhase[k];
+        im[k] = -mag[k] * c.sinPhase[k];
+        re[PAD_LEN - k] = re[k];
+        im[PAD_LEN - k] = -im[k];
+    }
+
+    padFft(re, im, PAD_BITS);
+
+    double top = 0;
+
+    for (size_t i = 0; i < PAD_LEN; i++)
+        top = fmax(top, fabs(re[i]));
+
+    wave.resize(PAD_LEN);
+
+    for (size_t i = 0; i < PAD_LEN; i++)
+        wave[i] = top > 0 ? (float)(re[i] / top) : 0.0f;
+
+    return true;
+}
+
+/* Holding `adding'. Frees what has been out of the published map for
+   PAD_KEEP_SEC, or everything when `all'. */
+static void padSweep (PadSlot *slot, double now, bool all)
+{
+    for (size_t i = 0; i < slot->oldMaps.size(); )
+        if (all || now - slot->oldMaps[i].at > PAD_KEEP_SEC)
+        {
+            delete slot->oldMaps[i].what;
+            slot->oldMaps[i] = slot->oldMaps.back();
+            slot->oldMaps.pop_back();
+        }
+        else
+            i++;
+
+    for (size_t i = 0; i < slot->oldTables.size(); )
+        if (all || (now - slot->oldTables[i].at > PAD_KEEP_SEC &&
+                    now - slot->oldTables[i].what->seen > PAD_KEEP_SEC))
+        {
+            delete slot->oldTables[i].what;
+            slot->oldTables[i] = slot->oldTables.back();
+            slot->oldTables.pop_back();
+        }
+        else
+            i++;
+}
+
+/* Holding `adding'. The table for `key', built and published if the
+   published map has none. */
+static PadTable *padAdd (PadSlot *slot, const PadKey &key, unsigned rate)
+{
+    const double now = padNow();
+    PadMap::const_iterator i = slot->current->find(key);
+
+    if (i != slot->current->end())
+        return i->second;
+
+    padSweep(slot, now, false);
+
+    PadMap *next = new PadMap(*slot->current);
+
+    if (next->size() >= PAD_TABLES)
+    {
+        PadMap::iterator oldest = next->begin();
+
+        for (PadMap::iterator j = next->begin(); j != next->end(); j++)
+            if (j->second->used < oldest->second->used)
+                oldest = j;
+
+        if (now - oldest->second->seen > PAD_IDLE_SEC)
+        {
+            slot->oldTables.push_back({ oldest->second, now });
+            next->erase(oldest);
+        }
+    }
+
+    PadTable *t = new PadTable();
+
+    padBuild(key, rate, t->wave);
+    t->used = ++slot->clock;
+    t->seen = now;
+    (*next)[key] = t;
+
+    slot->oldMaps.push_back({ slot->current, now });
+    slot->current = next;
+    slot->map.store(next, std::memory_order_release);
+
+    return t;
+}
+
+/* The table for `key', built here if nobody has: on the audio thread from
+   module_callback, which is the twelve milliseconds module_prepare is for
+   taking off it. */
+static const std::vector<float> *padTable (const thPlugin *plugin,
+                                           const PadKey &key, unsigned rate)
+{
+    PadSlot *slot = padSlotFor(plugin);
+    const PadMap *map = slot ? slot->map.load(std::memory_order_acquire)
+                             : NULL;
+
+    if (map == NULL)
+        return NULL;
+
+    PadMap::const_iterator i = map->find(key);
+    PadTable *t;
+
+    if (i != map->end())
+        t = i->second;
+    else
+    {
+        std::lock_guard<std::mutex> hold(slot->adding);
+
+        t = padAdd(slot, key, rate);
+    }
+
+    t->used = ++slot->clock;
+    t->seen = padNow();
+
+    return &t->wave;
+}
+
+/* What a voice's first sample makes of its params: see the callback. */
+static PadKey padKeyOf (double freq, float partials, float bandwidth,
+                        float bwscale, float tilt, float stretch)
+{
+    const PadKey key = {
+        (float)thClampArg((float)floor(log2(freq / PAD_BASE) + 0.5), -6, 6),
+        partials == 0 ? 32 : floorf(thClampArg(partials, 1, PAD_PARTIALS_MAX)),
+        thClampArg(bandwidth, 0, 1200),
+        thClampArg(bwscale, 0, 2),
+        thClampArg(tilt, -60, 24),
+        thClampArg(stretch, 0, 0.1f),
+    };
+
+    return key;
+}
+
+void module_cleanup (thPlugin *plugin)
+{
+    for (int i = 0; i < PAD_SLOTS; i++)
+        if (padSlots[i].owner.load(std::memory_order_acquire) == plugin)
+        {
+            std::lock_guard<std::mutex> hold(padSlots[i].adding);
+
+            padSweep(&padSlots[i], 0, true);
+
+            for (PadMap::iterator j = padSlots[i].current->begin();
+                 j != padSlots[i].current->end(); j++)
+                delete j->second;
+
+            delete padSlots[i].current;
+            padSlots[i].current = NULL;
+            padSlots[i].map.store(NULL, std::memory_order_release);
+            padSlots[i].owner.store(NULL, std::memory_order_release);
+            return;
+        }
+}
+
+/* A voice about to start: its table, built here and not in its first
+   window. The params are read as that window would read them, which this
+   can do only for those that are numbers or controls -- one fed by another
+   node has no value until the voice runs, and is left to the callback.
+   `freq' fed by a node is taken to be the note's own pitch, which is what
+   it is in every graph that plays its notes; one that is not finds the
+   octave it guessed wrong and builds its own. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const int params[5] = { IN_PARTIALS, IN_BANDWIDTH, IN_BWSCALE, IN_TILT,
+                            IN_STRETCH };
+    float value[5];
+
+    if (!voice)
+        return;
+
+    for (int k = 0; k < 5; k++)
+    {
+        const thArg *raw = node->getArg(args[params[k]]);
+        thArg *arg = mod->getArg(node, args[params[k]]);
+
+        if (raw == NULL || raw->type() == thArg::ARG_POINTER || arg == NULL)
+            return;
+
+        value[k] = (*arg)[0];
+    }
+
+    const thArg *raw = node->getArg(args[IN_FREQ]);
+    thArg *in_freq = mod->getArg(node, args[IN_FREQ]);
+    thArg *note = mod->IONode() ? mod->IONode()->getArg("note") : NULL;
+    double freq;
+
+    if (raw != NULL && raw->type() != thArg::ARG_POINTER && in_freq != NULL)
+        freq = (*in_freq)[0];
+    else if (note != NULL)
+        freq = 440.0 * pow(2.0, ((*note)[0] - 69) / 12.0);
+    else
+        return;
+
+    padTable(node->plugin(),
+             padKeyOf(thBoundFreq(freq, samples), value[0], value[1],
+                      value[2], value[3], value[4]),
+             samples);
+}
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+    padConst();
+
+    for (int i = 0; i < PAD_SLOTS; i++)
+    {
+        const thPlugin *none = NULL;
+
+        if (padSlots[i].owner.compare_exchange_strong(
+                none, plugin, std::memory_order_acq_rel))
+        {
+            std::lock_guard<std::mutex> hold(padSlots[i].adding);
+
+            padSlots[i].current = new PadMap();
+            padSlots[i].clock = 0;
+            padSlots[i].map.store(padSlots[i].current,
+                                  std::memory_order_release);
+            break;
+        }
+    }
+
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "The note");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
+    args[IN_PARTIALS] = plugin->regArg("partials", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PARTIALS],
+                       "How many partials, of those under Nyquist");
+    plugin->setArgRange(args[IN_PARTIALS], 1, 128);
+    plugin->setArgStep(args[IN_PARTIALS], 1);
+    plugin->setArgDefault(args[IN_PARTIALS], 32);
+    args[IN_BANDWIDTH] = plugin->regArg("bandwidth", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_BANDWIDTH],
+                       "Each partial's width at the fundamental; 0 is a "
+                       "sum of sines");
+    plugin->setArgUnits(args[IN_BANDWIDTH], "cents");
+    plugin->setArgRange(args[IN_BANDWIDTH], 0, 200);
+    args[IN_BWSCALE] = plugin->regArg("bwscale", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_BWSCALE],
+                       "How the width grows up the series: 1 the same "
+                       "cents, 0 the same hertz");
+    plugin->setArgRange(args[IN_BWSCALE], 0, 2);
+    args[IN_TILT] = plugin->regArg("tilt", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_TILT],
+                       "How the partials fall off; -6 is a saw's slope");
+    plugin->setArgUnits(args[IN_TILT], "dB per octave");
+    plugin->setArgRange(args[IN_TILT], -24, 6);
+    args[IN_STRETCH] = plugin->regArg("stretch", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_STRETCH],
+                       "Inharmonicity: partial n at n * sqrt(1 + stretch "
+                       "n^2)");
+    plugin->setArgRange(args[IN_STRETCH], 0, 0.01f);
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The pad");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+    args[OUT_ARG2] = plugin->regArg("out2", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG2],
+                       "The same pad from half the table away, "
+                       "decorrelated");
+    plugin->setArgRange(args[OUT_ARG2], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG2], "full scale");
+
+    args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    thArg *in_freq = mod->getArg(node, args[IN_FREQ]);
+    thArg *in_partials = mod->getArg(node, args[IN_PARTIALS]);
+    thArg *in_bandwidth = mod->getArg(node, args[IN_BANDWIDTH]);
+    thArg *in_bwscale = mod->getArg(node, args[IN_BWSCALE]);
+    thArg *in_tilt = mod->getArg(node, args[IN_TILT]);
+    thArg *in_stretch = mod->getArg(node, args[IN_STRETCH]);
+    thArg *out_arg = mod->getArg(node, args[OUT_ARG]);
+    thArg *out_arg2 = mod->getArg(node, args[OUT_ARG2]);
+    thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
+
+    float *out = out_arg->allocate(windowlen);
+    float *out2 = out_arg2->allocate(windowlen);
+    float *state = inout_state->allocate(S_COUNT);
+
+    /* The params and the octave, on the voice's first sample. The octave
+       is the one whose C is nearest the note, so a table is read at most
+       half an octave either side of its base. */
+    if (state[S_STARTED] == 0)
+    {
+        const PadKey first =
+            padKeyOf(thBoundFreq((*in_freq)[0], samples), (*in_partials)[0],
+                     (*in_bandwidth)[0], (*in_bwscale)[0], (*in_tilt)[0],
+                     (*in_stretch)[0]);
+
+        state[S_OCTAVE] = first.octave;
+        state[S_PARTIALS] = first.partials;
+        state[S_BANDWIDTH] = first.bandwidth;
+        state[S_BWSCALE] = first.bwscale;
+        state[S_TILT] = first.tilt;
+        state[S_STRETCH] = first.stretch;
+        state[S_WHOLE] = 0;
+        state[S_FRAC] = 0;
+        state[S_STARTED] = 1;
+    }
+
+    const PadKey key = { state[S_OCTAVE], state[S_PARTIALS],
+                         state[S_BANDWIDTH], state[S_BWSCALE],
+                         state[S_TILT], state[S_STRETCH] };
+    const std::vector<float> *table = padTable(node->plugin(), key, samples);
+    const double base = PAD_BASE * pow(2.0, state[S_OCTAVE]);
+
+    size_t whole = (size_t)state[S_WHOLE];
+    /* In float and stepped in float, for delay::chorus's reason: a window
+       boundary is not an event. */
+    float frac = state[S_FRAC];
+
+    if (whole >= PAD_LEN)
+        whole = 0;
+
+    for (unsigned int i = 0; i < windowlen; i++)
+    {
+        if (table == NULL || table->empty())
+        {
+            out[i] = out2[i] = 0;
+            continue;
+        }
+
+        const float *w = &(*table)[0];
+        const size_t k2 = (whole + PAD_SECOND) % PAD_LEN;
+        const float f = frac;
+        const float a = w[whole], b = w[(whole + 1) % PAD_LEN];
+        const float a2 = w[k2], b2 = w[(k2 + 1) % PAD_LEN];
+
+        out[i] = TH_MAX * (a + (b - a) * f);
+        out2[i] = TH_MAX * (a2 + (b2 - a2) * f);
+
+        /* The step split the same way: whole samples to the index and the
+           rest to the fraction, which carries into it. */
+        const double step = thBoundFreq((*in_freq)[i], samples) / base;
+        const double stepWhole = floor(step);
+
+        frac += (float)(step - stepWhole);
+        whole += (size_t)stepWhole;
+
+        if (frac >= 1)
+        {
+            frac -= 1;
+            whole += 1;
+        }
+
+        whole %= PAD_LEN;
+    }
+
+    state[S_WHOLE] = (float)whole;
+    state[S_FRAC] = frac;
+
+    return 0;
+}

@@ -1,0 +1,439 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * thinkwasm -- what genwav.mjs holds on to.
+ *
+ * genwav.mjs is scripts/genwav.cpp for Node. Everything genwav.cpp does with
+ * the numbers it gets back -- the loop, the tail, the level summary, the WAV,
+ * the tape's spelling -- it does in JavaScript. What it cannot do there is be
+ * the synth: the objects genwav.cpp builds on its stack are built here
+ * instead, once, and reached through a handful of C functions, since a C name
+ * is the one thing both sides of the wasm boundary can spell.
+ *
+ * The plugins are Emscripten side modules and load the way they do natively:
+ * thDynLib::open is dlopen, and dlopen here is Emscripten's. Built with
+ * NODERAWFS, a path is the host's path, so -p, the .gen, and the dsp/ search
+ * all mean what they mean to the native tool.
+ */
+
+#include "config.h"
+
+#include <stdint.h>
+#include <stddef.h>
+
+#include <filesystem>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+#include <emscripten.h>
+
+#include "think.h"
+
+#include "thcPlugin.h"
+#include "thcScheduler.h"
+#include "thcGenDiff.h"
+#include "thcGenEdit.h"
+#include "thcGenFile.h"
+
+#include "twevent.h"
+
+static std::map<std::string, thcPlugin *> plugins_;
+static thSynth      *synth_;
+static thcScheduler *sched_;
+static thcGenLoader *loader_;
+
+static sigc::connection conn_;
+
+/* The text the scheduler is playing: the file loaded, or the last edit's. */
+static std::string      current_;
+static std::vector<std::string> editErrors_;
+static twTape           tape_;
+
+/* genwav.cpp's loadComposers, as it stands. */
+static void loadComposers (const std::string &pluginDir,
+                           std::map<std::string, thcPlugin *> &out)
+{
+    std::filesystem::path root =
+        std::filesystem::path(pluginDir) / "composer";
+    std::error_code ec;
+
+    if (!std::filesystem::is_directory(root, ec))
+        return;
+
+    for (const auto &f : std::filesystem::directory_iterator(root, ec))
+    {
+        if (ec)
+            break;
+
+        if (f.path().extension() != PLUGIN_SUFFIX)
+            continue;
+
+        thcPlugin *p = new thcPlugin(f.path().string());
+
+        if (p->state() != thcPlugin::LOADED)
+        {
+            delete p;
+            continue;
+        }
+
+        out[p->name()] = p;
+    }
+}
+
+/* A command the caller has stepped to the stamp of: what it replays lands
+   where the browser host's applyScheduled lands it. */
+struct Stamped
+{
+    Stamped ()
+    {
+        sched_->setReplayLandAt(sched_->now() +
+                                thcScheduler::ROOM_REPLAY_LAND_S);
+    }
+
+    ~Stamped () { sched_->setReplayLandAt(-1); }
+};
+
+extern "C" {
+
+/* The composers under pluginPath, and a synth built on the same path.
+   Returns how many composers loaded; with none there is nothing else, and
+   nothing else should be called. pluginPath ends in a slash. */
+EMSCRIPTEN_KEEPALIVE int tw_open (const char *pluginPath)
+{
+    loadComposers(pluginPath, plugins_);
+
+    if (plugins_.empty())
+        return 0;
+
+    synth_  = new thSynth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                          TH_DEFAULT_SAMPLES);
+    sched_  = new thcScheduler(synth_);
+    loader_ = new thcGenLoader(plugins_);
+
+    return (int)plugins_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_load (const char *genFile)
+{
+    current_ = genFile;
+
+    return loader_->load(genFile, sched_) ? 1 : 0;
+}
+
+/* The piece replaced by `genFile', now (thcGenDiff): what the browser
+   host's TW_EDIT does at its stamp. 1 if it is the piece now; the errors,
+   if any, through tw_edit_error. */
+EMSCRIPTEN_KEEPALIVE int tw_edit (const char *genFile)
+{
+    const Stamped stamped;
+
+    if (!thcGenDiff::apply(*sched_, plugins_, current_, genFile,
+                           std::set<std::string>(), editErrors_))
+        return 0;
+
+    current_ = genFile;
+
+    return 1;
+}
+
+/* Instrument `name' onto graph `dsp' in the piece as it now is, written to
+ * `genFile' and applied as tw_edit applies one: what a room's pick does in
+ * the browser (thinkweb.cpp, applyPick). */
+EMSCRIPTEN_KEEPALIVE int tw_pick (const char *name, const char *dsp,
+                                  const char *genFile)
+{
+    std::error_code ec;
+    std::string why;
+
+    std::filesystem::copy_file(current_, genFile,
+                               std::filesystem::copy_options::
+                                   overwrite_existing, ec);
+
+    if (ec || thcGenEdit::setInstrumentGraph(genFile, name, dsp, why) !=
+                  thcGenEdit::OK)
+    {
+        editErrors_.assign(1, ec ? ec.message() : why);
+        return 0;
+    }
+
+    return tw_edit(genFile);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_error_count (void)
+{
+    return (int)editErrors_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_edit_error (int k)
+{
+    return k >= 0 && k < (int)editErrors_.size() ? editErrors_[k].c_str()
+                                                   : "";
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_error_count (void)
+{
+    return (int)loader_->errors().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_error (int k)
+{
+    return loader_->errors()[k].c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_channels (void)
+{
+    return synth_->audioChannelCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_midi_channels (void)
+{
+    return synth_->midiChanCount();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_count (void)
+{
+    return (int)sched_->instruments().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_name (int i)
+{
+    return sched_->instruments()[i].name.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int i)
+{
+    return sched_->instruments()[i].channel;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_channel_name (int channel)
+{
+    static std::string name;
+    const thcInstrument *inst = sched_->channelOf(channel);
+
+    /* The declared instrument, as native genwav names a channel. */
+    name = inst != NULL ? inst->name : sched_->holding(channel);
+    return name.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_section_count (void)
+{
+    return (int)sched_->sections().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_section_name (int i)
+{
+    return sched_->sections()[i].name.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_section_at (double at)
+{
+    return sched_->sectionAt(at);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_window (void)
+{
+    return synth_->getWindowlen();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_rate (void)
+{
+    return TH_DEFAULT_SAMPLES;
+}
+
+/* Listening starts here rather than at tw_open, which is where genwav.cpp
+   connects too: after the load, so nothing the load delivers is counted. */
+EMSCRIPTEN_KEEPALIVE void tw_start (void)
+{
+    conn_ = sched_->sigDelivered.connect(
+        sigc::mem_fun(tape_, &twTape::deliver));
+    sched_->start();
+}
+
+/* stop() delivers the note-offs for whatever is still sounding, and only
+   then does the listening end. */
+EMSCRIPTEN_KEEPALIVE void tw_stop (void)
+{
+    sched_->stop();
+    conn_.disconnect();
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_now (void)
+{
+    return sched_->now();
+}
+
+/* Is the transport still going? A piece whose arrangement closes with
+   `section end;' stops itself when the last section is over, and a host
+   that only watched the clock would spin for ever: stepping a stopped
+   transport moves nothing, so `now' never reaches the length asked
+   for. */
+EMSCRIPTEN_KEEPALIVE int tw_running (void)
+{
+    return sched_->running() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_step (double dt)
+{
+    sched_->stepTransport(dt);
+}
+
+/* To an exact transport time: how a command stamped with one is applied
+   where it falls inside a window rather than at the window's end
+   (genwav.mjs's -c). */
+EMSCRIPTEN_KEEPALIVE void tw_step_to (double t)
+{
+    sched_->stepTransportTo(t);
+}
+
+/* ---- the scheduler's commands, applied now ----
+ *
+ * The browser host stamps these with a time and holds them; here the
+ * caller steps to the time and then applies, so the same command stream
+ * gives the same tape from either host, which is what the room's
+ * harnesses compare. */
+
+/* The index of a piece knob by name -- the order the browser host numbers
+   them in, which is the scheduler's map order -- or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_knob_index (const char *name)
+{
+    int k = 0;
+
+    for (const auto &knob : sched_->knobs())
+    {
+        if (knob.first == name)
+            return k;
+
+        k++;
+    }
+
+    return -1;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_knob (int k, double value)
+{
+    const Stamped stamped;
+    int i = 0;
+
+    for (const auto &knob : sched_->knobs())
+    {
+        if (i++ == k)
+        {
+            knob.second->setValue((float)value);
+            sched_->knobMoved(knob.second);
+            return;
+        }
+    }
+}
+
+/* A key into the piece, now: what the browser host's TW_NOTE does at its
+   stamp for a key on a channel the piece listens on. An off goes in only
+   where its on did, as TW_NOTE's does, whatever an edit since has made of
+   the channel. */
+static std::map<std::pair<int, int>, bool> keyIntoPiece_;
+
+EMSCRIPTEN_KEEPALIVE void tw_midi (int channel, int note, int velocity,
+                                   int on)
+{
+    const Stamped stamped;
+    thcEvent ev = {};
+
+    ev.type = on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+    ev.at = sched_->now();
+    ev.channel = channel;
+    ev.u.note.note = note;
+    ev.u.note.velocity = velocity;
+    ev.u.note.duration = 0;
+    ev.u.note.level = 1;
+
+    const std::pair<int, int> key(channel, note);
+    const auto was = keyIntoPiece_.find(key);
+
+    if (on)
+        keyIntoPiece_[key] = sched_->injectMidiEvent(ev);
+    else if (was == keyIntoPiece_.end())
+        sched_->injectMidiEvent(ev);
+    else
+    {
+        if (was->second)
+            sched_->injectMidiEvent(ev);
+
+        keyIntoPiece_.erase(was);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_tempo (double bpm)
+{
+    const Stamped stamped;
+
+    sched_->setTempo(bpm);
+}
+
+/* One window, tw_channels() * tw_window() floats, planar: all of channel 0,
+   then all of channel 1. The pointer is the synth's own buffer: read it
+   before the next call. */
+EMSCRIPTEN_KEEPALIVE const float *tw_process (void)
+{
+    synth_->process();
+
+    return synth_->getOutput();
+}
+
+/* The channel's post-effect, interleaved window, read before tw_process()
+   advances it again. An empty slot has no buffer and zero outputs. */
+EMSCRIPTEN_KEEPALIVE const float *tw_channel_output (int channel)
+{
+    return synth_->getChannelOutput(channel, NULL);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_channel_outputs (int channel)
+{
+    int outputs = 0;
+
+    synth_->getChannelOutput(channel, &outputs);
+    return outputs;
+}
+
+/* Voices thMidiChan's guard dropped for going non-finite, since the module was
+   opened. Behind genwav.mjs's `non-finite voices: N' and its exit 4, which are
+   the native genwav's line and status: the two tools render the same piece, so
+   they report the same failure. */
+EMSCRIPTEN_KEEPALIVE double tw_nonfinite (void)
+{
+    return (double)synth_->nonFiniteVoices();
+}
+
+/* What was delivered since the last clear, as twEvents. */
+EMSCRIPTEN_KEEPALIVE int tw_event_count (void)
+{
+    return (int)tape_.count();
+}
+
+EMSCRIPTEN_KEEPALIVE const twEvent *tw_events (void)
+{
+    return tape_.data();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
+{
+    tape_.clear();
+}
+
+} /* extern "C" */

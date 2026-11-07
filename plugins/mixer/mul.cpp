@@ -1,0 +1,93 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "think.h"
+
+enum {IN_0, IN_1, OUT_ARG};
+std::atomic<int> args[OUT_ARG + 1];
+
+/* math::mul shipped with this same description and is the plain product;
+   this divides the second input by full scale first, so it is a signal and
+   a gain rather than two signals. */
+static const char desc[] = "Scales a stream by another, as a gain";
+thPlugin::State    mystate = thPlugin::PASSIVE;
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_0], TH_SMOOTH_MS);
+    plugin->setArgDesc(args[IN_0], "Signal in");
+    plugin->setArgRange(args[IN_0], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_0], "full scale");
+    args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    plugin->setArgSmooth(args[IN_1], TH_SMOOTH_MS);
+    /* `in0 * (in1/TH_MAX)' -- the second input is divided by full scale, so
+       it reads as a gain where math::mul's reads as a second operand. Signed,
+       and not clamped: dsp/hat0.dsp wires a bipolar oscillator in here to ring
+       modulate another, which is the same arithmetic used for a different
+       purpose and is why the range reaches below zero. */
+    plugin->setArgDesc(args[IN_1],
+                       "Gain as a fraction of full scale; a bipolar signal "
+                       "here ring modulates in0");
+    plugin->setArgRange(args[IN_1], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_1], "full scale");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "in0 scaled by in1");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int samples)
+{
+    float *out;
+    thArg *in_0, *in_1;
+    thArg *out_arg;
+    float buf_in_0[windowlen], buf_in_1[windowlen];
+    unsigned int i;
+
+    in_0 = mod->getArg(node, args[IN_0]);
+    in_1 = mod->getArg(node, args[IN_1]);
+
+    in_0->getBuffer(buf_in_0, windowlen);
+    in_1->getBuffer(buf_in_1, windowlen);
+
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
+
+    for(i = 0; i < windowlen; i++)
+    {
+        out[i] = buf_in_0[i]*(buf_in_1[i]/TH_MAX);
+    }
+
+    return 0;
+}
+

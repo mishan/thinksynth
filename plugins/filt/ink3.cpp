@@ -1,0 +1,189 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+#include "think.h"
+
+#define SQR(x) ((x)*(x))
+
+enum {IN_ARG, IN_CUTOFF, IN_RES, IN_SHAPE, OUT_ARG, OUT_BAND, OUT_HIGH,
+      OUT_NOTCH, INOUT_LAST};
+std::atomic<int> args[INOUT_LAST + 1];
+
+static const char desc[] = "`INK Filter`  this algorithm was in my head when I woke up";
+thPlugin::State    mystate = thPlugin::ACTIVE;
+
+/* The stable region: filt::ink's spring with the restoring force scaled by
+   1 - res/2 and a bounded tanh added. See the callback. */
+#define RMAX     0.999f
+#define CCEIL    64.0f
+#define CMARGIN  0.98f
+#define SHAPEMAX 1e6f
+
+void module_cleanup (thPlugin *plugin)
+{
+}
+
+int module_init (thPlugin *plugin)
+{
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
+    args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a spring constant, not hertz. What "
+                       "is stable above 1 depends on res");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "spring constant");
+    args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; 1 is the edge of the stable "
+                       "region and is clamped short");
+    plugin->setArgRange(args[IN_RES], 0, RMAX);
+    args[IN_SHAPE] = plugin->regArg("shape", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SHAPE],
+                       "How much of the feedback goes through a tanh: 0 is "
+                       "none, and the drive rises from there");
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
+    args[OUT_BAND] = plugin->regArg("out_band", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_BAND], "Band pass");
+    plugin->setArgUnits(args[OUT_BAND], "full scale");
+    args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_HIGH], "High pass");
+    plugin->setArgUnits(args[OUT_HIGH], "full scale");
+    args[OUT_NOTCH] = plugin->regArg("out_notch", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_NOTCH], "Notch");
+    plugin->setArgUnits(args[OUT_NOTCH], "full scale");
+
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+
+    return 0;
+}
+
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                     unsigned int sample)
+{
+    float *out;
+    float *band_out;
+    float *high_out;
+    float *notch_out;
+    float *out_last;
+//    float *out_last_accel = new float[1];
+    thArg *in_arg, *in_cutoff, *in_res, *in_shape;
+    thArg *out_arg, *out_band, *out_high, *out_notch;
+    thArg *inout_last;
+    float buf_in[windowlen], buf_cut[windowlen], buf_res[windowlen],
+        buf_shape[windowlen];
+    unsigned int i;
+    float last, diff, accel;
+    float val_arg, val_cutoff, val_res, val_shape;
+
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out_band = mod->getArg(node, args[OUT_BAND]);
+    out_high = mod->getArg(node, args[OUT_HIGH]);
+    out_notch = mod->getArg(node, args[OUT_NOTCH]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+
+    last = (*inout_last)[0];
+    accel = (*inout_last)[1];
+    out_last = inout_last->allocate(2);
+
+    out = out_arg->allocate(windowlen);
+    band_out = out_band->allocate(windowlen);
+    high_out = out_high->allocate(windowlen);
+    notch_out = out_notch->allocate(windowlen);
+
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    in_res = mod->getArg(node, args[IN_RES]);
+    in_shape = mod->getArg(node, args[IN_SHAPE]);
+    
+    in_arg->getBuffer(buf_in, windowlen);
+    in_cutoff->getBuffer(buf_cut, windowlen);
+    in_res->getBuffer(buf_res, windowlen);
+    in_shape->getBuffer(buf_shape, windowlen);
+
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(last) || !thIsFinite(accel))
+    {
+        last = 0;
+        accel = 0;
+    }
+
+    for(i = 0; i < windowlen; i++) {
+        val_arg = buf_in[i];
+        /* tanh bounds whatever it is handed, so only finiteness is at stake
+           and the ceiling is well above anything a knob offers. */
+        val_shape = thClampMag(buf_shape[i], SHAPEMAX);
+
+        /* Take the tanh out -- bounded by one, so it can push the filter
+         * about but not away -- and this is filt::ink's spring with the
+         * restoring force scaled by k = 1 - res/2: determinant res, trace
+         * res + 1 - res*k*cutoff*cutoff, stable exactly when 0 <= res < 1 and
+         * k*cutoff*cutoff < 2(1 + res)/res.
+         *
+         * Unlike filt::ink this had no protection at all. */
+        val_res = thClampArg(buf_res[i], 0.0f, RMAX);
+
+        {
+            const float k = 1.0f - 0.5f * val_res;
+
+            float cmax = (val_res > 0 && k > 0)
+                ? sqrtf(CMARGIN * 2.0f * (1.0f + val_res) / (val_res * k))
+                : CCEIL;
+
+            if (cmax > CCEIL)
+                cmax = CCEIL;
+
+            val_cutoff = thClampMag(buf_cut[i], cmax);
+        }
+
+        diff = val_arg - (1 - 0.5 * val_res) * last + tanh(last * val_shape * (1 - 0.5 * val_res));
+        accel += diff * SQR(val_cutoff);
+        accel *= val_res;
+
+        last += accel;
+
+        band_out[i] = accel;
+
+        out[i] = last;
+        high_out[i] = val_arg - last;
+        notch_out[i] = val_arg - accel;
+
+        //printf("%f\n", out[i]);
+        //printf("in: %f, last: %f, diff: %f, cut: %f\n", val_arg, last, diff, val_cutoff);
+    }
+
+    out_last[0] = last;
+    out_last[1] = accel;
+
+    return 0;
+}
+

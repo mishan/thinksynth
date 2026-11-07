@@ -1,0 +1,7776 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * thinkweb -- the synth and the composer scheduler, for an AudioWorklet.
+ *
+ * worklet.js holds one of these and calls a handful of things: load a .dsp
+ * or a .gen, press and release a key, move a knob, start the transport,
+ * render a block. The synth runs in windows of its own length -- 128 in the
+ * browser, docs/JAM.md -- and a worklet asks for 128-frame quanta;
+ * gthSynthSource is the ring between the two, the same one the sound card's
+ * callback uses on the desktop.
+ *
+ * Everything here runs on the worklet's thread, the thread the desktop calls
+ * the GUI's included: a command is queued, and the next process() applies
+ * it. There is no second thread for the queue to protect, but it is the same
+ * path, so the synth does not know it is in a browser.
+ *
+ * Commands carry the frame they apply at. A window is rendered whole, so a
+ * command lands at the start of the window its frame falls in: early by less
+ * than a window, never late, and at the same frame on every run and every
+ * machine, which is what a stamp is for. One stamped in the past -- or -1 --
+ * goes into the next window rendered, which is how a key pressed now plays.
+ *
+ * What a note does once it has landed is the engine's: a note added before
+ * a window is silent through that window and sounds from the next, here as
+ * on the desktop. So a note is heard one window after the window its stamp
+ * falls in -- which is the other reason the browser wants a short window.
+ *
+ * THE SCHEDULER RUNS HERE, stepped once per window by the audio clock
+ * itself, which is genwav's loop exactly: step the transport by a window,
+ * render the window. The alternative -- the scheduler on the main thread,
+ * ahead of the audio clock -- was measured and rejected, and docs/JAM.md
+ * says why this is where it went: the scheduler holds the synth and drives
+ * it directly, and much of what it does (the note-offs it derives from
+ * durations, the chanarg writes a knob binding makes, instrument
+ * application at load and rewind) never appears on the tape, so a bridge
+ * carrying it would be a bridge whose bugs the tape cannot see.
+ *
+ * The tape it does deliver is posted back for the page to draw, and is what
+ * the tape gate compares against genwav's for the same piece and the same
+ * seconds. twevent.h is its layout, shared with the Node host so there is
+ * one spelling of an event rather than two.
+ */
+
+#include "config.h"
+
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+
+#include <algorithm>
+#include <sstream>
+#include <deque>
+#include <functional>
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
+#include <emscripten.h>
+
+#include "think.h"
+
+#include "gthSynthSource.h"
+
+#include "thcGenDiff.h"
+#include "thcGenFile.h"
+#include "thcMidiExport.h"
+#include "thcMidiRouter.h"
+#include "thcPlugin.h"
+#include "thcScheduler.h"
+
+#include "thDynLib.h"
+#include "thUtil.h"
+
+#include "cairo2d.h"
+#include "cairomm/context.h"
+
+#include "twdraw.h"
+
+#include "ComposerCanvas.h"
+#include "RollCanvas.h"
+#include "thcFreeze.h"
+#include "thcGenEdit.h"
+
+#include "ArgPanel.h"
+#include "DspCatalog.h"
+#include "GenCatalog.h"
+#include "JsonOut.h"
+#include "PatchApply.h"
+#include "PatchFile.h"
+#include "PatchSet.h"
+#include "KnobPanel.h"
+#include "NodeEvolve.h"
+#include "NodeGraft.h"
+#include "NodeMutate.h"
+#include "thcAudition.h"
+#include "NodePanel.h"
+#include "StagePanel.h"
+#include "twnode.h"
+
+#include "twevent.h"
+
+/* The synth always mixes to two; so does this. */
+#define TW_CHANNELS 2
+
+/* Where a .dsp handed over as text is written, so the parser can open it
+   like any other, and where a piece's instruments are looked for. The
+   module's own MEMFS; nothing leaves the page.
+ *
+ * `dsp/' is one of the places thUtil::findDataFile tries relative to the
+   working directory, which here is the root, so an `instrument { dsp =
+   "amb01.dsp"; }' resolves with nothing configured -- exactly as it does in
+   a source tree. */
+#define TW_PATCH_FILE "/patch.dsp"
+#define TW_PIECE_FILE "/piece.gen"
+
+/* Where an export's piece is written to be loaded from: not the one being
+   played, which the export must not disturb. */
+#define TW_EXPORT_FILE "/export.gen"
+/* Where an edit's new text is put while it is read (applyEdit). */
+#define TW_EDIT_FILE "/piece-edit.gen"
+#define TW_PICK_FILE "/piece-pick.gen"
+
+/* Where the shipped pieces are kept, for the menu's sake alone: the piece
+   being played is written to TW_PIECE_FILE above and loaded from there. */
+#define TW_GEN_DIR    "/gen"
+#define TW_DSP_DIR    "/dsp"
+
+namespace {
+
+/* One input, stamped with the frame it applies at.
+ *
+ * Every input is one of these, the page's own included: a knob moved, a key
+ * pressed or a transport button has to be applied at the same point in the
+ * piece on every peer or their tapes diverge from there on, so the local page
+ * has no privileged access to the scheduler (docs/JAM.md). It is the nearest
+ * peer, and its commands take a remote peer's path.
+ *
+ * A load is the one input that is not stamped. It is a synchronous answer
+ * -- did this parse? -- and a piece is loaded before its transport runs, so
+ * there is no point in the piece for the stamp to name. The apply-at-bar
+ * rule still to come is where an edit acquires a beat. */
+enum CmdType
+{
+    CMD_NOTE_ON,        /* the keyboard, straight to the loaded .dsp */
+    CMD_NOTE_OFF,
+    CMD_MIDI_ON,        /* the keyboard, into the piece's `input midi' */
+    CMD_MIDI_OFF,
+    CMD_TRANSPORT,
+};
+
+/* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
+   four too; TW_KNOB, TW_INPUT, TW_STAGEPARAM, TW_SPEED, TW_PARAM, TW_MUTE,
+   TW_SOLO, TW_SECTION, TW_KNOBWRITE, TW_GROWBACK and TW_TRYGRAPH have entry
+   points of their own and never arrive as an op from there. TW_SEEK and
+   TW_SEEKSECTION are a solo page's, framed; a room's seek is a begin
+   from a time (tw_begin). So is TW_CUE. */
+enum TransportOp
+{
+    TW_START,
+    TW_STOP,
+    TW_REWIND,
+    TW_TEMPO,
+    TW_KNOB,
+    TW_INPUT,
+    TW_STAGEPARAM,
+    TW_SPEED,
+    TW_PARAM,
+    TW_MUTE,
+    TW_SOLO,
+    TW_SECTION,
+    TW_KNOBWRITE,
+    TW_SEEK,
+    TW_EDIT,
+    TW_NOTE,
+    TW_PICK,
+    TW_GROWBACK,
+    TW_TRYGRAPH,
+    TW_SEEKSECTION,
+    TW_CUE,
+};
+
+struct Command
+{
+    double frame;
+    int    type;
+    int    op;                  /* CMD_TRANSPORT                       */
+    int    channel;             /* CMD_NOTE_*, CMD_MIDI_*              */
+    float  note, velocity;      /* CMD_NOTE_*, CMD_MIDI_*              */
+    double value;               /* CMD_TRANSPORT's                     */
+};
+
+/* A command for the scheduler, stamped in transport seconds rather than
+   frames. A window is 5 ms and two peers' windows are not aligned to
+   each other or to the origin, so a knob applied "at the top of the
+   window containing t" lands at different transport times on different
+   peers, and a composer that reads it at a tick between those two times
+   composes two different pieces. So these are applied at `at' inside the
+   step: the transport is stepped to `at', which runs the stages that
+   tick at or before it, the command is applied, and the step goes on.
+   The same on every peer, whatever its window or its rate.
+
+   `at' below zero means the top of the next window, which is what the
+   solo page sends and what a peer sends while the transport is stopped.
+   Those sort ahead of every stamped one and are applied first in the
+   step; they are never late, because "now" cannot have gone by. One with
+   a time that has already passed is applied at once and counted (late_):
+   the tape has parted from the other peers' from that time on, and the
+   room page's job is to make that visible. */
+struct Scheduled
+{
+    double at;
+    int    op;
+    int    knob;                /* TW_KNOB: an index into knobs_, when
+                                   `row' does not name the knob       */
+    double value;               /* TW_KNOB's, TW_TEMPO's, TW_STAGEPARAM's,
+                                   TW_MUTE's and TW_SOLO's (0 or 1) */
+
+    /* TW_STAGEPARAM: which param of the stage named below. TW_SECTION:
+       which section, with `chain' and a level in `value'. */
+    int    param;
+
+    /* TW_INPUT: a gesture on a stage's picture, in the coordinates the
+       draw was handed. The stage is named by chain and stage index --
+       the canvas's own key, and the same on every peer holding the same
+       document revision -- and w and h come along because the ABI
+       requires them: the draw's size is the host's business and an
+       enlarged view is the same draw at a different size. Every peer
+       inverts the same arithmetic and reaches the same cell.
+       TW_MUTE and TW_SOLO use `chain' alone. */
+    int    chain, stage;
+    int    kind;                /* thcInputType                        */
+    double x, y, w, h;
+    int    button;
+
+    /* TW_PARAM: which param of that stage, and the part of the line the
+       person touched -- a number, a unit, a binding. Completed against the
+       line the file already has, by every peer, which is why what crosses
+       is this and not the whole right-hand side (src/StagePanel.h).
+
+       Strings, unlike every other field here, because a param is named by
+       name: the plugin's own registration order is the only index there
+       would be, and a peer a revision behind would then set its
+       neighbour.
+
+       TW_NOTE: a key, at a transport time -- a quantised or a play-ahead
+       seat's, which lands where it is stamped on every peer. Into the
+       piece through `input midi' if the piece takes it on that channel
+       when the key applies, straight onto the channel if not; `heard'
+       drops it in the second case, for the player who already heard it.
+       `value' is the velocity.
+
+       TW_KNOB: `row' is the knob's name, when the command named one.
+       TW_EDIT: `text' is the piece's new text; `files' below are the other
+       files it changed. TW_PICK: `row' is an instrument and `text' the
+       graph it is to play. TW_TRYGRAPH: `row' is an instrument, `text' a
+       graph for its channel, `over' what it replaces and `on' strict
+       (tw_try_graph). */
+    std::string row, text, over;
+
+    /* TW_PARAM: a value a gesture passes through (thcScheduler::
+       recompose). */
+    bool passing;
+
+    /* TW_EDIT: the other files it carries, as name and text, written only
+       once its text has loaded (applyEdit). */
+    std::vector<std::pair<std::string, std::string> > files;
+
+    /* TW_INPUT, TW_PARAM: the stage by chain and stage name as well, when
+       the command carries them. Looked up when it applies (namedStage):
+       an edit that adds a chain or a stage above this one moves every
+       index after it, and a command made before the edit and applied
+       after it would otherwise reach a neighbor. */
+    std::string chainName, stageName;
+
+    /* TW_TRYGRAPH: the name its outcome is reported under (tw_tried_json). */
+    std::string tag;
+
+    int    channel, note;       /* TW_NOTE; TW_GROWBACK's channel, with
+                                   its depth in `note'                  */
+    bool   on, heard;           /* TW_NOTE                             */
+
+    /* The order among commands stamped for one time: lower first, and
+       arrival order within one. Zero but for an edit and a key, whose
+       sender makes it from its own id and counter. Two Applies land on
+       one bar line, and which is applied last is which text plays; two
+       quantised seats put keys on one grid line all the time, and the
+       order they reach the piece in is what it composes from. Neither can
+       be the order they happened to reach this peer in. */
+    double tie;
+
+    /* The edit count (edits_) of the piece its maker was looking at, or -1
+       for a command that does not say. One that names a chain, a stage, a
+       section or a knob by index alone is dropped when an edit has applied
+       since: the index may name a neighbor now. */
+    int rev;
+};
+
+/* A chain's mute or solo the canvas has asked for and the command has not
+   yet set, by (chain, solo): what its button shows and what the next press
+   toggles. Dropped when the command lands with that value, and at a load. */
+std::map<std::pair<int, bool>, bool> mixPending_;
+
+/* See tw_command_tag and tw_command_rev. */
+std::string nextTag_;
+int         nextRev_ = -1;
+
+/* Edits applied since the load (applyEdit). */
+int         edits_;
+
+/* The same for an arrangement cell, by (section, chain): the level asked
+   for, until the `section' command lands with it. */
+std::map<std::pair<int, int>, double> sectionPending_;
+
+/* Room for this many commands in flight before the queue has to grow. */
+#define TW_PENDING 1024
+
+thSynth              *synth_;
+gthSynthSource       *source_;
+std::vector<float>    block_;
+
+/* Where the page writes the quantum's capture, mono. See tw_input. */
+std::vector<float>    incoming_;
+std::vector<Command>  pending_;     /* in order: see push() */
+double                rendered_;    /* frames handed out so far */
+double                rate_;
+
+/* The scheduler's commands, in order of `at' and in arrival order within
+   one: the ones for the top of the next window carry an `at' below zero
+   and so come first, and the stamped ones follow in the order the step
+   will want them. A deque, since a late joiner's catching up takes the
+   whole room's log off the front one at a time. */
+std::deque<Scheduled>  scheduled_;
+int                    late_;
+
+/* Where the transport clock is pinned to the output, when pinned_ says it
+ * is -- it is not while the transport has never been started. A frame can
+ * be below zero: a peer that joins a room already playing has its
+ * transport zero before its own context existed. Transport time originAt_ is
+ * frame originFrame_, and a second of transport takes rate_/speed_ frames
+ * from there.
+ *
+ *     at(frame) = originAt_ + (frame - originFrame_) * speed_ / rate_
+ *
+ * Taken as a mapping rather than by adding a window's length each time, so
+ * the clock does not drift from the frames by a rounding error per window.
+ * A begin pins transport zero to the frame it was asked for; a resume pins
+ * where it stopped to the frame it resumes at; a speed change pins where
+ * the clock has got to and turns the line from there.
+ *
+ * SPEED IS THE HOST'S, not the scheduler's. It is not a tempo: a tempo
+ * scales beat-valued durations and leaves `0.25 s' alone, which is what
+ * makes it the musical control and what makes it useless on the pieces
+ * that write every duration in seconds. This turns the clock itself, so a
+ * piece is played faster or slower whatever its durations are written in,
+ * and the two compose -- a beat-valued stage moves with both. The
+ * scheduler is not told: it is handed a transport time and steps to it,
+ * and where that time came from is the host's business. The desktop's own
+ * timer would scale its dt instead; it has no such control today.
+ */
+bool   pinned_;
+double originFrame_;
+double originAt_ = 0;
+double speed_ = 1;
+
+/* The two directions of that line. frameOf is exact against atOf, which is
+   what lets a speed change pin itself at a stamped time and land on the
+   same frame in every instance that was handed the same command. */
+double atOf (double frame)
+{
+    return originAt_ + (frame - originFrame_) * speed_ / rate_;
+}
+
+double frameOf (double at)
+{
+    return originFrame_ + (at - originAt_) * rate_ / speed_;
+}
+
+/* A begin waiting for its frame: at the window that frame falls in the
+   transport is rewound and started, with a partial first step so that
+   transport zero is that frame and not the start of its window. */
+bool   armed_;
+
+/* Where an armed begin starts the piece from: 0 for the top, or the time
+   a room's seek is to, which every peer plays up to silently at the same
+   frame (thcScheduler::seek). */
+double armFrom_ = 0;
+double armFrame_;
+
+/* A late joiner's begin: transport zero at a frame already gone by, and the
+ * transport brought up to the present rather than started now and counted.
+ *
+ * The run from zero to here is stepped as it was stepped on the peers that
+ * were playing it -- window by window, the room's logged commands applied at
+ * their stamps inside the step -- with the synth silent, so a note composed
+ * in the first minute reaches the tape and never reaches addNote. Nothing
+ * of the past is heard: a drone that started before the join is not
+ * sounding here, and every note from the join on is.
+ *
+ * In the worklet the catching up is spread over windows, a slice of CPU
+ * each, and the windows it spans are silent. All of it in one process()
+ * would stall the audio thread for as long as the piece has been playing
+ * takes to step, and a context that stalls falls behind the relay's clock
+ * for good. The mirror has no audio thread to stall and takes it in one. */
+bool   catchUp_;            /* the armed begin may lie in the past */
+bool   catching_;           /* the transport is behind the output */
+double catchFrame_;         /* how far the stepping has got */
+bool   mirror_;             /* silent for good (tw_silent) */
+
+/* A seek from the page, in pieces (thcScheduler::seekBegin): a seek is the
+ * piece played silently from the top to where it is going, and the whole
+ * of it inside one process() stalled the audio thread for as long as that
+ * takes, which grows with how far it goes. In the worklet the stepping
+ * is spread over windows, a slice of CPU each, and the windows it spans
+ * are silent; it lands at the first frame of the window after it gets
+ * there, and is heard from exactly where it was going. `seekLanded_' is
+ * where each landed once stepped, for the mirror, which does the stepping
+ * in one go and waits with its transport where it was going until told
+ * where the worklet landed (tw_seek_release); one a transport command
+ * settled lands on the mirror where that command does, as it is. A room's
+ * seek is stamped for a frame
+ * every peer applies it at, and is still taken whole. */
+bool   seekPending_;        /* begun, and not yet heard from */
+bool   seekStepped_;        /* and stepped to where it is going */
+std::deque<double> seekLanded_;
+double seekReleaseAt_ = -1;  /* the mirror's: where the next one lands */
+void settleSeek (double frame);
+void dropSeek (void);
+
+/* A chain's replay from its start (thcScheduler::setReplayDeferred), which
+ * a knob, a param or an edit asks for and which half an hour into a piece
+ * was up to 27 ms of ticks inside the one window that applied it. In the
+ * worklet it is advanced a slice of CPU a window, the chain playing what it
+ * had queued, and heard from the top of the first window that finds it
+ * caught up -- where it landed goes to the mirror (`replayLanded_'), which
+ * advances its own all at once and lands it there (`replayRelease_'). The
+ * replay reads what it reads as it stood when it began, so the two are the
+ * same replay. A room's stamped commands land theirs at a time of their own
+ * (applyScheduled). */
+std::deque<double> replayLanded_;
+std::deque<double> replayRelease_;
+void replayOn (double frame, double budgetMs);
+
+/* A MIDI channel's chanargs while catching up: the last of each, sent once
+   it is over (midiCaughtUp), as a seek sends them. */
+std::map<std::pair<int, std::string>, double> catchControls_;
+void midiCaughtUp (void);
+
+/* Milliseconds of stepping a window may spend catching up. The deadline is a
+   quantum, 2.7 ms at 48 kHz, and a synth that is catching up is silent, so
+   its render costs next to nothing. */
+double catchBudget_ = 2.0;
+
+/* performance.now() where there is one. An AudioWorkletGlobalScope need
+   not have it; Date.now() is a millisecond coarse, which a budget of two
+   of them can live with. */
+EM_JS(double, tw_clock_ms, (), {
+    return typeof performance !== 'undefined' && performance.now
+        ? performance.now() : Date.now();
+});
+
+/* The piece as thcGenEdit reads it back: the authored spellings, the chains
+ * and their stages in order.
+ *
+ * Two readers now, which is why it is described at the load rather than when
+ * a canvas asks. The canvas lays it out, and holds a pointer to it; a stage's
+ * parameter panel is described from it and spliced into it, in every
+ * instance, because a param edit is a command and the worklet applies one
+ * without ever having drawn anything. */
+thcGenEdit::Doc canvasDoc_;
+
+/* The text canvasDoc_ was read from, so an edit can tell whether the piece's
+   file has been written since and reuse it if not (applyEdit); empty when it
+   would not read. */
+std::string canvasText_;
+
+/* canvasDoc_ and canvasText_ from the piece's file. */
+bool describePiece (std::string &why);
+
+/* The param edits TW_PARAM has written to the piece since the page last
+ * asked (tw_param_edits_json), each as the command named it and as it was
+ * written.
+ *
+ * The page needs both. The piece's file is this instance's, and the text a
+ * reload, a Save or the next Start reads is the page's -- the solo page's
+ * box, a room's document -- so an edit that stopped here was gone at the
+ * next load. The command's half is how a room page tells its own edit from
+ * a peer's, since only the peer who made one writes it to the document; the
+ * written half is what it writes. */
+struct AppliedParam
+{
+    double      at;
+    int         chain, stage;       /* TW_PARAM: the sender's numbering */
+    std::string row, text;          /* as the command carried them */
+
+    std::string chainName;          /* the document's, for a splice */
+    int         docStage;
+    std::string param, valueText;
+
+    /* An arrangement edit (TW_SECTION) rather than a param's: which
+       section, by index, with its name in `param' and the level in
+       `valueText'. -1 for a param. */
+    int         section = -1;
+
+    /* A picture's edit written at the end of a gesture (TW_INPUT on a
+       THC_INPUT_EDITS stage) rather than a typed one; and a knob's value
+       written (TW_KNOBWRITE), by index, with its name in `param'. */
+    bool        input = false;
+    int         knob = -1;
+
+    /* The command's own name for itself, from a room page ("peer:seq"),
+       so the peer that made a gesture or let go of a knob knows the edit
+       for its own. Empty from a solo page. */
+    std::string tag;
+};
+
+std::vector<AppliedParam> applied_;
+std::string               appliedJson_;
+
+/* The piece side. plugins_ is built once, from the table the build wrote,
+   and outlives every load; the loader clears the scheduler's chains itself. */
+std::map<std::string, thcPlugin *> plugins_;
+thcScheduler        *sched_;
+thcGenLoader        *loader_;
+std::vector<thArg *> knobs_;
+
+/* The channels the loaded piece's sinks name that no instrument of its
+   own occupies -- the ones a reader is being asked to aim. Collected at
+   the load, like knobs_: a sink's channel is fixed once
+   allocateChannels has run. */
+std::vector<int>     sinks_;
+
+/* "channel:name" for every chanarg override that named something the tree
+   on that channel does not declare. Kept so the complaint is made once:
+   every piece load re-aims, and a .patch carrying a stale name would
+   otherwise say so again on every one of them. Never cleared -- a .patch
+   is a file on the server, and it does not stop being wrong. */
+std::vector<std::string> unknownChanargs_;
+twTape               tape_;
+sigc::connection     delivery_;
+
+/* Bumped by anything that makes the tape so far meaningless: a piece
+   loaded, and a rewind, after which `at' starts again from zero. The page
+   clears its roll when this changes rather than trying to read a rewind off
+   the times. */
+int epoch_;
+
+/* Where each stamped key's on went, by channel and note, so that its off
+   goes the same way (TW_NOTE): an edit between the two can change whether
+   the piece takes input on the channel, and an off sent the other way
+   leaves the note held. Let go of at each stop and begin (releaseKeys),
+   where a late joiner's catching up starts from too. */
+enum KeyRoute { KEY_PIECE, KEY_CHANNEL, KEY_HEARD };
+std::map<std::pair<int, int>, KeyRoute> keyRoutes_;
+
+void keyOnChannel (int channel, float note, float velocity, bool on,
+                   double at);
+
+/* The keys this instance played, onto a channel or into the piece, at the
+   transport time each sounded: what the page draws on the roll and lights
+   on the keyboard -- the record and not the presses, so every peer shows a
+   stamped key where it landed. Not on the tape, which is what the piece
+   composed. A fixed array, because it fills on the audio thread; the
+   worklet empties it every quantum. Not filled while catching up, which
+   steps a whole run in one quantum: the roll starts at the join, and a
+   key held across it has an off and no on, which draws nothing. Emptied
+   when the epoch moves, since those keys are the old run's. */
+struct twKey
+{
+    double at;
+    int    channel, note, velocity, on;
+};
+
+static_assert(sizeof(twKey) == 24, "worklet.js steps by 24");
+
+twKey keys_[512];
+int   keyCount_ = 0;
+
+void playedKey (int channel, int note, int velocity, bool on)
+{
+    if (!catching_ && keyCount_ < (int)(sizeof keys_ / sizeof keys_[0]))
+        keys_[keyCount_++] = { sched_->now(), channel, note, velocity,
+                               on ? 1 : 0 };
+}
+
+/* A stamped key, the way its route goes: nowhere for KEY_HEARD, whose
+   player sounded it live and lets go of it live. */
+void keyByRoute (KeyRoute route, int channel, int note, double velocity,
+                 bool on)
+{
+    if (route == KEY_PIECE)
+    {
+        /* CMD_MIDI_ON's event, at the time it was stamped for rather than
+           the top of whichever window it arrived in -- which is what makes
+           a key into the piece compose the same thing on every peer. */
+        thcEvent ev = {};
+
+        ev.type = on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+        ev.at = sched_->now();
+        ev.channel = channel;
+        ev.u.note.note = note;
+        ev.u.note.velocity = (int)velocity;
+        ev.u.note.duration = 0;
+        ev.u.note.level = 1;
+
+        if (sched_->injectMidiEvent(ev) || !on)
+            playedKey(channel, note, (int)velocity, on);
+    }
+    else if (route == KEY_CHANNEL)
+        keyOnChannel(channel, (float)note, (float)velocity, on,
+                     sched_->now());
+}
+
+/* Every stamped key still down, let go: at a stop or a begin the run its
+   keys were pressed in is over, and a release stamped later than that is
+   never reached -- dropped with the run, or waiting for a time a stopped
+   transport does not get to -- if it was sent at all. */
+void releaseKeys (void)
+{
+    for (const auto &k : keyRoutes_)
+        keyByRoute(k.second, k.first.first, k.first.second, 0, false);
+
+    keyRoutes_.clear();
+}
+
+void newEpoch (void)
+{
+    epoch_++;
+    keyCount_ = 0;
+}
+
+/* Whatever was stamped for the run that is ending names a transport time
+   that is about to mean something else, so it goes. What is stamped for
+   "the top of the next window" -- an `at' below zero -- is not for a run
+   at all and stays: it arrived a moment ago and has not been stepped over
+   yet. */
+void dropStamped (void)
+{
+    scheduled_.erase(std::remove_if(scheduled_.begin(), scheduled_.end(),
+                                    [](const Scheduled &c)
+                                    { return c.at >= 0; }),
+                     scheduled_.end());
+}
+
+/* Everything due before the end of the window about to be rendered, whose
+   first frame is `start'.
+ *
+ * addNote is the desktop's GUI-thread call, and on the desktop it runs on the
+ * GUI thread: it takes the synth's lock, uncontended here, and builds the
+ * note's copy of the graph, which allocates. A worklet has no other thread to
+ * put that on, so a key-on spends its render quantum on it -- measured at 0.02
+ * to 0.38 ms across the shipped patches, against the 2.67 ms a 128-frame
+ * quantum has at 48 kHz. Making a note-on free of allocation is the engine's
+ * work, not this file's; docs/JAM.md, has it as risk 3. What this file keeps
+ * off the render path is its own: the queue arrives sorted and has its room
+ * already. */
+void applyDue (double start, int len)
+{
+    size_t k = 0;
+
+    for (; k < pending_.size() && pending_[k].frame < start + len; k++)
+    {
+        const Command &c = pending_[k];
+
+        switch (c.type)
+        {
+            case CMD_NOTE_ON:
+            case CMD_NOTE_OFF:
+                keyOnChannel(c.channel, c.note, c.velocity,
+                             c.type == CMD_NOTE_ON, -1);
+                break;
+
+            case CMD_MIDI_ON:
+            case CMD_MIDI_OFF:
+            {
+                /* The `input midi;' route: every chain that declared it
+                   and sinks to this channel sees the event, and what it
+                   does with it is the composer's -- a Markov trains on it,
+                   an arpeggiator holds it.
+                 *
+                 * Held, with a duration of zero, and the release is its
+                 * own event. A composed note declares how long it lasts
+                 * and the scheduler derives the off from that; a key held
+                 * down has no idea, which is the whole reason the ABI has
+                 * a THC_EV_NOTEOFF (gen/hands.gen says it at length). */
+                thcEvent ev = {};
+
+                ev.type = c.type == CMD_MIDI_ON ? THC_EV_NOTE
+                                                : THC_EV_NOTEOFF;
+                ev.at = sched_->now();
+                ev.channel = c.channel;
+                ev.u.note.note = (int)c.note;
+                ev.u.note.velocity = (int)c.velocity;
+                ev.u.note.duration = 0;
+                ev.u.note.level = 1;
+
+                /* A key no chain took was not played. Its off is kept
+                   either way: the piece can stop listening while it is
+                   held. */
+                if (sched_->injectMidiEvent(ev) || c.type == CMD_MIDI_OFF)
+                    playedKey(c.channel, (int)c.note, (int)c.velocity,
+                              c.type == CMD_MIDI_ON);
+                break;
+            }
+
+            case CMD_TRANSPORT:
+                settleSeek(start);
+
+                switch (c.op)
+                {
+                    case TW_START:
+                        /* A resume, the solo page's Play: the transport
+                           goes on from where it is, from the start of
+                           this window. */
+                        sched_->start();
+                        originAt_ = sched_->now();
+                        originFrame_ = start;
+                        pinned_ = true;
+                        break;
+
+                    /* The page's Stop: everything down in a few tens of
+                       milliseconds, not the releases and the reverbs let
+                       ring out -- see thcScheduler::halt. */
+                    case TW_STOP:
+                        sched_->halt();
+                        releaseKeys();
+                        break;
+
+                    case TW_REWIND:
+                        sched_->halt();
+                        sched_->reset();
+                        dropStamped();
+                        newEpoch();
+                        break;
+
+                    /* To a transport time, heard from there as if played
+                       to it (thcScheduler::seek): a rewind that goes on.
+                       Playing on, the clock is pinned there at this
+                       window's first frame, as a resume is. */
+                    case TW_SEEK:
+                    case TW_SEEKSECTION:
+                        /* The page's: stepped in pieces from this window
+                           on (seekOn). */
+                        if (c.frame < 0)
+                        {
+                            if (c.op == TW_SEEK)
+                                sched_->seekBegin(c.value);
+                            else
+                                sched_->seekSectionBegin((size_t)c.value);
+
+                            dropStamped();
+                            newEpoch();
+                            seekPending_ = true;
+                            seekStepped_ = false;
+                            synth_->setSilent(true);
+                            break;
+                        }
+
+                        if (c.op == TW_SEEK)
+                            sched_->seek(c.value);
+                        else
+                            sched_->seekSection((size_t)c.value);
+
+                        dropStamped();
+                        newEpoch();
+
+                        if (sched_->running())
+                        {
+                            originAt_ = sched_->now();
+                            originFrame_ = start;
+                        }
+
+                        break;
+
+                    case TW_TEMPO:
+                        sched_->setTempo(c.value);
+                        break;
+
+                    /* A hand on the arrangement, as a game's: section
+                       `value' from the next bar line, the one playing
+                       finishing its phrase first. */
+                    case TW_CUE:
+                        sched_->cueSection((size_t)c.value, sched_->meter());
+                        break;
+                }
+                break;
+        }
+    }
+
+    pending_.erase(pending_.begin(), pending_.begin() + k);
+}
+
+/* A begin whose frame falls in the window about to be rendered. */
+void beginDue (double start, int len)
+{
+    if (!armed_ || armFrame_ >= start + len)
+        return;
+
+    armed_ = false;
+    dropSeek();
+
+    /* From the top: the instances recreated from their seeds and the
+       transport at zero. The queue is not touched: what is in it arrived
+       after the arm, stamped for the run that is starting here, and was
+       held through the arm window by step() below. The run being left
+       behind had its commands dropped at the arm (tw_begin), and before
+       that at the load (tw_piece_load). */
+    sched_->reset();
+    newEpoch();
+    releaseKeys();
+
+    /* From the top, or from where a seek said: played up to there without
+       a sound, and the frame below pinned to wherever that is. */
+    if (armFrom_ > 0)
+        sched_->seek(armFrom_);
+
+    originAt_ = sched_->now();
+
+    /* A begin whose frame has already gone by -- it arrived late, or was
+       stamped for a frame this synth had already rendered -- starts now,
+       and is counted: the peers that started on time are ahead of this
+       one by the difference, for good. Unless it was asked to catch up,
+       which is a late joiner's begin: then zero stays where the room put
+       it and the stepping from there is catchUp's. */
+    pinned_ = true;
+
+    if (armFrame_ < start && catchUp_)
+    {
+        originFrame_ = armFrame_;
+        catching_ = true;
+        catchFrame_ = armFrame_;
+        catchControls_.clear();
+        synth_->setSilent(true);
+    }
+    else if (armFrame_ < start)
+    {
+        originFrame_ = start;
+        late_++;
+    }
+    else
+        originFrame_ = armFrame_;
+
+    sched_->start();
+}
+
+/* Twenty-millisecond steps between looks at the clock. */
+static const int TW_SEEK_STEPS = 16;
+
+/* The seek under way stepped on, for `budgetMs' or all the way below zero.
+   True once it has got there. */
+bool seekStepFor (double budgetMs)
+{
+    const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
+
+    while (!sched_->seekStep(TW_SEEK_STEPS))
+        if (budgetMs >= 0 && tw_clock_ms() - t0 >= budgetMs)
+            return false;
+
+    return true;
+}
+
+/* Heard from here: the transport's zero put where the window at `frame'
+   finds it where the seek was going. `told': for the mirror to land its
+   own there. */
+void seekLand (double frame, bool told)
+{
+    sched_->seekEnd();
+    seekPending_ = false;
+    seekStepped_ = false;
+    seekReleaseAt_ = -1;
+
+    if (sched_->running())
+    {
+        originAt_ = sched_->now();
+        originFrame_ = frame;
+        pinned_ = true;
+    }
+
+    if (!mirror_ && !catching_)
+        synth_->setSilent(false);
+
+    if (!mirror_ && told)
+        seekLanded_.push_back(frame);
+}
+
+/* The window at `frame' about to be stepped, with a seek under way: true
+   once it has landed and the window is to be heard. A mirror steps all the
+   way at once and lands only where the worklet says it did -- which can be
+   told before the mirror has begun it, when the worklet got there in the
+   window it began in. */
+bool seekOn (double frame, double budgetMs)
+{
+    if (!seekStepped_)
+        seekStepped_ = seekStepFor(budgetMs);
+
+    if (!seekStepped_ ||
+        (mirror_ && (seekReleaseAt_ < 0 || frame < seekReleaseAt_)))
+        return false;
+
+    seekLand(frame, true);
+    return true;
+}
+
+/* A command that moves the transport, arriving with a seek under way: the
+   seek is finished first and lands here, and the command applies to where
+   it went. */
+void settleSeek (double frame)
+{
+    if (!seekPending_)
+        return;
+
+    if (!seekStepped_)
+        seekStepped_ = seekStepFor(-1);
+
+    seekLand(frame, false);
+}
+
+/* A seek under way given up, for a load or a start from the top that
+   replaces everything it was stepping. */
+void dropSeek (void)
+{
+    if (!seekPending_)
+        return;
+
+    sched_->seekEnd();
+    sched_->halt();
+    seekPending_ = false;
+    seekStepped_ = false;
+    seekReleaseAt_ = -1;
+
+    if (!mirror_ && !catching_)
+        synth_->setSilent(false);
+}
+
+/* Ticks between looks at the clock. */
+static const unsigned TW_REPLAY_TICKS = 32;
+
+/* The top of the window at `frame', with a replay under way: advanced for
+   `budgetMs', or all the way below zero, and landed if it has caught up --
+   on a mirror, only where the worklet said its own landed. */
+void replayOn (double frame, double budgetMs)
+{
+    if (!sched_->replaying())
+        return;
+
+    if (mirror_)
+    {
+        sched_->replayAdvance(~0u);
+
+        if (!replayRelease_.empty() && replayRelease_.front() <= frame)
+        {
+            replayRelease_.pop_front();
+            sched_->replayLand();
+        }
+
+        return;
+    }
+
+    const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
+    bool caught;
+
+    while (!(caught = sched_->replayAdvance(budgetMs >= 0 ? TW_REPLAY_TICKS
+                                                          : ~0u)) &&
+           tw_clock_ms() - t0 < budgetMs)
+        ;
+
+    if (caught && sched_->replayLand())
+        replayLanded_.push_back(frame);
+}
+
+/* Not behind any more, or never was: the synth sounds again, unless it is
+   a mirror's, which never does. */
+void endCatching (void)
+{
+    if (catching_ && !mirror_)
+        synth_->setSilent(false);
+
+    catching_ = false;
+}
+
+/* A stage by chain and stage index, or NULL. The index pair is the
+   canvas's own key and is the same on every peer holding the same document
+   revision, so it is what the page names a picture by. Out of range is
+   answered rather than trusted: these indices come off a page. */
+thcStage *stageAt (int chain, int stage)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return NULL;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    if (c == NULL || stage < 0 || (size_t)stage >= c->stages.size())
+        return NULL;
+
+    return c->stages[(size_t)stage].get();
+}
+
+/* A stage's parameter, set: the piece's own text spliced, and the running
+ * stage poked so that the new line is heard from here. What TW_PARAM does,
+ * and what a gesture's end does for a THC_INPUT_EDITS picture (`input'),
+ * whose record says so and carries the command's tag. `sent' numbers the
+ * stage as a TW_PARAM's sender did, `c' as the piece now does. `row' is the
+ * param, `text' the part of the line to complete against the file
+ * (src/StagePanel.h). False when there was nothing to write.
+ *
+ * Both halves here and nowhere else, so that there is one door: a second
+ * one opening at a different moment is exactly the divergence the stamp
+ * exists to stop. */
+static bool
+writeParam (const Scheduled &c, const Scheduled &sent, const std::string &row,
+            const std::string &text, bool input)
+{
+    StagePanel target;
+
+    target.setPiece(&canvasDoc_, sched_);
+    target.setStage(c.chain, c.stage);
+
+    thPanelEdit edit;
+
+    const thPanelResult r = target.propose(row, text, edit);
+
+    if (!r.ok)
+    {
+        fprintf(stderr, "%s: %s\n", row.c_str(), r.why.c_str());
+        return false;
+    }
+
+    if (!r.changed || c.chain < 0 ||
+        (size_t)c.chain >= canvasDoc_.chains.size())
+        return false;
+
+    /* The document's numbering, which is what a splice is in; the command
+       names the stage the way every other one does, by its place in the
+       scheduler's list. */
+    const int docStage =
+        thcGenEdit::docIndex(canvasDoc_.chains[(size_t)c.chain], c.stage);
+
+    std::string why;
+
+    if (thcGenEdit::setParam(TW_PIECE_FILE,
+                             canvasDoc_.chains[(size_t)c.chain].name,
+                             docStage, edit.row, edit.valueText,
+                             why) != thcGenEdit::OK)
+    {
+        fprintf(stderr, "%s: %s\n", edit.row.c_str(), why.c_str());
+        return false;
+    }
+
+    /* Described again rather than patched in place: the splice is what
+       happened, and reading it back is the only account of it that cannot
+       drift from the file. */
+    if (!describePiece(why))
+        fprintf(stderr, "the piece will not read back: %s\n", why.c_str());
+
+    AppliedParam done;
+
+    /* As the command carried them, which is how the page that sent it
+       knows it for its own -- not where namedStage found the stage, which
+       an edit may have moved. */
+    done.at = c.at;
+    done.chain = sent.chain;
+    done.stage = sent.stage;
+    done.row = row;
+    done.text = text;
+    done.chainName = canvasDoc_.chains[(size_t)c.chain].name;
+    done.docStage = docStage;
+    done.param = edit.row;
+    done.valueText = edit.valueText;
+    done.input = input;
+    done.tag = input ? c.text : std::string();
+
+    applied_.push_back(done);
+
+    /* And the audible half, after the splice: a panel is described from
+       the document, so a stage poked first would be heard before it was
+       written (src/StagePanel.h). */
+    target.deliver(edit);
+
+    return true;
+}
+
+/* What a gesture on a THC_INPUT_EDITS picture set, written into the piece
+ * at the gesture's end, param by param, through writeParam, which also
+ * pokes the running stage: a param a knob drove is the value the gesture
+ * set from here on, as it is in the file. A string param and a whole number
+ * are written; a value the file already says -- a grid's bar lines aside,
+ * which it hands back without -- is left alone. */
+static void
+captureEdits (const Scheduled &c, thcStage *st)
+{
+    if (c.chain < 0 || (size_t)c.chain >= canvasDoc_.chains.size())
+        return;
+
+    const thcGenEdit::Chain &chain = canvasDoc_.chains[(size_t)c.chain];
+    const int docStage = thcGenEdit::docIndex(chain, c.stage);
+
+    if (docStage < 0 || (size_t)docStage >= chain.stages.size())
+        return;
+
+    auto bare = [](std::string t)
+    {
+        std::string out;
+
+        for (char ch : t)
+            if (ch != '|' && ch != '"')
+                out += ch;
+
+        return out;
+    };
+
+    for (int pi = 0; pi < st->plugin->paramCount(); pi++)
+    {
+        const thcPlugin::ParamInfo *info = st->plugin->paramInfo(pi);
+        std::string text;
+
+        if (info == NULL || !st->plugin->capture(st->state, pi, text))
+            continue;
+
+        if (!(info->type == THC_PARAM_STRING &&
+              text.find_first_of("\"\n") == std::string::npos) &&
+            !(info->type == THC_PARAM_INT && !text.empty() &&
+              text.find_first_not_of("-0123456789") == std::string::npos))
+            continue;
+
+        bool same = false;
+
+        for (const thcGenEdit::Param &p :
+             canvasDoc_.chains[(size_t)c.chain].stages[(size_t)docStage]
+                 .params)
+            if (p.name == info->name && bare(p.valueText) == bare(text))
+                same = true;
+
+        if (!same)
+            writeParam(c, c, info->name, text, true);
+    }
+}
+
+void applyEdit (const Scheduled &c);
+void applyPick (const Scheduled &c);
+void applyGrowBack (const Scheduled &c);
+void applyTryGraph (const Scheduled &c);
+
+/* Does a chain take `input midi' on this channel? */
+bool listensOn (int channel)
+{
+    for (size_t i = 0; i < sched_->chainCount(); i++)
+    {
+        const thcChain *c = sched_->chain(i);
+
+        if (!c->inputMidi)
+            continue;
+
+        if (c->sinks.empty())
+            return true;
+
+        for (size_t k = 0; k < c->sinks.size(); k++)
+            if (c->sinks[k].channel == channel)
+                return true;
+    }
+
+    return false;
+}
+
+/* `c' with its chain and stage indices made the ones its names give, in the
+ * piece as it is now. True if it names a stage that is there -- by name
+ * when it has names, by index when it has none -- and false, having said
+ * so, when the names find nothing: the stage has been edited away or
+ * renamed, and a command meant for it is dropped rather than handed to
+ * whatever stands in its place.
+ */
+bool namedStage (Scheduled &c)
+{
+    if (c.chainName.empty() || c.stageName.empty())
+        return true;
+
+    for (size_t ci = 0; ci < sched_->chainCount(); ci++)
+    {
+        const thcChain *ch = sched_->chain(ci);
+
+        if (ch->name != c.chainName)
+            continue;
+
+        for (size_t si = 0; si < ch->stages.size(); si++)
+            if (ch->stages[si]->name == c.stageName)
+            {
+                c.chain = (int)ci;
+                c.stage = (int)si;
+                return true;
+            }
+
+        break;
+    }
+
+    /* Once per stage, not per command: a drag on a stage renamed under it
+       sends one for every move. */
+    static std::string lastDropped;
+    const std::string which = c.chainName + " " + c.stageName;
+
+    if (which != lastDropped)
+        fprintf(stderr, "no stage %s in chain %s now; commands for it are "
+                "dropped\n", c.stageName.c_str(), c.chainName.c_str());
+
+    lastDropped = which;
+
+    return false;
+}
+
+void applyScheduledAt (const Scheduled &given);
+
+/* A stamped command (a room's) lands what it replays a fixed time after its
+   stamp: the peers step windows of their own and advance the replay as
+   they can spare, and only the landing has to agree. At 48 kHz that is
+   eighteen windows' slices of catchBudget_, more than the 27 ms above. */
+void applyScheduled (const Scheduled &given)
+{
+    sched_->setReplayLandAt(given.at >= 0
+                            ? given.at + thcScheduler::ROOM_REPLAY_LAND_S
+                            : -1);
+    applyScheduledAt(given);
+    sched_->setReplayLandAt(-1);
+}
+
+void applyScheduledAt (const Scheduled &given)
+{
+    Scheduled c = given;
+
+    /* What reaches into a stage or builds chains again, rather than moving
+       a value a replay holds: the replay is played through first and heard
+       from here, as it is on the mirror for the same command. */
+    switch (c.op)
+    {
+        case TW_INPUT: case TW_EDIT: case TW_PICK: case TW_GROWBACK:
+        case TW_TRYGRAPH:
+            sched_->settleReplays();
+            break;
+    }
+
+    /* A command that names its stage is found by name (namedStage), so an
+       edit since it was made moves nothing it depends on. */
+    const bool named = !c.chainName.empty() && !c.stageName.empty();
+
+    if (c.rev >= 0 && c.rev != edits_ && !named)
+        switch (c.op)
+        {
+            case TW_GROWBACK:
+                if (!mirror_)
+                    fprintf(stderr, "growth: the piece has changed since "
+                            "that row was chosen\n");
+                return;
+
+            case TW_MUTE: case TW_SOLO: case TW_SECTION: case TW_KNOBWRITE:
+            case TW_PARAM: case TW_INPUT:
+                return;
+        }
+
+    if ((c.op == TW_INPUT || c.op == TW_PARAM) && !namedStage(c))
+    {
+        /* Reported as an edit that wrote nothing (an empty `param'): the
+           page that sent a param or a gesture's end waits for its edit. */
+        if (c.op == TW_PARAM || c.kind == THC_IN_RELEASE)
+        {
+            AppliedParam none;
+
+            none.at = c.at;
+            none.chain = c.chain;
+            none.stage = c.stage;
+            none.row = c.row;
+            none.text = c.text;
+            none.docStage = -1;
+            none.input = c.op == TW_INPUT;
+            none.tag = none.input ? c.text : std::string();
+
+            applied_.push_back(none);
+        }
+
+        return;
+    }
+
+    switch (c.op)
+    {
+        case TW_STOP:
+            sched_->halt();
+            releaseKeys();
+            break;
+
+
+
+        case TW_TEMPO:
+            sched_->setTempo(c.value);
+            break;
+
+        case TW_SPEED:
+        {
+            /* The clock turns from here, and "here" is the time this
+             * command was stamped for -- not wherever the render happens
+             * to have got to. applyScheduled runs inside step(), which
+             * has already stepped the transport to c.at, so the pin is
+             * exact: the frame that time falls on is computed from the
+             * line as it stands, and then the line is given its new
+             * slope through that same point.
+             *
+             * Doing it in that order is the whole of it. Setting speed_
+             * first would rescale the whole history back to originFrame_
+             * and the clock would jump -- a piece would skip or repeat a
+             * stretch of itself every time somebody nudged the control. */
+            if (c.value <= 0)
+                break;
+
+            if (pinned_)
+            {
+                const double at = c.at < 0 ? sched_->now() : c.at;
+
+                originFrame_ = frameOf(at);
+                originAt_ = at;
+            }
+
+            speed_ = c.value;
+            break;
+        }
+
+        case TW_KNOB:
+            /* Every param bound to it reads through setValue, the
+               scheduler has the changed signal wired to whatever re-arming
+               that implies (thcScheduler::bindKnob), and knobMoved
+               composes again what was composed ahead of it. By index into
+               the list the page was handed at the load: a name would have
+               to be copied into the command, and a copy has a length, and a
+               knob whose name ran past it was silently never moved.
+
+               By name when the command carries one, and looked up here,
+               when it applies: an edit can add a knob or take one away, and
+               an index made before that names a different knob after it. */
+        {
+            thArg *k = !c.row.empty() ? sched_->knob(c.row)
+                     : c.knob >= 0 && c.knob < (int)knobs_.size()
+                         ? knobs_[c.knob] : NULL;
+
+            if (k != NULL)
+            {
+                k->setValue((float)c.value);
+                sched_->knobMoved(k);
+            }
+
+            break;
+        }
+
+        case TW_MUTE:
+        case TW_SOLO:
+            /* A chain's live mute or solo, at `at' inside the step: it is
+               heard, and two peers that set it either side of a note
+               deliver two different tapes. The mirror applies it too,
+               and its canvas, drawn every frame, lights the button. */
+            if (c.chain < 0 || (size_t)c.chain >= sched_->chainCount())
+                break;
+
+            if (c.op == TW_MUTE)
+                sched_->setMuted((size_t)c.chain, c.value != 0);
+            else
+                sched_->setSoloed((size_t)c.chain, c.value != 0);
+
+            {
+                const auto asked =
+                    mixPending_.find({ c.chain, c.op == TW_SOLO });
+
+                if (asked != mixPending_.end() &&
+                    asked->second == (c.value != 0))
+                    mixPending_.erase(asked);
+            }
+
+            break;
+
+        case TW_SECTION:
+        {
+            /* A chain's level in one section: the running piece poked, at
+             * `at' like a knob because it decides what is heard, and the
+             * piece's own text spliced, and the splice reported back the
+             * way a param's is -- the page writes it into its box or its
+             * room's document. */
+            const thcChain *ch = c.chain >= 0
+                ? sched_->chain((size_t)c.chain) : NULL;
+
+            if (ch == NULL || c.param < 0 ||
+                (size_t)c.param >= sched_->sections().size())
+                break;
+
+            const std::string section = sched_->sections()[c.param].name;
+            std::string why;
+
+            if (thcGenEdit::setSectionLevel(TW_PIECE_FILE, section, ch->name,
+                                            c.value, why) != thcGenEdit::OK)
+            {
+                fprintf(stderr, "section %s: %s\n", section.c_str(),
+                        why.c_str());
+                break;
+            }
+
+            sched_->setSectionLevel((size_t)c.param, ch->name, c.value);
+
+            {
+                const auto asked =
+                    sectionPending_.find({ c.param, c.chain });
+
+                if (asked != sectionPending_.end() &&
+                    asked->second == c.value)
+                    sectionPending_.erase(asked);
+            }
+
+            AppliedParam done;
+            char level[32];
+
+            snprintf(level, sizeof(level), "%.17g", c.value);
+
+            done.at = c.at;
+            done.chain = c.chain;
+            done.stage = -1;
+            done.chainName = ch->name;
+            done.docStage = -1;
+            done.param = section;
+            done.valueText = level;
+            done.section = c.param;
+
+            applied_.push_back(done);
+            break;
+        }
+
+        case TW_EDIT:
+            applyEdit(c);
+            break;
+
+        case TW_PICK:
+            applyPick(c);
+            break;
+
+        case TW_GROWBACK:
+            applyGrowBack(c);
+            break;
+
+        case TW_TRYGRAPH:
+            applyTryGraph(c);
+            break;
+
+        case TW_NOTE:
+        {
+            /* An on goes into the piece or onto the channel by the piece
+               as it is when the key applies, not as a page saw it earlier:
+               an edit stamped before the key can change it. Its off follows
+               it. */
+            const std::pair<int, int> key(c.channel, c.note);
+            const auto was = keyRoutes_.find(key);
+            KeyRoute route = listensOn(c.channel) ? KEY_PIECE
+                             : c.heard            ? KEY_HEARD
+                                                  : KEY_CHANNEL;
+
+            if (c.on)
+                keyRoutes_[key] = route;
+            else if (was != keyRoutes_.end())
+            {
+                route = was->second;
+                keyRoutes_.erase(was);
+            }
+
+            keyByRoute(route, c.channel, c.note, c.value, c.on);
+            break;
+        }
+
+        case TW_STAGEPARAM:
+        {
+            /* One numeric param of one stage, set at `at' inside the step
+             * -- the same place a knob lands, and for the same reason: a
+             * param is read at a tick, and two peers that set it either
+             * side of one compose two different pieces.
+             *
+             * Through the store rather than around it, so a param bound to
+             * a piece knob keeps its binding and a plugin that has to
+             * rebuild on an edit is told (composer_param_changed). What
+             * this is not is an edit to the file: the .gen text is
+             * unchanged, exactly as a clicked Life board leaves it
+             * unchanged, and a host that wants the new value written back
+             * asks the plugin to capture it.
+             */
+            thcStage *st = stageAt(c.chain, c.stage);
+
+            if (st == NULL || st->plugin == NULL)
+            {
+                fprintf(stderr, "param for stage %d.%d, which is not "
+                                "there\n", c.chain, c.stage);
+                break;
+            }
+
+            if (c.param < 0 || c.param >= st->plugin->paramCount())
+            {
+                fprintf(stderr, "stage %d.%d has no param %d\n",
+                        c.chain, c.stage, c.param);
+                break;
+            }
+
+            st->params.set(c.param, c.value);
+
+            if (st->state != NULL)
+                st->plugin->paramChanged(st->state, c.param);
+
+            break;
+        }
+
+        /* A stage's parameter, set: the piece's own text spliced, and the
+         * running stage poked so that the new line is heard from here.
+         *
+         * Stamped, and applied inside the step at `at' like an input and a
+         * knob, for the reason they are: it is heard. A `period' that
+         * changes a window earlier on one peer than another moves that
+         * stage's next firing by a window, and from there the two are
+         * composing different pieces. The peer who typed it hears their own
+         * edit a lead late, as they hear their own knob.
+         *
+         * Both halves here and neither in tw_panel_edit, so that there is
+         * one door: a second one opening at a different moment is exactly
+         * the divergence the stamp exists to stop.
+         */
+        case TW_PARAM:
+            writeParam(c, given, c.row, c.text, false);
+
+            /* Composed again whether or not this one changed the line: a
+               gesture's last value is sent again as its last. */
+            if (c.chain >= 0)
+                sched_->recompose((size_t)c.chain, c.passing);
+            break;
+
+        case TW_INPUT:
+        {
+            /* Straight into the plugin's own state, at `at', inside the
+               step -- before any stage ticks at or after it, which is
+               the property every scheduler-facing command has here. The
+               stage is named by index, and an index that names nothing
+               is dropped and said rather than applied to a neighbour:
+               these come off a page, and a page's idea of the piece can
+               be a revision behind. */
+            thcStage *st = stageAt(c.chain, c.stage);
+
+            if (st == NULL || st->plugin == NULL || st->state == NULL)
+            {
+                fprintf(stderr, "input for stage %d.%d, which is not "
+                                "there\n", c.chain, c.stage);
+                break;
+            }
+
+            if (!st->plugin->hasInput())
+                break;          /* its picture is not a control */
+
+            thcInputEvent ev = {};
+
+            ev.type = (thcInputType)c.kind;
+            ev.x = c.x;
+            ev.y = c.y;
+            ev.w = c.w;
+            ev.h = c.h;
+            ev.button = c.button;
+
+            thcScheduler::input(st, ev);
+
+            if (ev.type == THC_IN_RELEASE && st->plugin->inputEdits())
+                captureEdits(c, st);
+
+            break;
+        }
+
+        case TW_KNOBWRITE:
+        {
+            /* A knob's value written into the piece: the end of a drag on
+             * the knob strip or a knob node, whose middle was TW_KNOB
+             * commands and heard. Reported back with the param edits. */
+            if (c.knob < 0 || c.knob >= (int)knobs_.size())
+                break;
+
+            /* The knob's value now, not the one the command carried: two
+               hands on one knob let go in some order, and what is heard is
+               the last move's, which is what the file should say. */
+            const std::string name = knobs_[c.knob]->name();
+            const double value = (*knobs_[c.knob])[0];
+            std::string why, spelled;
+
+            if (!thcGenEdit::format(value, spelled) ||
+                thcGenEdit::setKnobValue(TW_PIECE_FILE, name, value, why) !=
+                    thcGenEdit::OK)
+            {
+                fprintf(stderr, "@%s: %s\n", name.c_str(), why.c_str());
+                break;
+            }
+
+            sched_->setKnobHome(knobs_[c.knob], (float)value);
+            sched_->knobMoved(knobs_[c.knob], false);
+
+            if (!describePiece(why))
+                fprintf(stderr, "the piece will not read back: %s\n",
+                        why.c_str());
+
+            AppliedParam done;
+
+            done.at = c.at;
+            done.chain = -1;
+            done.stage = -1;
+            done.docStage = -1;
+            done.param = name;
+            done.valueText = spelled;
+            done.knob = c.knob;
+            done.tag = c.text;
+
+            applied_.push_back(done);
+            break;
+        }
+    }
+}
+
+/* The transport across the window whose first frame is `start', with the
+   scheduler's commands applied where they fall in it. */
+void step (double start, double len)
+{
+    /* The ones for the top of this window, in arrival order: they sort
+       ahead of everything stamped, they are what "now" means to a solo
+       page and to a peer whose transport is stopped, and a time that has
+       not been named cannot have gone by, so none of them is late. */
+    size_t k = 0;
+
+    for (; k < scheduled_.size() && scheduled_[k].at < 0; k++)
+        applyScheduled(scheduled_[k]);
+
+    scheduled_.erase(scheduled_.begin(), scheduled_.begin() + k);
+
+    if (!sched_->running())
+    {
+        /* A begin is armed: the run these stamps are in is a window or
+           two away and its transport zero is not here yet. Nothing is
+           due and nothing is late; they wait for it. */
+        if (armed_)
+            return;
+
+        /* Time is not passing, so nothing stamped for later can come due;
+           what is stamped for a time already passed is late wherever it
+           lands, and lands now. */
+        while (!scheduled_.empty() && scheduled_[0].at <= sched_->now())
+        {
+            const Scheduled c = scheduled_[0];
+
+            scheduled_.erase(scheduled_.begin());
+            late_++;
+            applyScheduled(c);
+        }
+
+        return;
+    }
+
+    const double target = atOf(start + len);
+
+    while (!scheduled_.empty() && scheduled_[0].at <= target)
+    {
+        const Scheduled c = scheduled_[0];
+
+        scheduled_.erase(scheduled_.begin());
+
+        if (c.at > sched_->now())
+            sched_->stepTransportTo(c.at);
+        else if (c.at < sched_->now())
+            late_++;
+
+        applyScheduled(c);
+
+        /* A stop: the transport is where the stop said, and stays. */
+        if (!sched_->running())
+            return;
+    }
+
+    sched_->stepTransportTo(target);
+}
+
+/* A late joiner's transport, stepped from where it has got to toward
+ * `start', the first frame of the window about to be rendered: the room's
+ * windows as they were, the commands in them applied at their stamps, and
+ * the silent synth given its process() after each so its command ring is
+ * drained as a rendering one's would be. Stops after `budgetMs' of it, or
+ * never for a budget below zero.
+ *
+ * True once there -- the window at `start' is then stepped as any other --
+ * or once there is nothing to catch up to: a stop in the log ends the run
+ * wherever it said. */
+bool catchUp (double start, int len, double budgetMs)
+{
+    const double t0 = budgetMs >= 0 ? tw_clock_ms() : 0;
+
+    /* Two slices a window whatever they cost: a budget smaller than one
+       slice would otherwise step one window per window rendered, which is
+       the output's own pace, and the transport would never catch it. */
+    int slices = 0;
+
+    while (catchFrame_ < start && sched_->running())
+    {
+        /* Not rounded: the origin is wherever the room's clock put it,
+           a fraction of a frame and all, and a last slice rounded down
+           to nothing would never arrive. */
+        const double n = std::min<double>(len, start - catchFrame_);
+
+        step(catchFrame_, n);
+        synth_->process();
+        catchFrame_ += n;
+
+        if (budgetMs >= 0 && ++slices >= 2 && tw_clock_ms() - t0 >= budgetMs)
+            break;
+    }
+
+    if (catchFrame_ < start && sched_->running())
+        return false;
+
+    endCatching();
+
+    if (sched_->running() && !mirror_)
+        midiCaughtUp();
+
+    return true;
+}
+
+/* In order of `at', arrival order within one, like push(). An `at' below
+   zero is "the top of the next window", and every one of those is below
+   every stamped one, so they land at the front in the order they came. */
+void schedule (Scheduled c)
+{
+    c.rev = nextRev_;
+    nextRev_ = -1;
+
+    scheduled_.insert(std::upper_bound(scheduled_.begin(), scheduled_.end(),
+                                       c,
+                                       [](const Scheduled &a,
+                                          const Scheduled &b)
+                                       {
+                                           return a.at != b.at
+                                               ? a.at < b.at
+                                               : a.tie < b.tie;
+                                       }),
+                      c);
+}
+
+/* Kept in order as commands arrive -- by frame, and in arrival order within
+   a frame, which upper_bound gives for nothing -- so the render path only
+   ever takes from the front and never sorts. */
+void push (const Command &c)
+{
+    pending_.insert(std::upper_bound(pending_.begin(), pending_.end(), c,
+                                     [](const Command &a, const Command &b)
+                                     { return a.frame < b.frame; }),
+                    c);
+}
+
+void pushNote (double frame, int type, int channel, float note,
+               float velocity)
+{
+    Command c = {};
+
+    c.frame = frame;
+    c.type = type;
+    c.channel = channel;
+    c.note = note;
+    c.velocity = velocity;
+
+    push(c);
+}
+
+/* The composers the build compiled in, opened once.
+ *
+ * genwav and the Node host scan plugins/composer/ for modules; there is no
+ * directory here and nothing to dlopen, so the list is the one the table
+ * carries (libthink/thDynLib.h). A composer that refuses to load is left
+ * out, exactly as a module that refuses is, and a piece naming it fails at
+ * the load with something to read. */
+void openComposers (void)
+{
+    for (size_t i = 0; i < thStaticComposerCount; i++)
+    {
+        thcPlugin *p = new thcPlugin(thStaticComposers[i]);
+
+        if (p->state() != thcPlugin::LOADED)
+        {
+            delete p;
+            continue;
+        }
+
+        plugins_[p->name()] = p;
+    }
+}
+
+/* Which channels the piece is asking somebody else to fill.
+ *
+ * Both note sinks and chanarg sinks count: a chanarg sink writes a knob
+ * of whatever is on the channel and needs something there as much as a
+ * note does. A channel one of the piece's own instrument blocks took is
+ * not among them -- the piece has aimed that one itself, and a default
+ * dropped on it would take the piece's instrument away.
+ *
+ * An instrument sink carries its instrument's channel by now
+ * (thcGenFile.cpp, allocateChannels), so the two spellings need no
+ * distinguishing here: the exclusion covers both. */
+void collectSinks (void)
+{
+    sinks_.clear();
+
+    for (size_t i = 0; i < sched_->chainCount(); i++)
+    {
+        const thcChain *c = sched_->chain(i);
+
+        for (size_t k = 0; k < c->sinks.size(); k++)
+        {
+            const int ch = c->sinks[k].channel;
+
+            /* A programmatic chain may have none at all, and a sink
+               whose instrument went missing keeps the loader's -1. */
+            if (ch < 0)
+                continue;
+
+            if (sched_->channelOf(ch) != NULL)
+                continue;
+
+            if (std::find(sinks_.begin(), sinks_.end(), ch) == sinks_.end())
+                sinks_.push_back(ch);
+        }
+    }
+
+    std::sort(sinks_.begin(), sinks_.end());
+}
+
+/* ---- the composer canvas, in a module ----
+ *
+ * The desktop's ComposerCanvas, compiled again here and given a shell of
+ * page and worker instead of a gtk widget. What it draws, what it lays
+ * out and what a click on it means are the desktop's, unchanged; what
+ * this class is, is the four answers a shell owes it.
+ *
+ * It lives in the mirror, beside the scheduler whose stages it draws. The
+ * worklet has one of these too -- it is the same module -- and never
+ * touches it.
+ */
+class WebComposerCanvas : public ComposerCanvas
+{
+public:
+    WebComposerCanvas (void)
+        : dirty_(true), width_(0), height_(0),
+          viewX_(0), viewY_(0), viewW_(0), viewH_(0) {}
+
+    /* Whether anything has asked to be drawn again since this was last
+       asked. The shell draws on an animation frame when it has, which is
+       what queue_draw buys on the desktop. */
+    bool takeDirty (void)
+    {
+        const bool was = dirty_;
+
+        dirty_ = false;
+        return was;
+    }
+
+    int width (void) const { return width_; }
+    int height (void) const { return height_; }
+
+    /* What the page can see of the drawing, in shell pixels: the scroll
+       position and the element's size. The enlarged stage is laid out
+       against this, so a canvas that was never told would put it across
+       the whole drawing and somewhere off screen. */
+    void setViewport (double x, double y, double w, double h)
+    {
+        viewX_ = x;
+        viewY_ = y;
+        viewW_ = w;
+        viewH_ = h;
+
+        shellResized();
+        fitColumns();
+        dirty_ = true;
+    }
+
+protected:
+    void requestRedraw (void) override { dirty_ = true; }
+
+    bool mixFlag (size_t chain, bool solo) const override
+    {
+        const auto asked = mixPending_.find({ (int)chain, solo });
+
+        return asked != mixPending_.end()
+            ? asked->second : ComposerCanvas::mixFlag(chain, solo);
+    }
+
+    double laneLevel (size_t section, size_t chain) const override
+    {
+        const auto asked = sectionPending_.find({ (int)section, (int)chain });
+
+        return asked != sectionPending_.end()
+            ? asked->second : ComposerCanvas::laneLevel(section, chain);
+    }
+
+    void resizeShell (int w, int h) override
+    {
+        width_ = w;
+        height_ = h;
+        dirty_ = true;
+    }
+
+    bool shellViewport (double &x, double &y, double &w,
+                        double &h) const override
+    {
+        if (viewW_ <= 0.0 || viewH_ <= 0.0)
+            return false;
+
+        x = viewX_;
+        y = viewY_;
+        w = viewW_;
+        h = viewH_;
+
+        return true;
+    }
+
+private:
+    bool dirty_;
+    int width_, height_;
+    double viewX_, viewY_, viewW_, viewH_;
+};
+
+WebComposerCanvas *canvas_ = NULL;
+Cairo::RefPtr<Cairo::Context> canvasContext_;
+
+/* ---- the piano roll, in a module ----
+ *
+ * The desktop's RollCanvas, compiled again here, with the same shell shape
+ * the composer canvas has: a page and a worker instead of a gtk widget. It
+ * lives in the mirror beside the scheduler it draws from -- which is the
+ * only scheduler the page has, and the only place the *future* half of this
+ * drawing can be asked about at all. The worklet's tape says what has been
+ * delivered; a roll that was fed one could never show what has not been.
+ *
+ * The roll's drawing is always exactly its view, so the drawing's size is
+ * the viewport's and there is nothing to scroll. What that buys is that
+ * canvasview.js drives this with no change: the element is as big as the
+ * drawing, as it is for the other two, and the arithmetic comes out at 1:1.
+ */
+class WebRollCanvas : public RollCanvas
+{
+public:
+    explicit WebRollCanvas (thcScheduler *sched)
+        : RollCanvas(sched), dirty_(true),
+          viewX_(0), viewY_(0), viewW_(0), viewH_(0) {}
+
+    bool takeDirty (void)
+    {
+        const bool was = dirty_;
+
+        dirty_ = false;
+        return was;
+    }
+
+    /* How big the drawing is, which for this canvas is how big the view
+       is. The page sizes its element to this, as it does for the other
+       two, and gets an element that exactly fills its box. */
+    int width (void) const { return (int)viewW_; }
+    int height (void) const { return (int)viewH_; }
+
+    void setViewport (double x, double y, double w, double h)
+    {
+        viewX_ = x;
+        viewY_ = y;
+        viewW_ = w;
+        viewH_ = h;
+
+        dirty_ = true;
+    }
+
+protected:
+    void requestRedraw (void) override { dirty_ = true; }
+
+    bool shellViewport (double &x, double &y, double &w,
+                        double &h) const override
+    {
+        if (viewW_ <= 0.0 || viewH_ <= 0.0)
+            return false;
+
+        x = viewX_;
+        y = viewY_;
+        w = viewW_;
+        h = viewH_;
+
+        return true;
+    }
+
+private:
+    bool dirty_;
+    double viewX_, viewY_, viewW_, viewH_;
+};
+
+WebRollCanvas *roll_ = NULL;
+Cairo::RefPtr<Cairo::Context> rollContext_;
+
+/* Whether the roll colors notes by chain, and the canvas stripes the
+   chains to match; held here for a roll or canvas not made yet. */
+bool byChain_ = false;
+
+/* Made on the first call that needs it, and never by the worklet, which
+ * makes none of them. That matters more here than it does for the composer
+ * canvas: a RollCanvas connects thcScheduler::sigDelivered and keeps every
+ * event that comes out of it, so one built in the audio thread would be a
+ * growing history nobody would ever draw.
+ *
+ * NULL before a synth exists, which is what a call before tw_create looks
+ * like. */
+
+WebRollCanvas *rollCanvas (void)
+{
+    if (roll_ == NULL && sched_ != NULL)
+    {
+        roll_ = new WebRollCanvas(sched_);
+        roll_->setColorByChain(byChain_);
+    }
+
+    return roll_;
+}
+
+/* A params popover the canvas asked for: which stage, and where its box
+   is in shell pixels so the page can put the panel beside it. The last
+   one asked for, since a second request replaces the first -- there is
+   one popover. */
+struct CanvasParams
+{
+    int    chain, stage;
+    int    x, y, w, h;
+    bool   wanted;
+
+    CanvasParams (void) : chain(-1), stage(-1), x(0), y(0), w(0), h(0),
+                          wanted(false) {}
+};
+
+CanvasParams canvasParams_;
+
+/* The gestures the canvas took and did not hand to a plugin, waiting for
+   the shell to turn each into a command. See tw_canvas_input_count(). */
+struct CanvasInput
+{
+    int    chain, stage, kind, button;
+    double x, y, w, h;
+};
+
+std::vector<CanvasInput> canvasInputs_;
+
+/* The M and S presses on chain boxes, waiting the same way: which chain,
+   solo rather than mute, and what the flag is asked to become. */
+struct CanvasMix
+{
+    int  chain;
+    bool solo, on;
+};
+
+std::vector<CanvasMix> canvasMixes_;
+
+/* A knob node's track dragged on the canvas: which knob, by its index in
+   knobs_ (the index a knob command carries), and where it was dragged to.
+   `commit' is the release. */
+struct CanvasKnob
+{
+    int    knob;
+    std::string name;
+    double value;
+    bool   commit;
+};
+
+std::vector<CanvasKnob> canvasKnobs_;
+
+/* The arrangement lane's cells pressed, waiting to be sent as `section'
+   commands: which section, which chain, and the level asked for. */
+struct CanvasSection
+{
+    int    section, chain;
+    double level;
+};
+
+std::vector<CanvasSection> canvasSections_;
+
+/* A stage box dropped at another place in its chain, in the document's
+   numbering, which is what the splice is in. One at a time: a drop is a
+   release. */
+struct CanvasMove
+{
+    int  chain, from, to;
+    bool wanted;
+
+    CanvasMove (void) : chain(-1), from(-1), to(-1), wanted(false) {}
+};
+
+CanvasMove canvasMove_;
+
+/* A chain's F pressed: which chain, once per press. */
+int canvasFreeze_ = -1;
+
+/* A section's block pressed: which section, or -1. */
+int canvasSeek_ = -1;
+
+/* A wire from a knob dropped on a stage: which knob, which stage (the
+   scheduler's numbering, like a params request), and where its box is
+   for the menu that asks which param. */
+struct CanvasBind
+{
+    std::string knob;
+    int  chain, stage;
+    int  x, y, w, h;
+    bool wanted;
+
+    CanvasBind (void) : chain(-1), stage(-1), x(0), y(0), w(0), h(0),
+                        wanted(false) {}
+};
+
+CanvasBind canvasBind_;
+
+/* Whether the canvas's first button is down, and where it went down, in
+   shell pixels. The desktop has a drag gesture for this; here the press,
+   the motions and the release are the drag. */
+bool   canvasHeld_ = false;
+double canvasHeldX_ = 0, canvasHeldY_ = 0;
+
+/* ---- the one index a stage has across this boundary ----
+ *
+ * Every tw_* call that names a stage names it by its place in the
+ * *scheduler's* list -- tw_stage_count counts that list, stageAt() reads
+ * it, and the worklet, which applies the commands, has nothing else: it
+ * never calls tw_canvas_show and so has no document to count instead.
+ *
+ * The canvas counts the document, because that is what it draws, and a
+ * dsp node is a stage in the file with no thcStage behind it. So the two
+ * translate here, at the edge, and nowhere else. Read raw in either
+ * direction, a chain with an LFO at the top hands back its neighbour's
+ * params, or paints on the wrong picture, or -- for the last composer in
+ * such a chain -- silently does nothing at all.
+ */
+int liveOf (int chain, int docStage)
+{
+    if (chain < 0 || (size_t)chain >= canvasDoc_.chains.size())
+        return -1;
+
+    return thcGenEdit::liveIndex(canvasDoc_.chains[(size_t)chain],
+                                 (size_t)docStage);
+}
+
+int docOf (int chain, int liveStage)
+{
+    if (chain < 0 || (size_t)chain >= canvasDoc_.chains.size())
+        return -1;
+
+    return thcGenEdit::docIndex(canvasDoc_.chains[(size_t)chain], liveStage);
+}
+
+bool writeFile (const char *path, const char *text)
+{
+    FILE *f = fopen(path, "wb");
+
+    if (f == NULL)
+        return false;
+
+    fputs(text, f);
+
+    return fclose(f) == 0;
+}
+
+/* ---- MIDI out ----
+ *
+ * The browser's thcMidiOut. The worklet cannot reach Web MIDI -- only the
+ * page can -- so this turns what the scheduler hands it into stamped
+ * messages for the page to send: the bytes thcMidiRouter makes of a note,
+ * an off or a mapped chanarg, as on the desktop, each stamped in
+ * microseconds of the AudioContext's own clock at the frame it sounds
+ * (frameOf, so a changed speed is in it), plus a record where the
+ * scheduler flushes or detaches a channel. The worklet posts them every
+ * quantum; the page turns the stamp into performance.now() and keeps what
+ * each device holds, which only it knows, since only it sends.
+ *
+ * Off until the page has MIDI access and says which output ports there
+ * are (tw_midiout_ports). The mirror is never told, so it plays every MIDI
+ * instrument's dsp, or nothing -- which composes the same.
+ */
+enum { TW_MIDI_SEND = 0, TW_MIDI_FLUSH = 1, TW_MIDI_DETACH = 2,
+       TW_MIDI_CLOCK = 3 };
+
+/* As the page reads it: see worklet.js readMidi. */
+struct twMidiMsg
+{
+    double  when;               /* microseconds, context time        */
+    int32_t kind;
+    int32_t channel;
+    int32_t port;
+    int32_t len;
+    uint8_t bytes[4];
+    int32_t generation;         /* the port list `port' indexes      */
+};
+
+static_assert(sizeof(twMidiMsg) == 32, "twMidiMsg is read at stride 32");
+
+class twMidiOut : public thcMidiOut
+{
+public:
+    twMidiOut (void)
+        : router_([this](const thcMidiRouter::Msg &m) { emit(m); }) {}
+
+    bool attach (int channel, const thcInstrument &inst,
+                 std::string &why) override
+    {
+        if (!enabled_)
+        {
+            why = "no MIDI access in this page";
+            return false;
+        }
+
+        if (router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+        {
+            why = "set to play on this synth";
+            return false;
+        }
+
+        const int port = router_.resolve(inst.midi, ports_);
+
+        if (port < 0)
+        {
+            why = "no MIDI output port matches '" + inst.midi + "'";
+            return false;
+        }
+
+        router_.attach(channel, port, inst, now());
+        return true;
+    }
+
+    void detach (int channel) override
+    {
+        record(TW_MIDI_DETACH, channel);
+        router_.forget(channel, now());
+        router_.detach(channel);
+    }
+
+    void noteOn (int channel, int note, int velocity, float level,
+                 int64_t when) override
+    {
+        router_.noteOn(channel, note, velocity, level, when);
+    }
+
+    void noteOff (int channel, int note, int64_t when) override
+    {
+        router_.noteOff(channel, note, when);
+    }
+
+    void control (int channel, const std::string &name, double value,
+                  int64_t when) override
+    {
+        if (catching_)
+            catchControls_[std::make_pair(channel, name)] = value;
+        else
+            router_.control(channel, name, value, when);
+    }
+
+    void flush (int channel) override
+    {
+        record(TW_MIDI_FLUSH, channel);
+        router_.forget(channel, now());
+    }
+
+    /* Clock, where the page has outputs for it (tw_midiout_clock): a
+       record of its own, with no port, since which outputs hear it is the
+       page's. */
+    bool wantsClock (void) const override { return clock_; }
+
+    void clock (int kind, int position, int64_t when) override
+    {
+        if (catching_)
+            return;
+
+        twMidiMsg r = {};
+
+        r.len = thcMidiRouter::clockBytes(kind, position, r.bytes);
+
+        if (r.len == 0)
+            return;
+
+        r.when = (double)when;
+        r.kind = TW_MIDI_CLOCK;
+        r.channel = -2;
+        r.port = -1;
+        r.generation = generation_;
+        out.push_back(r);
+    }
+
+    void setClock (bool on) { clock_ = on; }
+
+    /* The context time of the frame about to be rendered, in the stamps'
+       microseconds: what a message due now is stamped with. */
+    static int64_t now (void)
+    {
+        return (int64_t)llround(rendered_ / rate_ * 1e6);
+    }
+
+    static int64_t stamp (double at)
+    {
+        return (int64_t)llround(frameOf(at) / rate_ * 1e6);
+    }
+
+    void setPorts (const std::vector<std::string> &names, bool enabled,
+                   int generation)
+    {
+        ports_ = names;
+        enabled_ = enabled;
+        generation_ = generation;
+    }
+
+    /* The port instrument `inst' would be attached to now, by name, or
+       empty where it would play its dsp. */
+    std::string wants (const thcInstrument &inst) const
+    {
+        if (!enabled_ ||
+            router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+            return "";
+
+        const int port = router_.resolve(inst.midi, ports_);
+
+        return port < 0 ? "" : ports_[port];
+    }
+
+    /* Why `inst' would play its dsp now: attach's answer, unasked. */
+    std::string whyNot (const thcInstrument &inst) const
+    {
+        if (!enabled_)
+            return "no MIDI access in this page";
+
+        if (router_.route(inst.midi) == thcMidiRouter::PLAY_ON_SYNTH)
+            return "set to play on this synth";
+
+        return "no MIDI output port matches '" + inst.midi + "'";
+    }
+
+    /* The port engine channel `channel' is on, by name, or empty. */
+    std::string on (int channel) const
+    {
+        const int port = router_.portOf(channel);
+
+        return port >= 0 && port < (int)held_.size() ? held_[port] : "";
+    }
+
+    /* The list the routes' indices are into: taken before a new list
+       replaces it, so reroute can tell where each route is, and again
+       once every route has been moved over. */
+    void holdPorts (void) { held_ = ports_; }
+
+    /* The same device, at its index in the new list. */
+    void renumber (int channel, const std::string &name)
+    {
+        for (size_t i = 0; i < ports_.size(); i++)
+            if (ports_[i] == name)
+                router_.renumber(channel, (int)i);
+    }
+
+    std::string portName (int channel) const
+    {
+        const int port = router_.portOf(channel);
+
+        return port >= 0 && port < (int)ports_.size()
+                   ? thcMidiRouter::stableName(ports_[port]) + ", channel " +
+                     std::to_string(router_.midiChannelOf(channel) + 1)
+                   : "";
+    }
+
+    thcMidiRouter &router (void) { return router_; }
+
+    std::vector<twMidiMsg> out;
+
+private:
+    /* Nothing while a late joiner catches up: the run's past is as
+       silent on a device as on the synth (catchUp), where it would
+       otherwise go out all at once, stamped long gone. */
+    void emit (const thcMidiRouter::Msg &m)
+    {
+        if (catching_)
+            return;
+
+        twMidiMsg r = {};
+
+        r.when = (double)m.when;
+        r.kind = TW_MIDI_SEND;
+        r.channel = m.channel;
+        r.port = m.port;
+        r.len = m.len;
+        r.bytes[0] = m.bytes[0];
+        r.bytes[1] = m.bytes[1];
+        r.bytes[2] = m.bytes[2];
+        r.generation = generation_;
+        out.push_back(r);
+    }
+
+    void record (int kind, int channel)
+    {
+        twMidiMsg r = {};
+
+        r.when = (double)now();
+        r.kind = kind;
+        r.channel = channel;
+        r.port = -1;
+        r.generation = generation_;
+        out.push_back(r);
+    }
+
+    thcMidiRouter            router_;
+    std::vector<std::string> ports_, held_;
+    bool                     enabled_ = false;
+    bool                     clock_ = false;
+    int                      generation_ = 0;
+};
+
+twMidiOut midiOut_;
+
+/* A device heard none of the run a late joiner stepped through: not the
+   Start, so it is told where the run is now and to go on from there, and
+   not the controllers, so it is sent where each ended up. */
+void midiCaughtUp (void)
+{
+    sched_->clockStart();
+
+    for (const auto &c : catchControls_)
+        midiOut_.control(c.first.first, c.first.second, c.second,
+                         twMidiOut::now());
+
+    catchControls_.clear();
+}
+
+/* A key straight onto a channel, wherever the channel sounds: the synth,
+   or the device an instrument played over MIDI is on, as the scheduler's
+   own notes do (thcScheduler::deliver, endNote). At transport time `at',
+   or at the window about to be rendered where it is below zero. */
+void keyOnChannel (int channel, float note, float velocity, bool on,
+                   double at)
+{
+    const int64_t when = at < 0 ? twMidiOut::now() : twMidiOut::stamp(at);
+
+    playedKey(channel, (int)note, (int)velocity, on);
+
+    if (!sched_->playsOverMidi(channel))
+    {
+        if (on)
+            synth_->addNote(channel, note, velocity);
+        else
+            synth_->delNote(channel, note);
+    }
+    else if (on)
+        midiOut_.noteOn(channel, (int)note, (int)velocity, 1, when);
+    else
+        midiOut_.noteOff(channel, (int)note, when);
+}
+
+/* Every instrument naming `pattern' (all of them, where it is empty) whose
+ * place has changed -- its route, or the ports there are -- taken off and
+ * put on again. One whose place has not is left alone: taking it off ends
+ * what it is sounding, and re-applies the file's instrument over a channel
+ * a swap may have changed. One still on the same device at a new index in
+ * the list is renumbered rather than detached. */
+int reroute (const std::string &pattern)
+{
+    int n = 0;
+
+    for (size_t i = 0; i < sched_->instruments().size(); i++)
+    {
+        const thcInstrument &inst = sched_->instruments()[i];
+        std::string why;
+
+        if (inst.midi.empty() || (!pattern.empty() && inst.midi != pattern))
+            continue;
+
+        const int ch = inst.channel;
+        const std::string now = sched_->playsOverMidi(ch) ? midiOut_.on(ch)
+                                                          : "";
+        const std::string want = midiOut_.wants(inst);
+
+        if (now == want)
+        {
+            if (!want.empty())
+                midiOut_.renumber(ch, want);
+            else
+                /* Still on its dsp, perhaps for a different reason: said
+                   again without touching the graph. */
+                sched_->setMidiWhy(ch, midiOut_.whyNot(inst));
+
+            continue;
+        }
+
+        if (!sched_->unapplyInstrument(i))
+            continue;
+
+        if (sched_->applyInstrument(i, why))
+            n++;
+    }
+
+    /* And the channels a swap put a MIDI instrument on. */
+    n += sched_->reapplySwapped(pattern);
+
+    midiOut_.holdPorts();
+    return n;
+}
+
+/* What the last edit had to say. */
+std::vector<std::string> editErrors_;
+
+/* Each edit applied since the page last asked, by its tie, and whether it
+   went in: what the page keeps its idea of the playing text by (jam.js). */
+std::vector<std::pair<double, int> > editResults_;
+
+/* A .dsp into the module's files, where an instrument is looked up. */
+bool installDsp (const std::string &name, const std::string &text)
+{
+    const std::string path = std::string(TW_DSP_DIR) + "/" + name;
+
+    /* An effect graph is `fx/echo.dsp': a name with a directory in it,
+       looked up under dsp/ the way a piece's `effect' clause spells it.
+       MEMFS does not make parents on a write, so each one is made here,
+       and one that already exists is not an error. */
+    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
+         slash != std::string::npos; slash = path.find('/', slash + 1))
+        mkdir(path.substr(0, slash).c_str(), 0777);
+
+    return writeFile(path.c_str(), text.c_str());
+}
+
+std::string readText (const char *path)
+{
+    std::string text;
+    FILE *f = fopen(path, "rb");
+
+    if (f == NULL)
+        return text;
+
+    char buf[4096];
+    size_t got;
+
+    while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+        text.append(buf, got);
+
+    fclose(f);
+
+    return text;
+}
+
+bool describePiece (std::string &why)
+{
+    canvasText_.clear();
+
+    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+        thcGenEdit::OK)
+        return false;
+
+    canvasText_ = readText(TW_PIECE_FILE);
+
+    return true;
+}
+
+/* A new text for the piece, at the time the command was stamped for
+ * (thcGenDiff): what it keeps and what it builds is the same answer on
+ * every instance handed the same two texts at the same time. The piece's
+ * own file is the text it is replacing -- param edits spliced in and all,
+ * which is what the stages were built from -- and becomes the new one if
+ * it loads.
+ *
+ * What the host holds about the piece follows: the knobs by index, the
+ * sinks' channels, the text as read back, and the canvas's stages, which
+ * point at instances an edit may just have destroyed. */
+void applyEdit (const Scheduled &c)
+{
+    std::set<std::string> changed;
+
+    for (const auto &f : c.files)
+        changed.insert(f.first);
+
+    editErrors_.clear();
+
+    /* A press made before this and stamped after it is dropped (`rev'), and
+       would otherwise show as asked for until the next load. */
+    mixPending_.clear();
+    sectionPending_.clear();
+
+    if (!writeFile(TW_EDIT_FILE, c.text.c_str()))
+    {
+        editErrors_.push_back("the edit could not be written down");
+        editResults_.push_back(std::make_pair(c.tie, 0));
+        edits_++;
+        return;
+    }
+
+    const bool described = !canvasText_.empty() &&
+                           readText(TW_PIECE_FILE) == canvasText_;
+    thcGenEdit::Doc now;
+
+    /* The files it carries go in only once its text has loaded: a refused
+       edit leaves every instrument's .dsp as it was, so the next Apply
+       still finds them changed. */
+    if (!thcGenDiff::apply(*sched_, plugins_, TW_PIECE_FILE, TW_EDIT_FILE,
+                           changed, editErrors_,
+                           [&c]
+                           {
+                               for (const auto &f : c.files)
+                                   installDsp(f.first, f.second);
+                           },
+                           described ? &canvasDoc_ : NULL, &now))
+    {
+        editResults_.push_back(std::make_pair(c.tie, 0));
+        edits_++;
+        return;
+    }
+
+    editResults_.push_back(std::make_pair(c.tie, 1));
+
+    writeFile(TW_PIECE_FILE, c.text.c_str());
+
+    canvasDoc_ = std::move(now);
+    canvasText_ = c.text;
+
+    knobs_.clear();
+
+    for (const auto &k : sched_->knobs())
+        knobs_.push_back(k.second);
+
+    collectSinks();
+
+    if (canvas_ != NULL)
+        canvas_->SetPiece(canvasDoc_.chains.empty() ? NULL : &canvasDoc_,
+                          sched_);
+
+    edits_++;
+}
+
+/* Instrument `name' put on graph `dsp' in the piece at `path', from the
+ * graph's own values (thcGenEdit::setInstrumentGraph), refused when a sink
+ * rides a chanarg the graph does not declare. The load an edit goes through
+ * cannot say so: it is staged, and checks sinks against the graphs on the
+ * channels now (thcGenLoader::checkSinkArgs). An instrument played over MIDI
+ * is checked against its `cc' map there, and its graph not at all. */
+thcGenEdit::Result pickInto (const std::string &path, const std::string &name,
+                             const std::string &dsp, std::string &why)
+{
+    thcGenEdit::Doc doc;
+    thcGenEdit::Result r = thcGenEdit::setInstrumentGraph(path, name, dsp,
+                                                          why);
+
+    if (r != thcGenEdit::OK ||
+        (r = thcGenEdit::describe(path, doc, why)) != thcGenEdit::OK)
+        return r;
+
+    for (const thcGenEdit::Instrument &inst : doc.instruments)
+        if (inst.name == name && !inst.midi.empty())
+            return thcGenEdit::OK;
+
+    const size_t plen = strlen(TH_EFFECT_PREFIX);
+    thSynthTree *tree = NULL;
+
+    for (const thcGenEdit::Chain &chain : doc.chains)
+        for (const thcGenEdit::Sink &sink : chain.sinks)
+        {
+            const std::string &arg = sink.chanarg;
+
+            /* `amp' is the channel's, and `*' and `fx.' are not the
+               instrument graph's to declare. */
+            if (sink.instrument != name || arg.empty() || arg == "*" ||
+                arg == "amp" || arg.compare(0, plen, TH_EFFECT_PREFIX) == 0)
+                continue;
+
+            if (tree == NULL &&
+                (tree = synth_->parseTree(std::string(TW_DSP_DIR) + "/" +
+                                          dsp)) == NULL)
+            {
+                why = "'" + dsp + "' did not parse";
+                return thcGenEdit::REFUSED;
+            }
+
+            if (tree->getChanArg(arg) == NULL)
+            {
+                why = "instrument '" + name + "' is '" + dsp + "', which "
+                      "declares no chanarg called '" + arg + "'";
+                delete tree;
+                return thcGenEdit::REFUSED;
+            }
+        }
+
+    delete tree;
+
+    return thcGenEdit::OK;
+}
+
+/* A pick applied to the piece as it is when the command applies, rather
+ * than to a text its sender read: two picks stamped for one bar each find
+ * the other's already in, on every peer in the same order. Then an edit
+ * like any other. */
+void applyPick (const Scheduled &c)
+{
+    std::string why;
+
+    if (!writeFile(TW_PICK_FILE, readText(TW_PIECE_FILE).c_str()) ||
+        pickInto(TW_PICK_FILE, c.row, c.text, why) != thcGenEdit::OK)
+    {
+        editErrors_.clear();
+        editErrors_.push_back("instrument " + c.row + ": " + why);
+        editResults_.push_back(std::make_pair(c.tie, 0));
+        edits_++;
+        return;
+    }
+
+    Scheduled e = c;
+
+    e.op = TW_EDIT;
+    e.text = readText(TW_PICK_FILE);
+    e.files.clear();
+
+    applyEdit(e);
+}
+
+/* What each TW_TRYGRAPH came to, by tag, until the worklet tells its page
+   (tw_tried_json). Held to the last few: the mirror applies the same and
+   is never asked. */
+std::deque<std::pair<std::string, std::string> > tried_;
+
+void triedGraph (const std::string &tag, const std::string &why)
+{
+    tried_.push_back(std::make_pair(tag, why));
+
+    if (tried_.size() > 32)
+        tried_.pop_front();
+}
+
+/* Said once per page: the worklet's stderr and the mirror's both reach
+   its log. */
+void applyGrowBack (const Scheduled &c)
+{
+    std::string why;
+
+    if ((c.note < 0 || !sched_->growBackTo(c.channel, (size_t)c.note, why)) &&
+        !mirror_)
+        fprintf(stderr, "growth: %s\n", why.empty() ? "no such step"
+                                                    : why.c_str());
+}
+
+/* A search's graph on an instrument's channel (thcScheduler::putGraph),
+   applied at its time in every realm, so each puts it on the same channel
+   as it stands then. */
+void applyTryGraph (const Scheduled &c)
+{
+    const thcInstrument *inst = sched_->instrument(c.row);
+    const std::string tag = c.tag;
+
+    if (inst == NULL)
+        triedGraph(tag, "no such instrument");
+    else
+        sched_->putGraph(inst->channel, c.text, c.over, c.on,
+                         [tag] (const std::string &why)
+                         { triedGraph(tag, why); });
+}
+
+} /* namespace */
+
+extern "C" {
+
+/* A synth at the page's rate and the given window, rendering blocks of up
+   to maxFrames, and the scheduler that will drive it. Returns the window
+   length the synth actually took. */
+EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
+                                    int maxFrames)
+{
+    synth_ = new thSynth("", windowlen, sampleRate);
+    source_ = new gthSynthSource(synth_);
+    rate_ = sampleRate;
+
+    source_->prepare((unsigned)maxFrames, TW_CHANNELS);
+    block_.assign((size_t)maxFrames * TW_CHANNELS, 0.0f);
+    incoming_.assign(maxFrames > 0 ? (size_t)maxFrames : 1, 0.0f);
+    pending_.reserve(TW_PENDING);
+
+    mkdir(TW_DSP_DIR, 0777);
+
+    openComposers();
+
+    sched_ = new thcScheduler(synth_);
+    sched_->setReplayDeferred(true);
+    sched_->setMidiOut(&midiOut_);
+    sched_->setMidiClock(twMidiOut::stamp, twMidiOut::now);
+    loader_ = new thcGenLoader(plugins_);
+
+    return synth_->getWindowlen();
+}
+
+/* Where this module's frame counter starts, in the host's numbering.
+ *
+ * rendered_ counts from zero at tw_create, which runs when the module has
+ * finished instantiating -- and in a browser the audio context has been
+ * running for a while by then, its own frame counter already some
+ * thousands of frames past zero, while process() handed out silence. But
+ * every frame that crosses this boundary is in the host's numbering: the
+ * origin a Play arms with comes from the page's audio clock, and tw_frame
+ * and tw_origin are read there against the same clock. Left unaligned,
+ * this peer's transport zero lands its own setup time after the instant
+ * the room agreed on -- a different amount on every peer, and invisible
+ * to every peer, since each one's stamps are inflated by its own.
+ *
+ * The host calls this once before the first tw_render, with the frame
+ * that render begins at. Nothing has been handed out yet, so there is
+ * nothing numbered the old way. */
+EMSCRIPTEN_KEEPALIVE void tw_align (double frame)
+{
+    rendered_ = frame;
+}
+
+/* Growth (gen::grow). A step renders a phrase for each edit it weighs, a
+ * tenth of a second, and the worklet's quantum is a few milliseconds: so
+ * the worklet's scheduler asks (mode 2), the page carries each request to
+ * the mirror, a worker, which grows it with tw_grow and sends the answer
+ * back to tw_grow_answer. The mirror grows its own in place (mode 1).
+ * Renders are deterministic, so both arrive at the same graph; the
+ * worklet a few quanta later. Several edits cross where a step listens,
+ * '\x1e' between them, a byte no graph has. */
+static std::deque<std::string> growAsks_;
+static std::string growJson_;
+
+EMSCRIPTEN_KEEPALIVE void tw_grow_mode (int mode)
+{
+    if (mode == 1)
+        sched_->setGrower([] (const std::string &text, const std::string &base,
+                              unsigned int choice, const std::string &kinds,
+                              size_t want, std::vector<std::string> &grown,
+                              std::vector<std::string> &what, std::string &why)
+                          { return NodeMutate::grow(synth_, text, base, choice,
+                                                    kinds, want, grown, what,
+                                                    why); });
+    else if (mode == 2)
+        sched_->setGrowRequest([] (unsigned int ticket,
+                                   const std::string &text,
+                                   const std::string &base,
+                                   unsigned int choice,
+                                   const std::string &kinds, size_t want)
+        {
+            std::string ask = "{\"ticket\":" + std::to_string(ticket) +
+                              ",\"choice\":" + std::to_string(choice) +
+                              ",\"want\":" + std::to_string(want) +
+                              ",\"text\":";
+
+            jsonString(ask, text);
+            ask += ",\"base\":";
+            jsonString(ask, base);
+            ask += ",\"kinds\":";
+            jsonString(ask, kinds);
+            ask += "}";
+            growAsks_.push_back(ask);
+        });
+}
+
+/* The next request the worklet's scheduler has made, as JSON, or "". */
+EMSCRIPTEN_KEEPALIVE const char *tw_grow_next (void)
+{
+    growJson_.clear();
+
+    if (!growAsks_.empty())
+    {
+        growJson_ = growAsks_.front();
+        growAsks_.pop_front();
+    }
+
+    return growJson_.c_str();
+}
+
+static std::string
+joined (const std::vector<std::string> &parts)
+{
+    std::string out;
+
+    for (size_t i = 0; i < parts.size(); i++)
+        out += (i ? "\x1e" : "") + parts[i];
+
+    return out;
+}
+
+static std::vector<std::string>
+split (const char *s)
+{
+    std::vector<std::string> out;
+    std::string part;
+
+    for (; s != NULL && *s; s++)
+        if (*s == '\x1e')
+        {
+            out.push_back(part);
+            part.clear();
+        }
+        else
+            part += *s;
+
+    if (s != NULL && (!part.empty() || !out.empty()))
+        out.push_back(part);
+
+    return out;
+}
+
+/* One request grown here: {"grown":..., "what":..., "why":...}, up to
+   `want' edits joined, "grown" empty if nothing would do. */
+EMSCRIPTEN_KEEPALIVE const char *tw_grow (const char *text, const char *base,
+                                          unsigned int choice,
+                                          const char *kinds, int want)
+{
+    std::vector<std::string> grown, what;
+    std::string why;
+
+    NodeMutate::grow(synth_, text, base, choice, kinds,
+                     (size_t)std::max(want, 1), grown, what, why);
+
+    growJson_ = "{\"grown\":";
+    jsonString(growJson_, joined(grown));
+    growJson_ += ",\"what\":";
+    jsonString(growJson_, joined(what));
+    growJson_ += ",\"why\":";
+    jsonString(growJson_, why);
+    growJson_ += "}";
+
+    return growJson_.c_str();
+}
+
+/* The graph growth has put on `instrument''s channel, or "" while it
+   plays what the piece declares. */
+EMSCRIPTEN_KEEPALIVE const char *tw_grown_text (const char *instrument)
+{
+    const thcInstrument *inst = sched_->instrument(instrument);
+
+    growJson_.clear();
+
+    if (inst != NULL)
+        sched_->grownText(inst->channel, growJson_);
+
+    return growJson_.c_str();
+}
+
+/* What growth has made of each channel chain `chain''s sinks reach, for
+   the composer view: [{instrument, channel, stack, log}], `stack' the
+   edits on the declared graph in words with its "" first, `log' every
+   change (thcScheduler::GrowthStep). A channel that has not grown has an
+   empty stack. */
+static std::string growthJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_growth_json (int chain)
+{
+    growthJson_ = "[";
+
+    thcChain *c = chain >= 0 ? sched_->chain((size_t)chain) : NULL;
+    std::vector<int> seen;
+    const auto number = [] (double v)
+    {
+        char out[32];
+
+        if (!std::isfinite(v))
+            return std::string("null");
+
+        snprintf(out, sizeof out, "%.6g", v);
+        return std::string(out);
+    };
+
+    for (size_t i = 0; c != NULL && i < c->sinks.size(); i++)
+    {
+        const int ch = c->sinks[i].channel;
+
+        if (c->sinks[i].isKnob() ||
+            std::find(seen.begin(), seen.end(), ch) != seen.end())
+            continue;
+
+        std::vector<std::string> stack;
+        std::vector<thcScheduler::GrowthStep> log;
+
+        seen.push_back(ch);
+        sched_->growth(ch, stack, log);
+
+        growthJson_ += seen.size() > 1 ? ",{\"instrument\":" : "{\"instrument\":";
+        jsonString(growthJson_, sched_->holding(ch));
+        growthJson_ += ",\"channel\":" + std::to_string(ch) + ",\"stack\":[";
+
+        for (size_t k = 0; k < stack.size(); k++)
+        {
+            growthJson_ += k ? "," : "";
+            jsonString(growthJson_, stack[k]);
+        }
+
+        growthJson_ += "],\"log\":[";
+
+        for (size_t k = 0; k < log.size(); k++)
+        {
+            const thcScheduler::GrowthStep &s = log[k];
+
+            growthJson_ += std::string(k ? "," : "") + "{\"at\":" +
+                           number(s.at) + ",\"depth\":" +
+                           std::to_string(s.depth) + ",\"distance\":" +
+                           number(s.distance) + ",\"from\":" +
+                           number(s.from) + ",\"taken\":" +
+                           std::to_string(s.taken) + ",\"heard\":[";
+
+            for (size_t h = 0; h < s.heard.size(); h++)
+                growthJson_ += (h ? "," : "") + number(s.heard[h]);
+
+            growthJson_ += "]}";
+        }
+
+        growthJson_ += "]}";
+    }
+
+    growthJson_ += "]";
+
+    return growthJson_.c_str();
+}
+
+/* Channel `channel' back to `depth' edits on its declared graph, at a
+   transport time: the composer view's choice of a row. */
+EMSCRIPTEN_KEEPALIVE void tw_grow_back (double at, int channel, int depth)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_GROWBACK;
+    c.channel = channel;
+    c.note = depth;
+
+    schedule(c);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_grow_answer (unsigned int ticket,
+                                          const char *grown, const char *what,
+                                          const char *why)
+{
+    sched_->growthAnswer(ticket, split(grown), split(what), why);
+}
+
+/* The ear (gen::breed's `target', gen::grow's). A render is tens of
+ * milliseconds and a tuned edit seconds, so neither the worklet nor the
+ * mirror -- which draws -- makes them: each asks (mode 2), the page carries
+ * the request to a worker of its own, which renders and measures with
+ * tw_hear (mode 1) and sends back what it heard to tw_ear_answer. A
+ * request names its graphs by their texts' hashes and carries a text the
+ * first time it names it, which tw_ear_text keeps here: an inline or grown
+ * graph is in the asking realm's registry and nowhere else. */
+static std::deque<std::string> earAsks_;
+static std::string earJson_;
+
+EMSCRIPTEN_KEEPALIVE void tw_ear_mode (int mode)
+{
+    if (mode == 1)
+    {
+        sched_->setLocalEar(true);
+        sched_->setTuner(NodeEvolve::tuneAdded);
+        sched_->setAuditionSynchronous(true);
+    }
+    else if (mode == 2)
+        sched_->setEarRequest([] (int, const std::string &ask)
+                              { earAsks_.push_back(ask); });
+}
+
+/* The next request this realm's scheduler has made, as JSON, or "". */
+EMSCRIPTEN_KEEPALIVE const char *tw_ear_next (void)
+{
+    earJson_.clear();
+
+    if (!earAsks_.empty())
+    {
+        earJson_ = earAsks_.front();
+        earAsks_.pop_front();
+    }
+
+    return earJson_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_ear_answer (int ticket, int ok, double distance,
+                                         const char *tuned)
+{
+    sched_->earAnswer(ticket, ok != 0, distance, tuned ? tuned : "");
+}
+
+/* Values as a request carries them, a name and a number a line, and
+   back. */
+static std::vector<std::pair<std::string, float> >
+argsOf (const char *args)
+{
+    std::vector<std::pair<std::string, float> > out;
+    std::istringstream lines(args ? args : "");
+    std::string line;
+
+    while (std::getline(lines, line))
+    {
+        const std::string::size_type tab = line.find('\t');
+
+        if (tab != std::string::npos)
+            out.push_back(std::make_pair(line.substr(0, tab),
+                                         (float)atof(line.c_str() + tab + 1)));
+    }
+
+    return out;
+}
+
+static std::string
+argText (const std::vector<std::pair<std::string, float> > &args)
+{
+    std::string out;
+    char value[32];
+
+    for (size_t i = 0; i < args.size(); i++)
+    {
+        snprintf(value, sizeof value, "%.9g", (double)args[i].second);
+        out += args[i].first + "\t" + value + "\n";
+    }
+
+    return out;
+}
+
+static std::map<std::string, thUtil::GraphHold> earTexts_;
+
+/* A graph text a request named, kept under that name for the requests
+   after it. */
+EMSCRIPTEN_KEEPALIVE void tw_ear_text (const char *id, const char *text)
+{
+    if (id != NULL && text != NULL && !earTexts_.count(id))
+        earTexts_[id] = thUtil::addGraphText(id, text);
+}
+
+/* An instrument as graph names a request gave and values. */
+static bool
+earInstrument (const char *dsp, const char *effect, const char *args,
+               thcAuditioner::Instrument &out)
+{
+    std::string text;
+
+    if (dsp == NULL || !thUtil::findGraphText(dsp, text))
+        return false;
+
+    out.dsp = dsp;
+
+    if (effect != NULL && *effect != '\0')
+    {
+        if (!thUtil::findGraphText(effect, text))
+            return false;
+
+        out.effect = effect;
+    }
+
+    out.chanargs = argsOf(args);
+
+    return true;
+}
+
+/* One request heard here: {"ok":..., "distance":..., "tuned":...}. */
+EMSCRIPTEN_KEEPALIVE const char *tw_hear (const char *dsp, const char *effect,
+                                          const char *args, const char *key,
+                                          const char *tdsp,
+                                          const char *teffect,
+                                          const char *targs, const char *file,
+                                          int tune, const char *from)
+{
+    thcAuditioner *ear = sched_->auditioner();
+    thcAuditioner::Instrument candidate, target;
+    const bool isFile = tdsp == NULL || *tdsp == '\0';
+    double distance = 0;
+    std::string tuned;
+    int r = -1;
+
+    std::string base;
+
+    if (from != NULL && *from != '\0')
+        thUtil::findGraphText(from, base);
+
+    if (ear != NULL && earInstrument(dsp, effect, args, candidate) &&
+        (isFile || earInstrument(tdsp, teffect, targs, target)))
+    {
+        const int ticket = ear->hear(candidate, key, isFile ? NULL : &target,
+                                     isFile ? (file ? file : "") : "", tune,
+                                     base);
+
+        r = ticket < 0 ? -1 : ear->heard(ticket, &distance, &tuned);
+    }
+
+    char number[40];
+
+    snprintf(number, sizeof number, "%.9g", r == 1 ? distance : 0.0);
+    earJson_ = std::string("{\"ok\":") + (r == 1 ? "true" : "false") +
+               ",\"distance\":" + number + ",\"tuned\":";
+    jsonString(earJson_, tuned);
+    earJson_ += "}";
+
+    return earJson_.c_str();
+}
+
+/* gen::graft. A generation is dozens of renders, seconds of them, so
+ * neither the worklet nor the mirror breeds: each asks (mode 2), with the
+ * flock as it has it, and the page carries the request to the ear worker,
+ * which breeds it with tw_graft and sends back what it bred to
+ * tw_graft_answer. The two realms ask the same question of the same flock,
+ * so the page asks it once (host.js). */
+static std::deque<std::string> graftAsks_;
+static std::string graftJson_;
+
+EMSCRIPTEN_KEEPALIVE void tw_graft_mode (int mode)
+{
+    if (mode != 2)
+        return;
+
+    sched_->setGraftRequest([] (unsigned int ticket, const std::string &base,
+                                const std::string &flock,
+                                const thcScheduler::GraftAsk &a)
+    {
+        char numbers[256];
+
+        /* A chance wired to something that went non-finite would print as
+           no JSON at all, and the ask would never be answered: as none,
+           which is what breeding makes of it anyway. */
+        const auto finite = [] (double v) { return std::isfinite(v) ? v : 0; };
+
+        snprintf(numbers, sizeof numbers,
+                 "{\"ticket\":%u,\"dice\":%u,\"population\":%d,"
+                 "\"elites\":%d,\"crossover\":%.17g,\"mutation\":%.17g,"
+                 "\"depth\":%d,\"tune\":%d,\"rate\":%.17g",
+                 ticket, a.dice, a.population, a.elites, finite(a.crossover),
+                 finite(a.mutation), a.depth, a.tune, finite(a.rate));
+
+        std::string ask = numbers;
+        const std::pair<const char *, std::string> texts[] = {
+            { "kinds", a.kinds }, { "base", base }, { "flock", flock },
+            { "tgraph", a.targetGraph }, { "twav", a.targetWav },
+            { "args", argText(a.args) }, { "targs", argText(a.targetArgs) } };
+
+        for (const auto &t : texts)
+        {
+            ask += std::string(",\"") + t.first + "\":";
+            jsonString(ask, t.second);
+        }
+
+        ask += "}";
+        graftAsks_.push_back(ask);
+    });
+}
+
+/* The next generation this realm's scheduler has asked for, as JSON, or
+   "". */
+EMSCRIPTEN_KEEPALIVE const char *tw_graft_next (void)
+{
+    graftJson_.clear();
+
+    if (!graftAsks_.empty())
+    {
+        graftJson_ = graftAsks_.front();
+        graftAsks_.pop_front();
+    }
+
+    return graftJson_.c_str();
+}
+
+/* One generation bred here, the ear worker's: {"ok":..., "flock":...,
+   "champion":..., "depth":..., "why":...}. */
+EMSCRIPTEN_KEEPALIVE const char *tw_graft (const char *base, const char *flock,
+                                           const char *kinds,
+                                           const char *tgraph,
+                                           const char *twav, const char *args,
+                                           const char *targs,
+                                           unsigned int dice, int population,
+                                           int elites, double crossover,
+                                           double mutation, int depth,
+                                           int tune, double rate)
+{
+    thcScheduler::GraftAsk a;
+    std::string bred, champion, why;
+    size_t edits = 0;
+
+    a.dice = dice;
+    a.kinds = kinds ? kinds : "";
+    a.population = population;
+    a.elites = elites;
+    a.crossover = crossover;
+    a.mutation = mutation;
+    a.depth = depth;
+    a.tune = tune;
+    a.rate = rate;
+    a.targetGraph = tgraph ? tgraph : "";
+    a.targetWav = twav ? twav : "";
+    a.args = argsOf(args);
+    a.targetArgs = argsOf(targs);
+
+    const bool ok = graftStep(synth_, base ? base : "", flock ? flock : "", a,
+                              graftParams(a), bred, champion, edits, why);
+
+    graftJson_ = std::string("{\"ok\":") + (ok ? "true" : "false") +
+                 ",\"depth\":" + std::to_string(edits) + ",\"flock\":";
+    jsonString(graftJson_, bred);
+    graftJson_ += ",\"champion\":";
+    jsonString(graftJson_, champion);
+    graftJson_ += ",\"why\":";
+    jsonString(graftJson_, why);
+    graftJson_ += "}";
+
+    return graftJson_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_graft_answer (unsigned int ticket, int ok,
+                                           const char *flock,
+                                           const char *champion, int depth,
+                                           const char *why)
+{
+    sched_->graftAnswer(ticket, ok != 0, flock ? flock : "",
+                        champion ? champion : "", (size_t)std::max(depth, 0),
+                        why ? why : "");
+}
+
+/* Evolve toward (src/NodeEvolve.h). A search is minutes of renders, so it
+ * runs in a worker of the page's own, one per seed (evolve.js), each
+ * tw_evolve to the end or until the page ends the worker -- which is how
+ * one is cancelled, a worker in a loop having no ear for a message. What
+ * it says on the way goes out through Module.onEvolve: a piece of its
+ * commentary, where it began, and each graph nearer than any before. */
+EM_JS(void, twEvolveSay, (int kind, double value, const char *text), {
+    if (Module.onEvolve)
+        Module.onEvolve(kind, value, UTF8ToString(text));
+});
+
+static std::string evolveJson_;
+
+/* One instrument as a search hears it, as this realm plays it: the graph
+   on its channel and its values. False, with `why', for one with none. */
+static bool
+evolveSide (const char *name, std::string &graph, std::string &args,
+            std::string &why)
+{
+    const thcInstrument *inst = sched_->instrument(name ? name : "");
+    thcAuditioner::Instrument values;
+
+    if (inst == NULL)
+        why = std::string("no instrument called ") + (name ? name : "");
+    else if (sched_->holding(inst->channel) != name)
+        why = std::string(name) + "'s channel is playing " +
+              sched_->holding(inst->channel) + " after a swap; rewind first";
+    else if (sched_->playsOverMidi(inst->channel))
+        why = std::string(name) + " plays over MIDI, and has no graph here";
+    else if (!sched_->graphText(inst->channel, graph))
+        why = std::string(name) + " has no graph here";
+    else
+    {
+        if (sched_->auditionInstrument(*inst, values))
+            args = argText(values.chanargs);
+
+        return true;
+    }
+
+    return false;
+}
+
+/* Where a search of `instrument' toward `toward' -- another instrument, or
+   "" for a recording -- starts: {"start", "startArgs", "target",
+   "targetArgs", "why"}, "why" empty when it can. */
+EMSCRIPTEN_KEEPALIVE const char *tw_evolve_spec (const char *instrument,
+                                                 const char *toward)
+{
+    std::string start, startArgs, target, targetArgs, why;
+
+    if (evolveSide(instrument, start, startArgs, why) && toward != NULL &&
+        *toward != '\0')
+        evolveSide(toward, target, targetArgs, why);
+
+    evolveJson_ = "{\"start\":";
+    jsonString(evolveJson_, start);
+    evolveJson_ += ",\"startArgs\":";
+    jsonString(evolveJson_, startArgs);
+    evolveJson_ += ",\"target\":";
+    jsonString(evolveJson_, target);
+    evolveJson_ += ",\"targetArgs\":";
+    jsonString(evolveJson_, targetArgs);
+    evolveJson_ += ",\"why\":";
+    jsonString(evolveJson_, why);
+    evolveJson_ += "}";
+
+    return evolveJson_.c_str();
+}
+
+/* A search of `start' toward `target', or the sound file at path `wav'. */
+static NodeEvolve::Spec
+evolveOf (const char *start, const char *startArgs, const char *target,
+          const char *targetArgs, const char *wav)
+{
+    NodeEvolve::Spec spec;
+
+    spec.pluginPath = "";
+    spec.rate = rate_;
+    spec.start = start ? start : "";
+    spec.startArgs = argsOf(startArgs);
+    spec.targetGraph = target ? target : "";
+    spec.targetArgs = argsOf(targetArgs);
+    spec.targetWav = wav ? wav : "";
+
+    return spec;
+}
+
+#ifdef TW_SCORE_ELSEWHERE
+/* A generation scored in the page's listener workers (evolve.js): the
+   sources joined by '\x1e', and their distances written to `out'. The
+   search waits on it with the module suspended (JSPI), which is why this
+   is in a module of its own: thinkevolve. */
+EM_ASYNC_JS(void, twScoreAll, (const char *sources, double *out, int n), {
+    const scores = await Module.scoreAll(UTF8ToString(sources));
+
+    for (let k = 0; k < n && k < scores.length; k++)
+        HEAPF64[(out >> 3) + k] = scores[k];
+});
+#endif
+
+/* One search, here, to its end: {"ok", "found", "distance", "why"}.
+   `wav' is a sound file's path in this realm, or "" for `target'. With
+   `elsewhere', in thinkevolve, each generation is scored by the page's
+   listeners rather than here. */
+EMSCRIPTEN_KEEPALIVE const char *tw_evolve (const char *start,
+                                            const char *startArgs,
+                                            const char *target,
+                                            const char *targetArgs,
+                                            const char *wav, int grow,
+                                            unsigned int seed,
+                                            int generations, int elsewhere)
+{
+    NodeEvolve::Spec spec = evolveOf(start, startArgs, target, targetArgs,
+                                     wav);
+    NodeEvolve::Report report;
+
+    spec.grow = grow != 0;
+    spec.seed = seed;
+
+    if (generations > 0)
+        spec.generations = generations;
+
+#ifdef TW_SCORE_ELSEWHERE
+    if (elsewhere)
+        report.scoreAll = [] (const std::vector<std::string> &sources,
+                              std::vector<double> &out)
+        {
+            std::string joined;
+
+            for (size_t k = 0; k < sources.size(); k++)
+                joined += (k ? "\x1e" : "") + sources[k];
+
+            twScoreAll(joined.c_str(), out.data(), (int)out.size());
+        };
+#else
+    (void)elsewhere;
+#endif
+
+    report.say = [] (const std::string &text)
+                 { twEvolveSay(0, 0, text.c_str()); };
+    report.started = [] (double d) { twEvolveSay(1, d, ""); };
+    report.nearer = [] (double d, const std::string &graph)
+                    { twEvolveSay(2, d, graph.c_str()); };
+
+    const NodeEvolve::Outcome o = NodeEvolve::evolve(spec, 1, report);
+    char number[40];
+
+    snprintf(number, sizeof number, "%.9g", o.distance);
+    evolveJson_ = std::string("{\"ok\":") + (o.ok ? "true" : "false") +
+                  ",\"distance\":" + number + ",\"found\":";
+    jsonString(evolveJson_, o.found);
+    evolveJson_ += ",\"why\":";
+    jsonString(evolveJson_, o.why);
+    evolveJson_ += "}";
+
+    return evolveJson_.c_str();
+}
+
+/* A listener for a search elsewhere (evolve.js): the target heard here,
+   once; "" when it was, or why it could not be. */
+static std::unique_ptr<NodeEvolve::Listener> listener_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_evolve_listen (const char *start,
+                                                   const char *startArgs,
+                                                   const char *target,
+                                                   const char *targetArgs,
+                                                   const char *wav)
+{
+    listener_.reset(new NodeEvolve::Listener(
+        evolveOf(start, startArgs, target, targetArgs, wav)));
+    evolveJson_.clear();
+
+    if (!listener_->open(evolveJson_))
+        listener_.reset();
+
+    return evolveJson_.c_str();
+}
+
+/* How far `source' sounds from the listener's target. Seeded alike for
+   every graph, so a candidate scores the same on whichever worker is
+   free. */
+EMSCRIPTEN_KEEPALIVE double tw_evolve_score (const char *source)
+{
+    if (!listener_)
+        return NodeEvolve::DEAD;
+
+    srand(1);
+
+    return listener_->distance(source ? source : "");
+}
+
+/* A search's graph on `instrument''s channel, at a transport time
+   (applyTryGraph): the page's Listen (strict), a result, and Discard (no
+   graph). Its outcome is reported under the tag tw_command_tag set. */
+EMSCRIPTEN_KEEPALIVE void tw_try_graph (double at, const char *instrument,
+                                        const char *graph, const char *over,
+                                        int strict)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_TRYGRAPH;
+    c.row = instrument ? instrument : "";
+    c.text = graph ? graph : "";
+    c.over = over ? over : "";
+    c.on = strict != 0;
+    c.tag = nextTag_;
+    nextTag_.clear();
+
+    schedule(c);
+}
+
+/* The searches' graphs applied since the last call, and what each came
+   to: [{"tag", "why"}], "why" empty when it is on its channel. */
+EMSCRIPTEN_KEEPALIVE const char *tw_tried_json (void)
+{
+    evolveJson_ = "[";
+
+    for (size_t k = 0; k < tried_.size(); k++)
+    {
+        evolveJson_ += k ? ",{\"tag\":" : "{\"tag\":";
+        jsonString(evolveJson_, tried_[k].first);
+        evolveJson_ += ",\"why\":";
+        jsonString(evolveJson_, tried_[k].second);
+        evolveJson_ += "}";
+    }
+
+    evolveJson_ += "]";
+    tried_.clear();
+
+    return evolveJson_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_tried_count (void)
+{
+    return (int)tried_.size();
+}
+
+/* What each channel was given, and whether it has been edited since.
+ *
+ * The same slots the application keeps (src/PatchSet.h), instantiated rather
+ * than reached through a singleton -- which is what the singleton being the
+ * application's idea, and staying there, is for. The signals go unconnected:
+ * a page polls, and there is nothing on this side of the ABI to hang a
+ * handler on. */
+static thPatchSet patches_(TH_MIDI_CHANNELS);
+
+/* A .dsp, as text, onto a channel in place of whatever was there. Nonzero
+   if it parsed; the parser's complaints go to stderr, which the worklet
+   forwards to the page.
+ *
+ * The channel is the caller's because a piece may want one: a chain that
+ * takes `input midi' and sinks to channel 1 needs something on channel 1 to
+ * sound, and the piece does not always declare it -- gen/hands.gen declares
+ * no instruments at all and says to aim three channels at three patches by
+ * hand. That is the desktop's Patch Selector, and on the page it is this.
+ * Aiming one at a channel a piece's instrument is already on replaces it,
+ * here as there. */
+EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
+{
+    if (!writeFile(TW_PATCH_FILE, text))
+        return 0;
+
+    /* The queue is left alone. It used to be cleared here, when it held
+       nothing but notes for the patch being replaced; now it also holds
+       the stop a mode switch posts just ahead of this load and the
+       releases of keys held into a piece, and clearing those left the
+       piece running under patch mode and an arpeggiator holding a chord
+       for ever. A note stamped for the old patch plays on the new one,
+       which is nothing. */
+
+    /* At the level the Patch Selector loads one at, on MIDI's 0..127 --
+       gthPatchfile.cpp says why that level is where it is. */
+    if (synth_->loadTree(TW_PATCH_FILE, channel,
+                         TH_DEFAULT_CHAN_AMP) == NULL)
+        return 0;
+
+    /* And the channel is not holding a patch any more.
+     *
+     * A graph put on a channel by name is the graph at whatever its own
+     * file says, which is precisely not the patch that was over it: the
+     * values are gone, and so is the file they came from. Leaving the
+     * slot behind left the shells offering to Save a .patch for a channel
+     * that no longer had one, and calling it edited -- which it was, in
+     * the sense that nothing about it matched the file any more, and
+     * which is the least useful true thing either of them could say.
+     *
+     * The piece loader does not come through here: an instrument a piece
+     * declares goes on through the host's own loader, which keeps the
+     * slot because in the application that slot is the patch tab. */
+    patches_.clear(channel);
+
+    return 1;
+}
+
+/* One of the shipped .dsp files, as text, into the place a piece's
+   instruments are looked up from. The page fetches these and hands them
+   over before the first piece is loaded; a worklet cannot fetch. */
+EMSCRIPTEN_KEEPALIVE int tw_instrument (const char *name, const char *text)
+{
+    return name != NULL && text != NULL && installDsp(name, text) ? 1 : 0;
+}
+
+/* What the page's menus are drawn from: every .dsp this module has been
+ * handed, with the title and the description its author wrote and whether it
+ * is an effect graph or an instrument.
+ *
+ * A directory walk, exactly as on the desktop, because by here there is a
+ * directory to walk: tw_instrument above has written every shipped graph into
+ * MEMFS under /dsp, `fx/' and all, and DspCatalog::scan is happy with a
+ * filesystem that lives in a heap. So the page gets the same reading of the
+ * same headers the application gets -- not a second one in JavaScript, which
+ * is how the .patch format came to be read two different ways.
+ *
+ * Scanned on the call rather than kept up to date: the page asks once, after
+ * it has handed the graphs over. The dump is dspCatalogToJson's, diffed
+ * against the native harness's byte for byte
+ * (wasm/web/dspcatalogcheck.mjs). Valid until the next call.
+ */
+static std::string dspsJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_dsps_json (void)
+{
+    DspCatalog catalog;
+
+    catalog.scan(TW_DSP_DIR);
+
+    dspsJson_ = dspCatalogToJson(catalog);
+
+    return dspsJson_.c_str();
+}
+
+/* One of the shipped .gen files, as text, so that the menu can say what it
+ * is. Nothing plays from here -- a piece is loaded by handing its text to
+ * tw_piece_load, which writes TW_PIECE_FILE -- and nothing needs to: what
+ * this is for is the same thing tw_instrument turned out to be for, a
+ * directory to walk.
+ *
+ * The page could have kept the headers to itself and parsed them in
+ * JavaScript. It did that for .patch once and the two readings drifted. */
+EMSCRIPTEN_KEEPALIVE int tw_gen_file (const char *name, const char *text)
+{
+    const std::string path = std::string(TW_GEN_DIR) + "/" + name;
+
+    mkdir(TW_GEN_DIR, 0777);
+
+    return writeFile(path.c_str(), text) ? 1 : 0;
+}
+
+/* What the page's piece menu is drawn from: every .gen handed over above, by
+ * category, with the title and the description its author wrote.
+ *
+ * Read through thcGenEdit, which is the .gen reader the Composer edits
+ * pieces with -- so the browser's menu and the Composer's Open are the same
+ * list (src/GenCatalog.h). The dump is genCatalogToJson's, diffed against
+ * scripts/gencheck --json byte for byte
+ * (wasm/web/gencatalogcheck.mjs). Valid until the next call. */
+static std::string gensJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gens_json (void)
+{
+    GenCatalog catalog;
+
+    catalog.scan(TW_GEN_DIR);
+
+    gensJson_ = genCatalogToJson(catalog);
+
+    return gensJson_.c_str();
+}
+
+/* Heap for a file on its way to tw_sample. ccall's `array' copies onto the
+   stack, which is a megabyte, and a long recording is more than that; so a
+   caller asks for room here, copies in, and hands the pointer over. */
+EMSCRIPTEN_KEEPALIVE char *tw_alloc (int len)
+{
+    return len > 0 ? (char *)malloc((size_t)len) : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_free (char *p)
+{
+    free(p);
+}
+
+/* And the same for a wav, which is the one shipped file that is not text.
+ *
+ * osc::sample looks a file up with thUtil::findDataFile under `samples/',
+ * so what it wants is bytes at /dsp/samples/<name> -- the same MEMFS the
+ * .dsp files above are written into, by the same page, before the first
+ * piece is loaded. `name' carries the `samples/' on it, the way
+ * tw_instrument's carries an `fx/', because both are index.json entries
+ * and index.json lists a path rather than a basename.
+ *
+ * A length and a pointer rather than a string: a wav has a NUL in its
+ * header before it has anything else in it. */
+EMSCRIPTEN_KEEPALIVE int tw_sample (const char *name, const char *bytes,
+                                    int len)
+{
+    const std::string path = std::string(TW_DSP_DIR) + "/" + name;
+
+    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
+         slash != std::string::npos; slash = path.find('/', slash + 1))
+        mkdir(path.substr(0, slash).c_str(), 0777);
+
+    if (bytes == NULL || len < 0)
+        return 0;
+
+    FILE *f = fopen(path.c_str(), "wb");
+
+    if (f == NULL)
+        return 0;
+
+    const bool whole =
+        fwrite(bytes, 1, (size_t)len, f) == (size_t)len;
+    const bool ok = fclose(f) == 0 && whole;
+
+    /* A pack downloaded while an instrument naming it is loaded, or
+       updated while one plays: osc::sample reads this file again. */
+    if (ok)
+    {
+        thUtil::dataFileChanged(name);
+
+        if (synth_ != NULL)
+            synth_->prepareTrees();
+    }
+
+    return ok ? 1 : 0;
+}
+
+/* A .gen, as text. Nonzero if it parsed and built; tw_error_count and
+   tw_error say what did not, in the loader's own words and with line
+   numbers, because a piece is something a person is editing.
+ *
+ * Everything the transport was doing stops first. A load rebuilds the
+ * chains under the scheduler, and the queue may hold commands stamped for
+ * a piece that is about to stop existing.
+ *
+ * No thcScheduler::setChannelTaken hook, deliberately, and this is
+ * load-bearing: the loader gives each instrument the lowest channel nothing
+ * else has claimed, and what "nothing else" means is exactly that hook
+ * (thcGenFile.cpp, allocateChannels). genwav installs none, so a piece
+ * loaded here must find the same channels free or its tape would name
+ * different ones -- and the tape is what the gate compares. The cost is
+ * that a piece takes channel 0 from the .dsp the keyboard was playing,
+ * which is why the page has the two as modes rather than side by side. A
+ * keyboard still reaches a piece: through `input midi', as tw_midi_on, the
+ * way a peer's keyboard will. */
+/* `seed' is the master seed to compose from when the piece pins none, or
+   below zero to draw one, as the desktop does. Two peers composing from
+   different seeds are playing different pieces, so in a room the one who
+   presses Play picks it and everyone loads with it. A piece that pins
+   its own is not moved by this: the loader sets the file's after. */
+EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
+{
+    delivery_.disconnect();
+    pending_.clear();
+    growAsks_.clear();      /* the old piece's: their answers would be dropped */
+    earAsks_.clear();
+
+    /* A speed change still in the queue is not a command about this
+       piece: it is what the listener asked the clock to do, and the clock
+       is not what is being reloaded. Kept rather than dropped with the
+       rest, or a slider moved less than a window before a load would be
+       thrown away and then written back over the control by the piece
+       reply, which reads speed_. Only the value -- the pin below is going
+       to be -1 either way. */
+    for (size_t i = 0; i < scheduled_.size(); i++)
+        if (scheduled_[i].op == TW_SPEED && scheduled_[i].value > 0)
+            speed_ = scheduled_[i].value;
+
+    scheduled_.clear();
+    armed_ = false;
+
+    /* The clock is unpinned until the next Play pins it. speed_ is left
+       alone: it is what the listener asked for, not what the last piece
+       was, and a load that quietly put it back to 1 would be a control
+       that forgot itself every time somebody chose a piece. */
+    pinned_ = false;
+    originAt_ = 0;
+    dropSeek();
+    endCatching();
+
+    tape_.clear();
+    knobs_.clear();
+    sinks_.clear();
+    applied_.clear();
+    edits_ = 0;
+    editErrors_.clear();
+    editResults_.clear();
+
+    sched_->stop();
+
+    if (!writeFile(TW_PIECE_FILE, text))
+        return 0;
+
+    /* setMasterSeed takes effect only while no stage exists, which is
+       what the loader is about to make true anyway; made true here first
+       so the seed is in before the first stage draws from it. */
+    if (seed >= 0)
+    {
+        sched_->clearChains();
+        sched_->setMasterSeed((unsigned)seed);
+    }
+
+    const bool ok = loader_->load(TW_PIECE_FILE, sched_);
+
+    newEpoch();
+
+    /* The roll's history was about the piece that just went away. It
+       keys its notes to transport time and the transport is not being
+       rewound here -- stopped, and loaded over -- so nothing else tells
+       it (RollCanvas::clear). NULL until the mirror has drawn once; the
+       worklet never has one at all. */
+    if (roll_ != NULL)
+        roll_->clear();
+
+    if (!ok)
+    {
+        /* The canvas holds a thcStage * per box and the load has just
+           freed every one of them. On the way out through the other door
+           the page calls tw_canvas_show, which hands it the new ones; on
+           this one nothing does -- mirror.js only re-shows on a load that
+           worked -- so the draw loop would go on reading the old ones
+           every frame. Emptied here, which is also what is true: there is
+           no piece. */
+        if (canvas_ != NULL)
+            canvas_->SetPiece(NULL, NULL);
+
+        return 0;
+    }
+
+    /* The piece as its own text describes it: the authored right-hand
+     * sides, which is what a stage's parameters are read from and spliced
+     * into (src/StagePanel.h).
+     *
+     * At the load, and so in every instance, because an edit is a command
+     * -- the worklet applies one as the mirror does and neither has drawn a
+     * panel. It used to be described in tw_canvas_show, which only the
+     * mirror calls; the worklet would then have had the sound of a piece and
+     * no idea what its file said. */
+    canvasDoc_ = thcGenEdit::Doc();
+
+    {
+        std::string why;
+
+        if (!describePiece(why))
+            fprintf(stderr, "the piece loaded but cannot be read back: "
+                    "%s\n", why.c_str());
+    }
+
+    /* In the map's order, which is by name: the .gen's own order is not
+       kept anywhere, and a page drawing sliders wants some order. */
+    for (const auto &k : sched_->knobs())
+        knobs_.push_back(k.second);
+
+    collectSinks();
+
+    /* Listening starts after the load, where genwav connects too, so the
+       instrument application the load itself delivers is not on the tape. */
+    delivery_ = sched_->sigDelivered.connect(
+        sigc::mem_fun(tape_, &twTape::deliver));
+
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_error_count (void)
+{
+    return (int)loader_->errors().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_error (int k)
+{
+    if (k < 0 || k >= (int)loader_->errors().size())
+        return "";
+
+    return loader_->errors()[k].c_str();
+}
+
+/* The piece's text as this instance now holds it.
+ *
+ * Which is not always what it was handed: a stage's param edited through a
+ * panel is spliced into this copy (tw_panel_edit), by every peer, off the
+ * same command. So the page reads this back when it wants the edit to last
+ * -- a document revision to share and to save -- and the instances stay
+ * identical whether or not it ever does.
+ *
+ * Valid until the next call. A piece is a few kilobytes and this is asked
+ * for when somebody edits one, not per frame. */
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_text (void)
+{
+    static std::string text;
+
+    text.clear();
+
+    FILE *f = fopen(TW_PIECE_FILE, "rb");
+
+    if (f == NULL)
+        return "";
+
+    char buf[4096];
+    size_t got;
+
+    while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+        text.append(buf, got);
+
+    fclose(f);
+
+    return text.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_name (void)
+{
+    return loader_->pieceName().c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_description (void)
+{
+    return loader_->pieceDescription().c_str();
+}
+
+/* The piece's own effect on the mix, as its text names it; "" for none. */
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_effect (void)
+{
+    return canvasDoc_.masterEffect.c_str();
+}
+
+/* The piece's chains as its text says them: what the band draws its
+ * players from (bandview.js). Each stage in the document's order, `live'
+ * its place in the scheduler's list -- what a command names it by -- or -1
+ * for a node; each param's value as written. */
+static std::string chainsJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_chains_json (void)
+{
+    std::string &o = chainsJson_;
+
+    o = "[";
+
+    for (size_t c = 0; c < canvasDoc_.chains.size(); c++)
+    {
+        const thcGenEdit::Chain &ch = canvasDoc_.chains[c];
+
+        o += c == 0 ? "{\"name\":" : ",{\"name\":";
+        jsonString(o, ch.name);
+        o += std::string(",\"input\":") + (ch.inputMidi ? "true" : "false");
+        o += std::string(",\"hasSeed\":") + (ch.hasSeed ? "true" : "false");
+        o += ",\"seed\":" + std::to_string(ch.seed) + ",\"stages\":[";
+
+        for (size_t si = 0; si < ch.stages.size(); si++)
+        {
+            const thcGenEdit::Stage &st = ch.stages[si];
+
+            o += si == 0 ? "{\"name\":" : ",{\"name\":";
+            jsonString(o, st.name);
+            o += ",\"category\":";
+            jsonString(o, st.category);
+            o += ",\"plugin\":";
+            jsonString(o, st.plugin);
+            o += ",\"live\":" +
+                 std::to_string(thcGenEdit::liveIndex(ch, si)) +
+                 ",\"params\":[";
+
+            for (size_t k = 0; k < st.params.size(); k++)
+            {
+                o += k == 0 ? "{\"name\":" : ",{\"name\":";
+                jsonString(o, st.params[k].name);
+                o += ",\"valueText\":";
+                jsonString(o, st.params[k].valueText);
+                o += "}";
+            }
+
+            o += "]}";
+        }
+
+        o += "],\"sinks\":[";
+
+        for (size_t k = 0; k < ch.sinks.size(); k++)
+        {
+            const thcGenEdit::Sink &sk = ch.sinks[k];
+
+            o += k == 0 ? "{\"instrument\":" : ",{\"instrument\":";
+            jsonString(o, sk.instrument);
+            o += ",\"channel\":" + std::to_string(sk.channel) +
+                 ",\"chanarg\":";
+            jsonString(o, sk.chanarg);
+            o += ",\"knob\":";
+            jsonString(o, sk.knob);
+            o += "}";
+        }
+
+        o += "]}";
+    }
+
+    o += "]";
+    return o.c_str();
+}
+
+/* The piece's sections as written: [{ name, length, unit, levels: {
+ * chain: level } }], the length in `unit' (beats or s, bars being beats).
+ * What the band's scenes are drawn from. Numbers as %.17g, so a length
+ * copied is the length. */
+static std::string sectionsJson_;
+
+static std::string
+exact (double v)
+{
+    char buf[32];
+
+    snprintf(buf, sizeof(buf), "%.17g", v);
+    return buf;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
+{
+    if (sched_ == NULL)
+        return "[]";
+
+    sectionsJson_ = "[";
+
+    const auto &all = sched_->sections();
+
+    for (size_t i = 0; i < all.size(); i++)
+    {
+        const thcSection &s = all[i];
+
+        sectionsJson_ += i == 0 ? "{\"name\":" : ",{\"name\":";
+        jsonString(sectionsJson_, s.name);
+        sectionsJson_ += ",\"length\":" + exact(s.length) +
+                         ",\"unit\":\"" + (s.beats ? "beats" : "s") +
+                         "\",\"levels\":{";
+
+        for (size_t k = 0; k < s.levels.size(); k++)
+        {
+            if (k > 0)
+                sectionsJson_ += ",";
+
+            jsonString(sectionsJson_, s.levels[k].first);
+            sectionsJson_ += ":" + exact(s.levels[k].second);
+        }
+
+        /* The knobs it sets, whether it holds, whether the song ends after
+           its last, and whether the list goes round to it rather than to
+           the first, which it does anyway. */
+        sectionsJson_ += "},\"knobs\":{";
+
+        for (size_t k = 0; k < s.knobs.size(); k++)
+        {
+            if (k > 0)
+                sectionsJson_ += ",";
+
+            jsonString(sectionsJson_, s.knobs[k].first);
+            sectionsJson_ += ":" + exact(s.knobs[k].second);
+        }
+
+        sectionsJson_ += std::string("},\"hold\":") +
+                         (s.hold ? "true" : "false") + ",\"ends\":" +
+                         (sched_->endsAfterSections() ? "true" : "false") +
+                         ",\"loopTo\":" +
+                         (i > 0 && sched_->loopsFrom() == i ? "true"
+                                                             : "false") + "}";
+    }
+
+    sectionsJson_ += "]";
+    return sectionsJson_.c_str();
+}
+
+/* The section the transport is in, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_section_now (void)
+{
+    return sched_ == NULL ? -1 : sched_->sectionAt(sched_->now());
+}
+
+/* Where the section the transport is in began and how long it lasts, as
+   played: a loop, a hold or a cue puts it somewhere other than after the
+   sections before it. 0 for none. */
+EMSCRIPTEN_KEEPALIVE double tw_section_start (void)
+{
+    thcScheduler::SectionSpan span;
+
+    return sched_ != NULL && sched_->sectionSpanAt(sched_->now(), span)
+           ? span.start : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_section_length (void)
+{
+    thcScheduler::SectionSpan span;
+
+    return sched_ != NULL && sched_->sectionSpanAt(sched_->now(), span)
+           ? span.length : 0;
+}
+
+/* The piece's scales as its text writes them: [{ name, notes }], the
+   notes without their quotes. What the band reads its key from. */
+static std::string scalesJson_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_scales_json (void)
+{
+    scalesJson_ = "[";
+
+    for (size_t i = 0; i < canvasDoc_.scales.size(); i++)
+    {
+        scalesJson_ += i == 0 ? "{\"name\":" : ",{\"name\":";
+        jsonString(scalesJson_, canvasDoc_.scales[i].name);
+        scalesJson_ += ",\"notes\":";
+        jsonString(scalesJson_, canvasDoc_.scales[i].notes);
+        scalesJson_ += "}";
+    }
+
+    scalesJson_ += "]";
+    return scalesJson_.c_str();
+}
+
+/* What the transport is running at, in beats per minute. The piece's own
+   `tempo' after a load, and whatever a tempo command has since made it. */
+EMSCRIPTEN_KEEPALIVE double tw_tempo (void)
+{
+    return sched_->tempo();
+}
+
+/* Beats at the transport's now, and beats to a bar: what a room page picks
+   the next bar with, for an edit. */
+EMSCRIPTEN_KEEPALIVE double tw_beat (void)
+{
+    return sched_->beat();
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_meter (void)
+{
+    return sched_->meter();
+}
+
+/* Whether the tempo means anything to this piece.
+ *
+ * It scales beat-valued durations and nothing else, so a piece written
+ * entirely in seconds is one the control cannot reach -- which is most of
+ * the corpus, and the reason the desktop offers the spinner only where it
+ * does something and says so where it does not (Composer.cpp). The
+ * page asks the same question of the same scheduler. */
+EMSCRIPTEN_KEEPALIVE int tw_uses_beats (void)
+{
+    return sched_->usesBeats() ? 1 : 0;
+}
+
+/* The `tempo' statement in the piece's text, set to `bpm', and the text
+ * back -- "" if the edit was refused.
+ *
+ * The running scheduler is not touched here: a tempo that is heard is a
+ * stamped command (tw_at), applied at its time on every peer, and this is
+ * the other half of what the desktop's spinner does -- a piece whose tempo
+ * you changed should come back at that tempo. Two halves rather than one
+ * because the page keeps the document in a box somebody may have typed
+ * into, so what to do with the new text is the page's to decide.
+ *
+ * Through thcGenEdit, which is the .gen writer the Composer edits with:
+ * the statement goes where that writer's rules put it, in a file that
+ * never had one as readily as in one that did, and there is no second
+ * speller of this format in JavaScript. */
+EMSCRIPTEN_KEEPALIVE const char *tw_piece_set_tempo (double bpm)
+{
+    static std::string text;
+
+    std::string why;
+
+    text.clear();
+
+    if (thcGenEdit::setTempo(TW_PIECE_FILE, bpm, why) != thcGenEdit::OK)
+    {
+        fprintf(stderr, "tempo: %s\n", why.c_str());
+        return "";
+    }
+
+    FILE *f = fopen(TW_PIECE_FILE, "rb");
+
+    /* The edit is already on disk, so "" here is not the refusal it is
+       above: the page will leave its box alone and the two will disagree
+       until the next load. Said out loud, because nothing else can tell
+       the two apart. */
+    if (f == NULL)
+    {
+        fprintf(stderr, "tempo: set, but %s could not be read back\n",
+                TW_PIECE_FILE);
+        return "";
+    }
+
+    char buf[4096];
+    size_t n;
+
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        text.append(buf, n);
+
+    fclose(f);
+
+    return text.c_str();
+}
+
+/* Whether the file pins its seed, and the seed the piece is composing
+   from either way -- the file's, the one handed to the load, or the one
+   drawn. What a peer has to send with Play for the others to load with. */
+EMSCRIPTEN_KEEPALIVE int tw_piece_seeded (void)
+{
+    return loader_->hasSeed() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_seed (void)
+{
+    return sched_->masterSeed();
+}
+
+/* ---- the instruments the piece declared, and the channels it listens on ---- */
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_count (void)
+{
+    return (int)sched_->instruments().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_name (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].name.c_str() : "";
+}
+
+/* The .dsp an instrument plays, which is what connects a file in the
+   document to a channel in the synth -- what the node editor needs to know
+   before it can arm a tap on the instrument it is showing. */
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_dsp (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].dsp.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].channel : -1;
+}
+
+/* Does a chain take `input midi' on this channel? A key arriving on a
+   channel the piece listens on goes into the piece; on any other it goes
+   straight to whatever instrument is there. The page's rule for a seat's
+   keys, answered by the piece rather than guessed at. */
+EMSCRIPTEN_KEEPALIVE int tw_listens (int channel)
+{
+    return listensOn(channel) ? 1 : 0;
+}
+
+/* ---- the channels the piece is asking somebody to aim ---- */
+
+/* How many distinct channels the loaded piece's sinks name that no
+ * instrument of its own occupies, and which they are.
+ *
+ * What a channel sounds like is the piece's to decide, and where the
+ * piece is silent on the matter it is the page's defaults -- never what
+ * the page did before. This is the question the page has to ask to keep
+ * that rule: gen/fern.gen declares no instrument and sinks to two
+ * channels, and a page that puts nothing on them renders three and a half
+ * thousand notes at a peak of zero.
+ *
+ * The engine's numbering, as everything here is. A .gen file writes
+ * `channel = 4' and the loader hands over 3.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_sink_count (void)
+{
+    return (int)sinks_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_sink_channel (int k)
+{
+    return k >= 0 && k < (int)sinks_.size() ? sinks_[k] : -1;
+}
+
+/* A chanarg on the tree loaded on `channel', through the path the
+ * application's slider uses. Nonzero if it was set.
+ *
+ * This is the second half of loading a .patch: a .patch is a `dsp' line and
+ * flat `name value[,value]' overrides for that DSP's chanargs
+ * (docs/DSP_FORMAT.md), and gthPatchManager::parse loads the one and then
+ * sets the others in exactly this order, at exactly this level --
+ * TH_DEFAULT_CHAN_AMP, which tw_load already applies.
+ *
+ * A name the tree does not declare is ignored, as tw_knob ignores an
+ * index outside the list, and said rather than passed over: an override
+ * for a chanarg that does not exist is a .patch aimed at some other .dsp,
+ * and the page's log is where a person would look. Said once per channel
+ * and name -- re-aiming happens at every piece load, and a thing repeated
+ * at every load is a thing nobody reads.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
+                                     const float *values, int count)
+{
+    if (name == NULL || values == NULL || count < 1)
+        return 0;
+
+    thArg *arg = synth_->getChanArg(channel, name);
+
+    if (arg == NULL)
+    {
+        const std::string said = std::to_string(channel) + ":" + name;
+
+        if (std::find(unknownChanargs_.begin(), unknownChanargs_.end(),
+                      said) == unknownChanargs_.end())
+        {
+            unknownChanargs_.push_back(said);
+
+            /* channel + 1, alone among the numbers here: this line is
+               read by a person in the page's log, beside the page's own
+               complaints, and those count channels the way a .gen file
+               does. Everything else this file says is said to the page. */
+            fprintf(stderr, "channel %d declares no '%s'; the override is "
+                            "ignored\n", channel + 1, name);
+        }
+
+        return 0;
+    }
+
+    /* setValue for the single-value case, which is every line in the
+       shipped patches and cannot reallocate; setChanArg for a longer one,
+       which can, and which is the call that queues the swap for the
+       render path. thSynth.cpp argues both. */
+    if (count == 1 && arg->type() == thArg::ARG_VALUE && arg->len() == 1)
+        arg->setValue(values[0]);
+    else
+        synth_->setChanArg(channel, new thArg(name, values, count));
+
+    return 1;
+}
+
+/* ---- a .patch, read and put on a channel ----
+ *
+ * The page fetches the file and hands over its text; everything the bytes
+ * mean happens here, in the same code the application runs
+ * (src/PatchFile.h, src/PatchApply.h).
+ *
+ * It used to be a second parser in wasm/web/patch.js, written from
+ * docs/DSP_FORMAT.md separately, and it had drifted: an `effect' line
+ * parsed as a chanarg whose value was not a number and was dropped, so a
+ * patch with a channel effect on it sounded different in a browser and
+ * said nothing about why; `side' went to the engine as a chanarg called
+ * `side'. Both of those arrive for free now, by deletion -- there is no
+ * new page code behind them.
+ *
+ * What does not cross is finding the file. A browser has no PATCH_PATH and
+ * should not pretend to; the page has fetch() and an index.json, and hands
+ * text in exactly as it already does for tw_load and tw_instrument.
+ */
+
+static std::string patchWhy_;
+static std::string patchJson_;
+
+/* Reads `text' and puts it on `channel': the graph it names, its side, its
+ * effect and its overrides, in the order the format requires.
+ *
+ * 1 if the patch is on the channel. 0 leaves the channel exactly as it was,
+ * with tw_patch_why saying which of the two things went wrong -- the text
+ * is not a patch, or the graph it names would not load.
+ *
+ * The .dsp is not fetched here either. The page hands every shipped graph
+ * to tw_instrument before the first load, and a patch's `dsp' line is
+ * resolved against those -- the same lookup a piece's `instrument' block
+ * uses, and the same one the application makes under DSP_PATH.
+ *
+ * `name' is what to call the slot -- `leads/SuperRes.patch', the name the
+ * page fetched it by. The text does not carry it and a document does not
+ * know it, and it is what a Save would offer back; "" for a patch that came
+ * from nowhere a name would mean anything.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text,
+                                         const char *name)
+{
+    patchWhy_.clear();
+
+    if (text == NULL)
+    {
+        patchWhy_ = "no patch text";
+        return 0;
+    }
+
+    thPatchDoc doc;
+
+    if (!thPatchParse(text, doc, patchWhy_))
+        return 0;
+
+    const thPatchApplied got = thPatchApply(synth_, channel, doc);
+
+    /* Both lists, in the order they happened: the lines the reader could not
+       use, then what the channel could not do with the rest. The page logs
+       them; neither is a failure on its own. */
+    for (size_t i = 0; i < doc.complaints.size(); i++)
+        fprintf(stderr, "channel %d: %s\n", channel + 1,
+                doc.complaints[i].c_str());
+
+    for (size_t i = 0; i < got.complaints.size(); i++)
+        fprintf(stderr, "channel %d: %s\n", channel + 1,
+                got.complaints[i].c_str());
+
+    if (!got.ok)
+    {
+        patchWhy_ = got.why;
+        return 0;
+    }
+
+    /* What went on, not what was asked for: the effect may have failed and
+       the side may have been clamped. */
+    doc.effect = got.effect;
+    doc.side = got.side;
+
+    /* Not dirty: this is what the text said, and nothing has changed it
+       yet. A chanarg edit through tw_panel_edit is what does. */
+    patches_.put(channel, doc, name != NULL ? name : "", false);
+
+    return 1;
+}
+
+/* What a .patch says, without putting it anywhere.
+ *
+ * The reading on its own: the same thPatchParse the application runs, with no
+ * channel and no synth involved, returned as the document it made. "" for
+ * text that is not a patch, with tw_patch_why saying so.
+ *
+ * Its own entry point rather than a mode of tw_patch_apply because applying
+ * changes the answer -- an effect that would not load is not in the document
+ * the channel ends up with -- and what the parity gate has to compare is the
+ * reading, which is the part compiled twice. It is also what a menu wants: a
+ * patch's `info title' is in the file, and showing it should not mean loading
+ * the patch to find out.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_read (const char *text)
+{
+    patchWhy_.clear();
+    patchJson_.clear();
+
+    thPatchDoc doc;
+
+    if (text != NULL && thPatchParse(text, doc, patchWhy_))
+        patchJson_ = thPatchDocToJson(doc);
+    else if (text == NULL)
+        patchWhy_ = "no patch text";
+
+    return patchJson_.c_str();
+}
+
+/* Why the last tw_patch_apply or tw_patch_read refused, or "". Valid until
+   the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_why (void)
+{
+    return patchWhy_.c_str();
+}
+
+/* What a .patch says it is, without putting it anywhere.
+ *
+ * The same reading every other patch path takes -- thPatchParse, once, in
+ * C++ (src/PatchFile.h) -- answered for a text that is not on a channel and
+ * may never be. What asks is a menu: "which of the shipped patches are for
+ * the graph this channel is holding" is a question about seventy-seven files
+ * and no synth, and the alternative to asking here is a second reading of
+ * the format in JavaScript, which is the thing PatchFile exists to have
+ * ended.
+ *
+ * The whole document, since composing it is one call and the caller can
+ * ignore what it does not want. `{}' for a text that is not a patch.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_reads (const char *text)
+{
+    static std::string reads;
+
+    thPatchDoc doc;
+    std::string why;
+
+    reads = (text != NULL && thPatchParse(text, doc, why))
+            ? thPatchDocToJson(doc) : "{}";
+
+    return reads.c_str();
+}
+
+/* What is on `channel', as the document it was given -- its graph, its
+ * effect, its info and its overrides. "" for a channel no patch has been put
+ * on.
+ *
+ * The dump is thPatchDocToJson's, which is compiled into the native harness
+ * as well and diffed against this byte for byte (wasm/web/patchcheck.mjs):
+ * one reading of the format, or the build fails. Valid until the next call.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
+{
+    const thPatchSet::Slot *slot = patches_.get(channel);
+
+    patchJson_.clear();
+
+    if (slot != NULL)
+    {
+        /* The document, and what the slot knows that the file does not: what
+           it was called, whether it has been edited since it was read, and
+           which load this is. The page draws a row out of these. */
+        patchJson_ = thPatchDocToJson(slot->doc);
+        patchJson_.erase(patchJson_.size() - 1);      /* the closing brace */
+        patchJson_ += ",\"name\":";
+        jsonString(patchJson_, slot->filename);
+        patchJson_ += ",\"dirty\":";
+        patchJson_ += slot->dirty ? "true" : "false";
+        patchJson_ += ",\"generation\":";
+        jsonUnsigned(patchJson_, slot->generation);
+        patchJson_ += "}";
+    }
+
+    return patchJson_.c_str();
+}
+
+/* What a Save would write for `channel': the bytes of a .patch, or "" for a
+ * channel nothing has been put on.
+ *
+ * The graph, the effect, the side and the info come off the slot; the values
+ * come off the live channel, which is the whole point -- what a Save is for
+ * is writing down what somebody has moved. Both halves are shared with the
+ * application (thPatchCapture, thPatchCompose), so these are the bytes the
+ * desktop writes, which is what makes this worth having at all: a .patch
+ * downloaded from a page opens in the application, and neither shell
+ * rewrites the other's file on its first save.
+ *
+ * `stamp' is the date for the banner comment -- the one thing in the output
+ * that a document cannot know. The application passes ctime()'s line; a page
+ * passes a Date. There is no locale here to make one from.
+ *
+ * This is the first time a browser can save a patch at all. It does not
+ * write anything: a page has nowhere to write to, so what it gets is the
+ * bytes and what it does with them is its own business. tw_patch_saved is
+ * how it says it kept them.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_compose (int channel,
+                                                   const char *stamp)
+{
+    const thPatchSet::Slot *slot = patches_.get(channel);
+
+    patchJson_ = (slot == NULL)
+        ? std::string()
+        : thPatchCompose(thPatchCapture(synth_, channel, slot->doc),
+                         stamp != NULL ? stamp : "");
+
+    return patchJson_.c_str();
+}
+
+/* And that it was kept, under this name.
+ *
+ * The other half of tw_patch_dirty, and the reason the name is an argument:
+ * a page downloading a patch has named the file it went into. Separate from
+ * composing because composing is a read and this is not -- a page that asked
+ * what a Save would write and then thought better of it has not saved
+ * anything.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_patch_saved (int channel, const char *name)
+{
+    if (!patches_.loaded(channel))
+        return 0;
+
+    patches_.markSaved(channel, name != NULL ? name : "");
+
+    return 1;
+}
+
+/* What belongs on a channel nothing has aimed: the first-run configuration,
+ * by relative name (src/PatchSet.h). "" for a channel with no answer.
+ *
+ * The page fetches what this names; it does not get the bytes from here, for
+ * the reason nothing else does either. What it does get is the rule -- a
+ * channel above the last entry takes the one at `c mod count' -- which used
+ * to be written down twice, once here as an array in patch.js and once in
+ * gthPrefs.cpp, with a comment on the page's promising they were the same.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_patch_default (int channel)
+{
+    patchJson_ = thPatchDefaultFor(channel);
+
+    return patchJson_.c_str();
+}
+
+/* The amp that channel's default goes on at: src/PatchSet.h's, the same
+   number the desktop's first run writes into thinkrc. */
+EMSCRIPTEN_KEEPALIVE float tw_patch_default_amp (int channel)
+{
+    return thPatchDefaultAmp(channel);
+}
+
+/* How many there are, so a page can fetch each of them once before the first
+   load -- the aiming happens inside a load, and a load has no time to wait
+   for the network. */
+EMSCRIPTEN_KEEPALIVE int tw_patch_default_count (void)
+{
+    return thPatchDefaultCount();
+}
+
+/* A channel's patch has been edited.
+ *
+ * The browser's markDirty. On the desktop, moving a control goes through
+ * ArgPanelView, which says so to the patch manager; here the same edit
+ * arrives as a command and is applied by tw_panel_edit, which says so to
+ * the slots. Nothing writes a .patch by itself in either shell, so this flag
+ * is the whole of the record that the file and the channel have parted
+ * company. */
+EMSCRIPTEN_KEEPALIVE int tw_patch_dirty (int channel)
+{
+    return patches_.isDirty(channel) ? 1 : 0;
+}
+
+/* ---- the piece's chains and stages, and their pictures ----
+ *
+ * What a composer draws is what the composer view shows: a Life board, a
+ * CA's grid, a Euclid ring, drawn by the plugin itself through the same
+ * composer_draw the desktop calls. Here the cairo it draws through is
+ * cairo-canvas2d, which records rather than rasterises, so a draw is a list
+ * of ops the page replays on a Canvas2D.
+ *
+ * The three tables below -- the ops, the strings they index, the surfaces
+ * they blit -- stay valid until the next draw. The page reads them out of
+ * the heap between the two.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_chain_count (void)
+{
+    return sched_ != NULL ? (int)sched_->chainCount() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_chain_name (int chain)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return "";
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    return c != NULL ? c->name.c_str() : "";
+}
+
+/* The channel a chain plays, in the engine's numbering, or -1.
+ *
+ * Its first note sink's, and deliberately only that: a chain may fan out
+ * to several, and a chanarg sink is not a voice at all. What asks is a
+ * view that wants to say which instrument a track is heard on, and a
+ * track with two answers is a track that view should not be drawing as
+ * one row. */
+EMSCRIPTEN_KEEPALIVE int tw_chain_channel (int chain)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return -1;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    if (c == NULL)
+        return -1;
+
+    for (size_t i = 0; i < c->sinks.size(); i++)
+        if (c->sinks[i].isNotes())
+            return c->sinks[i].channel;
+
+    return -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return 0;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    return c != NULL ? (int)c->stages.size() : 0;
+}
+
+/* What the piece calls a stage -- `stage a gen::arp' is "a" -- as opposed to
+   tw_stage_name's plugin. Empty for a stage the piece did not name. */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_label (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL ? s->name.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_name (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->name().c_str() : "";
+}
+
+/* Whether this stage has a picture at all. Nine composers draw and the
+   rest do not, and the canvas shows an empty box for the rest. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_draws (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL && s->plugin->hasDraw() ? 1 : 0;
+}
+
+/* Draw one stage at w x h, and answer with the length of the list. Zero is
+   a stage that drew nothing; -1 is no such stage, or one that does not
+   draw. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_draw (int chain, int stage, double w,
+                                        double h)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || !s->plugin->hasDraw() ||
+        s->state == NULL)
+        return -1;
+
+    cairo_t *cr = twDrawingBegin();
+
+    s->plugin->draw(s->state, cr, w, h);
+
+    return cairo2d_op_words(cr);
+}
+
+/* ---- the composer canvas ----
+ *
+ * One canvas per instance, made on the first call. The mirror's is the one
+ * that matters: it draws the stages of the scheduler it shares a heap
+ * with, which are the instances that are composing what is being heard.
+ *
+ * The list a draw produces is the same three tables a stage's picture
+ * produces -- tw_draw_ops and its neighbours -- because a stage's picture
+ * is drawn inside the canvas's own list anyway, by the plugin, through the
+ * cairo the canvas handed it.
+ */
+
+/* Show the piece that is loaded. Called after a piece message; nonzero if
+   the .gen described. The worklet never calls this, which is why it is not
+   part of the load. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
+{
+    if (canvas_ == NULL)
+    {
+        canvas_ = new WebComposerCanvas();
+
+        /* A gesture on an enlarged picture does not reach the plugin from
+           here. It leaves as a command, is stamped, goes round the mesh
+           and comes back at its time -- to this instance as to every
+           other. Connecting this is what tells the canvas so; the desktop
+           connects nothing and the plugin hears the click at once, as it
+           always has. */
+        /* A stage's params handle was clicked. The canvas says which
+           stage and where its box is; what a form looks like is the
+           page's business, on this platform as on the desktop. */
+        canvas_->sigParams.connect(
+            [](size_t chain, size_t stage, CanvasRect at)
+            {
+                canvasParams_.chain = (int)chain;
+                canvasParams_.stage = liveOf((int)chain, (int)stage);
+                canvasParams_.x = at.x;
+                canvasParams_.y = at.y;
+                canvasParams_.w = at.w;
+                canvasParams_.h = at.h;
+                canvasParams_.wanted = true;
+            });
+
+        /* A chain's M or S. Queued like a gesture, for the page to send
+           as a command: the flags change when it comes back, here as in
+           the worklet, and not when the button was pressed. */
+        canvas_->sigMute.connect(
+            [](size_t chain, bool on)
+            {
+                canvasMixes_.push_back({ (int)chain, false, on });
+                mixPending_[{ (int)chain, false }] = on;
+            });
+
+        canvas_->sigSolo.connect(
+            [](size_t chain, bool on)
+            {
+                canvasMixes_.push_back({ (int)chain, true, on });
+                mixPending_[{ (int)chain, true }] = on;
+            });
+
+        /* A knob node's track, dragged: by index, which is how the solo
+           page's knob command names one, and by name, which is a room's. */
+        canvas_->sigKnob.connect(
+            [](std::string name, double value, bool commit)
+            {
+                for (size_t i = 0; i < knobs_.size(); i++)
+                    if (knobs_[i]->name() == name)
+                    {
+                        canvasKnobs_.push_back({ (int)i, name, value,
+                                                 commit });
+                        break;
+                    }
+            });
+
+        canvas_->sigSectionLevel.connect(
+            [](size_t section, size_t chain, double level)
+            {
+                canvasSections_.push_back({ (int)section, (int)chain,
+                                            level });
+                sectionPending_[{ (int)section, (int)chain }] = level;
+            });
+
+        canvas_->sigFreeze.connect(
+            [](size_t chain) { canvasFreeze_ = (int)chain; });
+
+        canvas_->sigSeekSection.connect(
+            [](size_t section) { canvasSeek_ = (int)section; });
+
+        canvas_->sigMoveStage.connect(
+            [](size_t chain, int from, int to)
+            {
+                canvasMove_.chain = (int)chain;
+                canvasMove_.from = from;
+                canvasMove_.to = to;
+                canvasMove_.wanted = true;
+            });
+
+        canvas_->sigBindKnob.connect(
+            [](std::string knob, size_t chain, size_t stage, CanvasRect at)
+            {
+                canvasBind_.knob = knob;
+                canvasBind_.chain = (int)chain;
+                canvasBind_.stage = liveOf((int)chain, (int)stage);
+                canvasBind_.x = at.x;
+                canvasBind_.y = at.y;
+                canvasBind_.w = at.w;
+                canvasBind_.h = at.h;
+                canvasBind_.wanted = true;
+            });
+
+        canvas_->sigInput.connect(
+            [](size_t chain, size_t stage, const thcInputEvent &ev)
+            {
+                CanvasInput in;
+
+                in.chain = (int)chain;
+                in.stage = liveOf((int)chain, (int)stage);
+                in.kind = (int)ev.type;
+                in.button = ev.button;
+                in.x = ev.x;
+                in.y = ev.y;
+                in.w = ev.w;
+                in.h = ev.h;
+
+                canvasInputs_.push_back(in);
+            });
+    }
+
+    /* Described at the load and not here: the worklet needs it too, and
+       what it is for is no longer only the drawing. An empty one is a piece
+       whose text would not read back, which is nothing to draw. */
+    if (canvasDoc_.chains.empty())
+    {
+        canvas_->SetPiece(NULL, NULL);
+        return 0;
+    }
+
+    mixPending_.clear();
+    sectionPending_.clear();
+    canvas_->SetPiece(&canvasDoc_, sched_);
+    canvas_->setChainHues(byChain_);
+
+    return 1;
+}
+
+/* The roll's notes in their chain's hue rather than their channel's, and
+   the composer canvas's chain names striped to match. */
+EMSCRIPTEN_KEEPALIVE void tw_color_by_chain (int on)
+{
+    byChain_ = on != 0;
+
+    if (roll_ != NULL)
+        roll_->setColorByChain(byChain_);
+
+    if (canvas_ != NULL)
+        canvas_->setChainHues(byChain_);
+}
+
+/* Draw it at w x h, and answer with the length of the list. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_draw (int w, int h)
+{
+    if (canvas_ == NULL)
+        return -1;
+
+    cairo_t *cr = twDrawingBegin();
+
+    if (!canvasContext_)
+        canvasContext_ = Cairo::Context::create(cr);
+
+    canvas_->draw(canvasContext_, w, h);
+
+    return cairo2d_op_words(cr);
+}
+
+/* The gestures, in shell pixels, as the desktop's controllers deliver
+   them. The conversion to the drawing's own coordinates is the content's,
+   on every platform, which is what stops a click landing somewhere else at
+   a zoom nobody tested at. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_press (double x, double y, int button,
+                                           int nPress)
+{
+    if (canvas_ == NULL)
+        return;
+
+    canvas_->pressAt(x, y, button, nPress);
+
+    /* And a drag begins, as the desktop's drag gesture begins one beside
+       its click: after the press, which is what decides whether the drag
+       is a stage being carried or a knob, a wire or a paint stroke. A
+       double-click's press is not a drag. */
+    if (button == 1 && nPress == 1)
+    {
+        canvasHeld_ = true;
+        canvasHeldX_ = x;
+        canvasHeldY_ = y;
+        canvas_->onDragBegin(x, y);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_motion (double x, double y)
+{
+    if (canvas_ == NULL)
+        return;
+
+    canvas_->motionTo(x, y);
+
+    if (canvasHeld_)
+        canvas_->onDragUpdate(x - canvasHeldX_, y - canvasHeldY_);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_release (double x, double y, int button)
+{
+    if (canvas_ == NULL)
+        return;
+
+    canvas_->releaseAt(x, y, button);
+
+    if (canvasHeld_)
+    {
+        canvasHeld_ = false;
+        canvas_->onDragEnd(x - canvasHeldX_, y - canvasHeldY_);
+    }
+}
+
+/* CanvasContent::Key, not a keysym: the shell maps its own spelling to
+   one of these, as the gtk shell maps GDK_KEY_Escape. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_key (int key)
+{
+    return canvas_ != NULL &&
+           canvas_->keyPressed((CanvasContent::Key)key) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_viewport (double x, double y, double w,
+                                              double h)
+{
+    if (canvas_ != NULL)
+        canvas_->setViewport(x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_zoom (void)
+{
+    return canvas_ != NULL ? canvas_->zoom() : 1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_set_zoom (double z)
+{
+    if (canvas_ != NULL)
+        canvas_->setZoom(z);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_zoom_to_fit (void)
+{
+    if (canvas_ != NULL)
+        canvas_->zoomToFit();
+}
+
+/* The width alone, which is what the composer view opens at: the drawing
+   is one row per chain and wants reading across, not shrinking until ten
+   of them fit the box (CanvasContent::zoomToWidth). */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_zoom_to_width (void)
+{
+    if (canvas_ != NULL)
+        canvas_->zoomToWidth();
+}
+
+/* How big the drawing is, in shell pixels, for the scroller around it. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_width (void)
+{
+    return canvas_ != NULL ? canvas_->width() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_height (void)
+{
+    return canvas_ != NULL ? canvas_->height() : 0;
+}
+
+/* ---- the gestures the canvas wants sent ----
+ *
+ * Drained by the shell after every press, drag and release it delivered:
+ * each one becomes an `input' command, stamped and sent, and comes back
+ * to this instance at its time like anyone else's. The shell sends at
+ * most one drag per animation frame, which is the rate a knob's slider
+ * already produces.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_input_count (void)
+{
+    return (int)canvasInputs_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_inputs_clear (void)
+{
+    canvasInputs_.clear();
+}
+
+/* The M and S presses, drained beside the gestures: each becomes a `mute'
+ * or `solo' command on the page. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_count (void)
+{
+    return (int)canvasMixes_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_chain (int k)
+{
+    return k >= 0 && k < (int)canvasMixes_.size() ? canvasMixes_[k].chain
+                                                  : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_solo (int k)
+{
+    return k >= 0 && k < (int)canvasMixes_.size() && canvasMixes_[k].solo;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_mix_on (int k)
+{
+    return k >= 0 && k < (int)canvasMixes_.size() && canvasMixes_[k].on;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_mixes_clear (void)
+{
+    canvasMixes_.clear();
+}
+
+/* The knob drags, drained the same way: each becomes a knob command. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_count (void)
+{
+    return (int)canvasKnobs_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_index (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size() ? canvasKnobs_[k].knob
+                                                  : -1;
+}
+
+/* And its name, which is what a room's knob command carries. */
+EMSCRIPTEN_KEEPALIVE const char *tw_canvas_knob_name (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size()
+        ? canvasKnobs_[k].name.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_knob_value (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size() ? canvasKnobs_[k].value
+                                                  : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_knob_commit (int k)
+{
+    return k >= 0 && k < (int)canvasKnobs_.size() && canvasKnobs_[k].commit;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_knobs_clear (void)
+{
+    canvasKnobs_.clear();
+}
+
+/* The arrangement cells pressed, drained the same way. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_section_count (void)
+{
+    return (int)canvasSections_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_section_section (int k)
+{
+    return k >= 0 && k < (int)canvasSections_.size()
+        ? canvasSections_[k].section : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_section_chain (int k)
+{
+    return k >= 0 && k < (int)canvasSections_.size()
+        ? canvasSections_[k].chain : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_section_level (int k)
+{
+    return k >= 0 && k < (int)canvasSections_.size()
+        ? canvasSections_[k].level : 1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_sections_clear (void)
+{
+    canvasSections_.clear();
+}
+
+/* The middle of a cell of the arrangement lane, in shell pixels, or -1. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_cell_x (int section, int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 && chain >= 0 &&
+           canvas_->sectionCell((size_t)section, (size_t)chain, x, y)
+        ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_cell_y (int section, int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 && chain >= 0 &&
+           canvas_->sectionCell((size_t)section, (size_t)chain, x, y)
+        ? y : -1.0;
+}
+
+/* The probe: its chain and stage in the document's numbering, or -1; and
+   where the arrow carrying a stage's output is, in shell pixels, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_probe_chain (void)
+{
+    return canvas_ != NULL &&
+           canvas_->probe().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->probe().chain : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_probe_stage (void)
+{
+    return canvas_ != NULL &&
+           canvas_->probe().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->probe().index : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_arrow_x (int chain, int stage)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 && stage >= 0 &&
+           canvas_->probeArrow((size_t)chain, (size_t)stage, x, y) ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_arrow_y (int chain, int stage)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 && stage >= 0 &&
+           canvas_->probeArrow((size_t)chain, (size_t)stage, x, y) ? y : -1.0;
+}
+
+/* A section's block: which section, once per press, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_seek_wanted (void)
+{
+    const int was = canvasSeek_;
+
+    canvasSeek_ = -1;
+
+    return was;
+}
+
+/* Where `section' begins the first time through: what a room, which seeks
+   by time, goes to for its block. */
+EMSCRIPTEN_KEEPALIVE double tw_section_first_at (int section)
+{
+    double at = 0;
+
+    for (int k = 0; sched_ != NULL && k < section &&
+                    (size_t)k < sched_->sections().size(); k++)
+        at += sched_->sectionLength(sched_->sections()[k]);
+
+    return at;
+}
+
+/* The middle of a section's block in the lane, in shell pixels, or -1. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_head_x (int section)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 &&
+           canvas_->sectionHead((size_t)section, x, y) ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_head_y (int section)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && section >= 0 &&
+           canvas_->sectionHead((size_t)section, x, y) ? y : -1.0;
+}
+
+/* A chain's F: the chain, once per press, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_freeze_wanted (void)
+{
+    const int was = canvasFreeze_;
+
+    canvasFreeze_ = -1;
+
+    return was;
+}
+
+/* A stage dropped elsewhere in its chain: nonzero once per drop, and then
+   which chain and from where to where, in the document's numbering. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_wanted (void)
+{
+    const bool was = canvasMove_.wanted;
+
+    canvasMove_.wanted = false;
+
+    return was ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_chain (void)
+{
+    return canvasMove_.chain;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_from (void)
+{
+    return canvasMove_.from;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_move_to (void)
+{
+    return canvasMove_.to;
+}
+
+/* A wire dropped on a stage: nonzero once per drop, and then the knob, the
+   stage and where its box is. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_bind_wanted (void)
+{
+    const bool was = canvasBind_.wanted;
+
+    canvasBind_.wanted = false;
+
+    return was ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_canvas_bind_knob (void)
+{
+    return canvasBind_.knob.c_str();
+}
+
+#define TW_BIND_FIELD(name)                                                \
+    EMSCRIPTEN_KEEPALIVE int tw_canvas_bind_##name (void)                  \
+    {                                                                      \
+        return canvasBind_.name;                                           \
+    }
+
+TW_BIND_FIELD(chain)
+TW_BIND_FIELD(stage)
+TW_BIND_FIELD(x)
+TW_BIND_FIELD(y)
+TW_BIND_FIELD(w)
+TW_BIND_FIELD(h)
+
+#undef TW_BIND_FIELD
+
+/* Where a knob node's track runs and where its port is, in shell pixels,
+   for a harness to drag them: x0, x1 and y of the track, then x and y of
+   the port. -1 for no such knob. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_knob_at (const char *name, int which)
+{
+    double v[5] = { -1, -1, -1, -1, -1 };
+
+    if (canvas_ == NULL || name == NULL || which < 0 || which > 4 ||
+        !canvas_->knobTrack(name, v[0], v[1], v[2]) ||
+        !canvas_->knobPort(name, v[3], v[4]))
+        return -1.0;
+
+    return v[which];
+}
+
+/* Where a stage's box is, in shell pixels: x, y, w, h by `which', or -1.
+   The stage in the document's numbering, as the canvas lays it out. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_stage_at (int chain, int stage,
+                                                int which)
+{
+    CanvasRect at;
+
+    if (canvas_ == NULL || chain < 0 || stage < 0 ||
+        !canvas_->stageRect((size_t)chain, (size_t)stage, at))
+        return -1.0;
+
+    return which == 0 ? at.x : which == 1 ? at.y : which == 2 ? at.w : at.h;
+}
+
+/* How many columns the chains are laid out in, whether a chain is
+   collapsed, and where its disclosure triangle is in shell pixels (-1 for
+   no such chain): for a test. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_columns (void)
+{
+    return canvas_ != NULL ? (int)canvas_->columns() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_collapsed (int chain)
+{
+    return canvas_ != NULL && chain >= 0 &&
+           canvas_->chainCollapsed((size_t)chain) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_disclose_x (int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 &&
+           canvas_->discloseAt((size_t)chain, x, y) ? x : -1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_disclose_y (int chain)
+{
+    double x = 0, y = 0;
+
+    return canvas_ != NULL && chain >= 0 &&
+           canvas_->discloseAt((size_t)chain, x, y) ? y : -1.0;
+}
+
+/* Choose the columns again for the view as it is now: after a zoom, which
+   changes the room without the view changing. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_refit_columns (void)
+{
+    if (canvas_ != NULL)
+        canvas_->refitColumns();
+}
+
+/* Every chain collapsed, or every one opened. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_collapse_all (int on)
+{
+    if (canvas_ != NULL)
+        canvas_->setAllCollapsed(on != 0);
+}
+
+/* The middle of a chain's mute (which 0) or solo (1) button, in shell
+   pixels, or -1: what a test presses, for the reason tw_canvas_handle_x
+   exists. */
+EMSCRIPTEN_KEEPALIVE double tw_canvas_chip_x (int chain, int which)
+{
+    double x = 0, y = 0;
+
+    if (canvas_ == NULL || chain < 0 ||
+        !canvas_->chainChip((size_t)chain, which, x, y))
+        return -1.0;
+
+    return x;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_chip_y (int chain, int which)
+{
+    double x = 0, y = 0;
+
+    if (canvas_ == NULL || chain < 0 ||
+        !canvas_->chainChip((size_t)chain, which, x, y))
+        return -1.0;
+
+    return y;
+}
+
+#define TW_INPUT_FIELD(name, type, member, empty)                          \
+    EMSCRIPTEN_KEEPALIVE type tw_canvas_input_##name (int k)               \
+    {                                                                      \
+        return k >= 0 && k < (int)canvasInputs_.size()                     \
+            ? canvasInputs_[k].member : empty;                             \
+    }
+
+TW_INPUT_FIELD(chain,  int,    chain,  -1)
+TW_INPUT_FIELD(stage,  int,    stage,  -1)
+TW_INPUT_FIELD(kind,   int,    kind,   -1)
+TW_INPUT_FIELD(button, int,    button,  0)
+TW_INPUT_FIELD(x,      double, x,     0.0)
+TW_INPUT_FIELD(y,      double, y,     0.0)
+TW_INPUT_FIELD(w,      double, w,     0.0)
+TW_INPUT_FIELD(h,      double, h,     0.0)
+
+#undef TW_INPUT_FIELD
+
+/* Where a stage's params handle is, in shell pixels: the three little
+   sliders in its title bar. Exported for the reason the desktop makes it
+   public -- the only other way to find out is to repeat the layout
+   arithmetic, and a caller that repeated it would be testing its own
+   copy of it. */
+#define TW_HANDLE(which, member)                                           \
+    EMSCRIPTEN_KEEPALIVE double tw_canvas_handle_##which (int chain,       \
+                                                          int stage)       \
+    {                                                                      \
+        double x = 0, y = 0;                                               \
+                                                                           \
+        if (canvas_ == NULL ||                                             \
+            !canvas_->paramsHandle((size_t)chain, (size_t)stage, x, y))     \
+            return -1.0;                                                   \
+                                                                           \
+        return member;                                                     \
+    }
+
+TW_HANDLE(x, x)
+TW_HANDLE(y, y)
+
+#undef TW_HANDLE
+
+/* ---- the params the canvas asked for ----
+ *
+ * Drained by the shell after a gesture, like the input queue: nonzero
+ * when somebody clicked a stage's params handle, and then the four
+ * numbers say where to put the popover.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_params_wanted (void)
+{
+    const bool was = canvasParams_.wanted;
+
+    canvasParams_.wanted = false;
+
+    return was ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_params_chain (void)
+{
+    return canvasParams_.chain;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_params_stage (void)
+{
+    return canvasParams_.stage;
+}
+
+#define TW_PARAMS_AT(name, member)                                         \
+    EMSCRIPTEN_KEEPALIVE int tw_canvas_params_##name (void)                \
+    {                                                                      \
+        return canvasParams_.member;                                       \
+    }
+
+TW_PARAMS_AT(x, x)
+TW_PARAMS_AT(y, y)
+TW_PARAMS_AT(w, w)
+TW_PARAMS_AT(h, h)
+
+#undef TW_PARAMS_AT
+
+/* Which stage the canvas has enlarged, or -1: the one a gesture would
+   reach, and what the page labels the view with. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_chain (void)
+{
+    return canvas_ != NULL &&
+           canvas_->enlarged().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->enlarged().chain : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_stage (void)
+{
+    if (canvas_ == NULL ||
+        canvas_->enlarged().kind != ComposerCanvas::Selection::STAGE)
+        return -1;
+
+    /* Out in the scheduler's numbering, which is the only one the page
+       and the worklet share -- see liveOf. */
+    return liveOf((int)canvas_->enlarged().chain,
+                  (int)canvas_->enlarged().index);
+}
+
+/* Where the enlarged picture is, in the content's own coordinates -- the
+   shell multiplies by the zoom to reach its own pixels. Zero width when
+   nothing is enlarged.
+ *
+   Exported because the alternative is a shell that repeats the layout
+   arithmetic and then tests its own copy of it. Same reason the desktop's
+   harnesses can ask. */
+#define TW_ENLARGED(name, which)                                           \
+    EMSCRIPTEN_KEEPALIVE double tw_canvas_enlarged_##name (void)           \
+    {                                                                      \
+        double a[4];                                                       \
+                                                                           \
+        if (canvas_ == NULL || !canvas_->enlargedArea(a[0], a[1], a[2],    \
+                                                      a[3]))               \
+            return 0.0;                                                    \
+                                                                           \
+        return a[which];                                                   \
+    }
+
+TW_ENLARGED(x, 0)
+TW_ENLARGED(y, 1)
+TW_ENLARGED(w, 2)
+TW_ENLARGED(h, 3)
+
+#undef TW_ENLARGED
+
+/* Enlarge a stage, or put it back with a chain below zero. The canvas
+   does this itself on a double click; the page has a button too. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_enlarge (int chain, int stage)
+{
+    if (canvas_ == NULL)
+        return;
+
+    ComposerCanvas::Selection sel;
+
+    if (chain >= 0)
+    {
+        /* In, from the scheduler's numbering to the canvas's: a
+           Selection carries the document's stage number. */
+        const int at = docOf(chain, stage);
+
+        if (at < 0)
+            return;
+
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = (size_t)chain;
+        sel.index = (size_t)at;
+    }
+
+    canvas_->setEnlarged(sel);
+}
+
+/* Has anything asked for a redraw since this was last asked? The shell
+   draws on the next animation frame when it has. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_dirty (void)
+{
+    return canvas_ != NULL && canvas_->takeDirty() ? 1 : 0;
+}
+
+/* ---- the piano roll ----
+ *
+ * The same family again, for the other canvas the mirror draws. Every call
+ * builds the roll if it is not there yet, so the first thing the page sends
+ * -- a viewport, on opening the pane -- is what brings it into being.
+ *
+ * A piece's whole timeline, not a viewport onto one: there is no zoom here
+ * and no fit, because the drawing is the view (src/RollCanvas.h). What
+ * there is instead is the time span, which the wheel changes, and the
+ * scrub, which a drag does.
+ */
+
+/* Draw it at w x h, and answer with the length of the list. -1 before
+   there is a scheduler to draw from. */
+EMSCRIPTEN_KEEPALIVE int tw_roll_draw (int w, int h)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll == NULL)
+        return -1;
+
+    cairo_t *cr = twDrawingBegin();
+
+    if (!rollContext_)
+        rollContext_ = Cairo::Context::create(cr);
+
+    roll->draw(rollContext_, w, h);
+
+    return cairo2d_op_words(cr);
+}
+
+/* The gestures, in shell pixels, as the desktop's controllers deliver
+   them. A press starts a scrub, a double-click goes back to live. */
+EMSCRIPTEN_KEEPALIVE void tw_roll_press (double x, double y, int button,
+                                         int nPress)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->pressAt(x, y, button, nPress);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_roll_motion (double x, double y)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->motionTo(x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_roll_release (double x, double y, int button)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->releaseAt(x, y, button);
+}
+
+/* A wheel notch, as the factor canvasview.js already sends for one. The
+   roll spends it as a span rather than a scale; RollCanvas::zoomBy says
+   why a number named for one is read as the other. */
+EMSCRIPTEN_KEEPALIVE void tw_roll_zoom_by (double by)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->zoomBy(by);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_roll_viewport (double x, double y, double w,
+                                            double h)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->setViewport(x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_width (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->width() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_height (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->height() : 0;
+}
+
+/* How many seconds of history and of lookahead are on screen. The page
+   shows neither; a harness reads them to say that a wheel moved them. */
+EMSCRIPTEN_KEEPALIVE double tw_roll_span_past (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->spanPast() : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_roll_span_future (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->spanFuture() : 0.0;
+}
+
+/* Where the now-line is, in transport seconds, and whether it is still
+   tracking the transport. What a drag moves, and what a double-click puts
+   back -- so this is how a harness on either side says "it scrubbed". */
+EMSCRIPTEN_KEEPALIVE double tw_roll_view_now (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL ? roll->viewNow() : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_following (void)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    return roll != NULL && roll->following() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_roll_dirty (void)
+{
+    return roll_ != NULL && roll_->takeDirty() ? 1 : 0;
+}
+
+/* A key the worklet played (tw_keys), onto this roll. The mirror's own
+   record is not what was heard: it applies a direct key at its next step,
+   a batch after the worklet did. */
+EMSCRIPTEN_KEEPALIVE void tw_roll_key (double at, int channel, int note,
+                                       int velocity, int on)
+{
+    WebRollCanvas *roll = rollCanvas();
+
+    if (roll != NULL)
+        roll->keyPlayed(at, channel, note, velocity, on != 0);
+}
+
+/* The played keys the roll keeps, as [[at, channel, note, held], ...]: a
+   harness's word that a key reached the roll. */
+EMSCRIPTEN_KEEPALIVE const char *tw_roll_played_json (void)
+{
+    static std::string out;
+    WebRollCanvas *roll = rollCanvas();
+
+    out = "[";
+
+    if (roll != NULL)
+        for (const RollCanvas::Played &p : roll->played())
+        {
+            if (out.size() > 1)
+                out += ',';
+
+            out += '[';
+            jsonNumber(out, p.at);
+            out += ',';
+            jsonInt(out, p.channel);
+            out += ',';
+            jsonInt(out, p.note);
+            out += p.held ? ",true]" : ",false]";
+        }
+
+    out += "]";
+
+    return out.c_str();
+}
+
+/* ---- the knobs the piece declared ----
+ *
+ * One accessor, where there were eight. What a knob is -- its label, its
+ * range, the resolution worth showing it at -- is a panel now
+ * (src/KnobPanel.cpp), read through tw_panel_open(KNOB) like any other; all
+ * that is left here is the number a command names one by, which is a panel
+ * row's id and is wanted the other way round when a peer's command arrives.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_knob_index (const char *name)
+{
+    if (name == NULL)
+        return -1;
+
+    for (size_t i = 0; i < knobs_.size(); i++)
+        if (knobs_[i]->name() == name)
+            return (int)i;
+
+    return -1;
+}
+
+/* ---- parameter panels ----
+ *
+ * One family for every panel the page draws, over the description in
+ * src/PanelModel.h. What it replaces is four descriptions of a panel written
+ * three times each -- as widgets, as a flat C ABI of ten accessors, and as
+ * DOM -- and what it buys immediately is the channel-arg panel, which this
+ * page has never had at all: a patch's parameters could be set by a .patch
+ * file and by the node editor, and not by a person.
+ *
+ * A panel is opened by naming what it is about, not by an index handed out
+ * here. `kind' is thPanel::Kind; `a' and `b' are the channel, or the chain
+ * and the stage, or the box. That is what lets an edit be a command: an
+ * intent carries the same three numbers and the row's id, so the peer that
+ * applies it needs no panel open and no agreement about row numbering.
+ *
+ * The open panel is kept because the page reads it twice -- once as JSON
+ * when it appears, and then value by value while it is up. Rows are tens,
+ * not the thousands of ops a drawing is, so the JSON is written fresh each
+ * time it is asked for rather than cached.
+ */
+
+static ArgPanel argPanel_;
+static KnobPanel knobPanel_;
+static NodePanel nodePanel_;
+static StagePanel stagePanel_;
+static thPanel openPanel_;
+static std::string panelJson_;
+static std::string panelWhy_;
+
+/* What the open panel is about, held here rather than read back off
+   openPanel_: a rebuild that finds nothing leaves an empty panel behind, and
+   an empty panel has forgotten which of a channel's two arg maps it was
+   over. -1 for none open. */
+static int panelKind_ = -1;
+static int panelA_ = -1;
+static int panelB_ = 0;
+
+/* Configures the provider and builds. False for a panel with no rows, which
+   is a channel with nothing on it. */
+static bool buildPanel (int kind, int a, int b)
+{
+    openPanel_ = thPanel();
+
+    switch (kind)
+    {
+        case thPanel::CHANARG:
+            argPanel_ = ArgPanel();
+            argPanel_.setChannel(a);
+
+            /* b as a flag rather than a second subject: a channel's two
+               chanarg maps are the instrument's and the effect's, and which
+               of them a panel is over is the prefix its lookups carry. */
+            argPanel_.setPrefix(b != 0 ? TH_EFFECT_PREFIX : "");
+
+            return argPanel_.build(openPanel_);
+
+        case thPanel::KNOB:
+            /* No subject: a piece has one set of knobs. knobs_ is the list
+               a command numbers them by, rebuilt at every load, and a row's
+               id is its place in it. */
+            knobPanel_.setKnobs(knobs_);
+
+            return knobPanel_.build(openPanel_);
+
+        case thPanel::GEN_PARAM:
+            /* The chain and the stage, the stage in the scheduler's
+               numbering like every other tw_ call that names one -- see
+               liveOf() above for what happens to a chain with a dsp node in
+               it when the two numberings are read raw. */
+            stagePanel_.setPiece(&canvasDoc_, sched_);
+            stagePanel_.setStage(a, b);
+
+            return stagePanel_.build(openPanel_);
+
+        case thPanel::NODE_VALUE:
+            /* `a' is the box, in the numbering of the graph thinknode.cpp
+               last built -- which is the numbering everything else about
+               the node editor is in. See twnode.h. */
+            nodePanel_.setBox(twGraph(), a);
+
+            return nodePanel_.build(openPanel_);
+    }
+
+    return false;
+}
+
+/* Opens a panel and returns its shape, or 0 when there is none.
+ *
+ * A shape rather than a handle: the page has one panel up at a time and
+ * names the next one the same way it named this one, so there is nothing for
+ * a handle to disambiguate -- and what the page does want back is the number
+ * it polls to find out whether its widgets are still the right ones. */
+EMSCRIPTEN_KEEPALIVE unsigned tw_panel_open (int kind, int a, int b)
+{
+    panelWhy_.clear();
+
+    if (!buildPanel(kind, a, b))
+    {
+        panelKind_ = -1;
+
+        return 0;
+    }
+
+    panelKind_ = kind;
+    panelA_ = a;
+    panelB_ = b;
+
+    return openPanel_.shape;
+}
+
+/* The whole panel. Valid until the next call to any of these. */
+EMSCRIPTEN_KEEPALIVE const char *tw_panel_json (void)
+{
+    panelJson_ = thPanelToJson(openPanel_);
+
+    return panelJson_.c_str();
+}
+
+/* Rebuilds from live state and returns the shape.
+ *
+ * The rebuild is the point: a panel follows the arg, and the values it holds
+ * after this are the ones tw_panel_value reads. What the page compares is
+ * the number, which changes only when rows appear, vanish or change
+ * editability -- so a MIDI controller moving a control costs a poll and not
+ * a torn-down panel. */
+EMSCRIPTEN_KEEPALIVE unsigned tw_panel_shape (void)
+{
+    if (panelKind_ < 0)
+        return 0;
+
+    if (!buildPanel(panelKind_, panelA_, panelB_))
+        return 0;
+
+    return openPanel_.shape;
+}
+
+/* One row's value, in the units its row is drawn in. The cheap poll: no
+   string crosses, and nothing is serialized. */
+EMSCRIPTEN_KEEPALIVE double tw_panel_value (int row)
+{
+    if (panelKind_ < 0 || row < 0 || row >= (int)openPanel_.rows.size())
+        return 0;
+
+    double value = openPanel_.rows[row].value;
+
+    switch (openPanel_.kind)
+    {
+        case thPanel::CHANARG:
+            argPanel_.valueFor(openPanel_.rows[row].id, value);
+            break;
+        case thPanel::KNOB:
+            knobPanel_.valueFor(openPanel_.rows[row].id, value);
+            break;
+
+        /* Nothing to poll for either of these, and for the same reason:
+           what they are built from is a file. A node's graph is rebuilt
+           when its text moves and a stage's row is described from the .gen,
+           so the rebuild tw_panel_shape performs is the poll -- and a param
+           read through a knob picks the knob's number up in it. */
+        case thPanel::GEN_PARAM:
+        case thPanel::NODE_VALUE:
+            break;
+        default:
+            break;
+    }
+
+    return value;
+}
+
+/* An edit, named in full so that it can have arrived from anywhere.
+ *
+ * This is the far end of a command: the page posts the intent, every peer
+ * receives it, and each of them calls this -- including the peer that typed
+ * it, which has no privileged path to the synth (docs/JAM.md). So it takes
+ * the panel's subject rather than reading the open one; the instance that
+ * applies an edit need never have drawn the panel it came from.
+ *
+ * Returns 1 if the arg moved, 0 otherwise -- which covers both a refusal
+ * and an intent that matched what was already there. tw_panel_why is empty
+ * for the second, since catching up is not an error. */
+EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
+                                        const char *row,
+                                        const char *valueText)
+{
+    panelWhy_.clear();
+
+    if (row == NULL || valueText == NULL)
+        return 0;
+
+    switch (kind)
+    {
+        case thPanel::CHANARG:
+        {
+            /* A provider of its own: the panel this names may not be the
+               one that is open, and applying an edit must not disturb what
+               the page is looking at. */
+            ArgPanel target;
+
+            target.setChannel(a);
+            target.setPrefix(b != 0 ? TH_EFFECT_PREFIX : "");
+
+            thPanelEdit edit;
+
+            const thPanelResult r = target.propose(row, valueText, edit);
+
+            if (!r.ok)
+            {
+                panelWhy_ = r.why;
+
+                return 0;
+            }
+
+            if (!r.changed)
+                return 0;
+
+            if (!target.deliver(edit))
+                return 0;
+
+            /* Moving a control is editing the patch, and the page has a
+               Save to light up over it now that the slots are shared. The
+               desktop says the same thing in the same words, from
+               ArgPanelView. */
+            patches_.markDirty(a);
+
+            return 1;
+        }
+
+    }
+
+    /* A node's value is not set here either, and for a plainer reason:
+     * there is nothing live to write. It is a number in a `.dsp', and what
+     * changes one is a splice into that text -- tw_edit_set_value, which
+     * hands the new file back for the page to put in the document. So the
+     * page asks this panel what the rows are and sends the edit the way it
+     * sends every other edit to a file.
+     *
+     * Kept a refusal rather than left to fall through to "no such panel",
+     * because the two are different things and only one of them is a bug. */
+    if (kind == thPanel::NODE_VALUE)
+    {
+        panelWhy_ = "a node's value is set by splicing the file";
+
+        return 0;
+    }
+
+    /* A knob is not set here, and the refusal says so rather than
+     * pretending there is nothing to set.
+     *
+     * Its delivery is tw_knob, which carries a transport time: a knob is
+     * heard, so a move has to land at the same time on every peer or the
+     * peers stop composing the same piece. Applying one immediately here
+     * would be a second door to the same write, opening at a different
+     * moment -- which is exactly the divergence the stamp exists to stop.
+     * The panel describes a knob; the command moves it. */
+    if (kind == thPanel::KNOB)
+    {
+        panelWhy_ = "a knob is moved by a stamped command, not by an edit";
+
+        return 0;
+    }
+
+    /* And a stage's param is not set here either, for the same reason one
+     * noun along: it is heard. A `period' that changes a window earlier on
+     * one peer than another moves that stage's next firing, and from there
+     * the peers are composing different pieces -- so it goes through
+     * tw_param, which carries a transport time and is applied inside the
+     * step. A second door to the same write, opening at a different moment,
+     * is exactly the divergence the stamp exists to stop. */
+    if (kind == thPanel::GEN_PARAM)
+    {
+        panelWhy_ = "a stage's param is set by a stamped command, "
+                    "not by an edit";
+
+        return 0;
+    }
+
+    panelWhy_ = "no such panel";
+
+    return 0;
+}
+
+/* Why the last edit was refused, or "" -- including when it was allowed. */
+EMSCRIPTEN_KEEPALIVE const char *tw_panel_why (void)
+{
+    return panelWhy_.c_str();
+}
+
+/* ---- stamped commands ---- */
+
+EMSCRIPTEN_KEEPALIVE void tw_note_on (double frame, int channel, float note,
+                                      float velocity)
+{
+    pushNote(frame, CMD_NOTE_ON, channel, note, velocity);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_note_off (double frame, int channel, float note)
+{
+    pushNote(frame, CMD_NOTE_OFF, channel, note, 0);
+}
+
+/* The same key, into the piece rather than straight onto its channel: the
+   chains that declared `input midi' and sink to this channel receive it,
+   and what sounds is whatever they emit. */
+EMSCRIPTEN_KEEPALIVE void tw_midi_on (double frame, int channel, float note,
+                                      float velocity)
+{
+    pushNote(frame, CMD_MIDI_ON, channel, note, velocity);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_midi_off (double frame, int channel, float note)
+{
+    pushNote(frame, CMD_MIDI_OFF, channel, note, 0);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
+{
+    Command c = {};
+
+    c.frame = frame;
+    c.type = CMD_TRANSPORT;
+    c.op = op;
+    c.value = value;
+
+    push(c);
+}
+
+/* A start from the top, with transport zero at `originFrame' exactly. A
+   frame already rendered starts at the next window and counts as late --
+   unless `catchUp' is set, which is a late joiner's begin: zero stays at
+   that frame, however long ago, and the transport is stepped silently up
+   to the output before anything sounds (catchUp above). The room's logged
+   commands go in after this call, not before: it empties the queue.
+ *
+ * The queue is emptied here and not when the frame comes round, because
+ * between the two a peer whose transport is already running goes on
+ * sending: a knob or a tempo stamped for the coming run, arriving while
+ * this peer is still armed. Cleared at the arm, those survive to be
+ * applied at the time they name; cleared at the begin, they were thrown
+ * away with the old run's and counted as nothing. What is in the queue
+ * now is the old run's, and the load that a start always comes with has
+ * dropped it already. */
+EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame, double from,
+                                    int catchUp)
+{
+    dropStamped();
+    dropSeek();
+    endCatching();
+    armed_ = true;
+    armFrame_ = originFrame;
+    armFrom_ = from > 0 ? from : 0;
+    catchUp_ = catchUp != 0;
+}
+
+/* Whether a late joiner's transport is still being brought up to the
+   output (catchUp above): its windows are silent until it is. */
+EMSCRIPTEN_KEEPALIVE int tw_catching (void)
+{
+    return catching_ ? 1 : 0;
+}
+
+/* The milliseconds of stepping a window may spend catching up. */
+EMSCRIPTEN_KEEPALIVE void tw_catch_budget (double ms)
+{
+    catchBudget_ = ms;
+}
+
+/* A stop or a tempo, at transport time `at', inside the step. TW_START and
+   TW_REWIND are frame-stamped -- before a start there is no transport time
+   to stamp with -- and are refused here, as is TW_KNOB, which has
+   tw_knob. */
+EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
+{
+    if (op != TW_STOP && op != TW_TEMPO)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = op;
+    c.value = value;
+
+    schedule(c);
+}
+
+/* Knob `k' of the loaded piece to `value', at transport time `at'.
+ *
+ * `k' is the number a KNOB panel's row carries as its id, which is the
+ * knob's place in the list this module built at the load; tw_knob_index
+ * reads it the other way round, for a command arriving by name. An index
+ * outside the list is ignored. */
+/* A knob by name, which is what a room's command carries: resolved when it
+   applies, after any edit stamped before it. */
+EMSCRIPTEN_KEEPALIVE void tw_knob_named (double at, const char *name,
+                                         double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_KNOB;
+    c.knob = -1;
+    c.row = name ? name : "";
+    c.value = value;
+
+    schedule(c);
+}
+
+/* A key at transport time `at': pressed when `on', released when not, into
+ * the piece through `input midi' if it takes input on `channel' by then, and
+ * straight onto the channel if not -- unless `heard', which says its player
+ * played it live already. `tie' orders it among commands stamped for the
+ * same time.
+ * What a quantised or play-ahead seat sends; a direct seat's key is
+ * frame-stamped and goes by tw_note_on and tw_midi_on.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_note_at (double at, int channel, int note,
+                                      double velocity, int on, int heard,
+                                      double tie)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_NOTE;
+    c.channel = channel;
+    c.note = note;
+    c.value = velocity;
+    c.on = on != 0;
+    c.heard = heard != 0;
+    c.tie = tie;
+
+    schedule(c);
+}
+
+/* A new text for the piece at transport time `at', carrying the files
+ * handed over through tw_edit_file since the last one. Applied inside the
+ * step, like any stamped command (applyEdit), and ordered by `tie' among
+ * commands stamped for the same time. `at' below zero is the next window,
+ * as for a knob.
+ *
+ * A file the next tw_edit carries is handed over one at a time, since a
+ * list of strings is not something ccall passes, and taken by that edit
+ * whole.
+ */
+static std::vector<std::pair<std::string, std::string> > editFiles_;
+
+EMSCRIPTEN_KEEPALIVE void tw_edit_file (const char *name, const char *text)
+{
+    if (name != NULL && text != NULL)
+        editFiles_.push_back(std::make_pair(std::string(name),
+                                            std::string(text)));
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_edit (double at, const char *text, double tie)
+{
+    if (text == NULL)
+    {
+        editFiles_.clear();
+        return;
+    }
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_EDIT;
+    c.text = text;
+    c.files.swap(editFiles_);
+    c.tie = tie;
+
+    schedule(c);
+}
+
+/* Instrument `name' onto graph `dsp' at transport time `at' (applyPick),
+ * ordered by `tie' among commands stamped for the same time. What a room's
+ * instrument picker sends. */
+EMSCRIPTEN_KEEPALIVE void tw_pick (double at, const char *name,
+                                   const char *dsp, double tie)
+{
+    if (name == NULL || dsp == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_PICK;
+    c.row = name;
+    c.text = dsp;
+    c.tie = tie;
+
+    schedule(c);
+}
+
+/* Whether each edit applied since the last clear went in, in the order
+   they were applied: 1 for one that is the piece now, 0 for one refused. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_result_count (void)
+{
+    return (int)editResults_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_result (int k)
+{
+    return k >= 0 && k < (int)editResults_.size() ? editResults_[k].second
+                                                    : 0;
+}
+
+/* And which edit it was: the tie it was sent with. */
+EMSCRIPTEN_KEEPALIVE double tw_edit_result_tie (int k)
+{
+    return k >= 0 && k < (int)editResults_.size() ? editResults_[k].first
+                                                    : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_edit_results_clear (void)
+{
+    editResults_.clear();
+}
+
+/* How many edits have been applied since the load, and what the last one
+   said: nothing when it went in whole. The page reads the count off the
+   tape message to know its knobs and seats want drawing again. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_count (void)
+{
+    return edits_;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_edit_error_count (void)
+{
+    return (int)editErrors_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_edit_error (int k)
+{
+    return k >= 0 && k < (int)editErrors_.size() ? editErrors_[k].c_str()
+                                                   : "";
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_KNOB;
+    c.knob = k;
+    c.value = value;
+
+    schedule(c);
+}
+
+/* One numeric param of one stage, at a transport time.
+ *
+ * The write half of tw_stage_param_value, and a stamped command like a
+ * knob: applied at `at' in the step on every peer, the sender included, so
+ * a grid told to be one row tall is one row tall everywhere from that
+ * moment. `at' below zero is "now", as for a knob.
+ *
+ * Numeric only. The text params -- a pattern, an axiom, a note set -- are
+ * the ones a plugin captures and a file states, and setting one from a page
+ * would need the string carried through the queue; nothing asks for it yet
+ * and the shape it should take is a question about the editor rather than
+ * about this. */
+EMSCRIPTEN_KEEPALIVE void tw_stage_param (double at, int chain, int stage,
+                                          int p, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_STAGEPARAM;
+    c.chain = chain;
+    c.stage = stage;
+    c.param = p;
+    c.value = value;
+
+    schedule(c);
+}
+
+/* A knob's value written into the piece at a transport time: the end of a
+ * drag whose middle was tw_knob. The value is the knob's already; this is
+ * the file. */
+EMSCRIPTEN_KEEPALIVE void tw_knob_write (double at, int k, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_KNOBWRITE;
+    c.knob = k;
+    c.value = value;
+    c.text = nextTag_;
+    nextTag_.clear();
+
+    schedule(c);
+}
+
+/* The name the next input, knob write or trygraph goes by, for what it
+ * comes to to be reported under: a room page's "peer:seq", so the peer
+ * that made it knows it for its own. Set just before that call, and used
+ * once. */
+EMSCRIPTEN_KEEPALIVE void tw_command_tag (const char *tag)
+{
+    nextTag_ = tag != NULL ? tag : "";
+}
+
+/* The edit count the next stamped command was made against (Scheduled's
+ * `rev'). Set just before that call, and used once. */
+EMSCRIPTEN_KEEPALIVE void tw_command_rev (int rev)
+{
+    nextRev_ = rev;
+}
+
+/* A chain's level in one section, at a transport time: the arrangement
+ * lane's cell, pressed. Written into the piece and heard from `at'. */
+EMSCRIPTEN_KEEPALIVE void tw_section_level (double at, int section,
+                                            int chain, double level)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_SECTION;
+    c.param = section;
+    c.chain = chain;
+    c.value = level;
+
+    schedule(c);
+}
+
+/* A chain's level in one section as the running piece has it; 1 where the
+ * section does not name it. */
+EMSCRIPTEN_KEEPALIVE double tw_section_level_of (int section, int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL || section < 0 ? 1.0
+        : sched_->sectionLevelOf((size_t)section, c->name);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_section_count (void)
+{
+    return sched_ != NULL ? (int)sched_->sections().size() : 0;
+}
+
+/* A chain's live mute or solo, at a transport time: `on' nonzero sets
+ * it. Stamped like a knob, and not written into the document -- the
+ * desktop's mute is not saved either. `at' below zero is "now". */
+EMSCRIPTEN_KEEPALIVE void tw_mute (double at, int chain, int on)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_MUTE;
+    c.chain = chain;
+    c.value = on ? 1 : 0;
+
+    schedule(c);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_solo (double at, int chain, int on)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_SOLO;
+    c.chain = chain;
+    c.value = on ? 1 : 0;
+
+    schedule(c);
+}
+
+/* Whether a chain is muted, soloed, and heard after both; -1 for no such
+ * chain. For a page drawing its own buttons, and for the tests. */
+EMSCRIPTEN_KEEPALIVE int tw_chain_muted (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1 : c->muted ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_chain_soloed (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1 : c->soloed ? 1 : 0;
+}
+
+/* When a stage last emitted, and a chain was last heard, in transport
+ * seconds; -1 for never or for no such stage or chain. What the composer
+ * view's lights are drawn from. The stage in the scheduler's numbering. */
+EMSCRIPTEN_KEEPALIVE double tw_stage_last_out (int chain, int stage)
+{
+    const thcStage *st = stageAt(chain, stage);
+
+    return st == NULL ? -1.0 : st->lastOut;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_chain_last_heard (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1.0 : std::max(c->lastHeard[0], c->lastHeard[1]);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_chain_audible (int chain)
+{
+    const thcChain *c = sched_ != NULL && chain >= 0
+        ? sched_->chain((size_t)chain) : NULL;
+
+    return c == NULL ? -1 : sched_->audible(*c) ? 1 : 0;
+}
+
+/* How fast the clock runs, as a multiple of real time, at a transport
+ * time.
+ *
+ * The control a piece written in seconds has, where the tempo is the one
+ * it has not: a tempo scales beat-valued durations and nothing else, so
+ * `period = 0.25 s' does not move for it however far it is nudged. This
+ * turns the transport itself, so everything moves -- and the two compose,
+ * which is what a beat-valued stage under both of them wants.
+ *
+ * Not written into the document, and there is no statement for it. A
+ * tempo is something a piece is; a speed is something a listener is
+ * doing, like the level a patch is auditioned at, and it stays across a
+ * load for the same reason the channels somebody aimed do.
+ *
+ * Stamped, because it is heard: two peers that turned the clock either
+ * side of a tick would be playing two different pieces from there on. */
+EMSCRIPTEN_KEEPALIVE void tw_speed (double at, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_SPEED;
+    c.value = value;
+
+    schedule(c);
+}
+
+/* What the clock is running at now. */
+EMSCRIPTEN_KEEPALIVE double tw_speed_now (void)
+{
+    return speed_;
+}
+
+/* A gesture on a stage's picture, at a transport time.
+ *
+ * One more stamped command, made and sent the way a knob is: applied at
+ * `at' in the step on every peer, the sender included, so a Life board
+ * that was clicked on one screen is the same board everywhere from that
+ * moment. The clicker hears their own click a knob lead late, as they
+ * hear their own knob.
+ *
+ * `at' below zero is "now", as for a knob on a stopped transport, which
+ * is what a solo page sends.
+ */
+/* A stage's parameter, set at a transport time.
+ *
+ * `row' is the param's name and `text' is the part of its line the person
+ * touched: "4000", "ms", "@warmth", "@", a note set as notes. What it means
+ * is worked out on arrival, against the line the file has at that moment,
+ * by every peer -- which is why the whole right-hand side is not what
+ * crosses. Two peers completing the same partial against the same document
+ * write the same line; a sender that completed it first would be telling
+ * the others what their own file says.
+ *
+ * Stamped like a knob and for the same reason: a param is heard. `at' below
+ * zero is "now", which is what a solo page and a stopped transport send.
+ *
+ * The refusal goes to the log rather than back to the caller. It is the
+ * knob's arrangement: what arrives here has already been through a panel on
+ * the peer that typed it, and the peers that did not type it have nobody to
+ * tell.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_param (double at, int chain, int stage,
+                                    const char *row, const char *text,
+                                    int passing)
+{
+    if (row == NULL || text == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_PARAM;
+    c.chain = chain;
+    c.stage = stage;
+    c.row = row;
+    c.text = text;
+    c.passing = passing != 0;
+
+    schedule(c);
+}
+
+/* The same, with the stage named as well (tw_input_named). */
+EMSCRIPTEN_KEEPALIVE void tw_param_named (double at, const char *chainName,
+                                          const char *stageName, int chain,
+                                          int stage, const char *row,
+                                          const char *text, int passing)
+{
+    if (row == NULL || text == NULL)
+        return;
+
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_PARAM;
+    c.chain = chain;
+    c.stage = stage;
+    c.row = row;
+    c.text = text;
+    c.chainName = chainName ? chainName : "";
+    c.stageName = stageName ? stageName : "";
+    c.passing = passing != 0;
+
+    schedule(c);
+}
+
+/* How many param edits have been written to the piece and not yet asked
+   for. The worklet reads it every quantum, which is why it is a count and
+   not the list. */
+EMSCRIPTEN_KEEPALIVE int tw_param_edit_count (void)
+{
+    return (int)applied_.size();
+}
+
+/* The param edits written since the last call, oldest first, and forgotten:
+ *
+ *     [{"at":..,"chain":..,"stage":..,"row":..,"text":..,
+ *       "chainName":..,"docStage":..,"param":..,"valueText":..}, ...]
+ *
+ * Valid until the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_param_edits_json (void)
+{
+    appliedJson_ = "[";
+
+    for (size_t i = 0; i < applied_.size(); i++)
+    {
+        const AppliedParam &a = applied_[i];
+
+        if (i)
+            appliedJson_ += ',';
+
+        appliedJson_ += "{\"at\":";
+        jsonNumber(appliedJson_, a.at);
+        appliedJson_ += ",\"chain\":";
+        jsonInt(appliedJson_, a.chain);
+        appliedJson_ += ",\"stage\":";
+        jsonInt(appliedJson_, a.stage);
+        appliedJson_ += ",\"row\":";
+        jsonString(appliedJson_, a.row);
+        appliedJson_ += ",\"text\":";
+        jsonString(appliedJson_, a.text);
+        appliedJson_ += ",\"chainName\":";
+        jsonString(appliedJson_, a.chainName);
+        appliedJson_ += ",\"docStage\":";
+        jsonInt(appliedJson_, a.docStage);
+        appliedJson_ += ",\"param\":";
+        jsonString(appliedJson_, a.param);
+        appliedJson_ += ",\"valueText\":";
+        jsonString(appliedJson_, a.valueText);
+        appliedJson_ += ",\"section\":";
+        jsonInt(appliedJson_, a.section);
+        appliedJson_ += ",\"input\":";
+        jsonInt(appliedJson_, a.input ? 1 : 0);
+        appliedJson_ += ",\"knob\":";
+        jsonInt(appliedJson_, a.knob);
+        appliedJson_ += ",\"tag\":";
+        jsonString(appliedJson_, a.tag);
+        appliedJson_ += '}';
+    }
+
+    appliedJson_ += ']';
+    applied_.clear();
+
+    return appliedJson_.c_str();
+}
+
+/* `text' through one thcGenEdit call on a scratch file, and back as text:
+ * what the call made of it, or "" when it refused. The refusal is said on
+ * stderr, under `what'. */
+static const char *
+spliceText (const char *text, const char *what,
+            const std::function<thcGenEdit::Result (const std::string &,
+                                                    std::string &)> &edit)
+{
+    static const char *const SCRATCH = "/splice.gen";
+    static std::string out;
+
+    out.clear();
+
+    std::string why;
+
+    if (!writeFile(SCRATCH, text) || edit(SCRATCH, why) != thcGenEdit::OK)
+    {
+        if (!why.empty())
+            fprintf(stderr, "%s: %s\n", what, why.c_str());
+
+        remove(SCRATCH);
+
+        return "";
+    }
+
+    FILE *f = fopen(SCRATCH, "rb");
+
+    if (f != NULL)
+    {
+        char buf[4096];
+        size_t got;
+
+        while ((got = fread(buf, 1, sizeof buf, f)) > 0)
+            out.append(buf, got);
+
+        fclose(f);
+    }
+
+    remove(SCRATCH);
+
+    return out.c_str();
+}
+
+/* A knob's value in a text given, for a room's document: "" when refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_knob (const char *text,
+                                                  const char *name,
+                                                  double value)
+{
+    if (text == NULL || name == NULL)
+        return "";
+
+    return spliceText(text, name,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setKnobValue(path, name, value, why);
+        });
+}
+
+/* `text' with one stage's param set to `valueText', by the writer TW_PARAM
+ * splices the piece with, or "" if it would not take the edit.
+ *
+ * For a text that is not the piece this instance loaded: a room's document,
+ * which may have moved on since the load, gets the edit its peer made and
+ * not a copy of this instance's file. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_param (const char *text,
+                                                   const char *chain,
+                                                   int docStage,
+                                                   const char *param,
+                                                   const char *valueText)
+{
+    if (text == NULL || chain == NULL || param == NULL || valueText == NULL)
+        return "";
+
+    return spliceText(text, param,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setParam(path, chain, docStage, param,
+                                        valueText, why);
+        });
+}
+
+/* Several edits to `text' as one, each a line of tab-separated fields,
+ * and nothing written unless every one of them goes in: what adding or
+ * taking out a band's player is (bandview.js), so that one undo takes it
+ * back.
+ *
+ *   instrument  NAME DSP [k=v ...]
+ *   chain       NAME INSTRUMENT STAGE CATEGORY PLUGIN [k=v ...]
+ *   knobchain   NAME KNOB STAGE CATEGORY PLUGIN [k=v ...]   -- writes @KNOB
+ *   knob        NAME VALUE MIN MAX [LABEL]
+ *   stage       CHAIN STAGE CATEGORY PLUGIN [k=v ...]
+ *   unstage     CHAIN STAGE   -- STAGE in the document's order
+ *   unchain     NAME
+ *   rechain     NAME NEWNAME
+ *   uninstrument NAME        -- unless a chain still plays it
+ *   param       CHAIN STAGE ROW VALUE   -- STAGE in the document's order
+ *   scale       NAME NOTES   -- set, or added when there is none
+ *   section     NAME LENGTH AFTER [chain=level ...]   -- AFTER may be ""
+ *   unsection   NAME
+ *   resection   NAME NEWNAME
+ *   sectionlength NAME LENGTH
+ *   sectionhold NAME 0|1
+ *   sectionloop [NAME]       -- closes the list round to NAME; none: out
+ *   cue         KNOB GRID    -- `cue @KNOB GRID;', unless KNOB has one
+ *   level       SECTION CHAIN LEVEL   -- 1 takes the chain out of it;
+ *                            -- CHAIN @KNOB is the value the section sets,
+ *                            -- LEVEL - takes it out
+ *
+ * Values as the file would write them. "" when one was refused. */
+/* Why the last tw_gen_ops wrote nothing. */
+static std::string opsWhy_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops_why (void)
+{
+    return opsWhy_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_ops (const char *text,
+                                             const char *ops)
+{
+    opsWhy_.clear();
+
+    if (text == NULL || ops == NULL)
+        return "";
+
+    typedef std::vector<std::pair<std::string, std::string> > Values;
+
+    std::vector<std::vector<std::string> > lines;
+    std::istringstream in(ops);
+
+    for (std::string line; std::getline(in, line); )
+    {
+        std::vector<std::string> f;
+        std::istringstream fields(line);
+
+        for (std::string one; std::getline(fields, one, '\t'); )
+            f.push_back(one);
+
+        if (!f.empty())
+            lines.push_back(f);
+    }
+
+    auto values = [] (const std::vector<std::string> &f, size_t from)
+    {
+        Values v;
+
+        for (size_t i = from; i < f.size(); i++)
+        {
+            const size_t eq = f[i].find('=');
+
+            if (eq != std::string::npos)
+                v.push_back(std::make_pair(f[i].substr(0, eq),
+                                           f[i].substr(eq + 1)));
+        }
+
+        return v;
+    };
+
+    return spliceText(text, "the band",
+        [&](const std::string &path, std::string &why)
+        {
+            for (const auto &f : lines)
+            {
+                thcGenEdit::Result r = thcGenEdit::REFUSED;
+
+                if (f[0] == "instrument" && f.size() >= 3)
+                    r = thcGenEdit::addInstrument(path, f[1], f[2],
+                                                  values(f, 3), why);
+                else if (f[0] == "chain" && f.size() >= 6)
+                    r = thcGenEdit::addChain(path, f[1], 0, f[2], f[3], f[4],
+                                             f[5], values(f, 6), why);
+                else if (f[0] == "stage" && f.size() >= 5)
+                    r = thcGenEdit::addStage(path, f[1], f[2], f[3], f[4],
+                                             values(f, 5), why);
+                else if (f[0] == "knobchain" && f.size() >= 6)
+                    r = thcGenEdit::addKnobChain(path, f[1], f[2], f[3],
+                                                 f[4], f[5], values(f, 6),
+                                                 why);
+                else if (f[0] == "knob" && f.size() >= 5)
+                    r = thcGenEdit::addKnob(path, f[1], atof(f[2].c_str()),
+                                            atof(f[3].c_str()),
+                                            atof(f[4].c_str()),
+                                            f.size() > 5 ? f[5] : "", why);
+                else if (f[0] == "unstage" && f.size() >= 3)
+                    r = thcGenEdit::removeStage(path, f[1],
+                                                atoi(f[2].c_str()), why);
+                else if (f[0] == "rechain" && f.size() >= 3)
+                    r = thcGenEdit::renameChain(path, f[1], f[2], why);
+                else if (f[0] == "unchain" && f.size() >= 2)
+                    r = thcGenEdit::removeChain(path, f[1], why);
+                else if (f[0] == "param" && f.size() >= 5)
+                    r = thcGenEdit::setParam(path, f[1], atoi(f[2].c_str()),
+                                             f[3], f[4], why);
+                else if (f[0] == "scale" && f.size() >= 3)
+                {
+                    r = thcGenEdit::setScale(path, f[1], f[2], why);
+
+                    if (r == thcGenEdit::NOT_FOUND)
+                        r = thcGenEdit::addScale(path, f[1], f[2], why);
+                }
+                else if (f[0] == "section" && f.size() >= 3)
+                {
+                    /* An empty AFTER that ends its line is no field at
+                       all to getline. */
+                    std::vector<std::pair<std::string, double> > levels;
+
+                    for (const auto &v : values(f, 4))
+                        levels.push_back(std::make_pair(
+                            v.first, atof(v.second.c_str())));
+
+                    r = thcGenEdit::addSection(path, f[1], f[2],
+                                               f.size() > 3 ? f[3] : "",
+                                               levels, why);
+                }
+                else if (f[0] == "unsection" && f.size() >= 2)
+                    r = thcGenEdit::removeSection(path, f[1], why);
+                else if (f[0] == "resection" && f.size() >= 3)
+                    r = thcGenEdit::renameSection(path, f[1], f[2], why);
+                else if (f[0] == "sectionlength" && f.size() >= 3)
+                    r = thcGenEdit::setSectionLength(path, f[1], f[2], why);
+                else if (f[0] == "sectionhold" && f.size() >= 3)
+                    r = thcGenEdit::setSectionHold(path, f[1], f[2] == "1",
+                                                   why);
+                else if (f[0] == "sectionloop")
+                    r = thcGenEdit::setSectionLoop(path,
+                                                   f.size() > 1 ? f[1] : "",
+                                                   why);
+                else if (f[0] == "cue" && f.size() >= 3)
+                    r = thcGenEdit::addCue(path, f[1], f[2], why);
+                else if (f[0] == "level" && f.size() >= 4)
+                    r = thcGenEdit::setSectionLevel(path, f[1], f[2],
+                                                    f[3] == "-" ? NAN
+                                                    : atof(f[3].c_str()),
+                                                    why);
+                else if (f[0] == "uninstrument" && f.size() >= 2)
+                {
+                    r = thcGenEdit::removeInstrument(path, f[1], why);
+
+                    if (r == thcGenEdit::REFUSED)
+                        r = thcGenEdit::OK;
+                }
+                else
+                    why = "no edit '" + f[0] + "'";
+
+                if (r != thcGenEdit::OK)
+                {
+                    opsWhy_ = why;
+                    return r;
+                }
+            }
+
+            return thcGenEdit::OK;
+        });
+}
+
+/* A stage added to chain `chain' in `text', after its others: `params'
+ * one `name=value' a line, each value as the file would write it. What
+ * the band adds behind a player for its pad to move (bandview.js). ""
+ * when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_add_stage (const char *text,
+                                                   const char *chain,
+                                                   const char *stage,
+                                                   const char *category,
+                                                   const char *plugin,
+                                                   const char *params)
+{
+    if (text == NULL || chain == NULL || stage == NULL ||
+        category == NULL || plugin == NULL || params == NULL)
+        return "";
+
+    std::vector<std::pair<std::string, std::string> > values;
+    std::istringstream lines(params);
+
+    for (std::string line; std::getline(lines, line); )
+    {
+        const size_t eq = line.find('=');
+
+        if (eq != std::string::npos)
+            values.push_back(std::make_pair(line.substr(0, eq),
+                                            line.substr(eq + 1)));
+    }
+
+    return spliceText(text, stage,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::addStage(path, chain, stage, category,
+                                        plugin, values, why);
+        });
+}
+
+/* Chain `chain' given seed `seed' in `text', or its seed taken out when
+ * !pin: another take (bandview.js). "" when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_chain_seed (const char *text,
+                                                        const char *chain,
+                                                        int pin, double seed)
+{
+    if (text == NULL || chain == NULL)
+        return "";
+
+    return spliceText(text, chain,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setChainSeed(path, chain, pin != 0,
+                                            (unsigned)seed, why);
+        });
+}
+
+/* One chain's level in one section, in `text': the edit an arrangement
+ * cell makes, for a room's document. "" when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_section (const char *text,
+                                                     const char *section,
+                                                     const char *chain,
+                                                     double level)
+{
+    if (text == NULL || section == NULL || chain == NULL)
+        return "";
+
+    return spliceText(text, section,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setSectionLevel(path, section, chain, level,
+                                               why);
+        });
+}
+
+/* Why the last tw_gen_freeze wrote nothing. */
+std::string freezeWhy_;
+
+/* Chain `chain' frozen into `text': what this instance heard it play in
+ * the last `bars' bars, as a new chain beside it with a gen::grid that
+ * plays it back, through the chain's first note sink (thcFreeze.h). ""
+ * when there is nothing to freeze or the writer refused;
+ * tw_gen_freeze_why says which. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_freeze (const char *text, int chain,
+                                                int bars)
+{
+    freezeWhy_.clear();
+
+    if (text == NULL || sched_ == NULL || chain < 0 ||
+        (size_t)chain >= canvasDoc_.chains.size())
+    {
+        freezeWhy_ = "no such chain";
+        return "";
+    }
+
+    const thcGenEdit::Chain &c = canvasDoc_.chains[(size_t)chain];
+    thcFreeze::Params params;
+
+    if (!thcFreeze::fromChain(*sched_, (size_t)chain, bars, params,
+                              freezeWhy_))
+        return "";
+
+    std::vector<std::string> names;
+
+    for (const thcGenEdit::Chain &other : canvasDoc_.chains)
+        names.push_back(other.name);
+
+    const std::string name = thcFreeze::frozenName(c.name, names);
+    std::string refused;
+    const char *out = spliceText(text, name.c_str(),
+        [&](const std::string &path, std::string &why)
+        {
+            const thcGenEdit::Result r =
+                thcFreeze::write(path, c, *sched_, name, params, why);
+
+            refused = why;
+            return r;
+        });
+
+    if (*out == 0)
+        freezeWhy_ = refused.empty() ? "the frozen chain could not be written"
+                                     : refused;
+
+    return out;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_freeze_why (void)
+{
+    return freezeWhy_.c_str();
+}
+
+/* One stage of a chain moved to another place in it, in `text': the edit a
+ * stage box dropped elsewhere on the canvas makes. Stages in the
+ * document's numbering; the block moves with its text. "" when the writer
+ * refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_move_stage (const char *text,
+                                                    const char *chain,
+                                                    int from, int to)
+{
+    if (text == NULL || chain == NULL)
+        return "";
+
+    return spliceText(text, chain,
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::moveStage(path, chain, from, to, why);
+        });
+}
+
+/* The piece's own effect on the mix, in `text'; an empty `dsp' takes it
+   off. "" when the writer refused. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_effect (const char *text,
+                                                    const char *dsp)
+{
+    if (text == NULL || dsp == NULL)
+        return "";
+
+    return spliceText(text, "effect",
+        [&](const std::string &path, std::string &why)
+        {
+            return thcGenEdit::setMasterEffect(path, dsp, why);
+        });
+}
+
+/* Why the last tw_gen_set_instrument wrote nothing. */
+std::string pickWhy_;
+
+/* Instrument `name' put on graph `dsp' in `text' as applyPick will put it:
+ * what a room's instrument picker writes into its document, and asks before
+ * it sends the pick. "" when refused; tw_gen_set_instrument_why says why. */
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_instrument (const char *text,
+                                                        const char *name,
+                                                        const char *dsp)
+{
+    pickWhy_.clear();
+
+    if (text == NULL || name == NULL || dsp == NULL)
+        return "";
+
+    return spliceText(text, name,
+        [&](const std::string &path, std::string &why)
+        {
+            const thcGenEdit::Result r = pickInto(path, name, dsp, why);
+
+            pickWhy_ = why;
+            return r;
+        });
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_instrument_why (void)
+{
+    return pickWhy_.c_str();
+}
+
+/* Instrument `name''s graph written into `text' as its `dsp { body }' --
+   over a file name if it had one -- as the Composer's Keep writes a grown
+   graph. "" when refused; tw_gen_set_inline_why says why. */
+static std::string inlineWhy_;
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_inline (const char *text,
+                                                    const char *name,
+                                                    const char *body)
+{
+    inlineWhy_.clear();
+
+    if (text == NULL || name == NULL || body == NULL)
+        return "";
+
+    return spliceText(text, name,
+        [&](const std::string &path, std::string &why)
+        {
+            const thcGenEdit::Result r = thcGenEdit::setInlineGraph(
+                path, name, "\n" + std::string(body) + "\n", why);
+
+            inlineWhy_ = why;
+            return r;
+        });
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_inline_why (void)
+{
+    return inlineWhy_.c_str();
+}
+
+static Scheduled inputOf (double at, int chain, int stage, int kind,
+                          double x, double y, double w, double h, int button)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_INPUT;
+    c.chain = chain;
+    c.stage = stage;
+    c.kind = kind;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.button = button;
+    c.text = nextTag_;
+    nextTag_.clear();
+
+    return c;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
+                                    int kind, double x, double y, double w,
+                                    double h, int button)
+{
+    schedule(inputOf(at, chain, stage, kind, x, y, w, h, button));
+}
+
+/* The same, with the stage named as well: what a room's command carries,
+   since an edit stamped before it can move the indices (namedStage). */
+EMSCRIPTEN_KEEPALIVE void tw_input_named (double at, const char *chainName,
+                                          const char *stageName, int chain,
+                                          int stage, int kind, double x,
+                                          double y, double w, double h,
+                                          int button)
+{
+    Scheduled c = inputOf(at, chain, stage, kind, x, y, w, h, button);
+
+    c.chainName = chainName ? chainName : "";
+    c.stageName = stageName ? stageName : "";
+
+    schedule(c);
+}
+
+/* ---- a stage's parameters ----
+ *
+ * Ten accessors and a marshalling loop in mirror.js, gone: what the popover
+ * shows is a panel now (src/StagePanel.cpp), opened with
+ * tw_panel_open(GEN_PARAM, chain, stage) and read like any other. They were
+ * a panel model already -- name, desc, units, knob, text, type, value, min,
+ * max, count -- flattened into C, written by hand, answering for one panel
+ * only, and derived from the domain objects a second time rather than from
+ * whatever the window derived.
+ *
+ * And read-only, which is the part that has actually changed. The page can
+ * set a stage's params now, because what a typed value becomes -- the unit,
+ * the knob binding, the note names, the preset's spelling -- is one function
+ * both shells call rather than a rule welded to a Gtk::SpinButton.
+ *
+ * Four of them stay, for a reader that is not a popover: the sequencer's
+ * grid finds `rows' by its index in the plugin's own order, because the
+ * index is what a `stageparam' command carries, and wants the value the
+ * stage is playing rather than the text the file holds.
+ */
+
+static const thcPlugin::ParamInfo *paramAt (int chain, int stage, int p)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->paramInfo(p) : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_stage_param_count (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->paramCount() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_name (int chain, int stage,
+                                                      int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? info->name.c_str() : "";
+}
+
+/* The value as the stage is playing it now -- read through the knob when
+   one is bound, which is what the plugin itself sees. */
+EMSCRIPTEN_KEEPALIVE double tw_stage_param_value (int chain, int stage, int p)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || p < 0 ||
+        p >= s->plugin->paramCount())
+        return 0.0;
+
+    return s->params.get(p);
+}
+
+/* And as text, for the types that are text: a note set is "C3 E3 G3" and
+   an axiom is an axiom. Empty for the numeric ones. */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_text (int chain, int stage,
+                                                      int p)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || p < 0 ||
+        p >= s->plugin->paramCount())
+        return "";
+
+    const char *text = s->params.getString(p);
+
+    return text != NULL ? text : "";
+}
+
+/* Whether a stage's picture is a control -- its module exports
+   composer_input. The canvas asks before it enlarges one. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_takes_input (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL && s->plugin->hasInput() ? 1 : 0;
+}
+
+/* Every sounding note released, now. */
+EMSCRIPTEN_KEEPALIVE void tw_all_off (void)
+{
+    pending_.clear();
+    synth_->clearAll();
+}
+
+/* ---- the transport, and what it delivered ---- */
+
+EMSCRIPTEN_KEEPALIVE double tw_now (void)
+{
+    return sched_->now();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_running (void)
+{
+    return sched_->running() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_epoch (void)
+{
+    return epoch_;
+}
+
+/* How many commands have been applied after the time they were stamped
+   for, since the module was made. Every one is a point from which this
+   peer's tape may differ from the others'. */
+EMSCRIPTEN_KEEPALIVE int tw_late (void)
+{
+    return late_;
+}
+
+/* The frame transport zero falls on, or -1 before any start.
+ *
+ * Which is not originFrame_ any more: the clock is pinned at wherever it
+ * had got to when it was last started or turned, so originFrame_ is the
+ * frame originAt_ falls on and only the two together say where zero is.
+ * Answered by running the line back to zero, so the number means what it
+ * has always meant to the page -- but only alongside tw_speed_now, since
+ * a transport second is rate_/speed_ frames and clock.js does the same
+ * subtraction from the other end. */
+EMSCRIPTEN_KEEPALIVE double tw_origin (void)
+{
+    return pinned_ ? frameOf(0) : NAN;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_event_count (void)
+{
+    return (int)tape_.count();
+}
+
+EMSCRIPTEN_KEEPALIVE const twEvent *tw_events (void)
+{
+    return tape_.data();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
+{
+    tape_.clear();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_key_count (void)
+{
+    return keyCount_;
+}
+
+EMSCRIPTEN_KEEPALIVE const twKey *tw_keys (void)
+{
+    return keys_;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_keys_clear (void)
+{
+    keyCount_ = 0;
+}
+
+/* `frames' frames, interleaved stereo, in a buffer that is overwritten by
+   the next call. Windows are rendered as they are needed; the commands due
+   in each are applied just before it, and then the transport is stepped
+   across it.
+ *
+ * That order is genwav's, and it has to be: a command is meant to be in force
+ * for the window it lands in, and what the step delivers is meant to sound in
+ * the window it is delivered for. The step is to the transport time the
+ * window's last frame falls on, counted from the origin, and by nothing
+ * measured, so the piece is a function of the file and the seed and not of the
+ * clock -- which is the property the step-size fix put in the scheduler and
+ * this is the first host to lean on (docs/JAM.md). The scheduler's own commands
+ * are applied inside the step, at the time each was stamped for; step() above
+ * says why. */
+/* ---- the live input ----------------------------------------------------
+ *
+ * What the machine is hearing, for the quantum about to be rendered. A graph
+ * reaches it through live0..live<N-1> on a channel effect's io node
+ * (think.h, LIVEPREFIX); dsp/fx/vocoder-mic.dsp is the one that does.
+ *
+ * A buffer the page writes into rather than an array it passes, for tw_render's
+ * reason in reverse: a quantum of capture crosses this boundary 375 times a
+ * second, and marshalling an array each time would allocate 375 times a second
+ * in a worklet. The page asks once for the pointer and the capacity and writes
+ * into the heap after that.
+ *
+ * Mono, because thSynth's capture is (thSynth::feedCapture says why), and the
+ * sum of the track's channels is the page's to do -- it has the planar buffers
+ * already and the engine would have to be handed an interleave it does not
+ * otherwise want.
+ *
+ * `tw_capture' and not `tw_input': tw_input next door is a gesture on a
+ * composer's picture, and the engine calls this side the capture anyway
+ * (thSynth::feedCapture).
+ *
+ * Called before tw_render, from the same process() call, which is where a
+ * duplex callback has it. A quantum the page does not call this for is a
+ * quantum of silence: the accumulator hears the gap and says so rather than
+ * handing the graph the last window again (gthSynthSource).
+ */
+EMSCRIPTEN_KEEPALIVE float *tw_capture_buffer (void)
+{
+    return incoming_.empty() ? NULL : incoming_.data();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_capture_capacity (void)
+{
+    return (int)incoming_.size();
+}
+
+/* `frames' of it, now in the buffer. */
+EMSCRIPTEN_KEEPALIVE void tw_capture (int frames)
+{
+    if (source_ == NULL || incoming_.empty() || frames <= 0)
+        return;
+
+    if (frames > (int)incoming_.size())
+        frames = (int)incoming_.size();
+
+    source_->feedInput(incoming_.data(), (unsigned)frames, 1);
+}
+
+/* Capture frames the accumulator had to throw away, and windows it had none
+   ready for once the stream was running. Both stay at zero on a page whose
+   quanta and window are what they say they are; the page shows them for the
+   same reason it shows the late-command count. */
+EMSCRIPTEN_KEEPALIVE double tw_capture_dropped (void)
+{
+    return source_ ? (double)source_->inputDropped() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_capture_starved (void)
+{
+    return source_ ? (double)source_->inputStarved() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
+{
+    const int len = synth_->getWindowlen();
+
+    for (int done = 0; done < frames; )
+    {
+        unsigned held = source_->pending();
+
+        /* Nothing held: the next render() makes a window, and its first
+           frame is the next one handed out. */
+        if (held == 0)
+        {
+            replayOn(rendered_, catchBudget_);
+            applyDue(rendered_, len);
+            beginDue(rendered_, len);
+
+            /* A seek still on its way leaves the window silent and the
+               transport where it is going. */
+            if ((!seekPending_ || seekOn(rendered_, catchBudget_)) &&
+                (!catching_ || catchUp(rendered_, len, catchBudget_)))
+                step(rendered_, len);
+
+            held = (unsigned)len;
+        }
+
+        const int n = std::min(frames - done, (int)held);
+
+        source_->render(&block_[(size_t)done * TW_CHANNELS], (unsigned)n,
+                        TW_CHANNELS);
+
+        done += n;
+        rendered_ += n;
+    }
+
+    /* The worklet's one thread is the GUI thread too: free here what the
+       quantum retired, rather than when the page next calls in. */
+    synth_->collect();
+
+    return block_.data();
+}
+
+/* ---- probes ------------------------------------------------------------
+ *
+ * A tap on one arg of one node of whatever is loaded on a channel: eight
+ * slots in the synth, armed by name on the GUI thread, accumulated across
+ * voices on the audio thread and published a window at a time into a ring
+ * (thSynth.h). The desktop's editor drains that ring on a frame tick and
+ * feeds a visual module; here the worklet drains it after every render and
+ * posts the samples to the page with the tape batch, and the page's own
+ * instance of the module holds the visuals.
+ *
+ * The worklet's thread is the only thread this module has, so armProbe --
+ * a GUI-thread call -- is made on it, and the ring is drained on it too,
+ * after process(). Which is the same discipline the desktop has, with the
+ * two threads collapsed into one.
+ */
+
+/* Where a drained probe's samples land, for the page to read out of the
+   heap. One window of a probe is the synth's window; a tape batch is
+   sixteen quanta, so a couple of thousand samples is the most that can be
+   waiting. */
+#define TW_PROBE_DRAIN 4096
+
+static float probeDrain_[TW_PROBE_DRAIN];
+static std::string probeWhy_;
+
+/* Arm a probe on a channel's node and arg. The slot, or -1 with the reason
+   in tw_probe_why(). A slot is only good until the next load on that
+   channel, which disarms every probe pointing at it. */
+EMSCRIPTEN_KEEPALIVE int tw_probe_arm (int channel, const char *node,
+                                       const char *arg)
+{
+    if (synth_ == NULL || node == NULL || arg == NULL)
+        return -1;
+
+    probeWhy_.clear();
+
+    return synth_->armProbe(channel, node, arg, probeWhy_);
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_probe_why (void)
+{
+    return probeWhy_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_probe_disarm (int slot)
+{
+    if (synth_ != NULL)
+        synth_->disarmProbe(slot);
+}
+
+/* Everything waiting on a slot, into the drain buffer: how many samples,
+   or 0 for a slot that is not armed or has published nothing since the
+   last call. Read after a render, as the desktop reads it on a frame
+   tick. */
+EMSCRIPTEN_KEEPALIVE int tw_probe_read (int slot)
+{
+    if (synth_ == NULL)
+        return 0;
+
+    thProbe *tap = synth_->probe(slot);
+
+    if (tap == NULL)
+        return 0;
+
+    return (int)tap->read(probeDrain_, TW_PROBE_DRAIN);
+}
+
+EMSCRIPTEN_KEEPALIVE const float *tw_probe_samples (void)
+{
+    return probeDrain_;
+}
+
+/* ---- the mirror ----
+ *
+ * A second instance of this module, in a worker, fed the messages the
+ * worklet is fed, holding real composer instances so that the composer
+ * view has something to draw. It renders nothing: its synth is silent,
+ * and instead of tw_render it is told how far the worklet's has got and
+ * steps to there.
+ *
+ * Everything else about it is the same object doing the same thing, which
+ * is what makes its tape the worklet's tape -- and what makes the two
+ * tapes worth comparing, since a difference is a determinism bug in the
+ * piece or in this module rather than in the mirror.
+ */
+
+/* Silent from here on: notes stop at the door, the queue is still applied,
+   and process() skips the DSP (thSynth::setSilent). Called straight after
+   tw_create and before any load -- it is a kind of synth, not a mode a
+   running one flips. */
+EMSCRIPTEN_KEEPALIVE void tw_silent (void)
+{
+    mirror_ = true;
+    synth_->setSilent(true);
+}
+
+/* Step to `toFrame': tw_render without the render.
+ *
+ * The same three calls per window, at the same window boundaries -- both
+ * instances count windows from frame zero and tw_align puts them on one
+ * numbering -- so a command lands in the window it lands in over there.
+ * The window containing `toFrame' is stepped too, because the worklet
+ * that reported it had already applied that window whole before handing
+ * out the frames inside it.
+ *
+ * process() is called here rather than by a gthSynthSource, which is the
+ * thing this instance does not have: it is what drains the command ring,
+ * and a ring nobody drains was measured filling up.
+ *
+ * Returns the frame it reached.
+ */
+EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
+{
+    const int len = synth_->getWindowlen();
+
+    while (rendered_ < toFrame)
+    {
+        replayOn(rendered_, -1);
+        applyDue(rendered_, len);
+        beginDue(rendered_, len);
+
+        /* Stepped all the way to where it is going, and waiting there to
+           be told where the worklet landed. */
+        if (seekPending_ && !seekOn(rendered_, -1))
+        {
+            synth_->process();
+            rendered_ += len;
+            continue;
+        }
+
+        if (catching_)
+            catchUp(rendered_, len, -1);
+
+        step(rendered_, len);
+        synth_->process();
+
+        rendered_ += len;
+    }
+
+    synth_->collect();
+
+    return rendered_;
+}
+
+/* Where the worklet's replays landed since this was last asked, the oldest
+   first, one a call; -1 when there are none. */
+EMSCRIPTEN_KEEPALIVE double tw_replay_landed (void)
+{
+    if (replayLanded_.empty())
+        return -1;
+
+    const double frame = replayLanded_.front();
+
+    replayLanded_.pop_front();
+    return frame;
+}
+
+/* The mirror's replay, landed at the top of the window at `frame' -- where
+   the worklet's did. */
+EMSCRIPTEN_KEEPALIVE void tw_replay_release (double frame)
+{
+    replayRelease_.push_back(frame);
+    tw_step(frame);
+    replayOn(rendered_, -1);
+
+    /* One with no replay under way to land is a mirror that has parted
+       from its worklet already; it is not left to land the next early. */
+    while (!replayRelease_.empty() && replayRelease_.front() <= rendered_)
+        replayRelease_.pop_front();
+}
+
+/* Where the worklet's seeks landed since this was last asked, the oldest
+   first, one a call; -1 when there are none. */
+EMSCRIPTEN_KEEPALIVE double tw_seek_landed (void)
+{
+    if (seekLanded_.empty())
+        return -1;
+
+    const double frame = seekLanded_.front();
+
+    seekLanded_.pop_front();
+    return frame;
+}
+
+/* The mirror's seek, landed where the worklet's did: the windows up to
+   `frame' with the transport waiting, and heard from there -- or from the
+   window it begins in, if that is `frame' itself. */
+EMSCRIPTEN_KEEPALIVE void tw_seek_release (double frame)
+{
+    seekReleaseAt_ = frame;
+    tw_step(frame);
+
+    if (seekPending_ && seekStepped_ && rendered_ >= seekReleaseAt_)
+        seekLand(rendered_, true);
+}
+
+/* Commands this instance could not queue, which on a mirror is the number
+   worth watching: a silent synth drains its ring on every step it is
+   given, so a moving number is a mirror nobody is stepping. */
+EMSCRIPTEN_KEEPALIVE double tw_dropped (void)
+{
+    return (double)synth_->droppedCommands();
+}
+
+/* The frame the next tw_render starts at. */
+EMSCRIPTEN_KEEPALIVE double tw_frame (void)
+{
+    return rendered_;
+}
+
+/* The first frame of the next window made, which is where a command
+   arriving now is applied: the rest of the one being handed out is
+   already stepped. */
+EMSCRIPTEN_KEEPALIVE double tw_next_window (void)
+{
+    return rendered_ + source_->pending();
+}
+
+
+/* ---- MIDI out (see twMidiOut) ---- */
+
+/* The page has MIDI access, and these are its output ports, one name to a
+   line; or, with `enabled' 0, it has none. Every MIDI instrument is
+   applied again, onto a port or back onto its dsp. Returns how many. */
+EMSCRIPTEN_KEEPALIVE int tw_midiout_ports (const char *names, int enabled,
+                                           int generation)
+{
+    std::vector<std::string> list;
+    std::string all = names != NULL ? names : "";
+    size_t at = 0;
+
+    while (at < all.size())
+    {
+        const size_t nl = all.find('\n', at);
+        const std::string name =
+            all.substr(at, nl == std::string::npos ? std::string::npos
+                                                   : nl - at);
+
+        if (!name.empty())
+            list.push_back(name);
+
+        if (nl == std::string::npos)
+            break;
+
+        at = nl + 1;
+    }
+
+    midiOut_.holdPorts();
+    midiOut_.setPorts(list, enabled != 0, generation);
+    return reroute("");
+}
+
+/* This browser's route for `pattern': a port's name, "@synth", or empty
+   for the pattern's own match. Its instruments are applied again. */
+EMSCRIPTEN_KEEPALIVE int tw_midiout_route (const char *pattern, const char *to)
+{
+    const std::string p = pattern != NULL ? pattern : "";
+
+    midiOut_.router().setRoute(p, to != NULL ? to : "");
+    midiOut_.holdPorts();
+    return reroute(p);
+}
+
+/* Whether the page has outputs for MIDI clock. */
+EMSCRIPTEN_KEEPALIVE void tw_midiout_clock (int on)
+{
+    midiOut_.setClock(on != 0);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_midiout_count (void)
+{
+    return (int)midiOut_.out.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const twMidiMsg *tw_midiout_events (void)
+{
+    return midiOut_.out.data();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_midiout_clear (void)
+{
+    midiOut_.out.clear();
+}
+
+/* Instrument k's `midi' pattern, or empty. */
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_midi (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].midi.c_str() : "";
+}
+
+/* Where instrument k is playing, for the page to say: "on <port>,
+   channel N", or why it is not on a device. Empty for an instrument
+   that names no port. */
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_midi_state (int k)
+{
+    static std::string text;
+
+    text.clear();
+
+    if (k < 0 || k >= (int)sched_->instruments().size() ||
+        sched_->instruments()[k].midi.empty())
+        return "";
+
+    const int ch = sched_->instruments()[k].channel;
+    const std::string holds = sched_->holding(ch);
+
+    /* Its channel swapped to another instrument: that is where it is. */
+    if (!holds.empty() && holds != sched_->instruments()[k].name)
+        text = "swapped for " + holds;
+    else
+        text = sched_->playsOverMidi(ch) ? "on " + midiOut_.portName(ch)
+                                         : sched_->midiWhy(ch);
+    return text.c_str();
+}
+
+
+/* ---- Export MIDI (see thcMidiExport) ----
+ *
+ * The piece `text' composed offline into a .mid, on a silent synth and a
+ * scheduler of its own: the one playing is not touched. The mirror does it,
+ * since it holds the same composers and instruments and renders nothing.
+ * `seed' below zero is the piece's own, or drawn. Returns the file's
+ * length in bytes, or -1 with tw_export_why() saying why. */
+std::vector<uint8_t> exported_;
+std::string          exportWhy_;
+double               exportLength_;
+
+EMSCRIPTEN_KEEPALIVE int tw_export_midi (const char *text, double seconds,
+                                         double seed, const char *name)
+{
+    exported_.clear();
+    exportWhy_.clear();
+    exportLength_ = 0;
+
+    if (!writeFile(TW_EXPORT_FILE, text != NULL ? text : ""))
+    {
+        exportWhy_ = "could not write the piece";
+        return -1;
+    }
+
+    thSynth synth("", synth_->getWindowlen(), (int)rate_);
+    thcMidiExport::Options options;
+
+    synth.setSilent(true);
+    options.seconds = seconds;
+    options.seed = seed;
+    options.name = name != NULL ? name : "";
+
+    /* Stepped as this page plays, a window at a time, and with the mutes
+       and solos this instance has been handed -- the mirror's, which are
+       the worklet's. */
+    options.step = synth_->getWindowlen() / rate_;
+
+    for (size_t c = 0; c < sched_->chainCount(); c++)
+    {
+        const thcChain *chain = sched_->chain(c);
+
+        if (chain->muted)
+            options.muted.push_back(chain->name);
+
+        if (chain->soloed)
+            options.soloed.push_back(chain->name);
+    }
+
+    if (!thcMidiExport::render(plugins_, &synth, TW_EXPORT_FILE, options,
+                               exported_, exportWhy_, &exportLength_))
+        return -1;
+
+    return (int)exported_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE const uint8_t *tw_export_bytes (void)
+{
+    return exported_.data();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_export_why (void)
+{
+    return exportWhy_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_export_length (void)
+{
+    return exportLength_;
+}
+
+} /* extern "C" */
