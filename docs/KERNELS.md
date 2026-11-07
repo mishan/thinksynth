@@ -61,10 +61,20 @@ and a `render()` that runs them in the graph's order a sample at a time,
 with what depends only on numbers, knobs and the note worked out once a
 call, as the engine works it out once a window. Times are samples at the
 rate it is given, as the engine folds them at load. A patch using a
-plugin with no kernel, or a loop, is refused with the node named.
+plugin with no kernel, or a loop, is refused with the node named, and so
+is an effect, whose input a voice isn't given. `start()` makes the voice
+new again, so a firmware can keep a pool of them; a knob's member is its
+name after `k_` (`k_bright`), since a name may be one of C++'s.
+
+Each knob comes with its range and a `set()` by name, for a controller
+profile to ride. With `-c DEVICE` the patch's `controller DEVICE` block,
+checked against that controller's controls, comes too, as `profile()`,
+a `thcHidBlock` a `thhMapper` plays: a microcontroller needn't parse
+one.
 
 `scripts/compilecheck` holds two compiled voices -- `dsp/dxbell.dsp`, and
 `scripts/compiled/gate.dsp` for a gated envelope's release -- to what the
 engine renders of the same note, bit for bit. The knobs hold still there:
 a knob turned while a note sounds is glided by the engine, and the
-compiled voice doesn't glide yet.
+compiled voice doesn't glide yet. It also plays `dxbell`'s compiled
+block for the BOX through a mapper.

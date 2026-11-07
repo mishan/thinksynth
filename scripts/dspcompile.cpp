@@ -20,14 +20,15 @@
  * dspcompile -- a .dsp as a C++ struct: one voice of it, every node's
  * kernel (docs/KERNELS.md) run in the graph's order a sample at a time.
  *
- *   dspcompile [-p plugins/] [-r rate] file.dsp Name > thvName.h
+ *   dspcompile [-p plugins/] [-r rate] [-c device] file.dsp Name > thvName.h
  *
  * The patch is loaded as the engine loads it -- units folded, defaults
  * filled in -- and read off the graph: each input a number, a knob, the
  * note's, or another node's output. What depends on nothing but numbers,
  * knobs and the note is worked out once a call, as the engine works it out
  * once a window; the rest runs every sample. A plugin with no kernel here
- * is refused, by name, as is a loop in the graph.
+ * is refused, by name, as is a loop in the graph and an effect graph,
+ * whose input a voice isn't given.
  *
  * The rate is the compiler's, as it is the engine's at load: times written
  * in ms are samples at that rate by the time the graph can be read.
@@ -39,6 +40,11 @@
  *   void release ();               the trigger falls
  *   bool render (k, out, n);       n samples into out[channel], and
  *                                  whether the voice still sounds
+ *
+ * With each knob's range, set() turns a knob by name, for what a
+ * controller's profile rides. With -c, the patch's controller block for
+ * that device, checked against its controls, is profile(): a thcHidBlock
+ * a thhMapper plays, so the firmware needn't parse one.
  *
  * It renders what the engine renders, to the bit, for a voice whose knobs
  * hold still: scripts/compilecheck holds it to that.
@@ -55,6 +61,11 @@
 
 #include "config.h"
 #include "think.h"
+
+#include "thcHidBlock.h"
+#include "thhBox.h"
+#include "thhIndex.h"
+#include "thhPlay.h"
 
 using std::string;
 
@@ -98,6 +109,7 @@ struct Compiler
     std::vector<thNode *> placed;
     std::set<thNode *> placing;
     std::map<string, float> knobs;
+    std::map<string, std::pair<float, float> > ranges;     /* min, max */
     std::map<thNode *, bool> control;
     std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
     std::map<thNode *, std::vector<Value> > ctls, ins;
@@ -143,6 +155,10 @@ struct Compiler
                             path.find('/') == string::npos ? 0 : 1, "::");
     }
 
+    /* A knob's member: its own name might be C++'s (`or') or set()'s
+       (`value', `name'). */
+    static string knobField (const string &name) { return "k_" + name; }
+
     static string literal (float v)
     {
         char b[48];
@@ -177,7 +193,9 @@ struct Compiler
                 thArg *knob = a->argPtr();
 
                 knobs[a->argPtrName()] = knob && knob->len() ? (*knob)[0] : 0;
-                v = { "k." + a->argPtrName(), true };
+                ranges[a->argPtrName()] = knob ? std::make_pair(knob->min(), knob->max())
+                                               : std::make_pair(0.0f, 1.0f);
+                v = { "k." + knobField(a->argPtrName()), true };
                 return true;
             }
             case thArg::ARG_NOTE:
@@ -337,10 +355,72 @@ struct Compiler
     }
 };
 
+/* A binding, as statements filling `b'. */
+static string
+bindingCode (const thcHidBinding &b)
+{
+    std::ostringstream s;
+    const auto f = [](float v) { return Compiler::literal(v); };
+
+    s << "        b = thcHidBinding();\n"
+      << "        b.kind = (thcHidBinding::Kind)" << (int)b.kind << ";\n"
+      << "        b.control = \"" << b.control << "\";\n"
+      << "        b.line = " << b.line << ";\n"
+      << "        b.semis = " << b.semis << ";\n"
+      << "        b.layer = \"" << b.layer << "\";\n"
+      << "        b.arg = \"" << b.arg << "\";\n"
+      << "        b.channel = " << b.channel << ";\n"
+      << "        b.hasMin = " << b.hasMin << "; b.hasMax = " << b.hasMax << ";\n"
+      << "        b.min = " << f((float)b.min) << "; b.max = " << f((float)b.max) << ";\n"
+      << "        b.at = " << f((float)b.at) << "; b.off = " << f((float)b.off) << ";\n"
+      << "        b.center = " << f((float)b.center) << "; b.smooth = " << f((float)b.smooth) << ";\n"
+      << "        b.latch = " << b.latch << "; b.both = " << b.both << ";\n"
+      << "        b.shape = (thcHidBinding::Shape)" << (int)b.shape << ";\n"
+      << "        b.patch = " << b.patch << "; b.octaves = " << b.octaves << ";\n"
+      << "        b.range = " << b.range << ";\n";
+    for (int step : b.scale)
+        s << "        b.scale.push_back(" << step << ");\n";
+    return s.str();
+}
+
+/* The profile as a function building it. */
+static string
+profileCode (const thcHidBlock &p)
+{
+    std::ostringstream s;
+
+    s << "\n    /* The patch's controller block for " << p.device << ". */\n"
+      << "    static thcHidBlock profile ()\n    {\n"
+      << "        thcHidBlock p;\n        thcHidBinding b;\n\n"
+      << "        p.device = \"" << p.device << "\";\n"
+      << "        p.channel = " << p.channel << ";\n"
+      << "        p.base = " << p.base << ";\n"
+      << "        p.velocity = " << p.velocity << ";\n";
+    for (const thcHidBinding &b : p.bindings)
+        s << bindingCode(b) << "        p.bindings.push_back(b);\n";
+    for (const thcHidLayer &l : p.layers)
+    {
+        s << "        {\n        thcHidLayer l;\n\n"
+          << "        l.name = \"" << l.name << "\";\n"
+          << "        l.line = " << l.line << ";\n"
+          << "        l.channel = " << l.channel << ";\n"
+          << "        l.base = " << l.base << ";\n"
+          << "        l.whenLine = " << l.whenLine << ";\n";
+        for (const auto &w : l.when)
+            s << "        l.when.push_back({ \"" << w.first << "\", "
+              << Compiler::literal((float)w.second) << " });\n";
+        for (const thcHidBinding &b : l.bindings)
+            s << bindingCode(b) << "        l.bindings.push_back(b);\n";
+        s << "        p.layers.push_back(l);\n        }\n";
+    }
+    s << "        return p;\n    }\n";
+    return s.str();
+}
+
 int
 main (int argc, char **argv)
 {
-    string plugins = "plugins/";
+    string plugins = "plugins/", device;
     int rate = TH_DEFAULT_SAMPLES, at = 1;
 
     for (; at + 1 < argc && argv[at][0] == '-'; at += 2)
@@ -348,9 +428,12 @@ main (int argc, char **argv)
             plugins = argv[at + 1];
         else if (!strcmp(argv[at], "-r"))
             rate = atoi(argv[at + 1]);
+        else if (!strcmp(argv[at], "-c"))
+            device = argv[at + 1];
     if (argc - at != 2 || rate <= 0)
     {
-        fprintf(stderr, "usage: %s [-p plugins/] [-r rate] file.dsp Name\n", argv[0]);
+        fprintf(stderr, "usage: %s [-p plugins/] [-r rate] [-c device] file.dsp Name\n",
+                argv[0]);
         return 2;
     }
 
@@ -361,6 +444,14 @@ main (int argc, char **argv)
     if (tree == NULL || tree->IONode() == NULL)
     {
         fprintf(stderr, "%s: didn't load\n", argv[at]);
+        return 1;
+    }
+    /* A compiled voice is given a note, not a signal: an effect's input
+       would read as the 0 it was declared with. */
+    if (tree->takesInput())
+    {
+        fprintf(stderr, "%s: an effect, which takes input a compiled voice "
+                "isn't given\n", argv[at]);
         return 1;
     }
 
@@ -390,23 +481,63 @@ main (int argc, char **argv)
         return 1;
     }
 
+    /* The controller block, checked as the app checks one. */
+    thcHidBlock profile;
+
+    if (!device.empty())
+    {
+        const thhControls *controls = device == "box" ? &thhBoxControls()
+                                    : device == "index" ? &thhIndexControls() : NULL;
+        const string own = "device " + device + " { };";
+        string err;
+
+        if (controls == NULL)
+        {
+            fprintf(stderr, "%s: no controller called '%s'\n", argv[at], device.c_str());
+            return 1;
+        }
+        if (!thhLoadProfile("", *controls, own.c_str(), "", profile, err,
+                            tree->controller(device), argv[at]))
+        {
+            fprintf(stderr, "%s\n", err.c_str());
+            return 1;
+        }
+    }
+
     std::set<string> headers;
 
     for (thNode *n : c.placed)
         headers.insert(string(Compiler::kernelFor(n)->plugin));
 
     /* The kernels' headers are named for their plugins. */
-    printf("/* %s as a compiled voice at %d Hz.\n   Written by dspcompile; do not edit. */\n\n#ifndef THV_%s_H\n#define THV_%s_H 1\n\n#include \"thKernel.h\"\n",
+    printf("/* %s as a compiled voice at %d Hz.\n   Written by dspcompile; do not edit. */\n\n#ifndef THV_%s_H\n#define THV_%s_H 1\n\n#include <string.h>\n\n#include \"thKernel.h\"\n",
            argv[at], rate, name.c_str(), name.c_str());
     for (const string &h : headers)
         if (h.compare(0, 5, "math/") && h != "mixer/mul")
             printf("#include \"%s.h\"\n", h.c_str());
 
+    if (!device.empty())
+        printf("#include \"thcHidBlock.h\"\n");
     printf("\nstruct thv%s\n{\n    static constexpr float rate = %d;\n\n"
            "    struct Knobs\n    {\n", name.c_str(), rate);
     for (const auto &k : c.knobs)
-        printf("        float %s = %s;\n", k.first.c_str(), Compiler::literal(k.second).c_str());
-    printf("    };\n\n    float note = 0, velocity = 0, trigger = 0;\n");
+        printf("        float %s = %s;\n", Compiler::knobField(k.first).c_str(),
+               Compiler::literal(k.second).c_str());
+    printf("\n        /* A knob by name, and its range, where the patch gave one:\n"
+           "           false for a knob the patch hasn't got. */\n"
+           "        bool set (const char *name, float value)\n        {\n");
+    for (const auto &k : c.knobs)
+        printf("            if (!strcmp(name, \"%s\")) { %s = value; return true; }\n",
+               k.first.c_str(), Compiler::knobField(k.first).c_str());
+    printf("            return false;\n        }\n\n"
+           "        static bool range (const char *name, float &min, float &max)\n        {\n");
+    for (const auto &r : c.ranges)
+        printf("            if (!strcmp(name, \"%s\")) { min = %s; max = %s; return true; }\n",
+               r.first.c_str(), Compiler::literal(r.second.first).c_str(),
+               Compiler::literal(r.second.second).c_str());
+    printf("            return false;\n        }\n    };\n\n"
+           "    float note = 0, velocity = 0, trigger = 0;\n"
+           "    float aux0 = 0, aux1 = 0, aux2 = 0, aux3 = 0;\n");
     for (thNode *n : c.placed)
         if (!Compiler::stateType(n).empty())
             printf("    %s n%d;    /* %s */\n", Compiler::stateType(n).c_str(), c.order[n],
@@ -414,11 +545,12 @@ main (int argc, char **argv)
 
     printf("\n    /* As the engine starts a voice: velocity 0..127 to 0..1. */\n"
            "    void start (float n, float v)\n    {\n"
+           "        *this = thv%s();\n"
            "        note = n;\n        velocity = v * %s / %d;\n        trigger = 1;\n    }\n\n"
            "    void release () { trigger = 0; }\n\n"
            "    bool render (const Knobs &k, float *const *out, int count)\n    {\n"
            "        (void)k;\n        float sounding = 1;\n\n",
-           Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
+           name.c_str(), Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
 
     /* Once a call: what numbers, knobs and the note alone decide, and the
        control structs of kernels whose control inputs are all that. */
@@ -439,7 +571,10 @@ main (int argc, char **argv)
         }
     for (size_t ch = 0; ch < outs.size(); ch++)
         printf("            out[%zu][i] = %s;\n", ch, outs[ch].second.text.c_str());
-    printf("            sounding = %s;\n        }\n        return sounding > 0;\n    }\n};\n\n"
-           "#endif\n", play.text.c_str());
+    printf("            sounding = %s;\n        }\n        return sounding > 0;\n    }\n",
+           play.text.c_str());
+    if (!device.empty())
+        printf("%s", profileCode(profile).c_str());
+    printf("};\n\n#endif\n");
     return 0;
 }
