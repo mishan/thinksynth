@@ -4,6 +4,7 @@
 # Built on the composer host's profile reader (src/thcHidBlock.h), never the
 # other way round, so the composer can carry a mapping without this library.
 add_library(think_hid OBJECT
+    thhCamera.cpp
     thhControls.cpp
     thhHands.cpp
     thhIndex.cpp
