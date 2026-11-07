@@ -17,6 +17,7 @@
  */
 
 #include <cmath>
+#include <cstring>
 
 #include "thhBox.h"
 
@@ -60,6 +61,10 @@ clamp1 (float v)
     return v < -1 ? -1 : v > 1 ? 1 : v;
 }
 
+/* Upright and facing you, up is the sensor's -x; the screen faces -z,
+   and its left edge +y. */
+static const float UP[3] = { -1, 0, 0 };
+
 void
 thhBoxFeedImu (const float accel[3], const float gyro[3], float dt,
                thhBoxImu &imu, thhState &s)
@@ -80,11 +85,52 @@ thhBoxFeedImu (const float accel[3], const float gyro[3], float dt,
 
     if (g > 0)
     {
-        /* Upright and facing you, up is the sensor's -x; the screen faces
-           -z, and its left edge +y. */
-        s.axis[THH_BOX_TILT] = clamp1(std::asin(clamp1(-imu.g[2] / g)) / (float)(M_PI / 2));
-        s.axis[THH_BOX_ROLL] = clamp1(std::asin(clamp1(imu.g[1] / g)) / (float)(M_PI / 2));
+        /* Gravity turned as the pose leveled is to upright, so both count
+           from it. Tilt is the angle about the screen's left-right axis,
+           all the way round, so it holds at a quarter turn rather than
+           folding back past it; scaled down as the BOX rolls, as asin's
+           was, and to none on its side, where that angle is noise. */
+        float u[3];
+
+        for (int i = 0; i < 3; i++)
+            u[i] = (imu.level[i][0] * imu.g[0] + imu.level[i][1] * imu.g[1] +
+                    imu.level[i][2] * imu.g[2]) / g;
+        s.axis[THH_BOX_TILT] = clamp1(std::atan2(-u[2], -u[0]) / (float)(M_PI / 2) *
+                                      std::hypot(u[0], u[2]));
+        s.axis[THH_BOX_ROLL] = clamp1(std::asin(clamp1(u[1])) / (float)(M_PI / 2));
     }
     s.axis[THH_BOX_TWIST] = clamp1(imu.twist);
     s.axis[THH_BOX_TURN] = clamp1(imu.turn / THH_BOX_TURN_FULL);
+}
+
+void
+thhBoxLevel (thhBoxImu &imu)
+{
+    const float g = std::sqrt(imu.g[0] * imu.g[0] + imu.g[1] * imu.g[1] +
+                              imu.g[2] * imu.g[2]);
+
+    if (g <= 0)
+        return;
+
+    /* The least turn taking gravity now to upright's (Rodrigues'), or
+       half a turn about the left-right axis from upside down. */
+    const float a[3] = { imu.g[0] / g, imu.g[1] / g, imu.g[2] / g };
+    const float v[3] = { a[1] * UP[2] - a[2] * UP[1], a[2] * UP[0] - a[0] * UP[2],
+                         a[0] * UP[1] - a[1] * UP[0] };
+    const float c = a[0] * UP[0] + a[1] * UP[1] + a[2] * UP[2];
+
+    if (c < -0.9999f)
+    {
+        const float half[3][3] = { { -1, 0, 0 }, { 0, 1, 0 }, { 0, 0, -1 } };
+
+        std::memcpy(imu.level, half, sizeof(half));
+        return;
+    }
+
+    const float k = 1 / (1 + c), vv = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    const float cross[3][3] = { { 0, -v[2], v[1] }, { v[2], 0, -v[0] }, { -v[1], v[0], 0 } };
+
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            imu.level[i][j] = (i == j) * (1 - k * vv) + cross[i][j] + k * v[i] * v[j];
 }

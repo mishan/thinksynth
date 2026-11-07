@@ -17,14 +17,16 @@
  */
 
 /* thinkbox: patches compiled for an ESP32-S3-BOX (generate.sh), eight
-   voices of the one playing on one core, through the speaker; on the
-   other, the touchscreen and the IMU read 250 times a second and played
-   through the BOX's profile and the patch's block by the same mapper the
-   desktop's controllers have. The side button steps to the next patch. */
+   voices of the one playing, rendered on both cores, through the
+   speaker; and two fingers on the touchscreen and the IMU, read 250
+   times a second and played through the BOX's profile and the patch's
+   block by the same mapper the desktop's controllers have. The side
+   button steps to the next patch, the last's notes ringing out. */
 
-#include <math.h>
+#include <cmath>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "driver/gpio.h"
@@ -50,7 +52,7 @@
 /* Two blocks in a row over this much of their time shed a voice, and a
    new note where the blocks run near it takes a sounding voice rather
    than a free one. */
-#define SHED_AT 0.85f
+#define SHED_AT 0.75f
 #define BOX_RATE 32000
 /* How long the screen must read no finger for one to have lifted. */
 #define TOUCH_LIFTED_US 40000
@@ -307,6 +309,9 @@ struct Contact
    A report left unread is offered again and again, and nothing newer
    behind it, so every one is read through. Finger records are ten bytes
    each after a seven-byte header; a 14-byte report is the buttons'. */
+/* The red button under the screen, as its report last said. */
+static bool homeDown = false;
+
 static int
 touchRead (Contact *out, int most)
 {
@@ -318,9 +323,22 @@ touchRead (Contact *out, int most)
 
     const int n = len[0] | (len[1] << 8);
 
-    if (n < 2 || n > (int)sizeof(report) ||
-        i2c_master_receive(touch, report, n, 20) != ESP_OK || n < 7 || n == 14)
+    if (n > (int)sizeof(report))
+    {
+        uint8_t *const whole = (uint8_t *)malloc(n);
+
+        if (whole)
+            i2c_master_receive(touch, whole, n, 20);
+        free(whole);
         return 0;
+    }
+    if (n < 2 || i2c_master_receive(touch, report, n, 20) != ESP_OK || n < 7)
+        return 0;
+    if (n == 14)
+    {
+        homeDown = report[5] & 1;
+        return 0;
+    }
 
     int count = 0;
 
@@ -414,7 +432,10 @@ audioTask (void *)
         for (int i = 0; i < BLOCK; i++)
             for (int c = 0; c < 2; c++)
             {
-                const float x = fminf(1, fmaxf(-1, mix[c][i] * GAIN));
+                /* A NaN would clamp to -1, an infinity to 1, a full-scale DC:
+                   silence. */
+                const float y = mix[c][i] * GAIN;
+                const float x = std::isfinite(y) ? fminf(1, fmaxf(-1, y)) : 0;
 
                 frames[2 * i + c] = (int16_t)(x * 32000);
             }
@@ -468,20 +489,27 @@ drawKey (int k, bool on)
     static const int HUE[5][3] = {
         { 230, 70, 70 }, { 230, 160, 40 }, { 200, 210, 60 }, { 60, 190, 120 },
         { 70, 120, 230 } };
-    static uint16_t *strip = NULL;
+    /* Two, each filled while the other is still being sent: a draw only
+       queues its pixels, and waits for the last one's only as it starts. */
+    static uint16_t *strips[2] = { NULL, NULL };
     int from, to;
 
     keySpan(k, from, to);
     if (to <= from)
         return;
-    if (!strip)
-        strip = (uint16_t *)heap_caps_malloc(W * STRIP * 2, MALLOC_CAP_DMA);
+    for (int b = 0; b < 2; b++)
+        if (!strips[b])
+            strips[b] = (uint16_t *)heap_caps_malloc(W * STRIP * 2, MALLOC_CAP_DMA);
+    if (!strips[0] || !strips[1])
+        return;
 
     const int *h = HUE[k % 5];
     const int w = to - from;
 
     for (int y0 = TOP; y0 < H; y0 += STRIP)
     {
+        uint16_t *strip = strips[((y0 - TOP) / STRIP) % 2];
+
         for (int y = y0; y < y0 + STRIP; y++)
             for (int x = 0; x < w; x++)
             {
@@ -513,6 +541,8 @@ drawPatches (int n, int on)
 
     if (!row)
         row = (uint16_t *)heap_caps_malloc(W * TOP * 2, MALLOC_CAP_DMA);
+    if (!row)
+        return;
     for (int y = 0; y < TOP; y++)
         for (int x = 0; x < W; x++)
         {
@@ -721,7 +751,12 @@ controlTask (void *)
 
         /* Each contact to the finger with its id, or to a free one. */
         Contact points[FINGERS];
+        const bool wasHome = homeDown;
         const int count = touchRead(points, FINGERS);
+
+        /* The red button: the pose it's in now is level. */
+        if (homeDown && !wasHome)
+            thhBoxLevel(imu);
 
         most = count > most ? count : most;
         for (int p = 0; p < count; p++)
@@ -812,7 +847,10 @@ app_main (void)
     bc.flags.enable_internal_pullup = true;
     ESP_ERROR_CHECK(i2c_new_master_bus(&bc, &bus));
 
-    if (!audio_open(bus, BOX_RATE, 70))
+    /* With nothing to write to, the audio task would never wait. */
+    const bool speaker = audio_open(bus, BOX_RATE, 70);
+
+    if (!speaker)
         printf("thinkbox: no speaker\n");
 
     /* The IMU, an ICM-42607 at 0x68: accelerometer and gyro on, low noise. */
@@ -823,7 +861,8 @@ app_main (void)
     ic.device_address = 0x68;
     ic.scl_speed_hz = 400000;
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &imu));
-    i2c_master_transmit(imu, on, 2, 100);
+    if (i2c_master_transmit(imu, on, 2, 100) != ESP_OK)
+        printf("thinkbox: no IMU; tilt and roll stay level\n");
 
     ic.device_address = 0x24;
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &touch));
@@ -831,8 +870,10 @@ app_main (void)
     lock = xSemaphoreCreateMutex();
     go = xSemaphoreCreateBinary();
     done = xSemaphoreCreateBinary();
+    configASSERT(lock && go && done);
     printf("thinkbox: %d patches, %d voices each at %d Hz\n", NPATCHES, VOICES, BOX_RATE);
-    xTaskCreatePinnedToCore(audioTask, "audio", 8192, NULL, 20, NULL, 1);
+    if (speaker)
+        xTaskCreatePinnedToCore(audioTask, "audio", 8192, NULL, 20, NULL, 1);
     xTaskCreatePinnedToCore(helperTask, "helper", 8192, NULL, 19, NULL, 0);
     xTaskCreatePinnedToCore(controlTask, "control", 8192, NULL, 10, NULL, 0);
     if (displayOpen())

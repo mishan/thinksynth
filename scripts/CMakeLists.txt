@@ -343,6 +343,8 @@ think_harness(mpecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiPlay.cpp")
 
 # Loops of the notes the hands play (hid/thhLooper.h).
 think_harness(hidloopcheck COMPOSERHOST HID)
+# The BOX's pose from its IMU, leveled where it rests (hid/thhBox.h).
+think_harness(boxcheck COMPOSERHOST HID)
 
 # What the controller pane says about a profile (hid/thhPane.h).
 think_harness(hidpanecheck COMPOSERHOST HID)
@@ -1195,6 +1197,7 @@ add_test(NAME mpecheck
          COMMAND mpecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
 add_test(NAME hidcamcheck COMMAND hidcamcheck)
+add_test(NAME boxcheck COMMAND boxcheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"
                           "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt"
