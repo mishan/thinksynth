@@ -27,8 +27,10 @@
 
 #include "thKernel.h"
 #include "../plugins/env/adsr.h"
+#include "../plugins/filt/svf.h"
 #include "../plugins/mixer/pan.h"
 #include "../plugins/osc/blep.h"
+#include "../plugins/osc/noise.h"
 #include "../plugins/osc/simple.h"
 
 static int failed = 0;
@@ -92,6 +94,20 @@ main ()
         for (int i = 0; i < 100; i++)
             ok = ok && same(a.tick(c, nan, nan, sync, edge), b.tick(c, zero, zero, sync, edge));
         report("osc::blep takes a NaN start and reset as none", ok);
+    }
+    report("a NaN color and level are white at full scale",
+           same(thkNoise::ctl(nan, nan), thkNoise::ctl(zero, 1)));
+    report("a NaN cutoff and resonance are 0",
+           same(thkSvf::ctl(nan, nan, 32000), thkSvf::ctl(zero, zero, 32000)));
+    {
+        const thkSvf::Ctl c = thkSvf::ctl(1000, 0.5f, 32000);
+        thkSvf a, b;
+        float band, high;
+        bool ok = true;
+
+        for (int i = 0; i < 100; i++)
+            ok = ok && same(a.tick(c, nan, band, high), b.tick(c, zero - 1, band, high));
+        report("filt::svf takes a NaN in as the floor", ok);
     }
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");

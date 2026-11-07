@@ -34,7 +34,11 @@
 #include "../plugins/env/adsr.h"
 #include "../plugins/misc/midi2freq.h"
 #include "../plugins/mixer/pan.h"
+#include "../plugins/dice.h"
+#include "../plugins/dist/saturate.h"
+#include "../plugins/filt/svf.h"
 #include "../plugins/osc/blep.h"
+#include "../plugins/osc/noise.h"
 #include "../plugins/osc/fmop.h"
 #include "../plugins/osc/simple.h"
 
@@ -394,6 +398,164 @@ main ()
         }
         report("osc::blep's saw and pulse reset partway into a sample", worstReset, 1e-5);
     }
+
+    /* The noise's white is dice.h's stream through the double it went
+       through, bit for bit. */
+    {
+        thkNoise noise;
+        float dice[2];
+        int differ = 0;
+
+        noise.seed(12345);
+        thDiceSeedBits(dice, 12345);
+        for (int i = 0; i < 100000; i++)
+        {
+            const float want = (float)(2 * thDiceNext(dice) - 1);
+            const float got = noise.tick(thkNoise::ctl(0, 1));
+
+            differ += memcmp(&want, &got, sizeof(float)) != 0;
+        }
+        report("the noise is dice.h's stream, to the bit", differ, 0);
+    }
+
+    /* Pink and brown from that stream through their filters in double,
+       from the published coefficients -- Kellett's for pink, a pole at
+       0.995 for brown -- each scaled to put five of its standard
+       deviations, worked out from them, at the peak: a second's pass of
+       twenty, every sample. Pink's sigma in noise.h is a measurement, a
+       quarter of a thousandth over its formula. */
+    {
+        static const double P[3] = { 0.99765, 0.96300, 0.57000 };
+        static const double G[3] = { 0.0990460, 0.2965164, 1.0526913 };
+        const double gw = 0.1848, pb = 0.995;
+        double var = gw * gw;
+
+        for (int i = 0; i < 3; i++)
+        {
+            var += 2 * gw * G[i];
+            for (int j = 0; j < 3; j++)
+                var += G[i] * G[j] / (1 - P[i] * P[j]);
+        }
+
+        const double sigma[3] = { 0, std::sqrt(var / 3), std::sqrt((1 - pb) / (1 + pb) / 3) };
+
+        for (int color = 1; color <= 2; color++)
+        {
+            thkNoise noise;
+            float dice[2];
+            double b[3] = { 0, 0, 0 }, brown = 0, worstAbs = 0, got2 = 0, want2 = 0;
+
+            noise.seed(777);
+            thDiceSeedBits(dice, 777);
+            for (int i = 0; i < 20 * 44100; i++)
+            {
+                const double w = 2 * thDiceNext(dice) - 1;
+
+                for (int j = 0; j < 3; j++)
+                    b[j] = P[j] * b[j] + G[j] * w;
+                brown = pb * brown + (1 - pb) * w;
+
+                double want = (color == 1 ? b[0] + b[1] + b[2] + gw * w : brown) /
+                              (5 * sigma[color]);
+
+                want = std::max(-1.0, std::min(1.0, want));
+
+                const float got = noise.tick(thkNoise::ctl((float)color, 1));
+
+                worstAbs = std::max(worstAbs, std::fabs(got - want));
+                got2 += (double)got * got;
+                want2 += want * want;
+            }
+            report(color == 1 ? "pink noise, its filter, every sample"
+                              : "brown noise, its filter, every sample", worstAbs, 4e-4);
+            report(color == 1 ? "pink noise, its level" : "brown noise, its level",
+                   std::fabs(std::sqrt(got2 / want2) - 1), 4e-4);
+        }
+    }
+
+    /* The filter's low passes a held level and its high takes it out;
+       resonance near the top rings but stays put. */
+    {
+        thkSvf f;
+        const thkSvf::Ctl c = thkSvf::ctl(1000, 0.9f, 44100);
+        float low = 0, band, high = 1;
+
+        for (int i = 0; i < 44100; i++)
+            low = f.tick(c, 0.5f, band, high);
+        report("filt::svf's low passes a held level, its high none of it",
+               std::fabs(low - 0.5f) + std::fabs(high), 1e-5);
+    }
+
+    /* The filter's three outputs at a quarter, at and four times its
+       cutoff against the bilinear transform of 1 / (s^2 + k s + 1) and
+       its band and high, k = 2 - 2 res: at the cutoff the low and high
+       are Q, 1 / k, the band 1. 1200 Hz at 48k, so every tone is a whole
+       number of samples a cycle, a tenth of full scale in, a second to
+       settle and a second measured. */
+    {
+        static const float RES[] = { 0, 0.5f, 0.9f };
+        static const double FREQ[] = { 300, 1200, 4800 };
+        const double rate = 48000, fc = 1200;
+        double worstRel = 0;
+
+        for (float res : RES)
+            for (double f : FREQ)
+            {
+                const thkSvf::Ctl c = thkSvf::ctl((float)fc, res, (float)rate);
+                const double k = 2 - 2 * (double)res;
+                const double W = std::tan(M_PI * f / rate) / std::tan(M_PI * fc / rate);
+                const double D = std::hypot(1 - W * W, k * W);
+                const double want[3] = { 1 / D, k * W / D, W * W / D };
+                double si[3] = { 0, 0, 0 }, co[3] = { 0, 0, 0 };
+                thkSvf svf;
+
+                for (int n = 0; n < 2 * 48000; n++)
+                {
+                    const double ph = 2 * M_PI * f * n / rate;
+                    float y[3];
+
+                    y[0] = svf.tick(c, (float)(0.1 * std::sin(ph)), y[1], y[2]);
+                    if (n >= 48000)
+                        for (int o = 0; o < 3; o++)
+                        {
+                            si[o] += y[o] * std::sin(ph);
+                            co[o] += y[o] * std::cos(ph);
+                        }
+                }
+                for (int o = 0; o < 3; o++)
+                    worstRel = std::max(worstRel,
+                                        std::fabs(std::hypot(si[o], co[o]) * 2 / 48000 / 0.1 /
+                                                  want[o] - 1));
+            }
+        report("filt::svf's low, band and high, Q and all, around its cutoff", worstRel, 1e-4);
+    }
+
+    /* tanh in float, against the double's. */
+    worst = 0;
+    for (float x = -12; x <= 12; x += 0.0007f)
+        worst = std::max(worst, std::fabs(thkTanh(x) - std::tanh((double)x)));
+    report("dist::saturate's tanh", worst, 2.5e-7);
+
+    /* Down where 1 - 2 / (e^2x + 1) would cancel to nothing: to its
+       size. */
+    worst = 0;
+    for (double e = -12; e <= -1; e += 0.01)
+        for (int sign = -1; sign <= 1; sign += 2)
+        {
+            const float x = (float)(sign * std::pow(10.0, e));
+
+            worst = std::max(worst, std::fabs(thkTanh(x) / std::tanh((double)x) - 1));
+        }
+    report("dist::saturate's tanh of a small input, relative to it", worst, 3e-7);
+
+    static const float FACTOR[] = { 0.25f, 1, 3, 8 };
+
+    worst = 0;
+    for (float factor : FACTOR)
+        for (float in = -1; in <= 1; in += 0.001f)
+            worst = std::max(worst, std::fabs(thkSaturate(in, factor) -
+                                              std::tanh((double)factor * in)));
+    report("dist::saturate by a factor", worst, 2.5e-7);
 
     /* The envelopes' shapes: (sample, level, sounding) where it matters. */
     struct Shape

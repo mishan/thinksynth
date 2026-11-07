@@ -78,7 +78,9 @@
 
 #include "think.h"
 
-/* The resonance ceiling.
+#include "svf.h"
+
+/* The resonance ceiling, thkSvf::RESMAX.
  *
  * `res' is mapped to the damping k = 2 - 2*res, so res of 1 is k of 0: two
  * integrators with nothing damping them, which is an oscillator rather than a
@@ -87,20 +89,14 @@
  * without bound, so the top of the range is short of it. 0.99 leaves k at
  * 0.02, which is a Q of 50: as resonant as anything here is asked to be, and
  * still a filter. */
-#define RESMAX 0.99f
 
-/* How near Nyquist a cutoff may be asked for.
+/* How near Nyquist a cutoff may be asked for, thkSvf::CUTOFF_CEIL.
  *
  * g is tan(pi*fc/rate), which runs to infinity at half the rate: the prewarp
  * is the correction for the transform's squashing, and at Nyquist the
  * squashing is total. 0.49 puts the ceiling a fiftieth of the rate short of
  * it, where g is 32 -- a filter that passes everything, which is what a
  * cutoff at Nyquist means. */
-#define CUTOFF_CEIL 0.49f
-
-/* Below this the state is zero. Six hundred decibels under full scale:
-   nothing that can be heard, and well clear of the denormals. */
-#define SVF_FLUSH 1e-30f
 
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_LOW, OUT_BAND, OUT_HIGH, INOUT_LAST};
 std::atomic<int> args[INOUT_LAST + 1];
@@ -135,11 +131,12 @@ int module_init (thPlugin *plugin)
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
     plugin->setArgSmooth(args[IN_RES], TH_SMOOTH_MS);
     /* A real range, unlike every other filter here: the whole span is
-       stable and the whole span is usable. See RESMAX for where it stops. */
+       stable and the whole span is usable. See thkSvf::RESMAX for where
+       it stops. */
     plugin->setArgDesc(args[IN_RES],
                        "Resonance: 0 is flat, 0.99 is a Q of 50. Stable "
                        "across the whole range");
-    plugin->setArgRange(args[IN_RES], 0, RESMAX);
+    plugin->setArgRange(args[IN_RES], 0, thkSvf::RESMAX);
     plugin->setArgUnits(args[IN_RES], "0..1");
 
     args[OUT_LOW] = plugin->regArg("out_low", thPlugin::ARG_OUT);
@@ -162,163 +159,73 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
-/* The output stage, and the one place the filter is not exact: a resonant
-   peak is up to fifty times what went in, and a node that can hand the mix a
-   fifty is a node that empties the master limiter. Clipped rather than
-   scaled, which is what filt::res2pole2 does and what the rest of the tree
-   expects an audio arg to arrive as. */
-static inline float clip (float x)
-{
-    if (x > TH_MAX)
-        return TH_MAX;
 
-    if (x < TH_MIN)
-        return TH_MIN;
 
-    return x;
-}
-
-/* The trapezoidal coefficients for a cutoff in hertz and a resonance. */
-static void coefficients (float cut, float res, unsigned int samples,
-                          float *k, float *a1, float *a2, float *a3)
-{
-    const double g = tan(M_PI * thClampArg(cut, 0.0f, CUTOFF_CEIL * samples) /
-                         (double)samples);
-    const double kk = 2.0 - 2.0 * thClampArg(res, 0.0f, RESMAX);
-    const double d = 1.0 / (1.0 + g * (g + kk));
-
-    *k = (float)kk;
-    *a1 = (float)d;
-    *a2 = (float)(g * d);
-    *a3 = (float)(g * g * d);
-}
-
-/* With nothing coming in, rounding keeps a resonant filter's state circling
-   just above zero, in the denormals, for as long as the note lasts -- where
-   some processors take a hundred times as long over every multiply. */
-static inline float flush (float x)
-{
-    return fabsf(x) < SVF_FLUSH ? 0.0f : x;
-}
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    float *out_low, *out_band, *out_high;
-    float *out_last;
-    thArg *in_arg, *in_cutoff, *in_res;
-    thArg *inout_last;
-    unsigned int i;
-    float ic1, ic2;
+    float *out_low = mod->getArg(node, args[OUT_LOW])->allocate(windowlen);
+    float *out_band = mod->getArg(node, args[OUT_BAND])->allocate(windowlen);
+    float *out_high = mod->getArg(node, args[OUT_HIGH])->allocate(windowlen);
+    thArg *inout_last = mod->getArg(node, args[INOUT_LAST]);
+    thArg *in_arg = mod->getArg(node, args[IN_ARG]);
+    thArg *in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    thArg *in_res = mod->getArg(node, args[IN_RES]);
+    thkSvf f;
 
-    /* The coefficients, and the cutoff and resonance they were worked out
-       from. A tan() a sample would be most of the cost of the filter and
-       neither number usually moves; a NaN never compares equal to itself, so
-       it takes the recompute path where the clamps answer for it. */
-    float lastCut = 0, lastRes = 0;
-    float a1 = 0, a2 = 0, a3 = 0, k = 2;
-    bool have = false;
+    f.ic1 = (*inout_last)[0];
+    f.ic2 = (*inout_last)[1];
 
-    out_low = mod->getArg(node, args[OUT_LOW])->allocate(windowlen);
-    out_band = mod->getArg(node, args[OUT_BAND])->allocate(windowlen);
-    out_high = mod->getArg(node, args[OUT_HIGH])->allocate(windowlen);
+    float *last = inout_last->allocate(2);
 
-    inout_last = mod->getArg(node, args[INOUT_LAST]);
-    ic1 = (*inout_last)[0];
-    ic2 = (*inout_last)[1];
-    out_last = inout_last->allocate(2);
-
-    /* Feedback state: one non-finite sample would otherwise be read back for
-       the life of the note. The filter cannot produce one on its own -- that
-       is the point of the form -- so this is about what arrives. */
-    if (!thIsFinite(ic1) || !thIsFinite(ic2))
-        ic1 = ic2 = 0;
-
-    in_arg = mod->getArg(node, args[IN_ARG]);
-    in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
-    in_res = mod->getArg(node, args[IN_RES]);
+    /* A non-finite state would ring for the life of the note. The filter
+       cannot produce one on its own -- that is the point of the form -- so
+       this is about what arrives. */
+    if (!thIsFinite(f.ic1) || !thIsFinite(f.ic2))
+        f.ic1 = f.ic2 = 0;
 
     float in[windowlen];
 
     in_arg->getBuffer(in, windowlen);
 
-    /* A cutoff and a resonance that are one value each are one set of
-       coefficients, and the loop is the recursion and nothing else: the
-       outputs are clipped afterwards, a pass the compiler can widen. */
-    if (in_cutoff->len() <= 1 && in_res->len() <= 1)
+    /* Silence in and none left ringing is silence out, with no
+       coefficients to work out. */
+    bool quiet = f.ic1 == 0 && f.ic2 == 0;
+
+    for (unsigned int i = 0; quiet && i < windowlen; i++)
+        quiet = in[i] == 0;
+    if (quiet)
     {
-        bool quiet = ic1 == 0 && ic2 == 0;
-
-        for (i = 0; quiet && i < windowlen; i++)
-            quiet = in[i] == 0;
-
-        /* A filter at rest with nothing coming in stays at rest. */
-        if (quiet)
-        {
-            memset(out_low, 0, windowlen * sizeof(float));
-            memset(out_band, 0, windowlen * sizeof(float));
-            memset(out_high, 0, windowlen * sizeof(float));
-        }
-        else
-        {
-            coefficients((*in_cutoff)[0], (*in_res)[0], samples, &k, &a1,
-                         &a2, &a3);
-
-            for (i = 0; i < windowlen; i++)
-            {
-                const float v0 = thClampArg(in[i], TH_MIN, TH_MAX);
-                const float v3 = v0 - ic2;
-                const float v1 = a1 * ic1 + a2 * v3;
-                const float v2 = ic2 + a2 * ic1 + a3 * v3;
-
-                ic1 = flush(2.0f * v1 - ic1);
-                ic2 = flush(2.0f * v2 - ic2);
-
-                in[i] = v0;
-                out_band[i] = v1;
-                out_low[i] = v2;
-            }
-
-            for (i = 0; i < windowlen; i++)
-            {
-                const float v1 = out_band[i], v2 = out_low[i];
-
-                out_low[i] = clip(v2);
-                out_band[i] = clip(k * v1);
-                out_high[i] = clip(in[i] - k * v1 - v2);
-            }
-        }
+        memset(out_low, 0, windowlen * sizeof(float));
+        memset(out_band, 0, windowlen * sizeof(float));
+        memset(out_high, 0, windowlen * sizeof(float));
+        return 0;
     }
-    else
-        for (i = 0; i < windowlen; i++)
+
+    /* The coefficients again only where the cutoff or resonance moves: a
+       tanf a sample would be most of the filter. A NaN never equals
+       itself, so it takes the recompute, where the clamps answer for it. */
+    float lastCut = (*in_cutoff)[0], lastRes = (*in_res)[0];
+    thkSvf::Ctl c = thkSvf::ctl(lastCut, lastRes, (float)samples);
+
+    for (unsigned int i = 0; i < windowlen; i++)
+    {
+        const float cut = (*in_cutoff)[i], res = (*in_res)[i];
+
+        if (cut != lastCut || res != lastRes)
         {
-            const float v0 = thClampArg(in[i], TH_MIN, TH_MAX);
-            const float cut = (*in_cutoff)[i];
-            const float res = (*in_res)[i];
-            float v1, v2, v3;
-
-            if (!have || cut != lastCut || res != lastRes)
-            {
-                coefficients(cut, res, samples, &k, &a1, &a2, &a3);
-                lastCut = cut;
-                lastRes = res;
-                have = true;
-            }
-
-            v3 = v0 - ic2;
-            v1 = a1 * ic1 + a2 * v3;
-            v2 = ic2 + a2 * ic1 + a3 * v3;
-
-            ic1 = flush(2.0f * v1 - ic1);
-            ic2 = flush(2.0f * v2 - ic2);
-
-            out_low[i] = clip(v2);
-            out_band[i] = clip(k * v1);
-            out_high[i] = clip(v0 - k * v1 - v2);
+            c = thkSvf::ctl(cut, res, (float)samples);
+            lastCut = cut;
+            lastRes = res;
         }
+        out_low[i] = TH_MAX * f.tick(c, in[i] / TH_MAX, out_band[i], out_high[i]);
+        out_band[i] *= TH_MAX;
+        out_high[i] *= TH_MAX;
+    }
 
-    out_last[0] = ic1;
-    out_last[1] = ic2;
+    last[0] = f.ic1;
+    last[1] = f.ic2;
 
     return 0;
 }

@@ -23,10 +23,12 @@
  * Each patch is compiled at build time; here one note of it plays in the
  * engine and in the compiled voice, released partway, and every sample of
  * every channel is compared. A channel with one voice at full level adds
- * that voice to nothing, so its output is the voice's. And a patch's
- * controller block, compiled with it, plays as a profile does.
+ * that voice to nothing, so its output is the voice's. A noise, whose
+ * stream isn't the engine's, is held to it by its statistics. And a
+ * patch's controller block, compiled with it, plays as a profile does.
  */
 
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -40,7 +42,9 @@
 #include "thvDxbell.h"
 #include "thvGate.h"
 #include "thvNames.h"
+#include "thvNoise.h"
 #include "thvGrab.h"
+#include "thvIndex.h"
 
 #define WINDOW 128
 
@@ -141,6 +145,85 @@ check (const char *name, const std::string &file, const std::string &plugins,
     }
 }
 
+/* A noise's level, and the level of its steps over that, which is its
+   slope: sqrt(2) for a white, less the more it leans to the low end. */
+static void
+levels (const float *y, int n, double &rms, double &slope)
+{
+    double e = 0, d = 0;
+
+    for (int i = 1; i < n; i++)
+    {
+        e += (double)y[i] * y[i];
+        d += ((double)y[i] - y[i - 1]) * ((double)y[i] - y[i - 1]);
+    }
+    rms = std::sqrt(e / (n - 1));
+    slope = std::sqrt(d / e);
+}
+
+/* The engine's noise and a compiled voice's are seeded apart (start()'s
+   seed is the firmware's to give), so what is held to the engine's is
+   the streams' statistics, over 32 seconds of each color after its
+   first 100 ms: a level or a slope 1% off is a different noise. */
+static void
+checkNoise (const std::string &file, const std::string &plugins)
+{
+    static const char *const COLORS[] = { "white", "pink", "brown" };
+    const int skip = 3200, len = 32 * 32000;
+    std::vector<float> live(len), compiled(len);
+    char why[200] = "";
+
+    for (int color = 0; color < 3 && !why[0]; color++)
+    {
+        thSynth synth(plugins, WINDOW, (int)thvNoise::rate);
+        thvNoise voice;
+        thvNoise::Knobs knobs;
+        float out[WINDOW];
+        float *outs[1] = { out };
+
+        if (!synth.loadTree(file, 0, MIDIVALMAX))
+        {
+            snprintf(why, sizeof(why), "%s didn't load", file.c_str());
+            break;
+        }
+        synth.setChanArg(0, new thArg(std::string("color"), (float)color));
+        knobs.k_color = (float)color;
+        synth.addNote(0, 60, 127);
+        voice.start(60, 127, 7);
+        for (int at = 0; at < skip + len; at += WINDOW)
+        {
+            int channels = 0;
+
+            synth.process();
+            voice.render(knobs, outs, WINDOW);
+
+            const float *ch = synth.getChannelOutput(0, &channels);
+
+            for (int i = 0; i < WINDOW; i++)
+                if (at + i >= skip && at + i - skip < len)
+                {
+                    live[at + i - skip] = ch ? ch[i * channels] : 0;
+                    compiled[at + i - skip] = out[i];
+                }
+        }
+
+        double rmsLive, slopeLive, rms, slope;
+
+        levels(live.data(), len, rmsLive, slopeLive);
+        levels(compiled.data(), len, rms, slope);
+        if (!(std::fabs(rms / rmsLive - 1) < 0.01 && std::fabs(slope / slopeLive - 1) < 0.01))
+            snprintf(why, sizeof(why), "%s: level %.4f, the engine %.4f; slope %.4f, "
+                     "the engine %.4f", COLORS[color], rms, rmsLive, slope, slopeLive);
+    }
+    if (!why[0])
+        printf("ok    the compiled noise is the engine's, by level and slope\n");
+    else
+    {
+        printf("FAIL  the compiled noise is the engine's, by level and slope\n  %s\n", why);
+        failed++;
+    }
+}
+
 int
 main (int argc, char **argv)
 {
@@ -154,10 +237,20 @@ main (int argc, char **argv)
     check<thvGrab>("dsp/grab.dsp, every knob turned", dsp + "/grab.dsp", plugins, 300, 600,
                    false, { { "bright", 0.8f }, { "ring", 20000 }, { "level", 0.6f },
                             { "pan", 0.5f } });
+    /* index.dsp's breath is its noise, and its Air at 0 takes all of it:
+       the compiled voice's noise isn't the engine's stream. */
+    check<thvIndex>("dsp/index.dsp, filter, saturation and all, Air at 0",
+                    dsp + "/index.dsp", plugins, 300, 600);
+    check<thvIndex>("dsp/index.dsp, every knob but Air turned", dsp + "/index.dsp", plugins,
+                    300, 600, false,
+                    { { "bright", 0.7f }, { "wobble", 0.6f }, { "growl", 0.5f },
+                      { "sub", 0.8f }, { "bend", 0.3f }, { "level", 0.9f },
+                      { "pan", -0.4f }, { "r", 5000 } });
     check<thvGate>("a gated envelope through its release, done as the engine is",
                    dsp + "/../scripts/compiled/gate.dsp", plugins, 100, 200, true);
     check<thvNames>("knobs named for a word of C++'s and for set()'s own",
                     dsp + "/../scripts/compiled/names.dsp", plugins, 100, 200, true);
+    checkNoise(dsp + "/../scripts/compiled/noise.dsp", plugins);
 
     /* Each by its name, whatever that is in C++. */
     {

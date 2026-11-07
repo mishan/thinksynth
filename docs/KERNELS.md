@@ -6,8 +6,9 @@ plain floats to a float. The plugin runs the kernel over its window; a
 patch compiled to a program inlines it. What plays live and what a
 compiled patch plays are then the same arithmetic.
 
-`osc::fmop`, `env::ad`, `env::adsr` and `misc::midi2freq` have kernels,
-and the pattern is theirs:
+`osc::fmop`, `osc::simple`, `osc::blep`, `osc::noise`, `env::ad`,
+`env::adsr`, `filt::svf`, `dist::saturate`, `mixer::pan` and
+`misc::midi2freq` have kernels, and the pattern is theirs:
 
 - **`plugins/<category>/<name>.h`** holds the kernel, `struct thk<Name>`.
   It includes `libthink/thKernel.h` and nothing else of the engine's: no
@@ -66,8 +67,11 @@ call, as the engine works it out once a window. Times are samples at the
 rate it is given, as the engine folds them at load. A patch using a
 plugin with no kernel, or a loop, is refused with the node named, and so
 is an effect, whose input a voice isn't given. `start()` makes the voice
-new again, so a firmware can keep a pool of them; a knob's member is its
-name after `k_` (`k_bright`), since a name may be one of C++'s.
+new again, so a firmware can keep a pool of them, and seeds its noises:
+`start(note, velocity, seed)`, the seed 0 if none is given, so a
+firmware passes each voice a seed of its own or every voice's noise is
+the same stream. A knob's member is its name after `k_` (`k_bright`),
+since a name may be one of C++'s.
 
 Each knob comes with its range and a `set()` by name, for a controller
 profile to ride. With `-c DEVICE` the patch's `controller DEVICE` block,
@@ -75,9 +79,16 @@ checked against that controller's controls, comes too, as `profile()`,
 a `thcHidBlock` a `thhMapper` plays: a microcontroller needn't parse
 one.
 
-`scripts/compilecheck` holds two compiled voices -- `dsp/dxbell.dsp`, and
-`scripts/compiled/gate.dsp` for a gated envelope's release -- to what the
-engine renders of the same note, bit for bit. The knobs hold still there:
-a knob turned while a note sounds is glided by the engine, and the
-compiled voice doesn't glide yet. It also plays `dxbell`'s compiled
-block for the BOX through a mapper.
+`scripts/compilecheck` holds compiled voices -- `dsp/dxbell.dsp`,
+`dsp/grab.dsp`, `dsp/index.dsp`, `scripts/compiled/gate.dsp` for a gated
+envelope's release and `scripts/compiled/names.dsp` for knobs named for
+C++'s words -- to what the engine renders of the same note, bit for bit,
+at their knobs' defaults and with the knobs turned. The knobs hold still
+there: where a knob turned while a note sounds reaches `mixer::pan`'s
+`pan`, `mixer::mul`'s inputs or `filt::svf`'s cutoff and resonance, the
+engine glides it over 5 ms, and a compiled voice steps to it at its next
+call. Nor is a voice's noise the engine's stream, which comes from the
+synth's: `index` is held to the bit with its Air, all of its noise, at
+0, and `scripts/compiled/noise.dsp`'s compiled noise to the engine's by
+each color's level and slope. It also plays `dxbell`'s compiled block
+for the BOX through a mapper.
