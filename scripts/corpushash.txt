@@ -2,7 +2,7 @@ toolchain: GNU 13.3.0 x86_64 RelWithDebInfo [-O2 -g -DNDEBUG]
 144216388b154029  amb01.dsp
 fa2272eade7fbf85  analog.dsp
 4600850d72543ac5  anasync.dsp
-2e7e0fc480658fcd  aspect2.dsp
+9559cc8f167d126d  aspect2.dsp
 b21670da77bc533d  bass.dsp
 9c27b84027a18e45  bd10.dsp
 e22c9052d566564d  bdshaped.dsp
@@ -99,8 +99,8 @@ cd3b8deff2e7c611  rhodes.dsp
 d760aa78cba809ad  ride909.dsp
 daca5fcf460a8b85  rim808.dsp
 affd91013f1631e5  riser.dsp
-551c9b0282a0be25  rpiano0.dsp
-519027c018668af5  rpiano1.dsp
+85c5e8475c70428d  rpiano0.dsp
+c22e14805d1e7605  rpiano1.dsp
 c74b47c8c74a2325  sampled_cellos.dsp
 c74b47c8c74a2325  sampled_drums.dsp
 c74b47c8c74a2325  sampled_flute.dsp
