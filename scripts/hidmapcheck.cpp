@@ -82,6 +82,8 @@ describe (const std::vector<thhAction> &acts)
                   : "aux" + std::to_string(a.aux) + " ")
               << a.channel + 1 << " " << a.note << " " << t;
         }
+        else if (a.kind == thhAction::LOOP)
+            s << "loop " << a.arg << " " << a.channel + 1;
         else
         {
             snprintf(t, sizeof(t), "%.3f", a.t);
@@ -193,6 +195,15 @@ static const Row ROWS[] = {
       "axis stick_y -1; down a; up a",
       " | on 1 84 100 | off 1 84 |  | on 1 72 100 | off 1 72 |  | "
       "on 1 36 100 | off 1 36", 0, NULL },
+    { "loops on buttons, the record to play on its own channel",
+      "device index { a = loop record { channel = 2; }; b = loop undo; };",
+      "ch 3; down a; up a; down b; up b",
+      " | loop record 2 |  | loop undo 3 | ", 0, NULL },
+    { "a loop on an axis, once each time it rises past its at",
+      "device index { twist = loop clear; };",
+      "axis twist 0; axis twist 0.7; axis twist 0.9; axis twist 0.5; "
+      "axis twist 0.8; axis twist 0.3; axis twist 0.8",
+      " | loop clear 1 |  |  |  |  | loop clear 1", 0, NULL },
     { "the pitch axis on a scale's degrees, either side of the base",
       "device index { a = note 0; "
       "stick_y = pitch { scale = minor_pentatonic; range = 5; }; };",

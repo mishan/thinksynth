@@ -46,6 +46,8 @@ thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
             synth.setNoteAux(a.channel, a.note, a.aux, (float)a.t);
             continue;
         }
+        else if (a.kind == thhAction::LOOP)
+            continue;
         else
         {
             /* Looked up every time: a patch loaded since would leave a kept

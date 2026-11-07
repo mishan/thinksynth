@@ -117,6 +117,11 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
     case thcHidBinding::VELOCITY:
         r.action = "velocity" + range(b);
         break;
+    case thcHidBinding::LOOP:
+        r.action = "loop " + b.arg + (axis >= 0 ? " at " + number(b.at) : "");
+        if (b.arg == "record")
+            r.target = where;
+        break;
     }
 
     if (button >= 0)

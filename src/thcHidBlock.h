@@ -36,7 +36,7 @@
 struct thcHidBinding
 {
     enum Kind { NOTE, HOLD, TOGGLE, OCTAVE, VALUE, PITCH, VELOCITY, STRIKE,
-                BEND, AUX };
+                BEND, AUX, LOOP };
     enum Shape { LINEAR, EXP };
 
     Kind        kind;
@@ -46,11 +46,12 @@ struct thcHidBinding
     int         semis;      /* NOTE, STRIKE: above the base; OCTAVE: the step;
                                AUX: which */
     std::string layer;      /* HOLD, TOGGLE */
-    std::string arg;        /* VALUE */
+    std::string arg;        /* VALUE; LOOP: record, undo or clear */
     int         channel;    /* NOTE, VALUE, STRIKE: 1-16; 0 inherits */
     bool        hasMin, hasMax;
     double      min, max;   /* VALUE, VELOCITY, STRIKE's velocity */
-    double      at, off;    /* STRIKE: on rising past at, off below off */
+    double      at, off;    /* STRIKE, LOOP on an axis: on rising past at,
+                               off below off */
     double      center;     /* VALUE, PITCH: where the axis counts from */
     double      smooth;     /* VALUE: seconds it takes to follow the axis */
     bool        latch;      /* NOTE: a press starts it, the next ends it */

@@ -69,12 +69,13 @@ thhMapper::bindLayer (const std::vector<thcHidBinding> &bindings,
     for (size_t i = 0; i < bindings.size(); i++)
     {
         const thcHidBinding &b = bindings[i];
+        const int button = controls.button(b.control);
+        const int axis = controls.axis(b.control);
         const bool wantsButton = b.kind == thcHidBinding::NOTE ||
                                  b.kind == thcHidBinding::HOLD ||
                                  b.kind == thcHidBinding::TOGGLE ||
-                                 b.kind == thcHidBinding::OCTAVE;
-        const int button = controls.button(b.control);
-        const int axis = controls.axis(b.control);
+                                 b.kind == thcHidBinding::OCTAVE ||
+                                 (b.kind == thcHidBinding::LOOP && button >= 0);
         Bound bound = { b, wantsButton ? button : axis, false, -1 };
 
         errLine = b.line;
@@ -194,7 +195,9 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
         {
             const int at = layers[0].button[l.binds[j].index];
             const bool button = l.binds[j].b.kind == thcHidBinding::NOTE ||
-                                l.binds[j].b.kind == thcHidBinding::OCTAVE;
+                                l.binds[j].b.kind == thcHidBinding::OCTAVE ||
+                                (l.binds[j].b.kind == thcHidBinding::LOOP &&
+                                 controls.button(l.binds[j].b.control) >= 0);
 
             if (button && at >= 0 &&
                 (layers[0].binds[at].b.kind == thcHidBinding::HOLD ||
@@ -399,6 +402,21 @@ thhMapper::press (int button, const thhState &s, int curChannel,
         sound(b, held_[button], s, curChannel, -1, out);
         held_[button].latched = b.latch;
     }
+
+    if (b.kind == thcHidBinding::LOOP)
+        loop(b, curChannel, out);
+}
+
+void
+thhMapper::loop (const thcHidBinding &b, int curChannel,
+                 std::vector<thhAction> &out) const
+{
+    thhAction a = thhAction();
+
+    a.kind = thhAction::LOOP;
+    a.arg = b.arg;
+    a.channel = channelOf(b, curChannel);
+    out.push_back(a);
 }
 
 void
@@ -651,7 +669,9 @@ thhMapper::strike (int axis, const thhState &s, int curChannel,
 
     const Bound *bd = find(true, axis);
 
-    if (!bd || bd->b.kind != thcHidBinding::STRIKE)
+    const bool isLoop = bd && bd->b.kind == thcHidBinding::LOOP;
+
+    if (!bd || (bd->b.kind != thcHidBinding::STRIKE && !isLoop))
     {
         armed_[axis] = false;
         return;
@@ -661,6 +681,11 @@ thhMapper::strike (int axis, const thhState &s, int curChannel,
     {
         armed_[axis] = true;
         below_[axis] = s.time;
+    }
+    else if (v >= bd->b.at && armed_[axis] && isLoop)
+    {
+        armed_[axis] = false;
+        loop(bd->b, curChannel, out);
     }
     else if (v >= bd->b.at && armed_[axis] && h.what != Held::NOTE)
     {

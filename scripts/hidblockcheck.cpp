@@ -61,6 +61,9 @@ describe (const thcHidBinding &b)
     case thcHidBinding::STRIKE:
         s << "strike " << b.semis << " at" << b.at << " off" << b.off;
         break;
+    case thcHidBinding::LOOP:
+        s << "loop " << b.arg << " at" << b.at << " off" << b.off;
+        break;
     }
 
     if (b.channel)
@@ -232,6 +235,14 @@ static const Row ROWS[] = {
     { "a scale stepping by octaves",
       "device index {\n  tilt = pitch { step = octave; scale = major; "
       "range = 2; };\n};", NULL, 2, "degrees" },
+    { "loops on a button and on an axis",
+      "device index { a = loop record { channel = 2; }; "
+      "twist = loop clear { at = 0.7; }; b = loop undo; };",
+      "index ch0 base60 vel100 | a:loop record at0.6 off0.4 ch2 @1 | "
+      "twist:loop clear at0.7 off0.5 @1 | b:loop undo at0.6 off0.4 @1", 0, NULL },
+    { "a loop that isn't one",
+      "device index {\n  a = loop again;\n};", NULL, 2,
+      "record, undo or clear" },
     { "a latched note and a smoothed knob",
       "device index { a = note 0 { latch; }; grip_top = \"pitch\" { "
       "smooth = 0.1; }; };",
