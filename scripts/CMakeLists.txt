@@ -278,6 +278,10 @@ think_harness(compilecheck COMPOSERHOST HID EXTRA ${THINK_COMPILED_VOICES})
 target_include_directories(compilecheck PRIVATE "${THINK_COMPILED}"
                            "${PROJECT_SOURCE_DIR}/plugins")
 
+# Marbles and pegs: its physics, taps and shakes (game/thgMarbles.h).
+think_harness(gamecheck COMPOSERHOST HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgMarbles.cpp")
+target_include_directories(gamecheck PRIVATE "${PROJECT_SOURCE_DIR}/game")
+
 # The plugins' kernels against the arithmetic they stand for (thKernel.h).
 think_harness(kernelcheck)
 # And their guards against a NaN under -ffast-math, whatever the build's.
@@ -1070,6 +1074,7 @@ add_test(NAME argtype
 add_test(NAME controllercheck COMMAND controllercheck)
 add_test(NAME kernelcheck COMMAND kernelcheck)
 add_test(NAME kernelfastcheck COMMAND kernelfastcheck)
+add_test(NAME gamecheck COMMAND gamecheck)
 add_test(NAME compilecheck
          COMMAND compilecheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/dsp")
