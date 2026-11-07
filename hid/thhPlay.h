@@ -42,11 +42,14 @@ void thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
    thSynthTree::controller() gives it), the same way. The patch defines
    the controller, and the player's file fills what it leaves. False, with
    the file, line and what is wrong in err, if the file or the patch
-   doesn't fit the device; out then plays without whichever doesn't. */
+   doesn't fit the device; out then plays without whichever doesn't, and
+   patchErr, if given, says what is wrong with the patch's, or nothing if
+   it plays. */
 bool thhLoadProfile (const std::string &path, const thhControls &controls,
                      const char *fallback, const std::string &hand,
                      thcHidBlock &out, std::string &err,
                      const std::string &patch = "",
-                     const std::string &patchName = "");
+                     const std::string &patchName = "",
+                     std::string *patchErr = NULL);
 
 #endif /* THH_PLAY_H */

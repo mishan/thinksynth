@@ -99,8 +99,10 @@ private:
     std::map<std::pair<int, int>, double> bends_[2];
 
     /* The controller block of the patch on the controllers' channel, as
-       last read, and that patch's name. */
-    std::string patchText_, patchName_;
+       last read, that patch's name, and why the block isn't played, if it
+       isn't. */
+    std::string patchText_, patchName_, patchError_;
+    int         playChannel_ = -1;     /* -1: the keyboard's */
 
     /* What both hands play, looped; ticked while it has loops. */
     thhLooper        looper_;

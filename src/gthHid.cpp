@@ -89,28 +89,38 @@ gthHid::~gthHid ()
     }
 }
 
-/* A reader for each controller found that hasn't one; a controller pulled
-   out keeps its reader, which takes it up again if it comes back where it
-   was. */
-/* The patch on the channel the controllers play, or NULL. */
+/* The patch on the channel the controllers play: the one their profile,
+   the player's file over the controller's own, sets, else the keyboard's.
+   NULL if it has none. */
 thSynthTree *
 gthHid::patchTree () const
 {
-    thMidiChan *chan = synth_->getChannel(channel_());
+    thMidiChan *chan = synth_->getChannel(playChannel_ >= 0 ? playChannel_
+                                                            : channel_());
 
     return chan ? chan->modnode() : NULL;
 }
 
+/* A reader for each controller found that hasn't one; a controller pulled
+   out keeps its reader, which takes it up again if it comes back where it
+   was. */
 bool
 gthHid::scan ()
 {
-    /* Another patch loaded, or the channel changed, is another controller
-       block. */
+    /* Another patch loaded, or the channel changed, may be another
+       controller block. Only another is read again: reading the file again
+       lets go of every note the controllers hold. */
     const thSynthTree *tree = patchTree();
+    const std::string text = tree ? tree->controller() : std::string();
     std::string err;
 
-    if ((tree ? tree->controller() : std::string()) != patchText_ && !reload(err))
+    if (text != patchText_ && !reload(err))
         fprintf(stderr, "controller: %s\n", err.c_str());
+    else if (tree && tree->name() != patchName_)
+    {
+        patchName_ = tree->name();
+        generation_++;
+    }
 
     const std::vector<thhIndexNodes> found = thhFindIndexes("/sys", "/dev");
 
@@ -202,15 +212,32 @@ gthHid::reload (std::string &err)
     std::string again;
     bool ok = true;
 
+    /* The channel the profile plays, without the patch's block: the block
+       is the one of the patch on that channel. */
+    thcHidBlock base;
+    std::string ignored;
+
+    thhLoadProfile(path_, thhIndexControls(), THH_INDEX_PROFILE, "", base,
+                   ignored);
+    playChannel_ = base.channel - 1;
+
     const thSynthTree *tree = patchTree();
 
     patchText_ = tree ? tree->controller() : std::string();
     patchName_ = tree ? tree->name() : std::string();
+    patchError_.clear();
+
     for (int i = 0; i < 3; i++)
+    {
+        std::string theirs;
+
         if (!thhLoadProfile(path_, thhIndexControls(), THH_INDEX_PROFILE,
                             hand[i], profiles_[i], i ? again : err, patchText_,
-                            patchName_))
+                            patchName_ + "'s controller block", &theirs))
             ok = false;
+        if (patchError_.empty())
+            patchError_ = theirs;
+    }
     if (ok || err.empty())
         err = again;
 
@@ -388,7 +415,10 @@ gthHid::patch () const
 {
     if (patchText_.empty())
         return "";
-    return "the controller block of " + patchName_;
+    return patchError_.empty()
+           ? "the controller block of " + patchName_
+           : "the controller block of " + patchName_ + " isn't played: " +
+             patchError_;
 }
 
 std::string

@@ -81,15 +81,55 @@ owned (thcHidBlock &b)
     }
 }
 
-/* A patch's block's bindings, marked so the pane can say whose they are. */
+/* A patch's lines, while its block is checked against the player's file:
+   lines of their own, so a mistake on one is the patch's whatever line of
+   the file has the same number. */
+#define THH_PATCH_LINES 1000000
+
+/* A patch's block's bindings, marked so the pane can say whose they are,
+   on the patch's lines of their own. */
 static void
 fromPatch (thcHidBlock &b)
 {
+    b.line += THH_PATCH_LINES;
+    for (auto &i : b.ignore)
+        i.second += THH_PATCH_LINES;
     for (thcHidBinding &x : b.bindings)
+    {
         x.patch = true;
+        x.line += THH_PATCH_LINES;
+    }
     for (thcHidLayer &l : b.layers)
+    {
+        l.line += THH_PATCH_LINES;
+        l.whenLine += THH_PATCH_LINES;
         for (thcHidBinding &x : l.bindings)
+        {
             x.patch = true;
+            x.line += THH_PATCH_LINES;
+        }
+    }
+}
+
+/* What plays, on the patch's lines as the patch numbers them. */
+static void
+patchLines (thcHidBlock &b)
+{
+    const auto back = [](int &line) {
+        if (line >= THH_PATCH_LINES)
+            line -= THH_PATCH_LINES;
+    };
+
+    back(b.line);
+    for (thcHidBinding &x : b.bindings)
+        back(x.line);
+    for (thcHidLayer &l : b.layers)
+    {
+        back(l.line);
+        back(l.whenLine);
+        for (thcHidBinding &x : l.bindings)
+            back(x.line);
+    }
 }
 
 /* over on top of into: a control bound in over replaces every binding of
@@ -182,7 +222,7 @@ bool
 thhLoadProfile (const std::string &path, const thhControls &controls,
                 const char *fallback, const std::string &hand,
                 thcHidBlock &out, std::string &err, const std::string &patch,
-                const std::string &patchName)
+                const std::string &patchName, std::string *patchErr)
 {
     std::error_code ec;
     std::string ignored, why;
@@ -219,8 +259,8 @@ thhLoadProfile (const std::string &path, const thhControls &controls,
     };
     /* Every hand, whichever is asked for now: an error in a hand's block
        is said with one controller too. */
+    thcHidBlock both;
     const auto fits = [&](bool player, bool patched) {
-        thcHidBlock both;
         thhMapper check;
         std::vector<thhAction> none;
 
@@ -254,15 +294,29 @@ thhLoadProfile (const std::string &path, const thhControls &controls,
     }
 
     /* The patch's, over what of the file fits; a patch that doesn't fit
-       is left out, and the rest plays. */
+       is left out, and the rest plays. A clash it makes with the file may
+       be said at the file's line. */
+    std::string theirErr;
+
     if (!patch.empty())
     {
-        if (!thcHidParseProfiles(patch, theirs, why, at) || !fits(player, true))
-            err += (err.empty() ? "" : "; ") + where(patchName);
-        else
-            patched = true;
+        const bool parsed = thcHidParseProfiles(patch, theirs, why, at);
+
+        patched = parsed && fits(player, true);
+        if (!patched && parsed && at > 0 && at < THH_PATCH_LINES)
+            theirErr = where(path) + ", with " + patchName;
+        else if (!patched)
+        {
+            if (at >= THH_PATCH_LINES)
+                at -= THH_PATCH_LINES;
+            theirErr = where(patchName);
+        }
     }
+    err += (err.empty() || theirErr.empty() ? "" : "; ") + theirErr;
 
     forOne(hand, player, patched, out);
+    patchLines(out);
+    if (patchErr)
+        *patchErr = theirErr;
     return err.empty();
 }

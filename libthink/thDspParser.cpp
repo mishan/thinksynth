@@ -418,7 +418,18 @@ Parser::controllerStatement (void)
 
     if (peek().kind != WORD)
         return expected("the device the controller block is for");
+    if (!isPunct(peek(1), "{") &&
+        !(peek(1).kind == WORD && isPunct(peek(2), "{")))
+    {
+        take();
+        if (peek().kind == WORD)
+            take();
+        return expected("'{' to open the controller block");
+    }
 
+    /* On from where the last block stopped, a space after it on its line. */
+    if (!tree_->controller().empty() && line == start.src->line)
+        text += ' ';
     for (; line < start.src->line; line++)
         text += '\n';
     text += "device";
@@ -451,7 +462,7 @@ Parser::controllerStatement (void)
     }
 
     /* The `;' is the statement loop's, as after any statement. */
-    tree_->addController(text + ";\n");
+    tree_->addController(text + ";");
     return true;
 }
 

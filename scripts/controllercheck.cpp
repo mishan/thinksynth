@@ -51,15 +51,20 @@ static const Row ROWS[] = {
     { "a block, as a profile, on its own lines",
       "name \"t\";\ncontroller index {\n    tilt = \"bright\" { smooth = 0.05; };\n};\n"
       GRAPH,
-      "\ndevice index {\ntilt = \"bright\" { smooth = 0.05; };\n};\n" },
+      "\ndevice index {\ntilt = \"bright\" { smooth = 0.05; };\n};" },
     { "a hand's block, a sign against its number, and a comment dropped",
       "controller index left { # the left hand\n  roll = bend { range = 2; center = -0.5; };\n};\n"
       GRAPH,
-      "device index left {\nroll = bend { range = 2; center = -0.5; };\n};\n" },
+      "device index left {\nroll = bend { range = 2; center = -0.5; };\n};" },
     { "two blocks, each where it was",
       "controller index { a = note 0; };\n" GRAPH
       "controller index right { b = note 7; };\n",
-      "device index { a = note 0; };\n\n\ndevice index right { b = note 7; };\n" },
+      "device index { a = note 0; };\n\n\ndevice index right { b = note 7; };" },
+    { "two blocks on one line stay on it",
+      "controller index { a = note 0; }; controller index left { b = note 7; };\n" GRAPH,
+      "device index { a = note 0; }; device index left { b = note 7; };" },
+    { "a block with no braces is refused, not the rest of the file swallowed",
+      "controller index;\nnode spare { a = 1; };\n" GRAPH, NULL },
     { "a block never closed is refused",
       "controller index {\n  a = note 0;\n" GRAPH, NULL },
     { "a block with no device is refused",
