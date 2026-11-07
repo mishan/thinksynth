@@ -94,24 +94,35 @@ thhCamera::update (const float *axes, double seconds, bool connected,
             if (level < HIT_OFF)
                 s.buttons &= ~bit;
         }
-        else if (rising_[z])
+        else
         {
-            if (level > peak_[z] && seconds - since_[z] < PEAK_WAIT_SECONDS)
-                peak_[z] = level;
-            else
+            if (!rising_[z])
             {
-                const float peak = std::max(peak_[z], level);
-
-                rising_[z] = false;
-                strikes[z] = std::min(1.0f, (peak - HIT_ON) / (STRIKE_FULL - HIT_ON));
-                struck++;
+                if (level < HIT_ON)
+                    continue;
+                rising_[z] = true;
+                peak_[z] = level;
+                since_[z] = seconds;
+                if (level < STRIKE_FULL)
+                    continue;
             }
-        }
-        else if (level >= HIT_ON)
-        {
-            rising_[z] = true;
-            peak_[z] = level;
-            since_[z] = seconds;
+
+            /* Short of the wait by a rounding error is the wait: 120 fps
+               stamps are never exact. A stamp before the crossing ends it,
+               or a rising level would hold the press for as long. */
+            const double waited = seconds - since_[z];
+
+            if (level > peak_[z] && waited >= 0 && waited < PEAK_WAIT_SECONDS - 1e-6)
+            {
+                peak_[z] = level;
+                continue;
+            }
+
+            const float peak = std::max(peak_[z], level);
+
+            rising_[z] = false;
+            strikes[z] = std::min(1.0f, (peak - HIT_ON) / (STRIKE_FULL - HIT_ON));
+            struck++;
         }
     }
 

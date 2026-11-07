@@ -25,14 +25,16 @@
 #include "thhControls.h"
 
 /* A webcam as a controller: thMotion's axes, and buttons a profile can play
-   notes with. A zone is struck, and its hit_N button goes down, when its
-   level crosses HIT_ON; it comes up below HIT_OFF. `moving' is down while
-   anything moves.
+   notes with. A zone is struck when its level rises past HIT_ON, and its
+   hit_N button comes up when the level falls below HIT_OFF. `moving' is
+   down while anything moves.
 
-   A strike's level is still rising when it crosses HIT_ON, so the press
-   waits for the peak, up to PEAK_WAIT_SECONDS, and `strike' carries it:
-   0 at HIT_ON, 1 at STRIKE_FULL or over. Bound as the velocity source, it
-   makes each hit as loud as its own zone was struck. */
+   A strike's level is still rising when it passes HIT_ON, so hit_N goes
+   down at the peak: the first frame the level stops rising, or the first
+   PEAK_WAIT_SECONDS or more after the crossing; at once if it crossed at
+   STRIKE_FULL. `strike' carries the peak, 0 at HIT_ON and 1 at STRIKE_FULL
+   or over. Bound as the velocity source, it makes each hit as loud as its
+   own zone was struck. */
 
 enum thhCameraButton
 {
