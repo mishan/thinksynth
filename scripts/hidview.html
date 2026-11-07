@@ -61,7 +61,9 @@ function pad(hand) {
   const div = document.createElement('div');
   div.className = 'pad';
   div.innerHTML = `<b>${hand}</b><canvas width=${W} height=${H}></canvas><table></table>`;
-  document.getElementById('pads').appendChild(div);
+  // Left on the left, whichever is heard first.
+  const all = document.getElementById('pads');
+  if (hand === 'left') all.prepend(div); else all.appendChild(div);
   return pads[hand] = { q: null, bias: [0, 0, 0], learn: null, integral: [0, 0, 0],
                         ctx: div.querySelector('canvas').getContext('2d'),
                         table: div.querySelector('table'), last: null };
