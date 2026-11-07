@@ -88,12 +88,12 @@ public:
     static constexpr double MAX_GAP_SECONDS = 0.25;
 
     /* Motion is 1 when a patch of HAND_SHARE of the frame changes this
-       much a second: about a hand at arm's length crossing ten of its own
-       widths a second, against a background 180 levels darker. A difference
-       is all this sees, so a hand against a wall of its own tone reads
-       quieter at every speed. */
+       much a second. Set by a hand at a webcam at arm's length: a slow
+       wave reads a quarter or so, a sharp strike half to all of it and
+       half in its zone, and breathing under PLACE_MOTION. A difference is all this sees, so a
+       hand against a wall of its own tone reads quieter at every speed. */
     static constexpr double HAND_SHARE = 0.05;
-    static constexpr double FULL_MOTION_PER_SECOND = 14;
+    static constexpr double FULL_MOTION_PER_SECOND = 28;
     static constexpr double PLACE_MOTION = 0.02;
 
     /* Smaller than 3x3, a frame has no zones and nothing is measured. */
@@ -105,6 +105,9 @@ public:
 
     /* 0..1 */
     float axis (Axis a) const { return axes_[a]; }
+
+    int width (void) const { return width_; }
+    int height (void) const { return height_; }
 
     /* The name a profile uses: "motion", "x", ..., "zone_1" .. "zone_9". */
     static const char *axisName (Axis a);
