@@ -413,11 +413,14 @@ Parser::controllerStatement (void)
     std::string text;
     int line = 1, depth = 0;
 
-    for (const char c : tree_->controller())
-        line += c == '\n';
-
     if (peek().kind != WORD)
         return expected("the device the controller block is for");
+
+    /* Each device's blocks go on from where its last stopped. */
+    const std::string device = peek().src->text;
+
+    for (const char c : tree_->controller(device))
+        line += c == '\n';
     if (!isPunct(peek(1), "{") &&
         !(peek(1).kind == WORD && isPunct(peek(2), "{")))
     {
@@ -428,7 +431,7 @@ Parser::controllerStatement (void)
     }
 
     /* On from where the last block stopped, a space after it on its line. */
-    if (!tree_->controller().empty() && line == start.src->line)
+    if (!tree_->controller(device).empty() && line == start.src->line)
         text += ' ';
     for (; line < start.src->line; line++)
         text += '\n';
@@ -462,7 +465,7 @@ Parser::controllerStatement (void)
     }
 
     /* The `;' is the statement loop's, as after any statement. */
-    tree_->addController(text + ";");
+    tree_->addController(device, text + ";");
     return true;
 }
 

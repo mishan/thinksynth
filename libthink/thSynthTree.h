@@ -149,13 +149,24 @@ public:
     const string &category(void) const { return category_; }
     void setCategory(const string &category) { category_ = category; }
 
-    /* The patch's `controller' blocks, as the text of a controller profile
-     * (docs/HID.md): `device' for each `controller', on the lines the file
-     * had them on, so a mistake is reported at the patch's own line.
+    /* The patch's `controller' blocks for a device, as the text of a
+     * controller profile (docs/HID.md): `device' for each `controller', on
+     * the lines the file had them on, so a mistake is reported at the
+     * patch's own line. Each device's are kept apart, so a patch may carry
+     * blocks for controllers a host has never heard of.
      * Nothing in the engine reads it; a host hands it to the controller
      * code, which plays it over the player's own profile. */
-    const string &controller (void) const { return controller_; }
-    void addController (const string &text) { controller_ += text; }
+    const string &controller (const string &device) const
+    {
+        static const string none;
+        const std::map<string, string>::const_iterator i = controller_.find(device);
+
+        return i == controller_.end() ? none : i->second;
+    }
+    void addController (const string &device, const string &text)
+    {
+        controller_[device] += text;
+    }
 
     int nodeCount (void) const { return nodecount_; }
 
@@ -397,7 +408,8 @@ private:
     /* What desugarExprs() left behind, for the editor. Not copied either. */
     std::vector<thExprBox> exprBoxes_;
 
-    string name_, desc_, category_, controller_;
+    string name_, desc_, category_;
+    std::map<string, string> controller_;     /* by device */
     int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 
                             id for the node index */
     thNode **nodeindex_; /* index of all the nodes */
