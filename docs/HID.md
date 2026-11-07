@@ -206,6 +206,12 @@ device index {
 };
 ```
 
+`hid/profiles` holds two whole instruments for a pair, each to copy to
+`hid/index` in the configuration directory: `theremin`, a two-handed one
+on `dsp/index.dsp`, and `grab`, after Imogen Heap's gloves, where the
+right hand plays a scale by how high it is held and the left squeezes to
+record loops of it, which `dsp/grab.dsp` plays on channel 2.
+
 ### The controls
 
 Buttons: `a`, `b`, `system`, `trigger_click`, `thumbstick` (pressing it in),

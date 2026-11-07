@@ -66,6 +66,7 @@ aadbceb37770b1b1  fx/vocoder-mic.dsp
 dedc11ca49bd8151  fx/vocoder.dsp
 778b3544f06e5ead  fx/wah.dsp
 618c640d3c38c165  glass.dsp
+b5e4db9b0e5aa74d  grab.dsp
 bd2d3b666be57ccd  grand.dsp
 5dcde5157f24c3bd  guitar.dsp
 7849213614212ccd  hat.dsp

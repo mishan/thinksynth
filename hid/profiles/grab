@@ -1,0 +1,50 @@
+# Grab: a looping instrument for two Index controllers, after Imogen
+# Heap's gloves. Load dsp/index.dsp on the keyboard's channel (1) for the
+# right hand's notes, and dsp/grab.dsp on channel 2 for the loops.
+#
+# Right hand, notes: pull the trigger to play, louder the faster you
+# pull. Raise or lower your hand to pick the note, along C minor
+# pentatonic: level is C4, upright about two octaves up. A and B step an
+# octave up and down. Roll your wrist to brighten or darken the tone;
+# squeeze the grip to swell a note.
+#
+# Left hand, loops: squeeze the grip to start recording what the right
+# hand plays, and squeeze again to end it: it loops from then, as long
+# as you took. Each new recording loops on top of the others. B drops
+# the newest loop; a sharp twist of the wrist drops them all. Tilt the
+# hand forward to fade the loops (upright is full), pull the trigger to
+# brighten them, and push the stick to pan them.
+#
+# One controller alone plays the notes and squeezes its own loops.
+
+device index {
+    base = "C4";
+
+    trigger = strike 0 { at = 0.5; };
+    tilt = pitch { scale = minor_pentatonic; range = 11; };
+    a = octave 1;
+    b = octave -1;
+    roll = "bright" { smooth = 0.05; };
+    grip_force = loop record { at = 0.5; channel = 2; };
+
+    ignore pad_y;
+    ignore grip_mid;
+    ignore grip_low;
+    ignore stick_y;
+    ignore turn;
+    ignore fist;
+};
+
+device index right {
+    grip_force = aux 0 { smooth = 0.03; };
+};
+
+device index left {
+    ignore a;
+    ignore roll;
+    b = loop undo;
+    twist = loop clear { at = 0.7; };
+    tilt = "level" { channel = 2; center = 0.9; min = 0; max = 2; smooth = 0.05; };
+    trigger = "bright" { channel = 2; min = 0.4; max = 1; smooth = 0.03; };
+    stick_x = "pan" { channel = 2; };
+};
