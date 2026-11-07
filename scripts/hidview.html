@@ -1,0 +1,195 @@
+<!doctype html>
+<!-- hidpose view: each Index controller drawn as the code takes it to be
+     built, turning as its raw samples say. Served by scripts/hidpose. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Index controllers, as the code sees them</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 16px; background: #fafafa; color: #222; }
+  .pads { display: flex; gap: 16px; flex-wrap: wrap; }
+  .pad { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 10px; }
+  canvas { display: block; }
+  table { border-collapse: collapse; margin-top: 6px; }
+  td { padding: 1px 10px 1px 0; font-variant-numeric: tabular-nums; }
+  button { margin: 8px 8px 0 0; }
+  .key span { display: inline-block; width: 12px; height: 12px; vertical-align: -2px; margin: 0 4px 0 10px; }
+</style>
+</head>
+<body>
+<p><b>What the code assumes:</b> the arrow is what it calls the
+<b>front</b> (the sensor's &minus;x), the orange face is what it calls the
+<b>top</b>, where the buttons are (&minus;y), and the blue face is the
+<b>right side</b> (+z). Hold each controller and see whether the drawing
+moves with it, and whether its front and top are the ones you'd say.</p>
+<p class="key"><span style="background:#e8743b"></span>top (buttons)
+<span style="background:#3b7de8"></span>right side
+<span style="background:#999"></span>other faces</p>
+<p>Hold both still for a moment and press <button id="still">Hold still: learn the gyros' rest</button>
+then point them at the screen and press <button id="face">Face the screen</button></p>
+<div class="pads" id="pads"></div>
+<script>
+const W = 420, H = 380;
+const pads = {};
+
+// Quaternions [w, x, y, z]; q takes the controller's axes to the room's
+// (x right, y into the screen, z up).
+const qmul = (a, b) => [
+  a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+  a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+  a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
+  a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0]];
+const conj = q => [q[0], -q[1], -q[2], -q[3]];
+const rot = (q, v) => qmul(qmul(q, [0, v[0], v[1], v[2]]), conj(q)).slice(1);
+const norm = v => { const m = Math.hypot(...v) || 1; return v.map(x => x / m); };
+const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+const deg = r => r * 180 / Math.PI;
+
+// The rotation taking unit u onto unit v.
+function fromTo(u, v) {
+  const c = cross(u, v), d = dot(u, v);
+  if (d < -0.9999) return [0, 1, 0, 0];
+  return norm([1 + d, ...c]);
+}
+
+const GYRO = Math.PI / 180 / 16.4;    // counts to radians a second
+const ONE_G = 4096;
+
+function pad(hand) {
+  if (pads[hand]) return pads[hand];
+  const div = document.createElement('div');
+  div.className = 'pad';
+  div.innerHTML = `<b>${hand}</b><canvas width=${W} height=${H}></canvas><table></table>`;
+  // Left on the left, whichever is heard first.
+  const all = document.getElementById('pads');
+  if (hand === 'left') all.prepend(div); else all.appendChild(div);
+  return pads[hand] = { q: null, bias: [0, 0, 0], learn: null, integral: [0, 0, 0],
+                        ctx: div.querySelector('canvas').getContext('2d'),
+                        table: div.querySelector('table'), last: null };
+}
+
+// A Mahony filter: the gyro turns it, and gravity, while it reads about
+// one g, pulls its up back to the measured one.
+function feed(m) {
+  const p = pad(m.hand);
+  const a = norm(m.a), mag = Math.hypot(...m.a) / ONE_G;
+  if (p.learn) { p.learn.sum = p.learn.sum.map((s, i) => s + m.w[i]); p.learn.n++; }
+  if (!p.q) p.q = fromTo(a, [0, 0, 1]);
+  let w = m.w.map((x, i) => (x - p.bias[i]) * GYRO);
+  if (Math.abs(mag - 1) < 0.15) {
+    const up = rot(conj(p.q), [0, 0, 1]);
+    const e = cross(a, up);
+    p.integral = p.integral.map((s, i) => s + 0.02 * e[i] * m.dt);
+    w = w.map((x, i) => x + 2.0 * e[i] + p.integral[i]);
+  }
+  const dq = qmul(p.q, [0, ...w]);
+  p.q = norm(p.q.map((x, i) => x + 0.5 * dq[i] * m.dt));
+  p.last = m;
+}
+
+document.getElementById('still').onclick = () => {
+  for (const p of Object.values(pads)) p.learn = { sum: [0, 0, 0], n: 0 };
+  setTimeout(() => {
+    for (const p of Object.values(pads))
+      if (p.learn && p.learn.n) { p.bias = p.learn.sum.map(s => s / p.learn.n); p.learn = null; }
+  }, 2000);
+};
+
+// Turns the room about up so the front points into the screen, or, held
+// nearly straight up, so the top faces you.
+document.getElementById('face').onclick = () => {
+  for (const p of Object.values(pads)) {
+    if (!p.q) continue;
+    let f = rot(p.q, [-1, 0, 0]);
+    if (Math.hypot(f[0], f[1]) < 0.5) f = rot(p.q, [0, 1, 0]);
+    const yaw = Math.atan2(f[0], f[1]);
+    p.q = qmul([Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)], p.q);
+  }
+};
+
+// A box in the controller's axes, longest along x, the front at -x.
+const BOX = { x: [-5, 5], y: [-1.6, 1.6], z: [-2.2, 2.2] };
+const FACES = [
+  { n: [0, -1, 0], color: '#e8743b', label: 'top' },
+  { n: [0, 1, 0], color: '#999' },
+  { n: [0, 0, 1], color: '#3b7de8', label: 'right' },
+  { n: [0, 0, -1], color: '#999' },
+  { n: [-1, 0, 0], color: '#bbb' },
+  { n: [1, 0, 0], color: '#999' },
+];
+
+function faceCorners(n) {
+  const k = n.findIndex(x => x !== 0);
+  const at = n[k] < 0 ? BOX['xyz'[k]][0] : BOX['xyz'[k]][1];
+  const [u, v] = [0, 1, 2].filter(i => i !== k);
+  const r = (i, s) => BOX['xyz'[i]][s];
+  return [[0,0],[1,0],[1,1],[0,1]].map(([a, b]) => {
+    const c = [0, 0, 0]; c[k] = at; c[u] = r(u, a); c[v] = r(v, b); return c;
+  });
+}
+
+function project(v) {
+  const el = 0.3, D = 26, f = 620;
+  const y = v[1] * Math.cos(el) - v[2] * Math.sin(el);
+  const z = v[1] * Math.sin(el) + v[2] * Math.cos(el);
+  return [W / 2 + f * v[0] / (y + D), H / 2 - f * z / (y + D), y];
+}
+
+function draw(p) {
+  const c = p.ctx;
+  c.clearRect(0, 0, W, H);
+  if (!p.q) return;
+  const light = norm([-0.4, -0.6, 0.7]);
+  const faces = FACES.map(F => {
+    const pts = faceCorners(F.n).map(v => project(rot(p.q, v)));
+    const n = rot(p.q, F.n);
+    return { F, pts, n, depth: pts.reduce((s, q) => s + q[2], 0) / 4 };
+  }).filter(f => f.n[1] * Math.cos(0.3) - f.n[2] * Math.sin(0.3) < 0.05)
+    .sort((a, b) => b.depth - a.depth);
+  for (const f of faces) {
+    const shade = 0.55 + 0.45 * Math.max(0, dot(f.n, light));
+    c.fillStyle = f.F.color;
+    c.globalAlpha = shade;
+    c.beginPath();
+    f.pts.forEach(([x, y], i) => i ? c.lineTo(x, y) : c.moveTo(x, y));
+    c.closePath(); c.fill();
+    c.globalAlpha = 1; c.strokeStyle = '#333'; c.stroke();
+    if (f.F.label) {
+      const [x, y] = f.pts.reduce((s, q) => [s[0] + q[0] / 4, s[1] + q[1] / 4], [0, 0]);
+      c.fillStyle = '#fff'; c.font = 'bold 13px system-ui'; c.textAlign = 'center';
+      c.fillText(f.F.label, x, y + 4);
+    }
+  }
+  // The front arrow, out of the -x end.
+  const a0 = project(rot(p.q, [-5, 0, 0])), a1 = project(rot(p.q, [-10, 0, 0]));
+  c.strokeStyle = '#c0182b'; c.fillStyle = '#c0182b'; c.lineWidth = 4;
+  c.beginPath(); c.moveTo(a0[0], a0[1]); c.lineTo(a1[0], a1[1]); c.stroke();
+  c.beginPath(); c.arc(a1[0], a1[1], 6, 0, 7); c.fill();
+  c.lineWidth = 1; c.font = 'bold 13px system-ui'; c.textAlign = 'left';
+  c.fillText('front', a1[0] + 8, a1[1] - 6);
+  // The floor's direction, for scale.
+  c.fillStyle = '#888'; c.font = '12px system-ui';
+  c.fillText('up is up the screen; into the screen is away from you', 8, H - 8);
+
+  const m = p.last;
+  const up = rot(conj(p.q), [0, 0, 1]);
+  const tilt = deg(Math.asin(Math.max(-1, Math.min(1, -up[0]))));
+  const rows = [
+    ['', 'the app decodes', 'the drawing says'],
+    ['front above level', `${(m.tilt * 90).toFixed(0)}°`, `${tilt.toFixed(0)}°`],
+    ['roll (buttons left +)', m.roll.toFixed(2), up[2].toFixed(2)],
+    ['turn', m.turn.toFixed(2), ''],
+    ['twist', m.twist.toFixed(2), ''],
+    ['raw up (x y z)', norm(m.a).map(x => x.toFixed(2)).join(' '), ''],
+    ['gyro (°/s, x y z)', m.w.map((x, i) => ((x - p.bias[i]) / 16.4).toFixed(0)).join(' '), ''],
+  ];
+  p.table.innerHTML = rows.map(r => '<tr>' + r.map(x => `<td>${x}</td>`).join('') + '</tr>').join('');
+}
+
+const es = new EventSource('/events');
+es.onmessage = e => feed(JSON.parse(e.data));
+(function frame() { for (const p of Object.values(pads)) draw(p); requestAnimationFrame(frame); })();
+</script>
+</body>
+</html>

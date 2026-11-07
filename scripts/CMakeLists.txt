@@ -314,6 +314,9 @@ think_harness(hidplaycheck COMPOSERHOST HID)
 # Finding a controller and reading it on a thread (hid/thhReader.h), which
 # is Linux's.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # Whether a controller's decoded orientation is its real one, posed by
+  # hand (hid/thhIndex.h); needs the controllers, so it is no test.
+  think_harness(hidpose COMPOSERHOST HID)
   think_harness(hidreadcheck COMPOSERHOST HID)
   add_test(NAME hidreadcheck
            COMMAND hidreadcheck
