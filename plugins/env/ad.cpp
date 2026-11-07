@@ -23,6 +23,8 @@
 
 #include "think.h"
 
+#include "ad.h"
+
 /* An AD, not an ADSR: no sustain, no trigger, and the note is over when the
    decay is. env::adsr shipped with this same description. */
 static const char desc[] = "AD Envelope Generator";
@@ -74,105 +76,34 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    thArg *in_a, *in_d, *in_p, *in_reset;  /* User args */
-    thArg *inout_position;  /* [0] = position in stage, [1] = current stage */
-    thArg *out_out, *out_play;
+    thArg *in_a = mod->getArg(node, args[IN_A]);
+    thArg *in_d = mod->getArg(node, args[IN_D]);
+    thArg *in_p = mod->getArg(node, args[IN_P]);
+    thArg *in_reset = mod->getArg(node, args[IN_RESET]);
+    /* [0] the position in the stage, [1] the stage. */
+    thArg *inout_position = mod->getArg(node, args[INOUT_POSITION]);
+    thkAd env;
 
-    float *out, *play;
+    env.position = (*inout_position)[0];
+    env.phase = (int)(*inout_position)[1];
 
-    float *out_pos;
-    float temp;
-    float peak;
-    float position;
-    int phase;
-    unsigned int i;
- 
-    out_out = mod->getArg(node, args[OUT_OUT]);
-    out_play = mod->getArg(node, args[OUT_PLAY]);
-    inout_position = mod->getArg(node, args[INOUT_POSITION]);
+    float *state = inout_position->allocate(2);
+    float *out = mod->getArg(node, args[OUT_OUT])->allocate(windowlen);
+    float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
 
-    position = (*inout_position)[0];
-    phase = (int)(*inout_position)[1];
-    out_pos = inout_position->allocate(2);
+    /* The times once a window while they hold still. */
+    const bool still = in_a->len() <= 1 && in_d->len() <= 1 && in_p->len() <= 1;
+    thkAd::Ctl c = thkAd::ctl((*in_a)[0], (*in_d)[0], (*in_p)[0] / TH_MAX);
 
-    out = out_out->allocate(windowlen);
-    play = out_play->allocate(windowlen);
-
-    in_a = mod->getArg(node, args[IN_A]);
-    in_d = mod->getArg(node, args[IN_D]);
-    in_p = mod->getArg(node, args[IN_P]);
-    in_reset = mod->getArg(node, args[IN_RESET]);
-
-    if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
-        phase = 1;
+    for (unsigned int i = 0; i < windowlen; i++)
+    {
+        if (!still)
+            c = thkAd::ctl((*in_a)[i], (*in_d)[i], (*in_p)[i] / TH_MAX);
+        out[i] = TH_MAX * env.tick(c, (*in_reset)[i], play[i]);
     }
 
-    for(i=0;i<windowlen;i++) {
-        if((*in_p)[i] == 0) {
-            peak = TH_MAX;
-        } else {
-            peak = (*in_p)[i];
-        }
+    state[0] = env.position;
+    state[1] = env.phase;
 
-        if((*in_reset)[i] > 0) {
-                        position = 0;
-            if((*in_a)[i] == 0) {
-                phase = 1;
-            } else {
-                            phase = 0;
-            }
-                }
-
-        /* A segment of zero samples completes at once rather than dividing
-         * by its own length -- see env::adsr. */
-        if (phase == 0 && (*in_a)[i] <= 0) {
-            phase = 1;
-            position = 0;
-        }
-
-        if (phase == 1 && (*in_d)[i] <= 0) {
-            phase = 2;
-            position = 0;
-        }
-
-        switch (phase) {  /* Which phase of the AD are we in? */
-        case 0:   /* Attack */
-            temp = (*in_a)[i];
-
-            play[i] = 1;  /* Dont kill this note yet! */
-            out[i] = (sin((((position++)/temp)-0.5)*M_PI)+1)*(peak/2);
-            if(position >= temp) {
-                phase = 1;   /* A ended, go to D */
-                position = 0;  /* ...and go back to the beginnning of the phase */
-            }
-            break;
-        case 1:  /* Decay */
-            temp = (*in_d)[i];
-
-            play[i] = 1;
-
-            out[i] = (sin((((position++)/temp)+0.5)*M_PI)+1)*(peak/2);
-            if(position >= temp) {
-                phase = 2;   /* D ended, pad until note is over */
-            }
-            break;
-        case 2:   /* The note has ended and we are padding with 0 */
-            play[i] = 0;
-            out[i] = 0;
-
-             if((*in_reset)[i] > 0) { // We have been retriggered
-                                position = 0;
-                                phase = 0;
-                        }
-            break;
-        }
-    }
-
-    out_pos[0] = position;
-    out_pos[1] = phase;
-/*    node->SetArg("position", out_pos, 2);
-    node->SetArg("out", out, windowlen);
-    node->SetArg("play", play, windowlen);
-*/
     return 0;
 }

@@ -241,6 +241,41 @@ think_harness(dspbench)
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
 
+# A .dsp compiled to a voice of kernels, run a sample at a time.
+think_harness(dspcompile COMPOSERHOST HID)
+
+# Compiled voices against the engine's, to the bit: each patch compiled at
+# build time by dspcompile, whose plugins it loads to read the graph.
+set(THINK_COMPILED "${CMAKE_CURRENT_BINARY_DIR}/compiled")
+foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box"
+              "Gate;${CMAKE_CURRENT_SOURCE_DIR}/compiled/gate.dsp"
+              "Names;${CMAKE_CURRENT_SOURCE_DIR}/compiled/names.dsp")
+  list(GET voice 0 vname)
+  list(GET voice 1 vfile)
+  set(vflags "")
+  list(LENGTH voice vlen)
+  if(vlen GREATER 2)
+    list(SUBLIST voice 2 -1 vflags)
+  endif()
+  add_custom_command(
+      OUTPUT "${THINK_COMPILED}/thv${vname}.h"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${THINK_COMPILED}"
+      COMMAND dspcompile -p "${PROJECT_BINARY_DIR}/plugins/" -r 32000 ${vflags}
+              "${vfile}" ${vname} > "${THINK_COMPILED}/thv${vname}.h"
+      DEPENDS dspcompile plugins "${vfile}"
+      VERBATIM)
+  list(APPEND THINK_COMPILED_VOICES "${THINK_COMPILED}/thv${vname}.h")
+endforeach()
+think_harness(compilecheck COMPOSERHOST HID EXTRA ${THINK_COMPILED_VOICES})
+target_include_directories(compilecheck PRIVATE "${THINK_COMPILED}"
+                           "${PROJECT_SOURCE_DIR}/plugins")
+
+# The plugins' kernels against the arithmetic they stand for (thKernel.h).
+think_harness(kernelcheck)
+# And their guards against a NaN under -ffast-math, whatever the build's.
+think_harness(kernelfastcheck)
+target_compile_options(kernelfastcheck PRIVATE -ffast-math)
+
 # A patch's controller blocks, kept as profile text (thSynthTree::controller).
 think_harness(controllercheck)
 
@@ -1012,6 +1047,11 @@ add_test(NAME argtype
          COMMAND argtype -p "${PROJECT_BINARY_DIR}/plugins/")
 
 add_test(NAME controllercheck COMMAND controllercheck)
+add_test(NAME kernelcheck COMMAND kernelcheck)
+add_test(NAME kernelfastcheck COMMAND kernelfastcheck)
+add_test(NAME compilecheck
+         COMMAND compilecheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp")
 add_test(NAME exprcheck
          COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME motioncheck COMMAND motioncheck)

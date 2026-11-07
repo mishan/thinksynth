@@ -111,7 +111,7 @@ gthHid::scan ()
        controller block. Only another is read again: reading the file again
        lets go of every note the controllers hold. */
     const thSynthTree *tree = patchTree();
-    const std::string text = tree ? tree->controller() : std::string();
+    const std::string text = tree ? tree->controller("index") : std::string();
     std::string err;
 
     if (text != patchText_ && !reload(err))
@@ -223,7 +223,7 @@ gthHid::reload (std::string &err)
 
     const thSynthTree *tree = patchTree();
 
-    patchText_ = tree ? tree->controller() : std::string();
+    patchText_ = tree ? tree->controller("index") : std::string();
     patchName_ = tree ? tree->name() : std::string();
     patchError_.clear();
 

@@ -18,7 +18,7 @@
 
 /*
  * controllercheck -- a patch's `controller' blocks, kept as the text of a
- * controller profile (thSynthTree::controller()).
+ * controller profile (thSynthTree::controller()), each device's apart.
  *
  * The engine does not read the block; a host hands it to the controller
  * code. So what is held down here is the text: `device' for `controller',
@@ -43,6 +43,7 @@ struct Row
     const char *name;
     const char *dsp;
     const char *want;       /* the controller text, or NULL if refused */
+    const char *device;     /* whose blocks, if not index's */
 };
 
 static const Row ROWS[] = {
@@ -67,6 +68,13 @@ static const Row ROWS[] = {
       "controller index;\nnode spare { a = 1; };\n" GRAPH, NULL },
     { "a block never closed is refused",
       "controller index {\n  a = note 0;\n" GRAPH, NULL },
+    { "each device's blocks apart, on their own lines",
+      "controller index { a = note 0; };\ncontroller box { touch = note 0; };\n"
+      "controller index left { b = note 7; };\n" GRAPH,
+      "device index { a = note 0; };\n\ndevice index left { b = note 7; };" },
+    { "...and the other's",
+      "controller index { a = note 0; };\ncontroller box { touch = note 0; };\n" GRAPH,
+      "\ndevice box { touch = note 0; };", "box" },
     { "a block with no device is refused",
       "controller { a = note 0; };\n" GRAPH, NULL },
 };
@@ -78,7 +86,7 @@ main ()
     {
         thSynth synth;
         thSynthTree *tree = synth.loadTreeText("t", r.dsp, 0, 100);
-        const string got = tree ? tree->controller() : "(refused)";
+        const string got = tree ? tree->controller(r.device ? r.device : "index") : "(refused)";
         const string want = r.want ? r.want : "(refused)";
 
         if (got == want)

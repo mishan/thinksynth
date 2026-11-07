@@ -77,6 +77,18 @@ category "Keys";
     @d.max = 16000ms;
     @d.label = "Decay";
 
+# Played on an ESP32-S3-BOX (esp32/box): the screen a strip of keys, C
+# minor pentatonic two octaves across, louder the lower it's touched; tilt
+# bends the note, and roll turns the bell brighter or darker.
+controller box {
+    base = "C4";
+    touch = note 0;
+    x = pitch { scale = minor_pentatonic; range = 10; };
+    y = velocity { min = 30; max = 127; };
+    tilt = bend { range = 2; smooth = 0.03; };
+    roll = "index" { min = 1; max = 10; smooth = 0.05; };
+};
+
 node ionode {
     channels = 2;
     out0 = vca->out;

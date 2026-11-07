@@ -220,7 +220,8 @@ same block, or none after none, changes nothing. A block that doesn't fit
 the controller is reported at its line in the patch, and the controller
 plays on without it; one that doesn't parse, with no closing brace, is the
 patch's own mistake, and the patch doesn't load. The pane marks a patch's
-bindings as the patch's.
+bindings as the patch's. Blocks for another device (`controller box { ...
+};`, say) are kept for that device and don't reach the Index controllers.
 
 ### A theremin
 

@@ -23,16 +23,14 @@
 
 #include "think.h"
 
+#include "adsr.h"
+
 enum {IN_A, IN_D, IN_S, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLAY, INOUT_POSITION };
 std::atomic<int> args[INOUT_POSITION + 1];
 
 static const char desc[] = "ADSR Envelope Generator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-static inline float SQR (float x)
-{
-    return x*x;
-}
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -92,187 +90,13 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
-/* The envelope as it always ran, for a trigger written as a constant -- or
-   not written at all. Such a graph wants a one-shot: attack, decay, and at
-   a trigger of 0 straight into the release, which is what brass.dsp's bend
-   and bd10.dsp's pitch sweep are built on. Kept to the bit. */
-static int freeRunning (thNode *node, thSynthTree *mod, unsigned int windowlen,
-                        unsigned int samples)
+/* A window of either kernel, its state carried in `position': the
+   free-running envelope's [0] position and [1] stage; the gated one's
+   [0] position, [1] stage, [2] whether the trigger was up, [3] the level
+   and [4] where the attack or release started. */
+template <class K>
+static void run (K &env, thNode *node, thSynthTree *mod, unsigned int windowlen)
 {
-    /* User args */
-    thArg *in_a, *in_d, *in_s, *in_r, *in_p, *in_trigger, *in_reset;
-    thArg *inout_position;  /* [0] = position in stage, [1] = current stage */
-    thArg *out_out, *out_play;
-
-    float *out, *play;
-
-    float *out_pos;
-    float temp, temp2;  /* each (*in_a)[] thing uses a modulus and all that */
-    float peak;
-    float position;
-    int phase;
-    unsigned int i;
- 
-    out_out = mod->getArg(node, args[OUT_ARG]);
-    out_play = mod->getArg(node, args[OUT_PLAY]);
-    inout_position = mod->getArg(node, args[INOUT_POSITION]);
-
-    position = (*inout_position)[0];
-    phase = (int)(*inout_position)[1];
-    out_pos = inout_position->allocate(2);
-
-    out = out_out->allocate(windowlen);
-    play = out_play->allocate(windowlen);
-
-    in_a = mod->getArg(node, args[IN_A]); /* Attack */
-    in_d = mod->getArg(node, args[IN_D]); /* Decay */
-    in_s = mod->getArg(node, args[IN_S]); /* Sustain */
-    in_r = mod->getArg(node, args[IN_R]); /* Release */
-    in_p = mod->getArg(node, args[IN_P]); /* Peak */
-    in_trigger = mod->getArg(node, args[IN_TRIGGER]); /* Note Trigger */
-    in_reset = mod->getArg(node, args[IN_RESET]); /* Reset to A phase */
-
-    if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
-        phase = 1;
-    }
-
-    for(i = 0; i < windowlen; i++) {
-        if((*in_p)[i] == 0) {
-            peak = TH_MAX;
-        } else {
-            peak = (*in_p)[i];
-        }
-
-        if((*in_reset)[i] > 0) {
-                        position = 0;
-            if((*in_a)[i] == 0) {
-                phase = 1;
-            } else {
-                            phase = 0;
-            }
-                }
-
-        /* A segment of zero samples completes at once rather than dividing
-         * by its own length. `a = 0' used to mean position/0: an infinity on
-         * the first sample, then a NaN once the decay's log saw it.
-         *
-         * Two statements, not one: a and d can both be zero, which makes the
-         * envelope a plain gate at the sustain level. */
-        if (phase == 0 && (*in_a)[i] <= 0) {
-            phase = 1;
-            position = 0;
-        }
-
-        if (phase == 1 && (*in_d)[i] <= 0) {
-            phase = 2;
-            position = 0;
-        }
-
-        switch (phase) {  /* Which phase of the ADSR are we in? */
-        case 0:   /* Attack */
-            temp = (*in_a)[i];
-
-            play[i] = 1;  /* Dont kill this note yet! */
-            out[i] = ((position++)/temp)*peak;
-            if(position >= temp) {
-                phase = 1;   /* A ended, go to D */
-                position = 0;  /* ...and go back to the beginnning of the phase */
-            }
-            break;
-        case 1:
-            temp = (*in_d)[i];
-            temp2 = (*in_s)[i];
-
-            play[i] = 1;
-
-            out[i] = temp2+((log(M_E - (M_E - 1) * ((position++)/temp))) *
-                                 (peak-temp2));
-            if(position >= temp) {
-                phase = 2;   /* D ended, go to S */
-                position = 0;
-            }
-            break;
-        case 2:
-          temp = (*in_s)[i];
-            if(temp == 0) {  /* If there is no D section, make it end */
-                out[i] = 0;
-                play[i] = 0;
-                phase = 4;
-            } else {
-                play[i] = 1;
-            }
-
-            out[i] = temp;
-
-            if((*in_trigger)[i] <= 0) {
-                phase = 3;   /* D ended, time to fade out the note */
-                /* position should already be 0 from the D section */
-            }
-            break;
-        case 3:
-            temp = (*in_r)[i];
-            temp2 = (*in_s)[i];
-
-            /* <= rather than ==: a negative time is not a time either. */
-            if(temp <= 0 || position >= temp) {  /* Make it end if it needs to */
-                out[i] = 0;
-                play[i] = 0;
-                phase = 4;
-            } else {
-                play[i] = 1;
-                out[i] = (1 - log(1 + (M_E - 1) *
-                                  ((position++)/temp))) * temp2;
-            }
-
-            if((*in_trigger)[i] > 0) { // We have been retriggered
-                position = 0;
-                phase = 0;
-            }
-            break;
-        case 4:   /* The note has ended and we are padding with 0 */
-            play[i] = 0;
-            out[i] = 0;
-
-             if((*in_trigger)[i] > 0) { // We have been retriggered
-                                position = 0;
-                                phase = 0;
-                        }
-            break;
-        }
-    }
-
-    out_pos[0] = position;
-    out_pos[1] = phase;
-/*    node->SetArg("position", out_pos, 2);
-    node->SetArg("out", out, windowlen);
-    node->SetArg("play", play, windowlen);
-*/
-    return 0;
-}
-
-/* The envelope for a trigger that is wired -- to the voice's, or to
- * anything else that moves. It follows the trigger in every phase:
- *
- *   - IT WAITS FOR THE TRIGGER TO RISE. A voice's own trigger is up from
- *     its first sample, so that is at once; a gate that opens later, a
- *     player in a section coming in behind the first, starts then.
- *   - A FALL RELEASES IT FROM WHEREVER IT IS, attack and decay included,
- *     and from the level it had reached. The free-running envelope played
- *     the whole attack and decay of a note let go during them, and then
- *     jumped to the sustain level to release from it.
- *   - ONLY A RISING EDGE RETRIGGERS, from the level it is at. A trigger
- *     held up was read as a new note every sample in the release and
- *     after it, so a decay to a sustain of 0 started over for as long as
- *     the key was down.
- *
- * Its shapes are the free-running envelope's -- a linear attack, the same
- * log curves down -- so a note held past its decay and released from the
- * sustain comes out the same either way.
- */
-static int gated (thNode *node, thSynthTree *mod, unsigned int windowlen)
-{
-    enum { ATTACK, DECAY, SUSTAIN, RELEASE, DONE, WAITING };
-
     thArg *in_a = mod->getArg(node, args[IN_A]);
     thArg *in_d = mod->getArg(node, args[IN_D]);
     thArg *in_s = mod->getArg(node, args[IN_S]);
@@ -280,131 +104,68 @@ static int gated (thNode *node, thSynthTree *mod, unsigned int windowlen)
     thArg *in_p = mod->getArg(node, args[IN_P]);
     thArg *in_trigger = mod->getArg(node, args[IN_TRIGGER]);
     thArg *in_reset = mod->getArg(node, args[IN_RESET]);
-    thArg *inout = mod->getArg(node, args[INOUT_POSITION]);
-
-    /* [0] position in the phase, [1] the phase, [2] whether the trigger
-       was up, [3] the level, [4] where the attack or release started. A
-       new node's state reads zeros, which is attack at position 0 -- so
-       a fresh one starts out WAITING instead. */
-    const bool fresh = inout->len() < 5;
-    float position = (*inout)[0];
-    int phase = fresh ? WAITING : (int)(*inout)[1];
-    bool was = (*inout)[2] > 0;
-    float level = (*inout)[3];
-    float from = (*inout)[4];
-    float *state = inout->allocate(5);
-
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
     float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
 
+    /* The times and levels once a window while they hold still. */
+    const bool still = in_a->len() <= 1 && in_d->len() <= 1 && in_s->len() <= 1 &&
+                       in_r->len() <= 1 && in_p->len() <= 1;
+    thkAdsrCtl c = thkAdsr((*in_a)[0], (*in_d)[0], (*in_s)[0] / TH_MAX,
+                           (*in_r)[0], (*in_p)[0] / TH_MAX);
+
     for (unsigned int i = 0; i < windowlen; i++)
     {
-        const bool up = (*in_trigger)[i] > 0;
-        const float peak = (*in_p)[i] == 0 ? TH_MAX : (*in_p)[i];
-        const float sus = (*in_s)[i];
+        if (!still)
+            c = thkAdsr((*in_a)[i], (*in_d)[i], (*in_s)[i] / TH_MAX, (*in_r)[i],
+                        (*in_p)[i] / TH_MAX);
+        out[i] = TH_MAX * env.tick(c, (*in_trigger)[i], (*in_reset)[i], play[i]);
+    }
+}
 
-        /* A voice's first rise, and `reset', start the attack on this
-           sample, as the free-running envelope's first sample does. That
-           rise is then spent: a zero-length attack has moved on to the
-           decay by the end of the sample, and must not be started again. */
-        const bool first = up && !was && phase == WAITING;
+/* The envelope as it always ran, for a trigger written as a constant -- or
+   not written at all. Such a graph wants a one-shot: attack, decay, and at
+   a trigger of 0 straight into the release, which is what brass.dsp's bend
+   and bd10.dsp's pitch sweep are built on. */
+static int freeRunning (thNode *node, thSynthTree *mod, unsigned int windowlen)
+{
+    thArg *inout = mod->getArg(node, args[INOUT_POSITION]);
+    thkAdsrFree env;
 
-        if (first || (*in_reset)[i] > 0)
-        {
-            phase = ATTACK;
-            position = 0;
-            from = level;
-        }
+    env.position = (*inout)[0];
+    env.phase = (int)(*inout)[1];
 
-        /* Zero-length segments complete at once rather than dividing by
-           their own length, as in the free-running envelope. */
-        if (phase == ATTACK && (*in_a)[i] <= 0)
-        {
-            phase = DECAY;
-            position = 0;
-        }
-        if (phase == DECAY && (*in_d)[i] <= 0)
-        {
-            phase = SUSTAIN;
-            position = 0;
-        }
+    float *state = inout->allocate(2);
 
-        switch (phase)
-        {
-        case ATTACK:
-            level = from + (peak - from) * (position++ / (*in_a)[i]);
-            if (position >= (*in_a)[i])
-            {
-                phase = DECAY;
-                position = 0;
-            }
-            break;
-        case DECAY:
-            level = sus + log(M_E - (M_E - 1) *
-                              (position++ / (*in_d)[i])) * (peak - sus);
-            if (position >= (*in_d)[i])
-            {
-                phase = SUSTAIN;
-                position = 0;
-            }
-            break;
-        case SUSTAIN:
-            level = sus;
-            /* A sustain of 0 is the end of a one-shot. */
-            if (sus == 0)
-                phase = DONE;
-            break;
-        case RELEASE:
-            if ((*in_r)[i] <= 0 || position >= (*in_r)[i])
-            {
-                level = 0;
-                phase = DONE;
-            }
-            else
-            {
-                level = (1 - log(1 + (M_E - 1) *
-                                 (position++ / (*in_r)[i]))) * from;
-            }
-            break;
-        default:
-            level = 0;
-            break;
-        }
+    run(env, node, mod, windowlen);
+    state[0] = env.position;
+    state[1] = env.phase;
+    return 0;
+}
 
-        out[i] = level;
-        /* Not sounding while it waits. A gate may never open -- a note
-           shorter than the delay it was waiting out -- and an envelope
-           that kept its voice alive meanwhile would hold that voice for
-           ever. So the voice's own `play' belongs to an envelope on the
-           voice's trigger, which rises with the note; a delayed one adds
-           to it (dsp/violins.dsp's max of its players). */
-        play[i] = (phase == DONE || phase == WAITING) ? 0 : 1;
+static int gated (thNode *node, thSynthTree *mod, unsigned int windowlen)
+{
+    thArg *inout = mod->getArg(node, args[INOUT_POSITION]);
+    thkAdsrGated env;
 
-        /* Every other edge from the next sample, which is when the
-           free-running envelope's release began: a note held into its
-           sustain comes out the same, sample for sample. */
-        if (up && !was && !first)
-        {
-            phase = ATTACK;
-            position = 0;
-            from = level;
-        }
-        else if (!up && was && phase <= SUSTAIN)
-        {
-            phase = RELEASE;
-            position = 0;
-            from = level;
-        }
-
-        was = up;
+    /* A new node's state reads zeros, which is attack at position 0 -- so
+       a fresh one starts out waiting instead. */
+    if (inout->len() >= 5)
+    {
+        env.position = (*inout)[0];
+        env.phase = (int)(*inout)[1];
+        env.was = (*inout)[2] > 0;
+        env.level = (*inout)[3];
+        env.from = (*inout)[4];
     }
 
-    state[0] = position;
-    state[1] = phase;
-    state[2] = was ? 1 : 0;
-    state[3] = level;
-    state[4] = from;
+    float *state = inout->allocate(5);
 
+    run(env, node, mod, windowlen);
+    state[0] = env.position;
+    state[1] = env.phase;
+    state[2] = env.was ? 1 : 0;
+    state[3] = env.level;
+    state[4] = env.from;
     return 0;
 }
 
@@ -416,7 +177,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     const thArg *trigger = node->getArg((int)args[IN_TRIGGER]);
 
     if (trigger == NULL || trigger->type() == thArg::ARG_VALUE)
-        return freeRunning(node, mod, windowlen, samples);
+        return freeRunning(node, mod, windowlen);
 
     return gated(node, mod, windowlen);
 }

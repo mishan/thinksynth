@@ -23,6 +23,8 @@
 
 #include "think.h"
 
+#include "midi2freq.h"
+
 enum {IN_NOTE, OUT_ARG};
 std::atomic<int> args[OUT_ARG + 1];
 
@@ -76,40 +78,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     out = out_arg->allocate(argnum);
 
-    /* Just short of Nyquist, not on it. A wavelength of exactly two samples is
-       an exact integer, so an oscillator's position lands precisely on the
-       boundary its pulse width names rather than stepping over it -- which is
-       the difference between approaching a division by zero and reaching
-       one. */
-    const double top = samples / 2.0 - 1.0;
-
-    for(i = 0; i < argnum; i++)
-    {
-        /* In double, and clamped before it is narrowed.
-         *
-         * The exponential takes any note, but a frequency past Nyquist is not
-         * one the synth can represent -- the oscillators turn it into a
-         * wavelength, and one under two samples is not a wave the rate can
-         * carry. Past about note 1500 the answer is not a float at all, which
-         * is why the clamp happens up here: narrowing first gives an infinity,
-         * and an infinity clamped by magnitude comes back as the *bottom* of
-         * the range. That would answer an absurdly high note with 0 Hz, an
-         * infinite wavelength and silence.
-         *
-         * Not hypothetical: a graph that maps an envelope sustaining at a
-         * hundred times full scale onto a note range sends note 4210 in
-         * here. The file that did it was one of the 2003-04 drawers and is
-         * gone, but the mistake is a missing `%' on a sustain and is one
-         * character away in any file. */
-        double hz = 440.0*pow(2.0, (buf_in[i] - 69) / 12.0);
-
-        if (!(hz >= 0.0))       /* NaN: every comparison with one is false */
-            hz = 0.0;
-        else if (hz > top)
-            hz = top;
-
-        out[i] = (float)hz;
-    }
+    /* In float, and clamped as a float may be: thkMidi2freq. A note
+       past float range is an infinity, which is more than the top; were
+       it clamped by magnitude it would come back as the bottom, 0 Hz and
+       silence -- and a graph mapping an envelope sustaining at a hundred
+       times full scale onto a note range sends note 4210 in here. */
+    for (i = 0; i < argnum; i++)
+        out[i] = thkMidi2freq(buf_in[i], (float)samples);
 
 /*    node->SetArg("out", out, windowlen); */
     return 0;
