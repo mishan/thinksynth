@@ -23,6 +23,7 @@
    desktop's controllers have. The side button steps to the next patch. */
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -46,6 +47,10 @@
 #define VOICES 8
 #define BLOCK 128
 #define GAIN 0.25f
+/* Two blocks in a row over this much of their time shed a voice, and a
+   new note where the blocks run near it takes a sounding voice rather
+   than a free one. */
+#define SHED_AT 0.85f
 #define BOX_RATE 32000
 /* How long the screen must read no finger for one to have lifted. */
 #define TOUCH_LIFTED_US 40000
@@ -53,20 +58,52 @@
    bounces. */
 #define BUTTON_STEADY_US 20000
 
+/* How much of a block the last took, and the last few, smoothed: one
+   block running long isn't the blocks running late, the I2S's buffers
+   some 45 ms deep. And what the voices started since will add to the
+   next, as their patches' costs say. */
+static volatile float load = 0, loadAvg = 0, loadAdded = 0;
+static volatile int playing = 0;
+
 /* A patch, whichever compiled voice it is: its voices, its knobs, and
    what a mapper's actions do to them. */
 struct Patch
 {
     const char *name;
     float gain;                 /* to peak as loud as the others */
+    /* What a voice of it costs of a block, as last seen: a voice starting
+       takes its cost on one of the two cores, so half of it on the block.
+       Its most of a block while playing, and the blocks it ran late. */
+    float perVoice = 0, peak = 0;
+    int late = 0;
+    /* Each half's time rendering the last block, and its voices. */
+    int64_t spent[2] = { 0, 0 };
+    int rendered[2] = { 0, 0 };
 
     virtual ~Patch () {}
     virtual thcHidBlock profile () const = 0;
     /* owner: whose the note is, a finger's, so a NOTE_OFF or a bend
        reaches only the voice its own NOTE_ON started. */
     virtual void play (const thhAction &a, int owner) = 0;
-    /* Every sounding voice into l and r, added. */
-    virtual void render (float *l, float *r) = 0;
+    /* Every sounding voice of one half, even or odd, into l and r, added:
+       the two halves on the two cores at once. */
+    virtual void render (float *l, float *r, int half) = 0;
+    /* The voice shed would take, as a rank, lower first; INT64_MAX for
+       none. */
+    virtual int64_t oldest () const = 0;
+    /* A voice faded out over the next block and freed, when the blocks
+       run late: a released one before a held one, the oldest first. */
+    virtual void shed () = 0;
+    virtual int sounding () const = 0;
+
+    void account ()
+    {
+        const int n = rendered[0] + rendered[1];
+
+        if (n > 0)
+            perVoice += 0.1f * ((spent[0] + spent[1]) / (1e6f * BLOCK / BOX_RATE) / n -
+                                perVoice);
+    }
 };
 
 template <class V>
@@ -77,13 +114,40 @@ struct PatchOf : Patch
     struct
     {
         int     note = -1, owner = -1;  /* as played, and whose */
-        bool    held = false, sounding = false;
+        bool    held = false, sounding = false, fading = false;
+        /* Taken over: the note to start as the last fades out. */
+        bool    next = false;
+        int     vel = 0;
         int64_t since = 0;          /* when it started, to steal the oldest */
     } slot[VOICES];
 
     PatchOf (const char *n, float g) { name = n; gain = g; }
 
     thcHidBlock profile () const override { return V::profile(); }
+
+    /* Released before held, the oldest first. */
+    int64_t rank (int i) const
+    {
+        return slot[i].since + (slot[i].held ? (int64_t)1 << 62 : 0);
+    }
+
+    int pick () const
+    {
+        int v = -1;
+
+        for (int i = 0; i < VOICES; i++)
+            if (slot[i].sounding && !slot[i].fading && (v < 0 || rank(i) < rank(v)))
+                v = i;
+        return v;
+    }
+
+    void start (int v)
+    {
+        voice[v] = V();
+        voice[v].start(slot[v].note, slot[v].vel, (uint32_t)esp_timer_get_time());
+        slot[v].sounding = true;
+        slot[v].fading = slot[v].next = false;
+    }
 
     void play (const thhAction &a, int owner) override
     {
@@ -92,29 +156,53 @@ struct PatchOf : Patch
         switch (a.kind)
         {
         case thhAction::NOTE_ON:
-            /* A free voice, else the oldest. */
-            for (int i = 0; i < VOICES && v < 0; i++)
-                if (!slot[i].sounding)
-                    v = i;
-            if (v < 0)
+            /* A free voice, on the core with fewer sounding -- unless one
+               more voice would take the blocks near their time. */
+            if (loadAvg + loadAdded + perVoice / 2 <= SHED_AT)
             {
-                v = 0;
-                for (int i = 1; i < VOICES; i++)
-                    if (slot[i].since < slot[v].since)
+                int busy[2] = { 0, 0 };
+
+                for (int i = 0; i < VOICES; i++)
+                    busy[i % 2] += slot[i].sounding;
+                for (int i = 0; i < VOICES && v < 0; i++)
+                    if (!slot[i].sounding && i % 2 == (busy[1] < busy[0]))
+                        v = i;
+                for (int i = 0; i < VOICES && v < 0; i++)
+                    if (!slot[i].sounding)
                         v = i;
             }
-            voice[v] = V();
-            voice[v].start(a.note, a.vel, (uint32_t)esp_timer_get_time());
+            /* Else a sounding one, faded out as a shed one is and the
+               note started after it: one fading already, or the one shed
+               would take. */
+            for (int i = 0; i < VOICES && v < 0; i++)
+                if (slot[i].sounding && slot[i].fading && !slot[i].next)
+                    v = i;
+            if (v < 0)
+                v = pick();
+            if (v < 0)
+                v = 0;              /* each taken over already */
             slot[v].note = a.note;
             slot[v].owner = owner;
-            slot[v].held = slot[v].sounding = true;
+            slot[v].vel = a.vel;
+            slot[v].held = true;
             slot[v].since = esp_timer_get_time();
+            if (slot[v].sounding)
+                slot[v].fading = slot[v].next = true;
+            else
+            {
+                loadAdded += perVoice / 2;
+                start(v);
+            }
             break;
         case thhAction::NOTE_OFF:
             for (int i = 0; i < VOICES; i++)
                 if (slot[i].held && slot[i].note == a.note && slot[i].owner == owner)
                 {
-                    voice[i].release();
+                    /* Not yet started, it never is. */
+                    if (slot[i].next)
+                        slot[i].next = false;
+                    else
+                        voice[i].release();
                     slot[i].held = false;
                 }
             break;
@@ -136,23 +224,58 @@ struct PatchOf : Patch
         }
     }
 
-    void render (float *l, float *r) override
+    void render (float *l, float *r, int half) override
     {
-        static float vl[BLOCK], vr[BLOCK];
+        float vl[BLOCK], vr[BLOCK];
         float *outs[2] = { vl, vr };
+        const int64_t t = esp_timer_get_time();
 
-        for (int v = 0; v < VOICES; v++)
+        rendered[half] = 0;
+        for (int v = half; v < VOICES; v += 2)
             if (slot[v].sounding)
             {
                 memset(vr, 0, sizeof(vr));
                 slot[v].sounding = voice[v].render(knobs, outs, BLOCK);
+                rendered[half]++;
                 for (int i = 0; i < BLOCK; i++)
                 {
-                    l[i] += gain * vl[i];
+                    /* A shed voice down to nothing over the block. */
+                    const float g = gain * (slot[v].fading ? 1 - (i + 1) / (float)BLOCK : 1);
+
+                    l[i] += g * vl[i];
                     /* A mono patch is both sides. */
-                    r[i] += gain * (V::channels > 1 ? vr[i] : vl[i]);
+                    r[i] += g * (V::channels > 1 ? vr[i] : vl[i]);
                 }
+                if (slot[v].fading && slot[v].next)
+                    start(v);
+                else if (slot[v].fading)
+                    slot[v].sounding = slot[v].held = slot[v].fading = false;
             }
+        spent[half] = esp_timer_get_time() - t;
+    }
+
+    int sounding () const override
+    {
+        int n = 0;
+
+        for (int i = 0; i < VOICES; i++)
+            n += slot[i].sounding;
+        return n;
+    }
+
+    int64_t oldest () const override
+    {
+        const int v = pick();
+
+        return v < 0 ? INT64_MAX : rank(v);
+    }
+
+    void shed () override
+    {
+        const int v = pick();
+
+        if (v >= 0)
+            slot[v].fading = true;
     }
 };
 
@@ -164,11 +287,6 @@ static Patch *const patches[] = { PATCHES };
 /* The patch playing, and every patch's voices, the audio task's and the
    control task's both, under `lock'. */
 static SemaphoreHandle_t lock;
-static volatile int playing = 0;
-static volatile float load = 0;         /* of the audio task's time */
-/* Each patch's most, and the blocks it took longer than they last. */
-static float peak[64];
-static int late[64];
 
 /* The keys fingers are on, a bit each, for the screen; and which patch it
    shows as playing. */
@@ -225,11 +343,31 @@ touchRead (Contact *out, int most)
     return count;
 }
 
+/* The odd voices, on the other core, while the audio task does the even:
+   started by `go', done when it gives `done'. */
+static SemaphoreHandle_t go, done;
+static float oddMix[2][BLOCK];
+
+static void
+helperTask (void *)
+{
+    for (;;)
+    {
+        xSemaphoreTake(go, portMAX_DELAY);
+        memset(oddMix, 0, sizeof(oddMix));
+        for (Patch *p : patches)
+            p->render(oddMix[0], oddMix[1], 1);
+        xSemaphoreGive(done);
+    }
+}
+
+
 static void
 audioTask (void *)
 {
     static float mix[2][BLOCK];
     static int16_t frames[2 * BLOCK];
+    int over = 0;
 
     for (;;)
     {
@@ -240,12 +378,37 @@ audioTask (void *)
 
         /* Every patch: the one playing, and any switched from, ringing
            out. */
+        xSemaphoreGive(go);
         for (Patch *p : patches)
-            p->render(mix[0], mix[1]);
+            p->render(mix[0], mix[1], 0);
+        xSemaphoreTake(done, portMAX_DELAY);
+        for (int i = 0; i < BLOCK; i++)
+        {
+            mix[0][i] += oddMix[0][i];
+            mix[1][i] += oddMix[1][i];
+        }
         load = (esp_timer_get_time() - t) / (1e6f * BLOCK / BOX_RATE);
-        if (load > peak[playing])
-            peak[playing] = load;
-        late[playing] += load > 1;
+        loadAvg += 0.25f * (load - loadAvg);
+        loadAdded = 0;
+        for (Patch *p : patches)
+            p->account();
+        /* Two blocks over shed one voice, whichever patch's goes first;
+           the block it fades out over, still paying for it, starts the
+           count again from behind. */
+        over = load > SHED_AT ? over + 1 : 0;
+        if (over >= 2)
+        {
+            Patch *first = patches[0];
+
+            for (Patch *p : patches)
+                if (p->oldest() < first->oldest())
+                    first = p;
+            first->shed();
+            over = -1;
+        }
+        if (load > patches[playing]->peak)
+            patches[playing]->peak = load;
+        patches[playing]->late += load > 1;
         xSemaphoreGive(lock);
 
         for (int i = 0; i < BLOCK; i++)
@@ -623,7 +786,8 @@ controlTask (void *)
         {
             printf("peaks");
             for (int p = 0; p < NPATCHES; p++)
-                printf("  %s %.0f%% %d late", patches[p]->name, peak[p] * 100, late[p]);
+                printf("  %s %.0f%% %d late", patches[p]->name, patches[p]->peak * 100,
+                       patches[p]->late);
             printf("\n");
         }
         if (n % 125 == 0)
@@ -665,8 +829,11 @@ app_main (void)
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &touch));
 
     lock = xSemaphoreCreateMutex();
+    go = xSemaphoreCreateBinary();
+    done = xSemaphoreCreateBinary();
     printf("thinkbox: %d patches, %d voices each at %d Hz\n", NPATCHES, VOICES, BOX_RATE);
     xTaskCreatePinnedToCore(audioTask, "audio", 8192, NULL, 20, NULL, 1);
+    xTaskCreatePinnedToCore(helperTask, "helper", 8192, NULL, 19, NULL, 0);
     xTaskCreatePinnedToCore(controlTask, "control", 8192, NULL, 10, NULL, 0);
     if (displayOpen())
         xTaskCreatePinnedToCore(displayTask, "display", 4096, NULL, 5, NULL, 0);
