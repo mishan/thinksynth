@@ -390,12 +390,28 @@ jobs:
   # on every PR; the gates after it wait for both, so it is one runner and
   # not six. And this one, the longest job there is: waiting made it the
   # last to finish by five minutes.
+  #
+  # Sharded three ways because its tests take twice its build: six
+  # of them are two thirds of the test time under the sanitizers, so they
+  # are split two shards' worth by what they took, and every other test,
+  # a new one included, is the third shard's.
   asan:
-    name: linux asan + ubsan
+    name: linux asan + ubsan (${{ matrix.shard }})
     timeout-minutes: 40
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: flock, edit, dspwrite
+            tests: -R '^(flockcheck|editcheck|dspwrite)$'
+          - shard: pool, gencheck
+            tests: -R '^(poolcheck|gencheck\.rest|gencheck\.presets)$'
+          - shard: the rest
+            tests: -E '^(flockcheck|editcheck|dspwrite|poolcheck|gencheck\.rest|gencheck\.presets)$'
 
     env:
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -408,7 +424,8 @@ jobs:
         with:
           key: asan
           max-size: 500M
-          save: ${{ github.event_name == 'push' }}
+          # The shards build the same tree; one saving it is enough.
+          save: ${{ github.event_name == 'push' && strategy.job-index == 0 }}
 
       - name: Install dependencies
         timeout-minutes: 10
@@ -457,7 +474,7 @@ jobs:
         # deliberately destroys the editor at the end, so the teardown order --
         # stop the tick, close the instances, then unload the modules -- is
         # exercised under ASan and nowhere else.
-        run: xvfb-run -a ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)"
+        run: xvfb-run -a ctest --test-dir build --output-on-failure --timeout 600 -j "$(nproc)" ${{ matrix.tests }}
 
   # The WebAssembly build, held against the native one. wasm/compare.mjs
   # renders every seeded piece with scripts/genwav and with wasm/genwav.mjs:
