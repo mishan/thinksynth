@@ -898,7 +898,7 @@ static thgMarbles marbles(W, H - TOP, 0x5eed);
 
 /* One step of the marbles: gravity from the IMU in the screen's axes,
    a tap, a shake, and what the balls strike played. Upright facing you,
-   the sensor's -x is up, and its +y the screen's left. */
+   the sensor's +x is up, and its +y the screen's right. */
 static void
 playMarbles (const thhBoxImu &imu, const float accel[3], bool tapped, float tx, float ty,
              int64_t now)
@@ -906,7 +906,7 @@ playMarbles (const thhBoxImu &imu, const float accel[3], bool tapped, float tx, 
     static int64_t lastShake = 0;
     std::vector<thgHit> hits;
     std::vector<thhAction> acts;
-    const float gx = imu.g[1] * MARBLE_G, gy = -imu.g[0] * MARBLE_G;
+    const float gx = -imu.g[1] * MARBLE_G, gy = imu.g[0] * MARBLE_G;
 
     /* The patches' row is no part of the field. */
     const bool onField = tapped && ty >= TOP;
@@ -1083,6 +1083,9 @@ controlTask (void *)
             if (count > 0)
                 touchedAt = now;
             playMarbles(imu, accel, tapped, points[0].x, points[0].y, now);
+            if (n % 125 == 0)
+                printf("%s marbles, load %3.0f%%  gravity %+.2f %+.2f %+.2f\n",
+                       patches[playing]->name, load * 100, imu.g[0], imu.g[1], imu.g[2]);
             vTaskDelay(pdMS_TO_TICKS(4));
             continue;
         }

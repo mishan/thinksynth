@@ -27,6 +27,7 @@
 
 #include "thcHidBlock.h"
 #include "thgMarbles.h"
+#include "thhBox.h"
 #include "thhMapper.h"
 
 static int failed = 0;
@@ -229,6 +230,35 @@ main ()
         }
         report("the game's profile: a peg mid-screen C5, a wall on channel 2",
                ok && peg == 1 && wall == 2, ok ? "" : err);
+    }
+
+    /* The BOX's pose from what its accelerometer reads of up, the BOX
+       right way up and facing you: up is the sensor's +x, the screen faces
+       -z, and turning it clockwise brings its -y up. */
+    {
+        struct P { const char *pose; float up[3]; float tilt, roll; };
+        static const P POSES[] = {
+            { "upright", { 1, 0, 0 }, 0, 0 },
+            { "the top tipped away, the screen up", { 0, 0, -1 }, 1, 0 },
+            { "the top tipped toward you", { 0, 0, 1 }, -1, 0 },
+            { "turned a quarter clockwise", { 0, -1, 0 }, 0, 1 },
+            { "turned a quarter anticlockwise", { 0, 1, 0 }, 0, -1 },
+        };
+        std::string bad;
+
+        for (const P &p : POSES)
+        {
+            thhBoxImu imu;
+            thhState st;
+            const float still[3] = { 0, 0, 0 };
+
+            thhBoxFeedImu(p.up, still, 0.004f, imu, st);
+            if (std::fabs(st.axis[THH_BOX_TILT] - p.tilt) > 0.01f ||
+                std::fabs(st.axis[THH_BOX_ROLL] - p.roll) > 0.01f)
+                bad += std::string(p.pose) + ": tilt " + std::to_string(st.axis[THH_BOX_TILT]) +
+                       " roll " + std::to_string(st.axis[THH_BOX_ROLL]) + "; ";
+        }
+        report("the BOX's tilt and roll from where up is", bad.empty(), bad);
     }
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");

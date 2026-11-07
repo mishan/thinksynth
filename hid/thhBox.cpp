@@ -61,9 +61,9 @@ clamp1 (float v)
     return v < -1 ? -1 : v > 1 ? 1 : v;
 }
 
-/* Upright and facing you, up is the sensor's -x; the screen faces -z,
-   and its left edge +y. */
-static const float UP[3] = { -1, 0, 0 };
+/* Upright and facing you, up is the sensor's +x; the screen faces -z,
+   and its right edge +y. */
+static const float UP[3] = { 1, 0, 0 };
 
 void
 thhBoxFeedImu (const float accel[3], const float gyro[3], float dt,
@@ -95,9 +95,9 @@ thhBoxFeedImu (const float accel[3], const float gyro[3], float dt,
         for (int i = 0; i < 3; i++)
             u[i] = (imu.level[i][0] * imu.g[0] + imu.level[i][1] * imu.g[1] +
                     imu.level[i][2] * imu.g[2]) / g;
-        s.axis[THH_BOX_TILT] = clamp1(std::atan2(-u[2], -u[0]) / (float)(M_PI / 2) *
+        s.axis[THH_BOX_TILT] = clamp1(std::atan2(-u[2], u[0]) / (float)(M_PI / 2) *
                                       std::hypot(u[0], u[2]));
-        s.axis[THH_BOX_ROLL] = clamp1(std::asin(clamp1(u[1])) / (float)(M_PI / 2));
+        s.axis[THH_BOX_ROLL] = clamp1(std::asin(clamp1(-u[1])) / (float)(M_PI / 2));
     }
     s.axis[THH_BOX_TWIST] = clamp1(imu.twist);
     s.axis[THH_BOX_TURN] = clamp1(imu.turn / THH_BOX_TURN_FULL);
