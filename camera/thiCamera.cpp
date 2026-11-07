@@ -191,6 +191,7 @@ void thiCamera::run ()
                 continue;
             }
             setStatus("");
+            status.clear();
             motion.reset();
         }
 

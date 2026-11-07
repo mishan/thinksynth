@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <chrono>
 #include <string>
 #include <thread>
@@ -92,8 +93,10 @@ int main (int argc, char **argv)
                 if (a == thMotion::MOTION || a >= thMotion::ZONE1)
                     peak.axis[a] = std::max(peak.axis[a], f.axis[a]);
 
+        const size_t captured = std::count_if(frames.begin(), frames.end(),
+                                              [] (const thiAxes &f) { return f.connected; });
         const double span = frames.back().seconds - frames.front().seconds;
-        const double fps = frames.size() > 1 && span > 0 ? (frames.size() - 1) / span : 0;
+        const double fps = captured > 1 && span > 0 ? (captured - 1) / span : 0;
         const int bar = (int)(peak.axis[thMotion::MOTION] * 20 + 0.5);
         char zones[3][16];
 

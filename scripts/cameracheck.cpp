@@ -332,6 +332,39 @@ static void waking (void)
           first == 1 && wakes == 2, fmt("%.0f wakes before the drain, %.0f after", first, wakes));
 }
 
+static void startingSlowly (void)
+{
+    /* A scan that passed a busy camera on its way to this one says so; a
+       camera slow to its first frame is still there. */
+    std::atomic<int> open(0);
+    bool once = false;
+    thiCamera cam([&] (string &status) {
+        status = "/dev/video0: in use";
+        if (once)
+            return std::unique_ptr<thiSource>();
+        once = true;
+        return std::unique_ptr<thiSource>(new GatedSource(open));
+    }, [] { });
+    std::vector<thiAxes> seen;
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    open = 5;
+    within(2000, [&] {
+        std::vector<thiAxes> f;
+        if (cam.drain(f))
+            seen.insert(seen.end(), f.begin(), f.end());
+        return seen.size() >= 5;
+    });
+
+    bool connected = true;
+
+    for (const auto &a : seen)
+        connected = connected && a.connected;
+    check("a camera slow to its first frame is not a disconnect",
+          seen.size() == 5 && connected && cam.status().empty(),
+          fmt("%.0f frames", seen.size()) + ", status \"" + cam.status() + "\"");
+}
+
 static void swapping (void)
 {
     /* Another camera, plugged in at once with stamps running on and a
@@ -480,6 +513,7 @@ int main (void)
     decoding();
     reading();
     waking();
+    startingSlowly();
     swapping();
     unplugging();
     corruptFrame();

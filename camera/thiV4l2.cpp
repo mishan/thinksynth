@@ -79,10 +79,12 @@ v4l2_fract fastest (int fd, unsigned width, unsigned height)
     iv.width = width;
     iv.height = height;
     for (iv.index = 0; xioctl(fd, VIDIOC_ENUM_FRAMEINTERVALS, &iv) == 0; iv.index++)
-        if (iv.type == V4L2_FRMIVAL_TYPE_DISCRETE
-            && (double)iv.discrete.numerator / iv.discrete.denominator
-               < (double)best.numerator / best.denominator)
-            best = iv.discrete;
+    {
+        const v4l2_fract f = iv.type == V4L2_FRMIVAL_TYPE_DISCRETE ? iv.discrete : iv.stepwise.min;
+
+        if ((double)f.numerator / f.denominator < (double)best.numerator / best.denominator)
+            best = f;
+    }
 
     return best;
 }
