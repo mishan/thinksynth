@@ -1792,3 +1792,16 @@ body.tiled .panelrows
 .bandscenes .scene.cued { border: 2px dashed var(--held); }
 .bandscenes .toggle[aria-pressed="true"] { background: var(--fg);
                                            color: var(--bg); }
+
+/* The camera's nine zones (camera.js), each as bright as it is moving. */
+#camerazones {
+    display: inline-grid;
+    grid-template-columns: repeat(3, 0.8em);
+    gap: 2px;
+    vertical-align: middle;
+}
+#camerazones span {
+    height: 0.6em;
+    background: var(--held);
+    opacity: 0.15;
+}

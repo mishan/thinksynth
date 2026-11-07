@@ -203,13 +203,20 @@ add_library(thinkweb_parts OBJECT
     "${THINK_TOP}/src/StagePanel.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
     twdraw.cpp
-    thinknode.cpp)
+    thinknode.cpp
+    # The camera worker's controller (twcamera.cpp): the desktop's own
+    # mapper, so a camera profile plays the same on both.
+    "${THINK_TOP}/hid/thhCamera.cpp"
+    "${THINK_TOP}/hid/thhControls.cpp"
+    "${THINK_TOP}/hid/thhMapper.cpp"
+    twcamera.cpp)
 
 set(THINKWEB_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${THINK_TOP}/wasm"
     "${THINK_TOP}"
-    "${THINK_TOP}/src")
+    "${THINK_TOP}/src"
+    "${THINK_TOP}/hid")
 
 target_include_directories(thinkweb_parts PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkweb_parts PRIVATE think_objects think_loader sigc
@@ -269,8 +276,8 @@ target_link_options(thinkevolve PRIVATE
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js midi.js midiout.js midioutui.js clock.js
-                mirror.js ear.js evolve.js evolveui.js growui.js bandchords.js
-                bandideas.js bandkey.js bandview.js canvasview.js composerview.js
+                camera.js camworker.js mirror.js ear.js evolve.js evolveui.js
+                growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
                 layouts.js packs.js takes.js manifest.json
                 silent.js horizon.js lookahead.js thinksynth.js)

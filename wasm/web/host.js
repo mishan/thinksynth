@@ -55,10 +55,11 @@
  * commands with the same stamps (docs/JAM.md).
  */
 
-/* Each module's bytes, by file, fetched once. */
+/* Each module's bytes, by file, fetched once: the camera worker (camera.js)
+   starts on a copy of the same bytes. */
 const fetched = new Map();
 
-function wasmBytes (name = 'thinkweb.wasm')
+export function wasmBytes (name = 'thinkweb.wasm')
 {
     if (!fetched.has(name))
         fetched.set(name, fetch(new URL(name, import.meta.url))

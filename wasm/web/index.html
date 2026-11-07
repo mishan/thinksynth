@@ -388,6 +388,17 @@
     <button id="midi" disabled>MIDI in</button>
     <span id="midistatus" class="hint"></span>
 
+    <!-- A webcam onto the same keys (camera.js): a hand struck through one
+         of nine zones of the picture plays a note, and the zones light as
+         the camera sees them move, laid out as the player sees them. -->
+    <button id="camera" disabled>Camera</button>
+    <span id="camerastatus" class="hint" aria-live="polite"></span>
+    <div id="camerazones" hidden aria-hidden="true">
+      <span></span><span></span><span></span>
+      <span></span><span></span><span></span>
+      <span></span><span></span><span></span>
+    </div>
+
     <!-- A piece's MIDI instruments onto devices (midiout.js): where each
          plays is chosen on its channel's row, and the delay moves every
          message after its note to line a device up with the synth. -->

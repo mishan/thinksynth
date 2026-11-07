@@ -192,6 +192,90 @@ try
             },
         };
 
+        /* A camera, faked the same way: a canvas the harness draws on,
+           streamed. Painted 60 times a second whether or not it changed,
+           as a camera's frames come, and never twice alike, as a sensor's
+           noise makes a camera's: a flicker in one corner, too small to
+           strike a zone, without which a still picture is a stalled feed.
+           freeze() stops the frames, as a camera taken by another app
+           does. */
+        const lens = document.createElement('canvas');
+        let square = null, painting = null, flicker = false, moving = false;
+        let painted = 0;
+        const paint = () =>
+        {
+            const g = lens.getContext('2d');
+
+            g.fillStyle = '#282828';
+            g.fillRect(0, 0, lens.width, lens.height);
+            flicker = !flicker;
+            g.fillStyle = flicker ? '#383838' : '#282828';
+            g.fillRect(0, 0, 4, 4);
+            if (square !== null)
+            {
+                /* A hand still moving in its zone, which keeps its note:
+                   three shades in turn, so no frame matches the one
+                   thMotion compares it with, 30 ms back. */
+                g.fillStyle = moving ? ['#dcdcdc', '#a0a0a0', '#646464'][painted++ % 3]
+                                     : '#dcdcdc';
+                g.fillRect(square[0] * lens.width - 60,
+                           square[1] * lens.height - 60, 120, 120);
+            }
+        };
+
+        lens.width = 640;
+        lens.height = 480;
+        window.fakeCamera = {
+            /* A bright square centered here, as fractions of the camera's
+               picture, which is the player's mirrored; null for none. */
+            show (at, move = false) { square = at; moving = move; },
+            freeze () { clearInterval(painting); },
+        };
+        /* The camera's worker, with its replies held back while
+           camReplies is an array, and handed on by camReplay(): a reply
+           the page has not read yet when it lets its notes go. */
+        window.camReplies = null;
+        window.Worker = class extends window.Worker
+        {
+            constructor (url, options)
+            {
+                if (window.camWorkerRefused && String(url).includes('camworker'))
+                    throw new DOMException('refused', 'SecurityError');
+                super(url, options);
+                if (!String(url).includes('camworker'))
+                    return;
+
+                let read = null;
+
+                Object.defineProperty(this, 'onmessage',
+                                      { set (f) { read = f; }, get () { return read; } });
+                this.addEventListener('message', (e) =>
+                {
+                    if (window.camReplies !== null)
+                        window.camReplies.push(e);
+                    else
+                        read?.(e);
+                });
+                window.camReplay = () =>
+                {
+                    const held = window.camReplies;
+
+                    window.camReplies = null;
+                    for (const e of held)
+                        read?.(e);
+                };
+            }
+        };
+        navigator.mediaDevices.getUserMedia = async (asked) =>
+        {
+            if (!asked.video)
+                throw new DOMException('no such device', 'NotFoundError');
+            paint();
+            painting = setInterval(paint, 1000 / 60);
+            window.fakeCamera.stream = lens.captureStream(60);
+            return window.fakeCamera.stream;
+        };
+
         window.midiSent = [];
         fake.plug('k1', 'Fake Keys');
         fake.plugOut('o1', 'Fake Synth');
@@ -1267,6 +1351,122 @@ try
     check((await sounding()).length === 0 &&
           await page.textContent('#midi') === 'MIDI in',
           'and closing MIDI in lets go of it');
+
+    /* ---- a camera ---- */
+
+    const cameraHolds = (note) => page.waitForFunction(
+        (n) => window.solo.sounding().some((h) => h.note === n && h.camera === 1),
+        note, { timeout: 10000 }).then(() => true, () => false);
+    const quiet = () => page.waitForFunction(
+        () => window.solo.sounding().length === 0,
+        null, { timeout: 10000 }).then(() => true, () => false);
+
+    await page.click('#camera');
+    await page.waitForFunction(
+        () => document.getElementById('camerastatus').textContent !== 'asking...');
+    check(await page.textContent('#camerastatus') === 'strike the zones' &&
+          !(await page.isHidden('#camerazones')),
+          'the camera opens and shows its zones: ' +
+          await page.textContent('#camerastatus'));
+
+    /* The camera's bottom right is the player's bottom left: zone 7, the
+       air harp's C4. */
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6], true));
+
+    const struck = await cameraHolds(60);
+
+    /* In one go, so the zone has no frame in which to strike it again. */
+    const blurred = await page.evaluate(() =>
+    {
+        window.dispatchEvent(new Event('blur'));
+
+        return window.solo.sounding();
+    });
+
+    check(struck && blurred.some((h) => h.note === 60 && h.camera === 1),
+          'a hand struck into the player\'s bottom left plays C4, and a ' +
+          'blur leaves it down: ' + JSON.stringify(blurred));
+
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6]));
+    check(await quiet(), 'held still, it lets the note go');
+
+    await page.evaluate(() => window.fakeCamera.show(null));
+    await page.waitForTimeout(500);
+    await page.evaluate(() =>
+    {
+        window.camReplies = [];
+        window.fakeCamera.show([5 / 6, 5 / 6], true);
+    });
+
+    const strikeWaiting = await page.waitForFunction(
+        () => window.camReplies.some((e) => e.data.notes?.some(([n, v]) => n === 60 && v > 0)),
+        null, { timeout: 10000 }).then(() => true, () => false);
+
+    /* In one go: the mode change lets the camera's notes go, and then the
+       strike it had not read yet arrives. */
+    const changed = await page.evaluate(() =>
+    {
+        window.fakeCamera.show(null);
+        document.getElementById('mode').dispatchEvent(new Event('change'));
+        window.camReplay();
+
+        return window.solo.sounding();
+    });
+
+    check(strikeWaiting && !changed.some((h) => h.camera > 0),
+          'a strike the page reads after a mode change plays nothing: ' +
+          `${strikeWaiting ? '' : 'never struck, '}${JSON.stringify(changed)}`);
+    await page.evaluate(() => window.solo.settled());
+    check(await quiet(), 'and nothing is left down');
+
+    await page.evaluate(() => window.fakeCamera.show(null));
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6], true));
+
+    /* Frozen the moment the note is seen held, so that only the watchdog
+       can let it go. */
+    const frozeHolding = await page.evaluate(async () =>
+    {
+        for (const until = performance.now() + 10000; performance.now() < until;)
+        {
+            if (window.solo.sounding().some((h) => h.note === 60 && h.camera === 1))
+            {
+                window.fakeCamera.freeze();
+                return true;
+            }
+            await new Promise((r) => setTimeout(r, 5));
+        }
+        return false;
+    });
+    const letGo = await quiet();
+
+    check(frozeHolding && letGo,
+          'a feed that stops lets go of what the camera held: ' +
+          `${frozeHolding ? 'held' : 'never held'}, ` +
+          `${letGo ? 'let go' : 'still down'}`);
+
+    await page.click('#camera');
+    check(await page.textContent('#camera') === 'Camera' &&
+          await page.isHidden('#camerazones'),
+          'and the camera closes');
+
+    await page.evaluate(() => { window.camWorkerRefused = true; });
+    await page.click('#camera');
+    await page.waitForFunction(
+        () => document.getElementById('camerastatus').textContent !== 'asking...');
+
+    const refused = await page.evaluate(() =>
+    {
+        window.camWorkerRefused = false;
+        window.fakeCamera.freeze();
+
+        return window.fakeCamera.stream.getTracks().map((t) => t.readyState);
+    });
+
+    check(!refused.includes('live') && await page.textContent('#camera') === 'Camera',
+          'a worker that will not start lets the camera go: ' +
+          `${JSON.stringify(refused)}, ${await page.textContent('#camerastatus')}`);
 
     /* ---- the composer view ---- */
 

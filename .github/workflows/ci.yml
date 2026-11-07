@@ -803,6 +803,12 @@ jobs:
       - name: A live input, through the module
         run: node wasm/web/miccheck.mjs
 
+      # A webcam as a controller, through the module: drawn frames struck
+      # into the camera worker's way in (twcamera.cpp), the notes the
+      # camera's own profile plays for them, and a camera gone letting go.
+      - name: A camera's notes, through the module
+        run: node wasm/web/camcheck.mjs
+
       # The tape gate, without a browser: every seeded piece composed by this
       # module at four steps, against the tape genwav.mjs delivers out of
       # the Node module. The wasm-against-wasm gate and the step-invariance
