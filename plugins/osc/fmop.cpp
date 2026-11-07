@@ -83,6 +83,8 @@
 #include "thSynthTree.h"
 #include "thSynth.h"
 
+#include "fmop.h"
+
 enum {IN_FREQ, IN_RATIO, IN_MOD, IN_INDEX, IN_FEEDBACK, IN_RESET,
       OUT_ARG, INOUT_STATE};
 
@@ -108,9 +110,9 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
    likewise free to make. */
 #define FMOP_INDEX_MAX      20.0f
 
-/* Radians again, and this one *is* enforced, because 1 is where the
-   closed form above stops having a solution. See the head. */
-#define FMOP_FEEDBACK_MAX   1.0f
+/* FMOP_FEEDBACK_MAX, in fmop.h, is radians again, and *is* enforced,
+   because 1 is where the closed form above stops having a solution. See
+   the head. */
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -172,86 +174,32 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    float *out;
-    float *state;
-    thArg *in_freq, *in_ratio, *in_mod, *in_index, *in_feedback, *in_reset;
-    thArg *out_arg;
-    thArg *inout_state;
-    unsigned int i;
-    float phase, y1, y2;
+    thArg *in_freq = mod->getArg(node, args[IN_FREQ]);
+    thArg *in_ratio = mod->getArg(node, args[IN_RATIO]);
+    thArg *in_mod = mod->getArg(node, args[IN_MOD]);
+    thArg *in_index = mod->getArg(node, args[IN_INDEX]);
+    thArg *in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
+    thArg *in_reset = mod->getArg(node, args[IN_RESET]);
+    thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
+    thkFmop op;
 
-    in_freq = mod->getArg(node, args[IN_FREQ]);
-    in_ratio = mod->getArg(node, args[IN_RATIO]);
-    in_mod = mod->getArg(node, args[IN_MOD]);
-    in_index = mod->getArg(node, args[IN_INDEX]);
-    in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
-    in_reset = mod->getArg(node, args[IN_RESET]);
+    /* [0] the phase in turns, [1] and [2] the last two outputs. */
+    op.phase = (*inout_state)[0];
+    op.y1 = (*inout_state)[1];
+    op.y2 = (*inout_state)[2];
 
-    inout_state = mod->getArg(node, args[INOUT_STATE]);
+    float *state = inout_state->allocate(3);
+    float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
 
-    /* In float, and stepped in float, so that a window boundary is not
-       an event: a running sum kept wider than it is stored comes out
-       different at one sample a window than at five hundred. */
-    phase = (*inout_state)[0];
-    y1 = (*inout_state)[1];
-    y2 = (*inout_state)[2];
-    state = inout_state->allocate(3);
+    for (unsigned int i = 0; i < windowlen; i++)
+        out[i] = TH_MAX * op.tick((*in_freq)[i], (*in_ratio)[i],
+                                  (*in_mod)[i] / TH_MAX, (*in_index)[i],
+                                  (*in_feedback)[i], (*in_reset)[i],
+                                  (float)samples);
 
-    out_arg = mod->getArg(node, args[OUT_ARG]);
-    out = out_arg->allocate(windowlen);
-
-    for (i = 0; i < windowlen; i++)
-    {
-        const float ratio = thIsFinite((*in_ratio)[i]) ? (*in_ratio)[i] : 1;
-        /* The floor and the NaN, which is all of thClampArg that is
-           wanted here: a negative index is the same timbre with the
-           modulator inverted and is best read as none at all, and a
-           non-finite one has to land somewhere. The ceiling is the
-           slider's -- see FMOP_INDEX_MAX. */
-        const float index = thIsFinite((*in_index)[i])
-                          ? ((*in_index)[i] > 0 ? (*in_index)[i] : 0)
-                          : 0;
-        const float fb = thClampArg((*in_feedback)[i], 0,
-                                    FMOP_FEEDBACK_MAX);
-        const float in = thIsFinite((*in_mod)[i]) ? (*in_mod)[i] : 0;
-        double angle;
-        float y;
-
-        /* `> 0' rather than `== 1', which is env::adsr's reading of the
-           same word and is false for a NaN either way. */
-        if ((*in_reset)[i] > 0)
-            phase = 0;
-
-        /* The bound is the tree's: below it a wavelength does not fit in
-           a float's mantissa, above it the operator is past Nyquist. A
-           modulator at a high ratio reaches the ceiling and stays a
-           tone there rather than aliasing down the keyboard. */
-        angle = 2.0 * M_PI * (double)phase +
-                (double)index * (double)in / TH_MAX +
-                (double)fb * ((double)y1 + (double)y2) * 0.5;
-
-        y = (float)(TH_MAX * sin(angle));
-
-        out[i] = y;
-
-        y2 = y1;
-        y1 = y;
-
-        phase += (float)(thBoundFreq((double)(*in_freq)[i] * ratio,
-                                     samples) / (double)samples);
-
-        /* One end only: thBoundFreq's floor is positive, so the
-           increment is too, and the phase can leave the unit interval
-           in one direction. floorf rather than a subtraction anyway,
-           because a frequency near Nyquist steps most of a turn and
-           the two cost the same. */
-        if (phase >= 1.0f)
-            phase -= floorf(phase);
-    }
-
-    state[0] = phase;
-    state[1] = y1;
-    state[2] = y2;
+    state[0] = op.phase;
+    state[1] = op.y1;
+    state[2] = op.y2;
 
     return 0;
 }

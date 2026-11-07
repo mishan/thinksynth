@@ -55,5 +55,6 @@
 #include "thPluginManager.h"
 #include "thSynth.h"
 #include "thSynthTree.h"
+#include "thKernel.h"
 
 #endif /* TH_STATIC_H */

@@ -241,6 +241,9 @@ think_harness(dspbench)
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
 
+# The plugins' kernels against the arithmetic they stand for (thKernel.h).
+think_harness(kernelcheck)
+
 # A patch's controller blocks, kept as profile text (thSynthTree::controller).
 think_harness(controllercheck)
 
@@ -1012,6 +1015,7 @@ add_test(NAME argtype
          COMMAND argtype -p "${PROJECT_BINARY_DIR}/plugins/")
 
 add_test(NAME controllercheck COMMAND controllercheck)
+add_test(NAME kernelcheck COMMAND kernelcheck)
 add_test(NAME exprcheck
          COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME motioncheck COMMAND motioncheck)
