@@ -236,7 +236,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
             if(val_trigger <= 0) {
                 phase = 3;   /* D ended, time to fade out the note */
-                position = ((float)position / falloff) * val_r;
+                position = (float)(((float)position / falloff) * val_r);
             }
             break;
         case 3:
