@@ -483,7 +483,10 @@ jobs:
     timeout-minutes: 30
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    # Pinned, with wasm-compare: the native tree built here is what the wasm
+    # module is held to, sample for sample, and GCC 15 on 26.04 renders 11
+    # pieces differently from the GCC 13 the comparison was settled on.
+    runs-on: ubuntu-24.04
 
     env:
       # Pinned: the comparison is only as repeatable as the compiler on the
@@ -692,7 +695,8 @@ jobs:
   wasm-compare:
     name: wasm (emscripten) against native
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    # wasm-build's image, whose libraries its native tree was linked against.
+    runs-on: ubuntu-24.04
     needs: [wasm-build, linux]
 
     steps:
