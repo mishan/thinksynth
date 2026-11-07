@@ -135,6 +135,9 @@ static const Row ROWS[] = {
       "0 rec 2; 0.1 on 60; 0.3 off 60; 1.0 rec 2; 1.05 tick; 1.1 tick; "
       "1.3 tick; 2.1 tick; 2.3 tick",
       " |  |  |  |  | on 2 60 100 | off 2 60 | on 2 60 100 | off 2 60" },
+    { "a note started as the recording starts is in its first lap",
+      "0 rec 1; 0 on 60; 0.1 off 60; 0.2 rec 1; 0.25 tick",
+      " |  |  |  | on 1 60 100" },
     { "a note still held at the end ends with each lap",
       "0 rec 1; 0.2 on 62; 0.5 rec 1; 0.6 tick; 0.75 tick; 1.0 tick; 1.2 tick",
       " |  |  |  | on 1 62 100 | off 1 62 | on 1 62 100" },

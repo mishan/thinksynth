@@ -81,9 +81,9 @@ thhLooper::act (const thhAction &a, double now, std::vector<thhAction> &out)
                 take_.events.push_back(e);
             }
         /* Its first lap starts as it ends, and an event at its very start
-           is in that lap. */
+           is in that lap: done is under it by more than tick's nanosecond. */
         take_.start = now;
-        take_.done = now - 1e-9;
+        take_.done = now - 1e-6;
         loops_.push_back(take_);
         return;
     }

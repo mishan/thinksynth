@@ -15,7 +15,8 @@
 # hand forward to fade the loops (upright is full), pull the trigger to
 # brighten them, and push the stick to pan them.
 #
-# One controller alone plays the notes and squeezes its own loops.
+# One controller alone plays the notes and squeezes its own loops; a click
+# of the stick drops the newest (with a pair, either hand's does).
 
 device index {
     base = "C4";
@@ -26,6 +27,7 @@ device index {
     b = octave -1;
     roll = "bright" { smooth = 0.05; };
     grip_force = loop record { at = 0.5; channel = 2; };
+    thumbstick = loop undo;
 
     ignore pad_y;
     ignore grip_mid;
@@ -44,7 +46,7 @@ device index left {
     ignore roll;
     b = loop undo;
     twist = loop clear { at = 0.7; };
-    tilt = "level" { channel = 2; center = 0.9; min = 0; max = 2; smooth = 0.05; };
+    tilt = "level" { channel = 2; center = 0.9; min = 0; max = 1.8; smooth = 0.05; };
     trigger = "bright" { channel = 2; min = 0.4; max = 1; smooth = 0.03; };
     stick_x = "pan" { channel = 2; };
 };
