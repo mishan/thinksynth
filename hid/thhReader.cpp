@@ -361,7 +361,7 @@ thhReader::run ()
     thhState s;
     thhIndexImu imu;
     int in = -1, motion = -1;
-    bool heard = false;         /* an input report since the connect */
+    bool heard = false;         /* a report since the connect */
 
     for (;;)
     {
@@ -445,13 +445,16 @@ thhReader::run ()
            its buttons and axes are. */
         bool fed;
 
-        if (from == in)
-        {
-            fed = thhIndexFeed(buf, n, s);
-            heard = heard || fed;
-        }
-        else
-            fed = thhIndexFeedImu(buf, n, imu, s) && heard;
+        /* A controller at rest sends no input report until something on
+           it moves, and its IMU speaks at once: so any report, its ping
+           included, is enough to know it is there, its buttons and axes at
+           rest until its input says otherwise. */
+        const bool ping = from == in && n >= 4 && buf[0] == 0x01 &&
+                          buf[2] == 0x04 && buf[3] == 0x0b;
+
+        fed = from == in ? thhIndexFeed(buf, n, s) || (ping && !heard)
+                         : thhIndexFeedImu(buf, n, imu, s);
+        heard = heard || fed;
         if (fed)
             publish(s);
     }

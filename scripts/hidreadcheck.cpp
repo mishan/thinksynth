@@ -468,8 +468,8 @@ checkFlapping (void)
     }
 }
 
-/* What a controller connected says first may be its IMU's: nothing is
-   heard of it until its input has said where its buttons and axes are. */
+/* A controller at rest sends no input report until something on it moves;
+   its IMU speaks at once, and is enough to know it is there, at rest. */
 static void
 checkImuFirst (void)
 {
@@ -478,15 +478,24 @@ checkImuFirst (void)
 
     imu[0] = 0x20;
     r.send(imu, true);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    report("an IMU report before any input is nothing yet",
-           !r.reader->drain(r.edges, r.latest) ? "" :
-           "edges: " + describe(r.edges));
-    r.send(input(0, 0x40));
-    report("...and the input after it is the connect",
-           r.settle(1) == "-" &&
-           std::fabs(r.latest.axis[THH_INDEX_TRIGGER] - 0x40 / 255.0f) < 1e-6
-               ? "" : "edges: " + describe(r.edges));
+    report("an IMU report before any input is the connect, at rest",
+           r.settle(1) == "-" ? "" : "edges: " + describe(r.edges));
+}
+
+/* A controller at rest says almost nothing on its input: its ping, once a
+   second, is enough to know it is there, at rest. */
+static void
+checkPingFirst (void)
+{
+    Rig r;
+    std::vector<uint8_t> ping(64, 0);
+
+    ping[0] = 0x01;
+    ping[2] = 0x04;
+    ping[3] = 0x0b;
+    r.send(ping);
+    report("a ping, with no input yet, is the connect",
+           r.settle(1) == "-" ? "" : "edges: " + describe(r.edges));
 }
 
 static void
@@ -545,6 +554,7 @@ main (int argc, char *argv[])
     checkSilence();
     checkFlapping();
     checkImuFirst();
+    checkPingFirst();
     checkPermission(scratch);
     fs::remove_all(scratch);
 

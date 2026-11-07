@@ -78,8 +78,9 @@ public:
     /* What arrived since the last drain: each state at which a button or
        the connection changed, in order, so no press is lost to a slow
        drain, then the latest. False if nothing did. A connect is heard
-       with the first report after it, so a controller's axes never read
-       as zero before it has said where they are. */
+       with the first report after it, of any kind: a controller at rest
+       sends no input report until something on it moves, so until one
+       does its buttons and axes are at rest. */
     bool drain (std::vector<thhState> &edges, thhState &latest);
 
     /* Why there is no controller, or empty; a change wakes the drainer. */
