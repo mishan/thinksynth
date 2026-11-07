@@ -19,6 +19,9 @@
 #ifndef THH_READER_H
 #define THH_READER_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include <atomic>
 #include <functional>
 #include <mutex>
@@ -28,50 +31,37 @@
 
 #include "thhControls.h"
 
-/* Linux only: hidraw, poll() and a thread.
+/* Linux only: poll() and a thread.
 
-   The /dev nodes of one wired Index controller: the input interface's, the
-   IMU's if it has one, and all of them, every one of which is woken. */
-struct thhIndexNodes
+   What makes a report read from a connection's read[from] a state: true
+   if it is heard. */
+typedef std::function<bool (size_t from, const uint8_t *data, size_t len,
+                            thhState &s)> thhFeed;
+
+/* An open controller: the fds to read, every fd to close with it (those
+   included), its feed, and its hand if it says. */
+struct thhConnection
 {
-    std::string              usb;       /* the USB device's sysfs path */
-    std::string              serial;    /* its USB serial number */
-    std::string              input, imu;
-    std::vector<std::string> all;
+    std::vector<int> read, fds;
+    thhFeed          feed;
+    std::string      hand;
 };
-
-/* The first wired Index controller under sysRoot (normally /sys), matched by
-   vendor, product and name, since a 2018 Vive Tracker has the same ID. Its
-   nodes are named under devRoot (normally /dev). */
-bool thhFindIndex (const std::string &sysRoot, const std::string &devRoot,
-                   thhIndexNodes &out);
-
-/* Every wired Index controller, in the same order every time. */
-std::vector<thhIndexNodes> thhFindIndexes (const std::string &sysRoot,
-                                           const std::string &devRoot);
-
-/* Which hand a controller is shaped for, from the configuration it keeps
-   (zlib-compressed JSON, whose model_number is "Knuckles Left" or
-   "Knuckles Right"): "left", "right", or empty if it doesn't say. */
-std::string thhIndexHand (const std::string &compressedConfig);
 
 /* Reads a controller on a thread of its own and hands what it reads to
    another thread, which drains it.
 
-   connect opens a controller, giving its input fd, its IMU's (or -1),
-   every fd to close with it, and its hand if it says, or says why it
-   can't (status); it is asked again a second later.
+   connect opens a controller, or says why it can't (status); it is asked
+   again a second later.
    wake is called on the reader's thread when there is something to drain,
    once until the next drain. */
 class thhReader
 {
 public:
-    typedef std::function<bool (int &input, int &imu, std::vector<int> &fds,
-                                std::string &hand, std::string &status)>
+    typedef std::function<bool (thhConnection &c, std::string &status)>
         Connect;
 
-    /* A controller silent for silenceMs is taken as gone: it pings about
-       once a second while it is awake. */
+    /* A controller silent for silenceMs is taken as gone: an Index pings
+       about once a second while it is awake. */
     thhReader (const Connect &connect, const std::function<void ()> &wake,
                int silenceMs = 3000);
     ~thhReader ();
@@ -108,14 +98,5 @@ private:
     void publish (const thhState &s);
     void notify ();
 };
-
-/* The connect for a real controller, the one at usb (a path
-   thhFindIndexes gave) or, if usb is empty, the first: each node opened
-   and sent the controller's wake-up, and its hand read from its
-   configuration. */
-bool thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
-                      const std::string &usb, int &input, int &imu,
-                      std::vector<int> &fds, std::string &hand,
-                      std::string &status);
 
 #endif /* THH_READER_H */

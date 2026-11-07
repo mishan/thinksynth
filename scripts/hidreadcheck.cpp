@@ -50,6 +50,7 @@
 #include <zlib.h>
 
 #include "thhIndex.h"
+#include "thhIndexHidraw.h"
 #include "thhReader.h"
 
 namespace fs = std::filesystem;
@@ -298,14 +299,13 @@ struct Rig
         far = sv[1];
         farImu = mv[1];
         reader.reset(new thhReader(
-            [this, sv, mv](int &in, int &imu, std::vector<int> &fds,
-                           string &hand, string &) {
+            [this, sv, mv](thhConnection &c, string &) {
                 if (connects++ > 0)
                     return false;
-                in = sv[0];
-                imu = mv[0];
-                fds.assign({ sv[0], mv[0] });
-                hand = "left";
+                c.read.assign({ sv[0], mv[0] });
+                c.fds = c.read;
+                c.feed = thhIndexFeeder();
+                c.hand = "left";
                 return true;
             },
             [this]() { wakes++; }, silenceMs));
@@ -442,17 +442,16 @@ checkFlapping (void)
 
     {
         thhReader reader(
-            [&](int &in, int &imu, std::vector<int> &fds, string &hand,
-                string &) {
+            [&](thhConnection &c, string &) {
                 int sv[2];
 
                 if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0)
                     return false;
                 close(sv[1]);           /* gone as soon as it is here */
-                in = sv[0];
-                imu = -1;
-                fds.assign(1, sv[0]);
-                hand = said.exchange(true) ? "" : "right";
+                c.read.assign(1, sv[0]);
+                c.fds = c.read;
+                c.feed = thhIndexFeeder();
+                c.hand = said.exchange(true) ? "" : "right";
                 connects++;
                 return true;
             },
@@ -515,10 +514,9 @@ checkPermission (const string &scratch)
     std::ofstream(dev + "/hidraw14") << "";
     chmod((dev + "/hidraw14").c_str(), 0);
 
-    int in = -1, imu = -1;
-    std::vector<int> fds;
-    string hand, status;
-    const bool ok = thhConnectIndex(sys, dev, "", in, imu, fds, hand, status);
+    thhConnection c;
+    string status;
+    const bool ok = thhConnectIndex(sys, dev, "", c, status);
 
     report("a node it may not open says how to allow it",
            !ok && status.find("udev") != string::npos ? "" :

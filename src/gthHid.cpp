@@ -24,6 +24,7 @@
 #include "gthPrefs.h"
 #include "gthSignal.h"
 #include "thhIndex.h"
+#include "thhIndexHidraw.h"
 #include "thhPlay.h"
 
 /* How often a new controller is looked for. */
@@ -112,10 +113,8 @@ gthHid::scan ()
         slot->usb = usb;
         slot->serial = found[i].serial;
         slot->reader.reset(new thhReader(
-            [usb](int &input, int &imu, std::vector<int> &fds, std::string &hand,
-                  std::string &status) {
-                return thhConnectIndex("/sys", "/dev", usb, input, imu, fds,
-                                       hand, status);
+            [usb](thhConnection &c, std::string &status) {
+                return thhConnectIndex("/sys", "/dev", usb, c, status);
             },
             [this]() { dispatcher_.emit(); }));
         slots_.push_back(std::unique_ptr<Slot>(slot));
