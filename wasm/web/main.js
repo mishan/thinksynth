@@ -73,6 +73,7 @@ import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { micAvailable, openMic } from './mic.js';
 import { midiAvailable, midiToggle } from './midi.js';
+import { cameraAvailable, cameraToggle } from './camera.js';
 import { MidiOutControls } from './midioutui.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
@@ -455,6 +456,7 @@ let synth = null;
 let midiOutUI = null;
 let mic = null;                  /* what openMic returned, or null */
 let midiIn = null;               /* the MIDI in button (midi.js)    */
+let cameraIn = null;             /* the camera button (camera.js)   */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
 let micDropped = 0;
 let keyboard = null;
@@ -628,9 +630,9 @@ function composing ()
 
 /* Every way of pressing a note comes here. A second press of a note
    already down is counted and nothing else: one note, however many things
-   are holding it. `midi' says a MIDI keyboard is the one holding it, which
-   is counted apart as well (releaseKeys). */
-function press (note, velocity = VELOCITY, midi = false)
+   are holding it. `from' names a device holding it -- 'midi' or 'camera'
+   -- whose presses are counted apart as well (releaseKeys). */
+function press (note, velocity = VELOCITY, from = null)
 {
     if (synth === null)
         return;
@@ -641,8 +643,8 @@ function press (note, velocity = VELOCITY, midi = false)
     {
         already.count++;
 
-        if (midi)
-            already.midi++;
+        if (from !== null)
+            already[from]++;
 
         return;
     }
@@ -650,7 +652,8 @@ function press (note, velocity = VELOCITY, midi = false)
     const piecing = composing();
     const channel = keyChannel();
 
-    sounding.set(note, { count: 1, midi: midi ? 1 : 0, velocity,
+    sounding.set(note, { count: 1, midi: from === 'midi' ? 1 : 0,
+                         camera: from === 'camera' ? 1 : 0, velocity,
                          piece: piecing, channel });
 
     if (piecing)
@@ -664,20 +667,20 @@ function press (note, velocity = VELOCITY, midi = false)
 /* And every way of letting go. The route is the one the press took, not
    the one the page is in now: a mode or a channel changed under a held
    note must not leave it sounding for ever. */
-function release (note, midi = false)
+function release (note, from = null)
 {
     const held = sounding.get(note);
 
     if (held === undefined)
         return;
 
-    /* A MIDI note off for a note releaseAll already let go of. */
-    if (midi)
+    /* A device's note off for a note releaseAll already let go of. */
+    if (from !== null)
     {
-        if (held.midi === 0)
+        if (held[from] === 0)
             return;
 
-        held.midi--;
+        held[from]--;
     }
 
     if (--held.count > 0)
@@ -698,10 +701,11 @@ function release (note, midi = false)
 function releaseAll ()
 {
     midiIn?.forget();
+    cameraIn?.forget();
     pedal(0);
 
     for (const held of sounding.values())
-        held.midi = 0;
+        held.midi = held.camera = 0;
 
     releaseKeys();
 }
@@ -734,8 +738,8 @@ function pedal (value)
 }
 
 /* Everything the pointer and the computer keyboard hold: a key released
-   while the page was not looking never sends its keyup. A MIDI key's note
-   off arrives wherever the focus is, so what a MIDI keyboard holds stays
+   while the page was not looking never sends its keyup. A MIDI key's or the
+   camera's note off arrives wherever the focus is, so what they hold stays
    down. */
 function releaseKeys ()
 {
@@ -744,8 +748,8 @@ function releaseKeys ()
 
     for (const [note, held] of [...sounding])
     {
-        if (held.midi > 0)
-            held.count = held.midi;
+        if (held.midi + held.camera > 0)
+            held.count = held.midi + held.camera;
         else
         {
             held.count = 1;
@@ -3246,6 +3250,10 @@ async function start ()
         $('micstatus').textContent = 'needs https, or localhost';
 
     $('midi').disabled = !midiAvailable();
+    $('camera').disabled = !cameraAvailable();
+
+    if (!cameraAvailable())
+        $('camerastatus').textContent = 'needs https, or localhost';
 
     if (!midiAvailable())
         $('midistatus').textContent = 'needs Chromium or Firefox, over https '
@@ -4336,9 +4344,14 @@ async function init ()
     $('mic').addEventListener('click', toggleMic);
     midiIn = midiToggle({
         button: $('midi'), status: $('midistatus'),
-        onNoteOn: (note, velocity) => press(note, velocity, true),
-        onNoteOff: (note) => release(note, true),
+        onNoteOn: (note, velocity) => press(note, velocity, 'midi'),
+        onNoteOff: (note) => release(note, 'midi'),
         onPedal: pedal,
+    });
+    cameraIn = cameraToggle({
+        button: $('camera'), status: $('camerastatus'), zones: $('camerazones'),
+        onNoteOn: (note, velocity) => press(note, velocity, 'camera'),
+        onNoteOff: (note) => release(note, 'camera'),
     });
     midiOutUI = new MidiOutControls({
         button: $('midiout'), delay: $('midioutdelay'),

@@ -192,6 +192,47 @@ try
             },
         };
 
+        /* A camera, faked the same way: a canvas the harness draws on,
+           streamed. Painted 60 times a second whether or not it changed,
+           as a camera's frames come, and never twice alike: a sensor's
+           noise, a flicker in one corner under thMotion's noise floor,
+           without which a still picture is a stalled feed. freeze() stops
+           the frames, as a camera taken by another app does. */
+        const lens = document.createElement('canvas');
+        let square = null, painting = null, flicker = false;
+        const paint = () =>
+        {
+            const g = lens.getContext('2d');
+
+            g.fillStyle = '#282828';
+            g.fillRect(0, 0, lens.width, lens.height);
+            flicker = !flicker;
+            g.fillStyle = flicker ? '#383838' : '#282828';
+            g.fillRect(0, 0, 4, 4);
+            if (square !== null)
+            {
+                g.fillStyle = '#dcdcdc';
+                g.fillRect(square[0] * lens.width - 60, square[1] * lens.height - 60, 120, 120);
+            }
+        };
+
+        lens.width = 640;
+        lens.height = 480;
+        window.fakeCamera = {
+            /* A bright square centered here, as fractions of the camera's
+               picture, which is the player's mirrored; null for none. */
+            show (at) { square = at; },
+            freeze () { clearInterval(painting); },
+        };
+        navigator.mediaDevices.getUserMedia = async (asked) =>
+        {
+            if (!asked.video)
+                throw new DOMException('no such device', 'NotFoundError');
+            paint();
+            painting = setInterval(paint, 1000 / 60);
+            return lens.captureStream(60);
+        };
+
         window.midiSent = [];
         fake.plug('k1', 'Fake Keys');
         fake.plugOut('o1', 'Fake Synth');
@@ -1267,6 +1308,51 @@ try
     check((await sounding()).length === 0 &&
           await page.textContent('#midi') === 'MIDI in',
           'and closing MIDI in lets go of it');
+
+    /* ---- a camera ---- */
+
+    const cameraHolds = (note) => page.waitForFunction(
+        (n) => window.solo.sounding().some((h) => h.note === n && h.camera === 1),
+        note, { timeout: 10000 }).then(() => true, () => false);
+    const quiet = () => page.waitForFunction(
+        () => window.solo.sounding().length === 0,
+        null, { timeout: 10000 }).then(() => true, () => false);
+
+    await page.click('#camera');
+    await page.waitForFunction(
+        () => document.getElementById('camerastatus').textContent !== 'asking...');
+    check(await page.textContent('#camerastatus') === 'strike the zones' &&
+          !(await page.isHidden('#camerazones')),
+          'the camera opens and shows its zones: ' +
+          await page.textContent('#camerastatus'));
+
+    /* The camera's bottom right is the player's bottom left: zone 7, the
+       air harp's C4. */
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6]));
+
+    const struck = await cameraHolds(60);
+
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    check(struck && (await sounding()).some((h) => h.note === 60),
+          'a hand struck into the player\'s bottom left plays C4, and a ' +
+          'blur leaves it down: ' + JSON.stringify(await sounding()));
+    check(await quiet(), 'held still, it lets the note go');
+
+    await page.evaluate(() => window.fakeCamera.show(null));
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6]));
+
+    const again = await cameraHolds(60);
+
+    await page.evaluate(() => window.fakeCamera.freeze());
+    check(again && await quiet(),
+          'a feed that stops lets go of what the camera held');
+
+    await page.click('#camera');
+    check(await page.textContent('#camera') === 'Camera' &&
+          await page.isHidden('#camerazones'),
+          'and the camera closes');
 
     /* ---- the composer view ---- */
 
