@@ -139,7 +139,10 @@ void thMidiNote::retune (float note)
     if (ionode == NULL)
         return;
 
-    ionode->setArg("note", note + bend_);
+    /* A new key, which starts unbent: its own bend, if it has one, comes
+       after. */
+    bend_ = 0;
+    ionode->setArg("note", note);
 
     note_ = note;
     noteid_ = (int)note;

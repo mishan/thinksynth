@@ -998,6 +998,10 @@ void thMidiChan::expressNote (int note, int what, float value)
 {
     if (thMidiNote *voice = findNote(note))
         voice->express(what, value);
+
+    /* A note held across a patch change is still the old patch's. */
+    if (draining_ != NULL)
+        draining_->expressNote(note, what, value);
 }
 
 int thMidiChan::setNoteArg (int note, const string &name, float value)

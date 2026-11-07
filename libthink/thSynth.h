@@ -94,6 +94,9 @@ public:
        read, is left alone. */
     void bendNote (int channum, float note, float semitones);
     void setNoteAux (int channum, float note, int aux, float value);
+    /* Whether the command queue is too full to take expression: see
+       bendNote. */
+    bool expressionCrowds (void) const;
     void clearAll (void);
 
     /* Everything down to nothing in TH_STOP_FADE_MS: every voice on every

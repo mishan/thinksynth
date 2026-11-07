@@ -80,6 +80,13 @@ public:
                tail_.load(std::memory_order_acquire);
     }
 
+    /* Producer side only: how many are waiting. */
+    unsigned int used (void) const
+    {
+        return (head_.load(std::memory_order_relaxed) + CAPACITY -
+                tail_.load(std::memory_order_acquire)) % CAPACITY;
+    }
+
     bool empty (void) const
     {
         return head_.load(std::memory_order_acquire) ==

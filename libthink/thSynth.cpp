@@ -2435,6 +2435,15 @@ expression (thSynthCommand &cmd, int channum, float note, int what,
     cmd.value = value;
 }
 
+/* Expression is a stream, each value whole, so one let go of costs a step
+   that the next one makes up; a note on or off let go of is a note stuck.
+   So expression keeps to half the queue, and a burst of it leaves the
+   rest for the notes. */
+bool thSynth::expressionCrowds (void) const
+{
+    return commands_.used() >= TH_COMMAND_QUEUE_SIZE / 2;
+}
+
 void thSynth::bendNote (int channum, float note, float semitones)
 {
     if (channum < 0 || channum >= midiChannelCnt_)
@@ -2443,6 +2452,9 @@ void thSynth::bendNote (int channum, float note, float semitones)
     std::lock_guard<std::mutex> lock(synthMutex_);
 
     if (!guiChannels_[channum] || silent_)
+        return;
+
+    if (expressionCrowds())
         return;
 
     thSynthCommand cmd;
@@ -2460,6 +2472,9 @@ void thSynth::setNoteAux (int channum, float note, int aux, float value)
     std::lock_guard<std::mutex> lock(synthMutex_);
 
     if (!guiChannels_[channum] || silent_)
+        return;
+
+    if (expressionCrowds())
         return;
 
     thSynthCommand cmd;

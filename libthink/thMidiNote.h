@@ -78,8 +78,8 @@ public:
     void retune (float note);
 
     /* Audio thread. This voice's own expression while it sounds: what < 0
-       bends it `value' semitones from the note it was played at, which a
-       retune keeps; what = N sets auxN, if the graph reads it. Unlike a
+       bends it `value' semitones from the note it was played at, until a
+       retune to another key; what = N sets auxN, if the graph reads it. Unlike a
        retune its id stays, so its note off still finds it.
        Allocation-free, as retune is. */
     void express (int what, float value);

@@ -33,7 +33,9 @@ class thSynth;
    on (setMpe), the lower zone is folded onto one synth channel: channel 1
    is its master, whose bend bends every note, and each of 2-16 carries one
    note whose own bend (48 semitones either way unless the controller says
-   otherwise, by RPN 0), pressure (aux0) and CC 74 (aux1) are that note's.
+   otherwise, by RPN 0, for the whole zone), pressure (aux0) and CC 74
+   (aux1) are that note's. Two members on one pitch are one voice, the
+   later one's: the earlier's bend and off leave it be.
 
    No toolkit. On the thread MIDI is dispatched on, the GUI's. */
 class gthMidiPlay
@@ -56,12 +58,19 @@ private:
     {
         float            bend, range, pressure, timbre;
         int              rpn[2];        /* CC 101, CC 100 */
+        bool             nrpn;          /* CC 99 or 98 since */
         std::vector<int> held;
     };
 
     thSynth *synth_;
     int      mpe_;
     Chan     chans_[16];
+
+    /* Which MIDI channel each note sounding on each synth channel is from:
+       two MPE members on one pitch are one voice, the later one's. */
+    int      owner_[16][128];
+
+    void ranges ();
 
     int target (int midiChannel) const;
     float bendOf (int midiChannel) const;
