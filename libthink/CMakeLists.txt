@@ -17,6 +17,7 @@ set(THINK_SOURCES
     thChanEffect.cpp
     thMidiChan.cpp
     thMidiNote.cpp
+    thMotion.cpp
     thSynthTree.cpp
     thNode.cpp
     thProbe.cpp
