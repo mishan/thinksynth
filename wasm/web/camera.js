@@ -159,11 +159,13 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
         throw new Error(`the camera: ${e.message}`);
     }
 
-    let bytes;
+    let bytes, worker;
 
     try
     {
         bytes = (await wasmBytes()).slice(0);
+        worker = new Worker(new URL('camworker.js', import.meta.url),
+                            { type: 'module' });
     }
     catch (e)
     {
@@ -179,10 +181,11 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
     video.playsInline = true;
     video.srcObject = stream;
 
-    const worker = new Worker(new URL('camworker.js', import.meta.url),
-                              { type: 'module' });
     const held = new Set();
     let open = true, last = performance.now(), stalled = false, frame = 0;
+    /* Advanced by forget: a reply to a frame posted before it would press
+       a note the page has already let go of. */
+    let generation = 0;
     let canvas = null, draw = null, watch = null;
 
     const letGo = () =>
@@ -224,7 +227,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
             fail(m.text);
             return;
         }
-        if (!open)
+        if (!open || m.generation !== generation)
             return;
 
         for (const [note, velocity] of m.notes)
@@ -295,8 +298,8 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
 
         last = performance.now();
         stalled = false;
-        worker.postMessage({ type: 'frame', luma: luma.buffer, width, height,
-                             seconds: (meta.captureTime ?? now) / 1000 },
+        worker.postMessage({ type: 'frame', generation, luma: luma.buffer,
+                             width, height, seconds: (meta.captureTime ?? now) / 1000 },
                            [luma.buffer]);
     };
 
@@ -305,7 +308,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
         if (!stalled && performance.now() - last > STALL_MS)
         {
             stalled = true;
-            worker.postMessage({ type: 'gone' });
+            worker.postMessage({ type: 'gone', generation });
         }
     }, STALL_MS / 2);
 
@@ -331,7 +334,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
         forget ()
         {
             held.clear();
-            worker.postMessage({ type: 'gone' });
+            worker.postMessage({ type: 'gone', generation: ++generation });
         },
 
         close,

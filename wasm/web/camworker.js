@@ -98,7 +98,8 @@ function receive (m)
     else
         return;
 
-    postMessage({ type: 'played', ...JSON.parse(M.UTF8ToString(said)) });
+    postMessage({ type: 'played', generation: m.generation,
+                  ...JSON.parse(M.UTF8ToString(said)) });
 }
 
 onmessage = (e) => receive(e.data);

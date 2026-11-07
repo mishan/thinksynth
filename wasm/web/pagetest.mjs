@@ -231,13 +231,49 @@ try
             show (at, move = false) { square = at; moving = move; },
             freeze () { clearInterval(painting); },
         };
+        /* The camera's worker, with its replies held back while
+           camReplies is an array, and handed on by camReplay(): a reply
+           the page has not read yet when it lets its notes go. */
+        window.camReplies = null;
+        window.Worker = class extends window.Worker
+        {
+            constructor (url, options)
+            {
+                if (window.camWorkerRefused && String(url).includes('camworker'))
+                    throw new DOMException('refused', 'SecurityError');
+                super(url, options);
+                if (!String(url).includes('camworker'))
+                    return;
+
+                let read = null;
+
+                Object.defineProperty(this, 'onmessage',
+                                      { set (f) { read = f; }, get () { return read; } });
+                this.addEventListener('message', (e) =>
+                {
+                    if (window.camReplies !== null)
+                        window.camReplies.push(e);
+                    else
+                        read?.(e);
+                });
+                window.camReplay = () =>
+                {
+                    const held = window.camReplies;
+
+                    window.camReplies = null;
+                    for (const e of held)
+                        read?.(e);
+                };
+            }
+        };
         navigator.mediaDevices.getUserMedia = async (asked) =>
         {
             if (!asked.video)
                 throw new DOMException('no such device', 'NotFoundError');
             paint();
             painting = setInterval(paint, 1000 / 60);
-            return lens.captureStream(60);
+            window.fakeCamera.stream = lens.captureStream(60);
+            return window.fakeCamera.stream;
         };
 
         window.midiSent = [];
@@ -1357,6 +1393,35 @@ try
 
     await page.evaluate(() => window.fakeCamera.show(null));
     await page.waitForTimeout(500);
+    await page.evaluate(() =>
+    {
+        window.camReplies = [];
+        window.fakeCamera.show([5 / 6, 5 / 6], true);
+    });
+
+    const strikeWaiting = await page.waitForFunction(
+        () => window.camReplies.some((e) => e.data.notes?.some(([n, v]) => n === 60 && v > 0)),
+        null, { timeout: 10000 }).then(() => true, () => false);
+
+    /* In one go: the mode change lets the camera's notes go, and then the
+       strike it had not read yet arrives. */
+    const changed = await page.evaluate(() =>
+    {
+        window.fakeCamera.show(null);
+        document.getElementById('mode').dispatchEvent(new Event('change'));
+        window.camReplay();
+
+        return window.solo.sounding();
+    });
+
+    check(strikeWaiting && !changed.some((h) => h.camera > 0),
+          'a strike the page reads after a mode change plays nothing: ' +
+          `${strikeWaiting ? '' : 'never struck, '}${JSON.stringify(changed)}`);
+    await page.evaluate(() => window.solo.settled());
+    check(await quiet(), 'and nothing is left down');
+
+    await page.evaluate(() => window.fakeCamera.show(null));
+    await page.waitForTimeout(500);
     await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6], true));
 
     /* Frozen the moment the note is seen held, so that only the watchdog
@@ -1385,6 +1450,23 @@ try
     check(await page.textContent('#camera') === 'Camera' &&
           await page.isHidden('#camerazones'),
           'and the camera closes');
+
+    await page.evaluate(() => { window.camWorkerRefused = true; });
+    await page.click('#camera');
+    await page.waitForFunction(
+        () => document.getElementById('camerastatus').textContent !== 'asking...');
+
+    const refused = await page.evaluate(() =>
+    {
+        window.camWorkerRefused = false;
+        window.fakeCamera.freeze();
+
+        return window.fakeCamera.stream.getTracks().map((t) => t.readyState);
+    });
+
+    check(!refused.includes('live') && await page.textContent('#camera') === 'Camera',
+          'a worker that will not start lets the camera go: ' +
+          `${JSON.stringify(refused)}, ${await page.textContent('#camerastatus')}`);
 
     /* ---- the composer view ---- */
 
