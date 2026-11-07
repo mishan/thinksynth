@@ -51,10 +51,11 @@ struct thhBoxImu
 
 /* One sample: acceleration in g and rotation in degrees a second, each in
    the sensor's own axes, dt seconds after the last. Writes the pose axes
-   of s. Held facing you like a phone on its side, tilt is the top edge
-   tipping away (+) or toward you, roll the BOX turned like a wheel, right
-   (+) or left, and twist and turn that same turning, as speed and as
-   distance, springing back to 0 over a few seconds. */
+   of s. Standing upright with its screen facing you, it's at rest: tilt is
+   the top edge tipping away (+) or toward you, roll the BOX turned like a
+   wheel, clockwise (+) or anticlockwise, and twist and turn that same
+   turning, as speed and as distance, springing back to 0 over a few
+   seconds. */
 void thhBoxFeedImu (const float accel[3], const float gyro[3], float dt,
                     thhBoxImu &imu, thhState &s);
 

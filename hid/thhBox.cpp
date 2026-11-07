@@ -71,8 +71,10 @@ thhBoxFeedImu (const float accel[3], const float gyro[3], float dt,
 
     if (g > 0)
     {
-        s.axis[THH_BOX_TILT] = clamp1(std::asin(clamp1(imu.g[1] / g)) / (float)(M_PI / 2));
-        s.axis[THH_BOX_ROLL] = clamp1(std::asin(clamp1(imu.g[0] / g)) / (float)(M_PI / 2));
+        /* Upright and facing you, up is the sensor's -x; the screen faces
+           -z, and its left edge +y. */
+        s.axis[THH_BOX_TILT] = clamp1(std::asin(clamp1(-imu.g[2] / g)) / (float)(M_PI / 2));
+        s.axis[THH_BOX_ROLL] = clamp1(std::asin(clamp1(imu.g[1] / g)) / (float)(M_PI / 2));
     }
     s.axis[THH_BOX_TWIST] = clamp1(imu.twist);
     s.axis[THH_BOX_TURN] = clamp1(imu.turn / THH_BOX_TURN_FULL);
