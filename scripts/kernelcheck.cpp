@@ -65,6 +65,17 @@ main ()
     }
     report("the sine, over a hundred turns either way", worst, 1.5e-6);
 
+    /* The envelopes' log, over the 1 to e their curves take it over, and
+       beyond it as logf. */
+    worst = 0;
+    for (double x = 1; x <= 2.718281828; x += 1e-5)
+        worst = std::max(worst, std::fabs(thkLn1e((float)x) - std::log((double)(float)x)));
+    report("the envelopes' log, from 1 to e", worst, 5e-7);
+    report("the envelopes' log, 1 to 0 and e to 1",
+           std::fabs(thkLn1e(1)) + std::fabs(thkLn1e(2.71828182845904523536f) - 1), 1.2e-7);
+    report("the envelopes' log, either side of 1 to e, as logf",
+           std::fabs(thkLn1e(0.5f) - logf(0.5f)) + std::fabs(thkLn1e(3) - logf(3)), 0);
+
     report("the crest and the trough are 1 and -1 exactly",
            std::fabs(thkSin2pi(0.25f) - 1) + std::fabs(thkSin2pi(-0.25f) + 1) +
            std::fabs(thkSin2pi(1.25f) - 1), 0);
@@ -104,7 +115,7 @@ main ()
         if (phase >= 1)
             phase -= std::floor(phase);
     }
-    report("the FM operator, a second of it", worst, 1e-4);
+    report("the FM operator, a second of it", worst, 1e-5);
 
     /* A note's frequency, against the double the plugin used to keep:
        a rounding or two, and the clamps. */
@@ -128,22 +139,30 @@ main ()
     {
         const char *name;
         int         kind;           /* 0 ad, 1 adsr free, 2 adsr gated */
-        int         releaseAt;      /* gated: the trigger falls here */
+        int         releaseAt;      /* the trigger falls here, or 0 */
+        int         resetAt;        /* free: reset rises here, or 0 */
         struct { int n; float level; bool play; } at[5];
     };
     static const Shape SHAPES[] = {
-        { "env::ad: half a sine up, half down, then done", 0, 0,
+        { "env::ad: half a sine up, half down, then done", 0, 0, 0,
           { { 0, 0, true }, { 50, 0.4f, true }, { 99, 0.8f, true },
             { 399, 0, true }, { 400, 0, false } } },
-        { "env::adsr free-running: up, down to the sustain, held", 1, 0,
+        { "env::adsr free-running: up, down to the sustain, held", 1, 0, 0,
           { { 0, 0, true }, { 99, 0.792f, true }, { 400, 0.3f, true },
             { 2000, 0.3f, true }, { 2001, 0.3f, true } } },
-        { "env::adsr gated: up, sustain, released to silence", 2, 1000,
+        { "env::adsr gated: up, sustain, released to silence", 2, 1000, 0,
           { { 0, 0, true }, { 400, 0.3f, true }, { 1000, 0.3f, true },
             { 1150, 0.052f, true }, { 1300, 0, false } } },
-        { "env::adsr gated: released mid-decay, from where it was", 2, 251,
+        { "env::adsr gated: released mid-decay, from where it was", 2, 251, 0,
           { { 0, 0, true }, { 250, 0.610f, true }, { 350, 0.232f, true },
             { 451, 0.002f, true }, { 452, 0, false } } },
+        /* As the gated one: its trigger is a value, not the note's. */
+        { "env::adsr free-running: released by its trigger, to silence", 1, 1000, 0,
+          { { 0, 0, true }, { 400, 0.3f, true }, { 1000, 0.3f, true },
+            { 1150, 0.052f, true }, { 1300, 0, false } } },
+        { "env::adsr free-running: a reset starts it again from silence", 1, 0, 1200,
+          { { 0, 0, true }, { 400, 0.3f, true }, { 1199, 0.3f, true },
+            { 1200, 0, true }, { 1250, 0.4f, true } } },
     };
 
     for (const Shape &sh : SHAPES)
@@ -161,7 +180,9 @@ main ()
             if (sh.kind == 0)
                 y = ad.tick(thkAd::ctl(100, 300, 0.8f), 0, play);
             else if (sh.kind == 1)
-                y = fr.tick(thkAdsr(100, 300, 0.3f, 200, 0.8f), 1, 0, play);
+                y = fr.tick(thkAdsr(100, 300, 0.3f, 200, 0.8f),
+                            !sh.releaseAt || n < sh.releaseAt ? 1 : 0,
+                            n == sh.resetAt && n ? 1 : 0, play);
             else
                 y = gt.tick(thkAdsr(100, 300, 0.3f, 200, 0.8f), n < sh.releaseAt ? 1 : 0, 0, play);
             if (n == sh.at[k].n)

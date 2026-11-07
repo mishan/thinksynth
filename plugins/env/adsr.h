@@ -26,9 +26,46 @@
 
 #include <math.h>
 
+#include <cmath>
+
 #include "thKernel.h"
 
 #define THK_E 2.71828182845904523536f
+
+/* ln(x) over the 1 to e the curves below take it over, from a table of
+   1024 steps and a line between neighbors: within 3.5e-7 of the log, a
+   table read where logf is a call of 230 cycles on the ESP32-S3. Beyond
+   it -- a segment's time cut short under where the envelope has got to
+   -- logf, as before. */
+#define THK_LN1E_SIZE 1024
+
+struct thkLn1eTable
+{
+    float at[THK_LN1E_SIZE + 1];
+
+    thkLn1eTable ()
+    {
+        for (int i = 0; i <= THK_LN1E_SIZE; i++)
+            at[i] = (float)std::log(1 + (2.71828182845904523536 - 1) * i / THK_LN1E_SIZE);
+        at[0] = 0;
+        at[THK_LN1E_SIZE] = 1;
+    }
+};
+
+inline const thkLn1eTable thkLn1eAt;
+
+static inline float thkLn1e (float x)
+{
+    const float where = (x - 1) * (THK_LN1E_SIZE / (THK_E - 1));
+
+    if (!thkFinite(where) || !(where >= 0 && where < THK_LN1E_SIZE))
+        return x == THK_E ? 1 : logf(x);
+
+    const int i = (int)where;
+    const float *t = thkLn1eAt.at + i;
+
+    return t[0] + (where - (float)i) * (t[1] - t[0]);
+}
 
 /* Both kernels' times and levels, and a sample's share of each segment:
    worked out once while they hold still, since a division is the slowest
@@ -90,7 +127,7 @@ struct thkAdsrFree
             }
             break;
         case DECAY:
-            out = s + logf(THK_E - (THK_E - 1) * (position++ * c.perD)) * (peak - s);
+            out = s + thkLn1e(THK_E - (THK_E - 1) * (position++ * c.perD)) * (peak - s);
             if (position >= d)
             {
                 phase = SUSTAIN;
@@ -115,7 +152,7 @@ struct thkAdsrFree
                 phase = DONE;
             }
             else
-                out = (1 - logf(1 + (THK_E - 1) * (position++ * c.perR))) * s;
+                out = (1 - thkLn1e(1 + (THK_E - 1) * (position++ * c.perR))) * s;
             if (trigger > 0)
             {
                 position = 0;
@@ -183,7 +220,7 @@ struct thkAdsrGated
             }
             break;
         case DECAY:
-            level = s + logf(THK_E - (THK_E - 1) * (position++ * c.perD)) * (peak - s);
+            level = s + thkLn1e(THK_E - (THK_E - 1) * (position++ * c.perD)) * (peak - s);
             if (position >= d)
             {
                 phase = SUSTAIN;
@@ -202,7 +239,7 @@ struct thkAdsrGated
                 phase = DONE;
             }
             else
-                level = (1 - logf(1 + (THK_E - 1) * (position++ * c.perR))) * from;
+                level = (1 - thkLn1e(1 + (THK_E - 1) * (position++ * c.perR))) * from;
             break;
         default:
             level = 0;
