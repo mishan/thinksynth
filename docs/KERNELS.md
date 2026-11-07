@@ -74,10 +74,10 @@ the same stream. A knob's member is its name after `k_` (`k_bright`),
 since a name may be one of C++'s.
 
 Each knob comes with its range and a `set()` by name, for a controller
-profile to ride. With `-c DEVICE` the patch's `controller DEVICE` block,
-checked against that controller's controls, comes too, as `profile()`,
-a `thcHidBlock` a `thhMapper` plays: a microcontroller needn't parse
-one.
+profile to ride. With `-c DEVICE,...`, for each device named, the
+patch's `controller DEVICE` block over the device's own, checked against
+that controller's controls, comes too, as `profile_DEVICE()`, a
+`thcHidBlock` a `thhMapper` plays: a microcontroller needn't parse one.
 
 `scripts/compilecheck` holds compiled voices -- `dsp/dxbell.dsp`,
 `dsp/grab.dsp`, `dsp/index.dsp`, `scripts/compiled/gate.dsp` for a gated

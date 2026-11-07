@@ -20,7 +20,7 @@
  * dspcompile -- a .dsp as a C++ struct: one voice of it, every node's
  * kernel (docs/KERNELS.md) run in the graph's order a sample at a time.
  *
- *   dspcompile [-p plugins/] [-r rate] [-c device] file.dsp Name > thvName.h
+ *   dspcompile [-p plugins/] [-r rate] [-c device,...] file.dsp Name > thvName.h
  *
  * The patch is loaded as the engine loads it -- units folded, defaults
  * filled in -- and read off the graph: each input a number, a knob, the
@@ -45,9 +45,9 @@
  *
  * With each knob's range, set() turns a knob by name, for what a
  * controller's profile rides. With -c, the patch's controller block for
- * that device over the device's own, checked against its controls, is
- * profile(): a thcHidBlock
- * a thhMapper plays, so the firmware needn't parse one.
+ * each device named over the device's own, checked against its controls,
+ * is profile_DEVICE(): a thcHidBlock a thhMapper plays, so the firmware
+ * needn't parse one.
  *
  * It renders what the engine renders, to the bit, for a voice whose knobs
  * hold still: scripts/compilecheck holds it to that.
@@ -66,6 +66,7 @@
 #include "think.h"
 
 #include "thcHidBlock.h"
+#include "thgMarbles.h"
 #include "thhBox.h"
 #include "thhIndex.h"
 #include "thhPlay.h"
@@ -439,8 +440,8 @@ profileCode (const thcHidBlock &p)
 {
     std::ostringstream s;
 
-    s << "\n    /* The patch's controller block for " << p.device << ". */\n"
-      << "    static thcHidBlock profile ()\n    {\n"
+    s << "\n    /* The patch's controller block for " << p.device << ", over its own. */\n"
+      << "    static thcHidBlock profile_" << p.device << " ()\n    {\n"
       << "        thcHidBlock p;\n        thcHidBinding b;\n\n"
       << "        p.device = \"" << p.device << "\";\n"
       << "        p.channel = " << p.channel << ";\n"
@@ -470,7 +471,7 @@ profileCode (const thcHidBlock &p)
 int
 main (int argc, char **argv)
 {
-    string plugins = "plugins/", device;
+    string plugins = "plugins/", devices;
     int rate = TH_DEFAULT_SAMPLES, at = 1;
 
     for (; at + 1 < argc && argv[at][0] == '-'; at += 2)
@@ -479,10 +480,10 @@ main (int argc, char **argv)
         else if (!strcmp(argv[at], "-r"))
             rate = atoi(argv[at + 1]);
         else if (!strcmp(argv[at], "-c"))
-            device = argv[at + 1];
+            devices = argv[at + 1];
     if (argc - at != 2 || rate <= 0)
     {
-        fprintf(stderr, "usage: %s [-p plugins/] [-r rate] [-c device] file.dsp Name\n",
+        fprintf(stderr, "usage: %s [-p plugins/] [-r rate] [-c device,...] file.dsp Name\n",
                 argv[0]);
         return 2;
     }
@@ -531,16 +532,23 @@ main (int argc, char **argv)
         return 1;
     }
 
-    /* The controller block, checked as the app checks one. */
-    thcHidBlock profile;
+    /* Each controller block, checked as the app checks one. */
+    std::vector<thcHidBlock> profiles;
 
-    if (!device.empty())
+    for (size_t from = 0; from < devices.size();)
     {
+        size_t comma = devices.find(',', from);
+        const string device = devices.substr(from, comma == string::npos ? string::npos
+                                                                         : comma - from);
         const thhControls *controls = device == "box" ? &thhBoxControls()
-                                    : device == "index" ? &thhIndexControls() : NULL;
-        const char *own = device == "box" ? THH_BOX_PROFILE : THH_INDEX_PROFILE;
+                                    : device == "index" ? &thhIndexControls()
+                                    : device == "marbles" ? &thgMarblesControls() : NULL;
+        const char *own = device == "box" ? THH_BOX_PROFILE
+                        : device == "marbles" ? THG_MARBLES_PROFILE : THH_INDEX_PROFILE;
+        thcHidBlock profile;
         string err;
 
+        from = comma == string::npos ? devices.size() : comma + 1;
         if (controls == NULL)
         {
             fprintf(stderr, "%s: no controller called '%s'\n", argv[at], device.c_str());
@@ -552,6 +560,7 @@ main (int argc, char **argv)
             fprintf(stderr, "%s\n", err.c_str());
             return 1;
         }
+        profiles.push_back(profile);
     }
 
     std::set<string> headers;
@@ -566,7 +575,7 @@ main (int argc, char **argv)
         if (h.compare(0, 5, "math/") && h != "mixer/mul")
             printf("#include \"%s.h\"\n", h.c_str());
 
-    if (!device.empty())
+    if (!profiles.empty())
         printf("#include \"thcHidBlock.h\"\n");
     printf("\nstruct thv%s\n{\n    static constexpr float rate = %d;\n"
            "    static constexpr int channels = %zu;\n\n"
@@ -633,8 +642,8 @@ main (int argc, char **argv)
         printf("            out[%zu][i] = %s;\n", ch, outs[ch].second.text.c_str());
     printf("            sounding = %s;\n        }\n        return sounding > 0;\n    }\n",
            play.text.c_str());
-    if (!device.empty())
-        printf("%s", profileCode(profile).c_str());
+    for (const thcHidBlock &p : profiles)
+        printf("%s", profileCode(p).c_str());
     printf("};\n\n#endif\n");
     return 0;
 }
