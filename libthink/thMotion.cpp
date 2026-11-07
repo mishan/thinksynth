@@ -17,48 +17,72 @@
  */
 
 #include <math.h>
-#include <stdlib.h>
+#include <string.h>
 
 #include "thMotion.h"
 
 thMotion::thMotion (int width, int height)
-    : width_(width), height_(height), prev_((size_t)width * height),
-      havePrev_(false), prevSeconds_(0)
+    : width_(width), height_(height),
+      frames_((size_t)HISTORY * (width > 0 ? width : 0) * (height > 0 ? height : 0)),
+      newest_(0), kept_(0)
 {
     for (int i = 0; i < AXES; i++)
         axes_[i] = 0;
+
+    axes_[X] = axes_[Y] = 0.5f;
 }
 
 void thMotion::feed (const uint8_t *luma, int stride, double seconds)
 {
-    const double dt = seconds - prevSeconds_;
-    const bool compare = havePrev_ && dt > 0 && dt <= MAX_GAP_SECONDS;
+    if (width_ < 3 || height_ < 3)
+        return;
 
-    double zone[9] = { 0 };
-    long zonePixels[9] = { 0 };
-    double sum = 0, total = 0, sx = 0, sy = 0, sxx = 0, syy = 0;
+    const size_t area = (size_t)width_ * height_;
+    double total = 0;
 
     for (int y = 0; y < height_; y++)
+        for (int x = 0; x < width_; x++)
+            total += luma[(size_t)y * stride + x];
+
+    const double mean = total / area;
+
+    axes_[BRIGHT] = (float)(mean / 255);
+
+    if (kept_ > 0 && seconds <= seconds_[newest_])
+        kept_ = 0;
+
+    int ref = -1;
+
+    for (int k = 0; k < kept_ && ref < 0; k++)
+    {
+        const int i = (newest_ - k + HISTORY) % HISTORY;
+
+        if (seconds - seconds_[i] >= COMPARE_SECONDS)
+            ref = i;
+    }
+
+    const double dt = ref >= 0 ? seconds - seconds_[ref] : 0;
+    const bool compare = ref >= 0 && dt <= MAX_GAP_SECONDS;
+    /* In whole levels: a fraction of one would lift a pixel sitting on the
+       noise floor over it. */
+    const double shift = compare ? round(mean - means_[ref]) : 0;
+    double zone[9] = { 0 };
+    double sum = 0, sx = 0, sy = 0, sxx = 0, syy = 0;
+
+    for (int y = 0; compare && y < height_; y++)
     {
         const uint8_t *row = luma + (size_t)y * stride;
-        uint8_t *was = &prev_[(size_t)y * width_];
+        const uint8_t *was = &frames_[ref * area + (size_t)y * width_];
         const int zy = 3 * y / height_;
 
         for (int x = 0; x < width_; x++)
         {
-            /* Mirrored: the player's left is the picture's right. */
-            const int z = zy * 3 + 2 - 3 * x / width_;
+            const double d = fabs(row[x] - was[x] - shift);
 
-            total += row[x];
-            zonePixels[z]++;
-
-            const int d = abs((int)row[x] - (int)was[x]);
-
-            was[x] = row[x];
-
-            if (!compare || d <= NOISE_LEVELS)
+            if (d <= NOISE_LEVELS)
                 continue;
 
+            /* Mirrored: the player's left is the picture's right. */
             const double px = 1 - (x + 0.5) / width_, py = (y + 0.5) / height_;
 
             sum += d;
@@ -66,20 +90,18 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
             sy += d * py;
             sxx += d * px * px;
             syy += d * py * py;
-            zone[z] += d;
+            zone[zy * 3 + 2 - 3 * x / width_] += d;
         }
     }
 
-    axes_[BRIGHT] = (float)(total / ((double)width_ * height_ * 255));
+    const double full = HAND_SHARE * area * 255 * FULL_MOTION_PER_SECOND * dt;
 
-    const double full = FULL_MOTION_PER_SECOND * 255 * dt;
-
-    axes_[MOTION] = compare ? (float)fmin(1, sum / ((double)width_ * height_ * full)) : 0;
+    axes_[MOTION] = compare ? (float)fmin(1, sum / full) : 0;
 
     for (int z = 0; z < 9; z++)
-        axes_[ZONE1 + z] = compare ? (float)fmin(1, zone[z] / (zonePixels[z] * full)) : 0;
+        axes_[ZONE1 + z] = compare ? (float)fmin(1, zone[z] / full) : 0;
 
-    if (sum > 0)
+    if (axes_[MOTION] > PLACE_MOTION)
     {
         const double mx = sx / sum, my = sy / sum;
 
@@ -91,8 +113,14 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
                                        / sqrt(0.5));
     }
 
-    havePrev_ = true;
-    prevSeconds_ = seconds;
+    newest_ = (newest_ + 1) % HISTORY;
+    kept_ = kept_ < HISTORY ? kept_ + 1 : HISTORY;
+    seconds_[newest_] = seconds;
+    means_[newest_] = mean;
+
+    for (int y = 0; y < height_; y++)
+        memcpy(&frames_[newest_ * area + (size_t)y * width_],
+               luma + (size_t)y * stride, width_);
 }
 
 const char *thMotion::axisName (Axis a)

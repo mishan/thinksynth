@@ -131,9 +131,7 @@ static void stillIsStill (void)
     {
         thMotion m(W, H);
         unsigned seed = 1;
-        double peak = 0;
-
-        play(m, 30, 1, [&] (Frame &f, double) {
+        double peak = play(m, 30, 1, [&] (Frame &f, double) {
             for (auto &p : f.px)
             {
                 seed = seed * 1103515245 + 12345;
@@ -141,9 +139,8 @@ static void stillIsStill (void)
             }
         });
 
-        for (int a = 0; a < thMotion::AXES; a++)
-            if (a == thMotion::MOTION || a >= thMotion::ZONE1)
-                peak = fmax(peak, m.axis((thMotion::Axis)a));
+        for (int a = thMotion::ZONE1; a <= thMotion::ZONE9; a++)
+            peak = fmax(peak, m.axis((thMotion::Axis)a));
 
         check(noise ? "sensor noise is not motion" : "a still picture is not motion",
               peak == 0, fmt("motion or a zone at %.3f", peak));
@@ -200,13 +197,14 @@ static void perSecond (void)
           at30 > 0 && at120 / at30 > 0.7 && at120 / at30 < 1.43,
           fmt("motion %.3f at 30 fps, %.3f at 120", at30, at120));
 
+    /* In the zone it starts in, too: a strike's velocity is read there. */
     thMotion slow(W, H), fast(W, H);
-    const double gentle = play(slow, 60, 0.3, sweep(100));
-    const double brisk = play(fast, 60, 0.3, sweep(400));
+    const double gentle = play(slow, 60, 0.1, sweep(100), thMotion::ZONE6);
+    const double brisk = play(fast, 60, 0.1, sweep(400), thMotion::ZONE6);
 
-    check("a faster gesture is louder",
+    check("a faster gesture is louder in its zone",
           brisk > 2 * gentle && brisk < 1,
-          fmt("motion %.3f at 100 px/s, %.3f at 400", gentle, brisk));
+          fmt("zone %.3f at 100 px/s, %.3f at 400", gentle, brisk));
 }
 
 static void stillnessHolds (void)
@@ -216,15 +214,17 @@ static void stillnessHolds (void)
 
     play(m, 60, 0.5, tremble(120, 30));
 
-    /* The first still frame still differs from the last moving one. */
+    /* A still frame differs from the moving ones for the comparison's
+       thirtieth of a second. */
     f.clear(BACKGROUND);
     f.square(120, 30);
-    m.feed(f.px.data(), f.stride, 0.5);
+    for (int i = 0; i < 6; i++)
+        m.feed(f.px.data(), f.stride, 0.5 + i / 60.0);
 
     const double x = m.axis(thMotion::X), y = m.axis(thMotion::Y);
     const double spread = m.axis(thMotion::SPREAD);
 
-    for (int i = 1; i <= 10; i++)
+    for (int i = 6; i <= 16; i++)
         m.feed(f.px.data(), f.stride, 0.5 + i / 60.0);
 
     check("a hand that stops keeps its place",
@@ -285,8 +285,15 @@ static void stalls (void)
         f.square(140, 60);
         m.feed(f.px.data(), f.stride, 10 + r.gap);
 
-        check(r.name, m.axis(thMotion::MOTION) == 0,
-              fmt("motion %.3f", m.axis(thMotion::MOTION)));
+        const double jump = m.axis(thMotion::MOTION);
+
+        /* And the next frame is compared with that one. */
+        f.clear(BACKGROUND);
+        f.square(146, 60);
+        m.feed(f.px.data(), f.stride, 10 + r.gap + 1 / 30.0);
+
+        check(r.name, jump == 0 && m.axis(thMotion::MOTION) > 0,
+              fmt("motion %.3f across it, %.3f after", jump, m.axis(thMotion::MOTION)));
     }
 }
 
@@ -305,16 +312,166 @@ static void padding (void)
     check("a buffer's padding is not picture", motion == 0,
           fmt("motion %.3f", motion));
 
-    thMotion corner(w, h);
+    /* The picture's first and last columns, in the bottom row. */
+    static const struct { double cx; thMotion::Axis zone; } corners[] = {
+        { 5, thMotion::ZONE9 }, { 156, thMotion::ZONE7 },
+    };
 
-    play(corner, 60, 0.5, [] (Frame &f, double t) {
+    for (const auto &c : corners)
+    {
+        thMotion corner(w, h);
+
+        play(corner, 60, 0.5, tremble(c.cx, 115), thMotion::MOTION, Frame(w, h, stride));
+
+        check(c.zone == thMotion::ZONE9 ? "an odd size's first column is the player's right"
+                                        : "an odd size's last column is the player's left",
+              loudestZone(corner) == c.zone && corner.axis(c.zone) > 0,
+              fmt("loudest zone %.0f", loudestZone(corner) - thMotion::ZONE1 + 1));
+    }
+}
+
+static void noisyStillness (void)
+{
+    thMotion m(W, H);
+    Frame f;
+    unsigned seed = 7;
+    auto noisy = [&] (double cx, double t) {
         f.clear(BACKGROUND);
-        f.square(5 + 3 * sin(t * 40), 115);
-    }, thMotion::MOTION, Frame(w, h, stride));
+        f.square(cx, 30);
+        for (auto &p : f.px)
+        {
+            seed = seed * 1103515245 + 12345;
+            p = (uint8_t)(p + (int)((seed >> 16) % 13) - 6);
+        }
+        /* And a few pixels well past the floor, as a real sensor's are. */
+        for (int i = 0; i < 5; i++)
+        {
+            seed = seed * 1103515245 + 12345;
+            f.px[(seed >> 8) % f.px.size()] = BACKGROUND + 40;
+        }
+        m.feed(f.px.data(), f.stride, t);
+    };
+    double t = 0;
 
-    check("an odd size's last pixels are in the last zone",
-          loudestZone(corner) == thMotion::ZONE9 && corner.axis(thMotion::ZONE9) > 0,
-          fmt("loudest zone %.0f", loudestZone(corner) - thMotion::ZONE1 + 1));
+    for (; t < 0.5; t += 1 / 60.0)
+        noisy(120 + 3 * sin(t * 40), t);
+    for (int i = 0; i < 6; i++, t += 1 / 60.0)
+        noisy(120, t);
+
+    const double x = m.axis(thMotion::X), y = m.axis(thMotion::Y);
+
+    for (int i = 0; i < 30; i++, t += 1 / 60.0)
+        noisy(120, t);
+
+    check("a hand that stops amid sensor noise keeps its place",
+          fabs(x - 0.25) < 0.05 && m.axis(thMotion::X) == x && m.axis(thMotion::Y) == y,
+          fmt("x %.3f -> %.3f", x, m.axis(thMotion::X)));
+}
+
+/* Like sweep, but the square's edges ramp over `soft' pixels, as a hand's
+   do once a frame is scaled down. */
+static std::function<void (Frame &, double)> softSweep (double speed, double soft)
+{
+    return [speed, soft] (Frame &f, double t) {
+        const double cx = 20 + speed * t, cy = 60, half = SIDE / 2.0;
+
+        for (int y = 0; y < f.height; y++)
+            for (int x = 0; x < f.width; x++)
+            {
+                const double out = fmax(fabs(x + 0.5 - cx), fabs(y + 0.5 - cy)) - half;
+                const double in = fmin(1, fmax(0, 0.5 - out / soft));
+
+                f.px[(size_t)y * f.stride + x] = (uint8_t)lround(BACKGROUND + in * (HAND - BACKGROUND));
+            }
+    };
+}
+
+static void slowSoftHand (void)
+{
+    thMotion slowCam(W, H), fastCam(W, H);
+    const double at30 = play(slowCam, 30, 1, softSweep(30, 8));
+    const double at120 = play(fastCam, 120, 1, softSweep(30, 8));
+
+    check("a slow, soft-edged hand is seen at 120 fps as at 30",
+          at30 > 0 && at120 / at30 > 0.7 && at120 / at30 < 1.43,
+          fmt("motion %.4f at 30 fps, %.4f at 120", at30, at120));
+}
+
+static void lightIsNotMotion (void)
+{
+    thMotion m(W, H);
+    int frame = 0;
+    const double motion = play(m, 30, 1, [&] (Frame &f, double) {
+        const int lift = frame++ % 2 ? 2 * thMotion::NOISE_LEVELS : 0;
+
+        f.clear((uint8_t)(BACKGROUND + lift));
+        f.square(80, 60);
+        for (auto &p : f.px)
+            if (p == HAND)
+                p = (uint8_t)(HAND + lift);
+    });
+
+    check("the whole picture brightening is not motion", motion == 0,
+          fmt("motion %.3f", motion));
+}
+
+static void repeatedFrames (void)
+{
+    /* A browser drawing at 60 Hz from a 30 fps camera: every frame twice. */
+    thMotion m(W, H);
+    Frame f;
+    double least = 1;
+
+    for (int i = 0; i < 30; i++)
+    {
+        sweep(200)(f, (i / 2) / 30.0);
+        m.feed(f.px.data(), f.stride, i / 60.0);
+        if (i >= 6)
+            least = fmin(least, m.axis(thMotion::MOTION));
+    }
+
+    check("a frame handed over twice does not flicker to stillness", least > 0,
+          fmt("motion fell to %.3f", least));
+}
+
+static void burst (void)
+{
+    /* Frames stamped a millisecond apart: a 2-pixel step must not be read
+       as a gesture two thousand pixels a second fast. */
+    thMotion m(W, H);
+    double most = 0;
+
+    for (int i = 0; i < 20; i++)
+    {
+        Frame f;
+
+        sweep(2000)(f, i / 1000.0);
+        m.feed(f.px.data(), f.stride, 5 + i / 1000.0);
+        most = fmax(most, m.axis(thMotion::MOTION));
+    }
+
+    check("a burst of frames is not a strike", most < 0.1, fmt("motion reached %.3f", most));
+}
+
+static void tooSmall (void)
+{
+    thMotion m(2, 2);
+    bool inRange = true;
+
+    for (int i = 0; i < 10; i++)
+    {
+        const uint8_t px[4] = { (uint8_t)(i * 50), 0, 255, (uint8_t)(i * 20) };
+
+        m.feed(px, 2, i / 30.0);
+        for (int a = 0; a < thMotion::AXES; a++)
+        {
+            const float v = m.axis((thMotion::Axis)a);
+
+            inRange = inRange && v >= 0 && v <= 1 && (a < thMotion::ZONE1 ? true : v == 0);
+        }
+    }
+
+    check("a frame too small for zones plays nothing", inRange && m.axis(thMotion::MOTION) == 0);
 }
 
 int main (void)
@@ -327,6 +484,12 @@ int main (void)
     brightness();
     stalls();
     padding();
+    noisyStillness();
+    slowSoftHand();
+    lightIsNotMotion();
+    repeatedFrames();
+    burst();
+    tooSmall();
 
     if (failed)
         printf("%d failed\n", failed);
