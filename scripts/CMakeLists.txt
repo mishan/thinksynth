@@ -241,6 +241,9 @@ think_harness(dspbench)
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
 
+# A patch's controller blocks, kept as profile text (thSynthTree::controller).
+think_harness(controllercheck)
+
 # The edits a search makes to a graph (src/NodeMutate): found, parsing, and
 # the saturator taken out of bass.dsp offered back where it was. No audio.
 think_harness(mutatecheck NODEMODEL)
@@ -1008,6 +1011,7 @@ add_test(NAME includecheck COMMAND includecheck)
 add_test(NAME argtype
          COMMAND argtype -p "${PROJECT_BINARY_DIR}/plugins/")
 
+add_test(NAME controllercheck COMMAND controllercheck)
 add_test(NAME exprcheck
          COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME motioncheck COMMAND motioncheck)

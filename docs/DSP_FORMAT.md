@@ -411,6 +411,23 @@ overlapping hat still fades, and `poly = 2` still limits the channel to two
 voices. An exact return to the old independent hats requires a graph without
 the choke and foot gate.
 
+### Controller blocks
+
+```
+controller index left {
+    grip_force = "level" { smooth = 0.03; };
+};
+```
+
+A `controller DEVICE [left|right] { ... };` statement at a graph's top
+level is a controller profile for the patch (docs/HID.md). The engine
+doesn't read it: the tree keeps it as a profile's text, `device` for
+`controller`, each token on the line it was written on, so the controller
+code reports a mistake at the patch's own line. `controller` is not a
+keyword: it opens a block only at a statement's start and followed by a
+word or `{`, where no expression could stand, so it is still a name
+anywhere else.
+
 ### An effect graph
 
 A `.dsp` whose io node declares **`in0`** is not an instrument. It is a graph

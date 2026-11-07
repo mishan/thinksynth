@@ -72,7 +72,7 @@ describe (const thcHidBlock &p)
         o << " " << b.control << ":" << (b.kind == thcHidBinding::VALUE ? b.arg
             : b.kind == thcHidBinding::HOLD ? "hold " + b.layer
             : b.kind == thcHidBinding::TOGGLE ? "toggle " + b.layer
-            : std::to_string(b.semis));
+            : std::to_string(b.semis)) << (b.patch ? "^" : "");
     }
     for (size_t l = 0; l < p.layers.size(); l++)
     {
@@ -221,6 +221,79 @@ checkProfiles (const string &scratch)
 
             report(h.name, ok && describe(blk) == h.want ? "" :
                    !ok ? "refused: " + err : "read as " + describe(blk));
+        }
+    }
+
+    /* A patch's controller block, over the player's file: the patch
+       defines the controller, and the file fills what it leaves. */
+    {
+        const char *own2 =
+            "device index { a = note 0; b = note 7; };\n"
+            "device index left { a = note -12; };\n";
+        struct P
+        {
+            const char *name, *file, *patch, *hand;
+            bool        ok;
+            const char *said, *want;    /* said: in err, if refused */
+        };
+        static const P PATCHES[] = {
+            { "a patch's block over the player's file",
+              "device index { b = note 4; };", "device index { b = note 9; };",
+              "right", true, NULL, "base60 a:0 b:9^" },
+            { "the player's file fills what the patch leaves",
+              "device index { a = note 2; };", "device index { b = note 9; };",
+              "right", true, NULL, "base60 a:2 b:9^" },
+            { "a patch's hand block over its either-hand block", NULL,
+              "device index { b = note 9; };\ndevice index left { b = note 11; };",
+              "left", true, NULL, "base60 a:-12 b:11^" },
+            { "a patch's setting over the player's",
+              "device index { base = \"C3\"; };",
+              "device index { base = \"C5\"; };", "right", true, NULL,
+              "base72 a:0 b:7" },
+            { "a patch may ignore what the player's file dropped",
+              "device index { ignore b; };",
+              "device index { ignore b; a = note 3; };", "right", true, NULL,
+              "base60 a:3^" },
+            { "a mistake in the patch is said at its line, and the rest plays",
+              "device index { b = note 4; };",
+              "\n\ndevice index {\n  zz = note 5;\n};", "right", false,
+              "bell.dsp:4: ", "base60 a:0 b:4" },
+            { "a mistake in the patch on a line the file has too is the patch's",
+              "\n\n\ndevice index { b = note 4; };",
+              "\n\n\ndevice index { zz = note 5; };", "right", false,
+              "bell.dsp:4: ", "base60 a:0 b:4" },
+            { "and an ignore of nothing in the patch is the patch's too",
+              "\n\n\ndevice index { b = note 4; };",
+              "\n\n\ndevice index { ignore qq; };", "right", false,
+              "bell.dsp:4: ", "base60 a:0 b:4" },
+            { "a clash with the player's file is said at the file's line",
+              "device index {\n  layer fist { a = note 3; };\n};",
+              "device index { a = hold fist; };", "right", false,
+              "/hands:2: ", "base60 a:0 b:7 [fist: a:3]" },
+            { "a mistake in the player's file leaves the patch playing",
+              "device index {\n  zz = note 1;\n};",
+              "device index { b = note 9; };", "right", false, "/hands:2: ",
+              "base60 a:0 b:9^" },
+        };
+
+        for (const P &r : PATCHES)
+        {
+            const string path = scratch + "/hands";
+            thcHidBlock blk;
+            string err;
+
+            fs::remove(path);
+            if (r.file)
+                std::ofstream(path) << r.file;
+
+            const bool ok = thhLoadProfile(path, c, own2, r.hand, blk, err,
+                                           r.patch, "bell.dsp");
+
+            report(r.name,
+                   ok == r.ok && describe(blk) == r.want &&
+                   (r.ok || err.find(r.said) != string::npos) ? "" :
+                   (ok ? "accepted" : "said \"" + err + "\"") +
+                   string(", played ") + describe(blk));
         }
     }
 

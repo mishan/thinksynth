@@ -35,6 +35,7 @@ struct thhPaneRow
     std::string value;      /* the control now: down, up, or where it is */
     std::string warning;    /* what won't work, or empty */
     bool        yours;      /* from the player's file, not the controller's */
+    bool        patch;      /* from the patch's controller block */
 };
 
 /* curChannel is the keyboard's, 0-based; hasArg says whether a channel's
@@ -68,6 +69,10 @@ public:
     /* A pair playing the wrong hands each other's, kept for next time. */
     virtual bool canSwapHands () const = 0;
     virtual void swapHands () = 0;
+
+    /* The patch whose controller block plays over the player's file, as
+       a line to show, or nothing. */
+    virtual std::string patch () const { return ""; }
 
     /* What the loops are doing, as a line to show, or nothing; and every
        loop stopped, which a controller gone can't ask for. */

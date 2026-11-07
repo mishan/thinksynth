@@ -57,6 +57,7 @@ struct thcHidBinding
     bool        latch;      /* NOTE: a press starts it, the next ends it */
     bool        both;       /* BEND, AUX: the other hand's notes too */
     Shape       shape;      /* VALUE */
+    bool        patch;      /* from a patch's controller block */
     bool        octaves;    /* PITCH: steps of an octave, not a semitone */
     int         range;      /* PITCH: steps from the base note, either side
                                of it on a bipolar axis; BEND: semitones */
@@ -66,7 +67,7 @@ struct thcHidBinding
     thcHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
           hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
-          smooth(0), latch(false), both(false), shape(LINEAR),
+          smooth(0), latch(false), both(false), shape(LINEAR), patch(false),
           octaves(false), range(0) {}
 };
 

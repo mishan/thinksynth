@@ -136,10 +136,11 @@ device index {
 };
 ```
 
-It is read when thinksynth starts and when the pane's Reload is pressed; one
-that can't be read, doesn't parse, or names a control the controller hasn't
-got is reported with its line, and the controller plays its own profile
-alone. The pane marks the bindings that are yours.
+It is read when thinksynth starts, when the pane's Reload is pressed, and
+when the patch's controller block changes (below); one that can't be read,
+doesn't parse, or names a control the controller hasn't got is reported
+with its line, and the controller plays without it: its own profile, and a
+patch's block over that. The pane marks the bindings that are yours.
 
 A profile is settings and bindings, in the `.gen` file's syntax:
 
@@ -191,6 +192,35 @@ layer fist {
 
 It is on while every axis it names is at least its value, and goes off
 once any of them falls 0.15 under it.
+
+### A patch's own controller
+
+A patch can say how a controller plays it, in a `controller` block in its
+`.dsp`, written in this same language with `controller` for `device`:
+
+```
+controller index {
+    tilt = "bright" { center = 0.25; smooth = 0.05; };
+    trigger = strike 0 { at = 0.5; };
+};
+
+controller index left {
+    grip_force = "level" { smooth = 0.03; };
+};
+```
+
+The patch on the channel the controllers play (the `channel` your
+profile's either-hand block sets, else the keyboard's) defines the
+controller: its blocks go over your own profile, either hand's first and
+then each hand's, the way yours go over the controller's own, and your
+profile fills in what the patch leaves out. Loading a patch with another
+block, or playing on a channel whose patch has one, takes it up within a
+second, letting go of the notes the controllers hold; a patch with the
+same block, or none after none, changes nothing. A block that doesn't fit
+the controller is reported at its line in the patch, and the controller
+plays on without it; one that doesn't parse, with no closing brace, is the
+patch's own mistake, and the patch doesn't load. The pane marks a patch's
+bindings as the patch's.
 
 ### A theremin
 

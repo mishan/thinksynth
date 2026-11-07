@@ -264,6 +264,7 @@ private:
 
     bool statement (void);
     bool nodeStatement (void);
+    bool controllerStatement (void);
     bool control (void);
     bool assignment (void);
 
@@ -372,6 +373,12 @@ Parser::statement (void)
         break;
     }
 
+    /* Not a keyword: a word alone at a statement's start is otherwise only
+       an expression statement, which `controller index' can't be. */
+    if (t.kind == WORD && t.src->text == "controller" &&
+        (peek(1).kind == WORD || isPunct(peek(1), "{")))
+        return controllerStatement();
+
     /* `@cut = 0.5' declares a control; `@cut' alone is a value. */
     if (isPunct(t, "@") && peek(1).kind == WORD &&
         (isPunct(peek(2), "=") || isPunct(peek(2), ".")))
@@ -393,6 +400,69 @@ Parser::statement (void)
 
     thExprFree(v.expr);
 
+    return true;
+}
+
+/* `controller DEVICE [HAND] { ... };', kept as profile text for the tree:
+   the tokens as written, one space where the file had any, and each on its
+   own line again. */
+bool
+Parser::controllerStatement (void)
+{
+    const Tok start = take();
+    std::string text;
+    int line = 1, depth = 0;
+
+    for (const char c : tree_->controller())
+        line += c == '\n';
+
+    if (peek().kind != WORD)
+        return expected("the device the controller block is for");
+    if (!isPunct(peek(1), "{") &&
+        !(peek(1).kind == WORD && isPunct(peek(2), "{")))
+    {
+        take();
+        if (peek().kind == WORD)
+            take();
+        return expected("'{' to open the controller block");
+    }
+
+    /* On from where the last block stopped, a space after it on its line. */
+    if (!tree_->controller().empty() && line == start.src->line)
+        text += ' ';
+    for (; line < start.src->line; line++)
+        text += '\n';
+    text += "device";
+
+    for (const thLexToken *prev = start.src;;)
+    {
+        const Tok t = peek();
+
+        if (t.kind == END)
+        {
+            error(start, "this controller block's '{' is never closed");
+            return false;
+        }
+        take();
+
+        const thLexToken &src = *t.src;
+
+        for (; line < src.line; line++)
+            text += '\n';
+        if (src.line == prev->line && src.off > prev->end)
+            text += ' ';
+        text += src.kind == thLexToken::STRING ? "\"" + src.text + "\""
+                                               : src.text;
+        prev = &src;
+
+        if (isPunct(t, "{"))
+            depth++;
+        else if (isPunct(t, "}") && --depth == 0)
+            break;
+    }
+
+    /* The `;' is the statement loop's, as after any statement. */
+    tree_->addController(text + ";");
     return true;
 }
 

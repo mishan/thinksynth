@@ -67,6 +67,7 @@ public:
     void swapHands ();
     std::string loops () const;
     void clearLoops ();
+    std::string patch () const;
 
 private:
     /* A controller: the USB device it is at, its reader, and the hand it
@@ -97,6 +98,12 @@ private:
     /* Each hand's bend of each note, which add. */
     std::map<std::pair<int, int>, double> bends_[2];
 
+    /* The controller block of the patch on the controllers' channel, as
+       last read, that patch's name, and why the block isn't played, if it
+       isn't. */
+    std::string patchText_, patchName_, patchError_;
+    int         playChannel_ = -1;     /* -1: the keyboard's */
+
     /* What both hands play, looped; ticked while it has loops. */
     thhLooper        looper_;
     thhVoices        voices_;
@@ -110,6 +117,7 @@ private:
 
     static int side (const std::string &hand) { return hand == "left" ? 0 : 1; }
     bool scan ();
+    thSynthTree *patchTree () const;
     void hands ();
     void configure (bool pair);
     /* at: when the hand played them, on now()'s clock. */
