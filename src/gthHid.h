@@ -62,13 +62,15 @@ public:
     int channel () const { return channel_(); }
     bool hasArg (int channel, const std::string &arg) const;
     bool reload (std::string &err);
+    bool canSwapHands () const;
+    void swapHands ();
 
 private:
     /* A controller: the USB device it is at, its reader, and the hand it
        plays as once it has said or been given one. */
     struct Slot
     {
-        std::string                usb, hand, said;
+        std::string                usb, serial, hand, said;
         std::unique_ptr<thhReader> reader;
         thhState                   latest;
     };
@@ -84,6 +86,10 @@ private:
        each hand. */
     thcHidBlock profiles_[3];
     thhMapper   mappers_[2];
+
+    /* The hand the player has said each controller is, by its serial
+       number, as the preferences keep it: `hidhands SERIAL=left ...'. */
+    std::map<std::string, std::string> remembered_;
 
     /* Each hand's bend of each note, which add. */
     std::map<std::pair<int, int>, double> bends_[2];

@@ -43,6 +43,18 @@ thhAssignHands (std::vector<thhHandSlot> &slots)
         }
     }
 
+    /* Then those the player has said, first come first. */
+    for (size_t i = 0; i < slots.size(); i++)
+    {
+        const int h = side(slots[i].remembered);
+
+        if (slots[i].connected && !given[i] && h >= 0 && !taken[h])
+        {
+            slots[i].hand = NAME[h];
+            taken[h] = given[i] = true;
+        }
+    }
+
     /* Then the rest: the hand each had, if it is free, the right, the
        left, or, a third, none. */
     for (size_t i = 0; i < slots.size(); i++)

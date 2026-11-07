@@ -36,6 +36,16 @@ gthHid::gthHid (thSynth *synth, const std::function<int ()> &channel)
       generation_(0), pair_(false)
 {
     std::string err;
+    string **hands = gthPrefs::instance()->Get("hidhands");
+
+    for (int i = 0; hands != NULL && hands[i] != NULL; i++)
+    {
+        const std::string one = gthPrefs::unescape(*hands[i]);
+        const size_t eq = one.find('=');
+
+        if (eq != std::string::npos)
+            remembered_[one.substr(0, eq)] = one.substr(eq + 1);
+    }
 
     if (!reload(err))
         fprintf(stderr, "%s; playing the controller's own profile\n",
@@ -100,6 +110,7 @@ gthHid::scan ()
         const std::string usb = found[i].usb;
 
         slot->usb = usb;
+        slot->serial = found[i].serial;
         slot->reader.reset(new thhReader(
             [usb](int &input, int &imu, std::vector<int> &fds, std::string &hand,
                   std::string &status) {
@@ -200,8 +211,14 @@ gthHid::hands ()
     int playing = 0;
 
     for (size_t i = 0; i < slots_.size(); i++)
+    {
+        const auto it = slots_[i]->serial.empty() ? remembered_.end()
+                                                  : remembered_.find(slots_[i]->serial);
+
         give.push_back({ slots_[i]->latest.connected, slots_[i]->reader->hand(),
+                         it == remembered_.end() ? "" : it->second,
                          slots_[i]->hand });
+    }
     thhAssignHands(give);
     for (size_t i = 0; i < slots_.size(); i++)
     {
@@ -216,6 +233,52 @@ gthHid::hands ()
         configure(playing > 1);
         generation_++;
     }
+}
+
+/* Two controllers playing, and neither saying which hand it is. */
+bool
+gthHid::canSwapHands () const
+{
+    int playing = 0;
+
+    for (size_t i = 0; i < slots_.size(); i++)
+        playing += slots_[i]->latest.connected && !slots_[i]->hand.empty() &&
+                   slots_[i]->reader->hand().empty();
+    return playing == 2;
+}
+
+/* The pair's hands each other's, remembered by serial number for next
+   time, and the mappers given them afresh: the notes the hands held end. */
+void
+gthHid::swapHands ()
+{
+    if (!canSwapHands())
+        return;
+
+    for (size_t i = 0; i < slots_.size(); i++)
+    {
+        Slot &s = *slots_[i];
+
+        /* Remembered only by a serial number there is: those without one
+           would all share it. */
+        if (s.latest.connected && !s.hand.empty())
+        {
+            s.hand = s.hand == "left" ? "right" : "left";
+            if (!s.serial.empty())
+                remembered_[s.serial] = s.hand;
+        }
+    }
+
+    string **vals = new string *[remembered_.size() + 1];
+    size_t n = 0;
+
+    for (const auto &r : remembered_)
+        vals[n++] = new string(gthPrefs::escape(r.first + "=" + r.second));
+    vals[n] = NULL;
+    gthPrefs::instance()->Set("hidhands", vals);
+
+    configure(pair_);
+    generation_++;
 }
 
 /* A hand's actions on the synth: notes as the keyboard plays them, each

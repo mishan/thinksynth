@@ -37,7 +37,7 @@ static const char TEMPLATE[] =
 ControllerPane::ControllerPane (void)
     : Gtk::Box(Gtk::Orientation::VERTICAL, 6), source_(NULL), generation_(0),
       buttons_(Gtk::Orientation::HORIZONTAL, 6), reload_("_Reload", true),
-      open_("_Open file", true)
+      open_("_Open file", true), swap_("_Swap hands", true)
 {
     set_margin(6);
 
@@ -51,8 +51,13 @@ ControllerPane::ControllerPane (void)
         sigc::mem_fun(*this, &ControllerPane::onReload));
     open_.signal_clicked().connect(
         sigc::mem_fun(*this, &ControllerPane::onOpen));
+    swap_.signal_clicked().connect(
+        sigc::mem_fun(*this, &ControllerPane::onSwap));
+    swap_.set_tooltip_text("The pair is playing the wrong hands: each the "
+                           "other's, remembered for next time");
     buttons_.append(reload_);
     buttons_.append(open_);
+    buttons_.append(swap_);
 
     append(status_);
     append(grid_);
@@ -123,6 +128,7 @@ bool ControllerPane::onTick (void)
 {
     reload_.set_sensitive(source_ != NULL);
     open_.set_sensitive(source_ != NULL);
+    swap_.set_visible(source_ != NULL && source_->canSwapHands());
 
     if (!source_)
     {
@@ -206,6 +212,13 @@ bool ControllerPane::onTick (void)
         status_.set_text(line);
 
     return true;
+}
+
+void ControllerPane::onSwap (void)
+{
+    if (source_)
+        source_->swapHands();
+    onTick();
 }
 
 void ControllerPane::onReload (void)

@@ -670,8 +670,9 @@ checkSmoothedEnd (void)
 }
 
 /* Which hand each connected controller plays. Each row: the controllers
-   before, as connected/said/had ("+right/left" is connected, says right,
-   had left; "-" is not connected), and the hands they play after. */
+   before, as connected/said/had, and :remembered ("+right/left:left" is
+   connected, says right, had left, and the player said it is left; "-" is
+   not connected), and the hands they play after. */
 static void
 checkHands (void)
 {
@@ -690,6 +691,14 @@ checkHands (void)
         { "a controller gone holds no hand", "-/right +/", "right right" },
         { "...and has its hand still when it is back", "+/right -/left",
           "right left" },
+        { "the hand the player said, over the order they came in",
+          "+/:left +/", "left right" },
+        { "...whichever had which before", "+/right:left +/left:right",
+          "left right" },
+        { "a hand said by the controller over the player's", "+right/:left",
+          "right" },
+        { "the player's, taken by one that says, gives way",
+          "+left/ +/:left", "left right" },
     };
 
     for (size_t i = 0; i < sizeof(ROWS) / sizeof(ROWS[0]); i++)
@@ -703,9 +712,13 @@ checkHands (void)
             thhHandSlot s;
             const size_t slash = one.find('/');
 
+            const size_t colon = one.find(':');
+
             s.connected = one[0] == '+';
             s.said = one.substr(1, slash - 1);
-            s.hand = one.substr(slash + 1);
+            s.hand = one.substr(slash + 1, colon == string::npos ? string::npos
+                                                                 : colon - slash - 1);
+            s.remembered = colon == string::npos ? "" : one.substr(colon + 1);
             slots.push_back(s);
         }
         thhAssignHands(slots);

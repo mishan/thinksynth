@@ -23,18 +23,20 @@
 #include <vector>
 
 /* A controller as hand-giving sees it: whether it is connected, the hand
-   it says it is (or empty), and the hand it plays. */
+   it says it is (or empty), the hand the player has said it is (or
+   empty), and the hand it plays. */
 struct thhHandSlot
 {
     bool        connected;
-    std::string said, hand;
+    std::string said, remembered, hand;
 };
 
 /* Gives each connected controller a hand, "left" or "right": the one it
-   says, unless another connected one has it already; one that doesn't
-   say, or can't have the one it says, keeps the hand it had if that is
-   free and takes the free one if not. A controller not connected keeps
-   its hand for when it is back, and holds no hand from the rest. */
+   says, unless another connected one has it already; then the one the
+   player has said it is; one that has neither, or can't have them, keeps
+   the hand it had if that is free and takes the free one if not. A
+   controller not connected keeps its hand for when it is back, and holds
+   no hand from the rest. */
 void thhAssignHands (std::vector<thhHandSlot> &slots);
 
 #endif /* THH_HANDS_H */

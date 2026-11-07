@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -89,6 +90,10 @@ thhFindIndexes (const std::string &sysRoot, const std::string &devRoot)
         if (!u.second.input.empty())
         {
             u.second.usb = u.first.string();
+            u.second.serial = slurp(u.first / "serial");
+            while (!u.second.serial.empty() &&
+                   std::isspace((unsigned char)u.second.serial.back()))
+                u.second.serial.pop_back();
             std::sort(u.second.all.begin(), u.second.all.end());
             out.push_back(u.second);
         }

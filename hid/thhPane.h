@@ -64,6 +64,10 @@ public:
 
     /* Reads the profile again; false, with why, if it is wrong. */
     virtual bool reload (std::string &err) = 0;
+
+    /* A pair playing the wrong hands each other's, kept for next time. */
+    virtual bool canSwapHands () const = 0;
+    virtual void swapHands () = 0;
 };
 
 #endif /* THH_PANE_H */

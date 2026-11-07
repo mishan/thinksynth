@@ -92,8 +92,10 @@ device index left {
 
 ## Two controllers
 
-Plug in a pair and each plays its own hand, which each controller says it
-is. Alone, either controller plays the first block of the profile below,
+Plug in a pair and each plays its own hand. Over USB a controller doesn't
+say which hand it is, so the first found plays the right; if the pair is
+the wrong way round, press **Swap hands** in the Controller pane once, and
+it is remembered by each controller's serial number from then on. Alone, either controller plays the first block of the profile below,
 whichever hand it is; as a pair, each plays that with its own hand's block
 on top:
 

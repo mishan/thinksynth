@@ -35,6 +35,7 @@
 struct thhIndexNodes
 {
     std::string              usb;       /* the USB device's sysfs path */
+    std::string              serial;    /* its USB serial number */
     std::string              input, imu;
     std::vector<std::string> all;
 };
