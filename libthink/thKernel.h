@@ -80,6 +80,10 @@ static inline float thkSin2pi (float x)
         x = 0.5f - x;
     else if (x < -0.25f)
         x = -0.5f - x;
+    /* The crest and the trough exactly, where the series is a rounding
+       short: an envelope built on half a sine peaks at its peak. */
+    if (x == 0.25f || x == -0.25f)
+        return x * 4;
 
     const float t = 6.28318530717958647692f * x, t2 = t * t;
 

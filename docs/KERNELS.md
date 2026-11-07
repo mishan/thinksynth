@@ -6,12 +6,16 @@ plain floats to a float. The plugin runs the kernel over its window; a
 patch compiled to a program inlines it. What plays live and what a
 compiled patch plays are then the same arithmetic.
 
-`osc::fmop` is the first, and the pattern:
+`osc::fmop`, `env::ad`, `env::adsr` and `misc::midi2freq` have kernels,
+and the pattern is theirs:
 
 - **`plugins/<category>/<name>.h`** holds the kernel, `struct thk<Name>`.
   It includes `libthink/thKernel.h` and nothing else of the engine's: no
   `thArg`, no window, no `think.h`, so a program with no engine can
   include it.
+- **A kernel that keeps nothing is a function**, `thk<Name>(...)`, as
+  `thkMidi2freq` is. A plugin with two modes has a kernel for each, as
+  `env::adsr` has `thkAdsrFree` and `thkAdsrGated`.
 - **Float throughout.** The FPUs of the small chips a compiled patch is
   for are single precision; a `double` there is a call into software,
   ten to twenty times slower. A plugin that kept a sum in float on
@@ -23,11 +27,16 @@ compiled patch plays are then the same arithmetic.
 - **`libthink/thKernel.h`** holds what kernels share: `thkFinite`,
   `thkClamp` and `thkBoundFreq`, the float spellings of the engine's
   guards, and `thkSin2pi`, a sine taking its angle in turns, within
-  2e-7 of `sin()`.
+  2e-7 of `sin()` and exact at its crest and trough, so an envelope
+  built on half a sine peaks at its peak.
 - **`scripts/kernelcheck`** holds each kernel against a double reference
   of the same formula, and the change to what the corpus renders is
   measured with `scripts/dspab -a OLD_PLUGINS -b NEW_PLUGINS` and said in
-  the commit.
+  the commit. dspab's figure is the worst single sample, and a resonant
+  filter or a feedback loop can magnify a float's rounding into a large
+  one; where it is large, compare the difference's energy with the
+  signal's over a longer render (`scripts/dspbench -o`) before calling it
+  a change in the sound.
 
 A kernel included by more than one plugin's source goes in the static
 build's prelude, `plugins/thinkstatic.h`, as `thKernel.h` does: the
