@@ -692,7 +692,10 @@ jobs:
   wasm-compare:
     name: wasm (emscripten) against native
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    # The linux job's image: its genwav runs here against this image's
+    # libm, and a newer glibc's disagrees with the wasm side's musl by more
+    # than the last bit.
+    runs-on: ubuntu-24.04
     needs: [wasm-build, linux]
 
     steps:
