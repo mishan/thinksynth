@@ -13,10 +13,6 @@
  */
 
 /*
- * ear.js -- the module again, in a worker, hearing for the others.
- *
-
-/*
  * camera.js -- a webcam played as a controller, onto the page's keys.
  *
  * Moving a hand in one of nine zones of the picture strikes a note, as loud
@@ -246,19 +242,47 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
 
     worker.postMessage({ type: 'start', bytes }, [bytes]);
 
+    /* Sized from the video, and again whenever its size changes: a phone
+       turned on its side. */
+    const sized = () =>
+    {
+        const height = Math.round(WIDTH * video.videoHeight / video.videoWidth);
+
+        if (!(height >= 3))
+            return false;
+        if (canvas === null)
+        {
+            canvas = document.createElement('canvas');
+            draw = canvas.getContext('2d', { willReadFrequently: true });
+        }
+        if (canvas.width !== WIDTH || canvas.height !== height)
+        {
+            canvas.width = WIDTH;
+            canvas.height = height;
+        }
+        return true;
+    };
+
     const onFrame = (now, meta) =>
     {
         if (!open)
             return;
 
-        if (canvas === null)
+        try
         {
-            canvas = document.createElement('canvas');
-            canvas.width = WIDTH;
-            canvas.height = Math.max(3, Math.round(WIDTH * meta.height / meta.width));
-            draw = canvas.getContext('2d', { willReadFrequently: true });
+            if (sized())
+                post(now, meta);
         }
+        catch (e)
+        {
+            fail(`the camera: ${e.message}`);
+            return;
+        }
+        frame = video.requestVideoFrameCallback(onFrame);
+    };
 
+    const post = (now, meta) =>
+    {
         const { width, height } = canvas;
 
         draw.drawImage(video, 0, 0, width, height);
@@ -274,7 +298,6 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
         worker.postMessage({ type: 'frame', luma: luma.buffer, width, height,
                              seconds: (meta.captureTime ?? now) / 1000 },
                            [luma.buffer]);
-        frame = video.requestVideoFrameCallback(onFrame);
     };
 
     watch = setInterval(() =>
@@ -294,8 +317,12 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
     }
     catch (e)
     {
-        close();
-        throw new Error(`the camera would not play: ${e.message}`);
+        /* Already closed, the worker's failure is the one to tell. */
+        if (open)
+        {
+            close();
+            throw new Error(`the camera would not play: ${e.message}`);
+        }
     }
 
     frame = video.requestVideoFrameCallback(onFrame);

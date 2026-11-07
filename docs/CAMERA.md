@@ -54,5 +54,4 @@ with the camera's own controls:
 - The page reads frames as fast as the screen draws them, 60 a second on
   most screens, whatever the camera can do.
 - If the camera stops sending frames (another app takes it, or the tab is
-  hidden), its notes let go after a quarter of a second, and it plays again
-  when frames come back.
+  hidden), its notes let go, and it plays again when frames come back.

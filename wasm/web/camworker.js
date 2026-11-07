@@ -13,10 +13,6 @@
  */
 
 /*
- * ear.js -- the module again, in a worker, hearing for the others.
- *
-
-/*
  * camworker.js -- a webcam's frames played as a controller, off the page's
  * thread.
  *
@@ -76,8 +72,12 @@ function receive (m)
         return;
     }
 
+    /* Only the newest frame waits for the module: a burst of old ones
+       would strike notes long gone. */
     if (M === null)
     {
+        if (m.type === 'frame')
+            early.splice(0, early.length, ...early.filter((e) => e.type !== 'frame'));
         early.push(m);
         return;
     }
@@ -86,7 +86,11 @@ function receive (m)
 
     if (m.type === 'frame')
     {
-        M.HEAPU8.set(new Uint8Array(m.luma), M._tc_luma(m.width, m.height));
+        /* The pointer first: making room may grow the heap, and HEAPU8
+           read before that would be the old one. */
+        const at = M._tc_luma(m.width, m.height);
+
+        M.HEAPU8.set(new Uint8Array(m.luma), at);
         said = M._tc_feed(m.width, m.height, m.seconds);
     }
     else if (m.type === 'gone')

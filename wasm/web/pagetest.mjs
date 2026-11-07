@@ -194,12 +194,14 @@ try
 
         /* A camera, faked the same way: a canvas the harness draws on,
            streamed. Painted 60 times a second whether or not it changed,
-           as a camera's frames come, and never twice alike: a sensor's
-           noise, a flicker in one corner under thMotion's noise floor,
-           without which a still picture is a stalled feed. freeze() stops
-           the frames, as a camera taken by another app does. */
+           as a camera's frames come, and never twice alike, as a sensor's
+           noise makes a camera's: a flicker in one corner, too small to
+           strike a zone, without which a still picture is a stalled feed.
+           freeze() stops the frames, as a camera taken by another app
+           does. */
         const lens = document.createElement('canvas');
-        let square = null, painting = null, flicker = false;
+        let square = null, painting = null, flicker = false, moving = false;
+        let painted = 0;
         const paint = () =>
         {
             const g = lens.getContext('2d');
@@ -211,8 +213,13 @@ try
             g.fillRect(0, 0, 4, 4);
             if (square !== null)
             {
-                g.fillStyle = '#dcdcdc';
-                g.fillRect(square[0] * lens.width - 60, square[1] * lens.height - 60, 120, 120);
+                /* A hand still moving in its zone, which keeps its note:
+                   three shades in turn, so no frame matches the one
+                   thMotion compares it with, 30 ms back. */
+                g.fillStyle = moving ? ['#dcdcdc', '#a0a0a0', '#646464'][painted++ % 3]
+                                     : '#dcdcdc';
+                g.fillRect(square[0] * lens.width - 60,
+                           square[1] * lens.height - 60, 120, 120);
             }
         };
 
@@ -221,7 +228,7 @@ try
         window.fakeCamera = {
             /* A bright square centered here, as fractions of the camera's
                picture, which is the player's mirrored; null for none. */
-            show (at) { square = at; },
+            show (at, move = false) { square = at; moving = move; },
             freeze () { clearInterval(painting); },
         };
         navigator.mediaDevices.getUserMedia = async (asked) =>
@@ -1329,24 +1336,37 @@ try
     /* The camera's bottom right is the player's bottom left: zone 7, the
        air harp's C4. */
     await page.waitForTimeout(500);
-    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6]));
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6], true));
 
     const struck = await cameraHolds(60);
 
-    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-    check(struck && (await sounding()).some((h) => h.note === 60),
+    /* In one go, so the zone has no frame in which to strike it again. */
+    const blurred = await page.evaluate(() =>
+    {
+        window.dispatchEvent(new Event('blur'));
+
+        return window.solo.sounding();
+    });
+
+    check(struck && blurred.some((h) => h.note === 60 && h.camera === 1),
           'a hand struck into the player\'s bottom left plays C4, and a ' +
-          'blur leaves it down: ' + JSON.stringify(await sounding()));
+          'blur leaves it down: ' + JSON.stringify(blurred));
+
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6]));
     check(await quiet(), 'held still, it lets the note go');
 
     await page.evaluate(() => window.fakeCamera.show(null));
     await page.waitForTimeout(500);
-    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6]));
+    await page.evaluate(() => window.fakeCamera.show([5 / 6, 5 / 6], true));
 
     const again = await cameraHolds(60);
 
+    await page.waitForTimeout(200);
+
+    const stillHeld = (await sounding()).some((h) => h.note === 60);
+
     await page.evaluate(() => window.fakeCamera.freeze());
-    check(again && await quiet(),
+    check(again && stillHeld && await quiet(),
           'a feed that stops lets go of what the camera held');
 
     await page.click('#camera');

@@ -13,10 +13,6 @@
  */
 
 /*
- * ear.js -- the module again, in a worker, hearing for the others.
- *
-
-/*
  * camcheck.mjs -- the camera's controller through the browser build, from
  * Node.
  *
@@ -75,7 +71,9 @@ function feed (frames, t = 0)
 
     frames.forEach((luma, i) =>
     {
-        M.HEAPU8.set(luma, M._tc_luma(W, H));
+        const at = M._tc_luma(W, H);
+
+        M.HEAPU8.set(luma, at);
         notes.push(...JSON.parse(M.UTF8ToString(
             M._tc_feed(W, H, t + i / 120))).notes);
     });

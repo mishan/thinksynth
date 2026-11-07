@@ -56,7 +56,7 @@
  */
 
 /* Each module's bytes, by file, fetched once: the camera worker (camera.js)
-   starts on the same copy. */
+   starts on a copy of the same bytes. */
 const fetched = new Map();
 
 export function wasmBytes (name = 'thinkweb.wasm')
