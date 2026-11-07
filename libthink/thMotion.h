@@ -67,8 +67,10 @@
  * nothing, since a difference across a stall is a jump cut and not a
  * gesture. A frame stamped the same as the last is ignored, one stamped
  * earlier is compared only with frames stamped before it, and one the same
- * to the byte as the last is measured but never kept to compare with. A
- * feed that repeats its stamp while stalled is the caller's to notice.
+ * to the byte as the last changes nothing, until it has repeated for
+ * MAX_GAP_SECONDS and the feed goes still. A caller that can stamp frames
+ * with their capture time should: a browser's repeats then share a stamp.
+ * A feed that repeats its stamp while stalled is the caller's to notice.
  *
  * One thread; allocates only when made. */
 class THINK_API thMotion {

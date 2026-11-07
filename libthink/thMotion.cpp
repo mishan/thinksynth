@@ -93,11 +93,23 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
 
     axes_[BRIGHT] = (float)(total / area / 255);
 
+    /* A frame seen before -- a browser drawing faster than its camera --
+       says nothing new, and is not kept, so every comparison is between
+       two of the camera's own frames. Past MAX_GAP_SECONDS the feed has
+       frozen, and goes still. */
+    if (repeat)
+    {
+        if (seconds - seconds_[newest_] > MAX_GAP_SECONDS)
+            for (int a = MOTION; a < AXES; a = a == MOTION ? ZONE1 : a + 1)
+                axes_[a] = 0;
+
+        return;
+    }
+
     const int white = whiteOf(levels, area);
     int ref = -1;
 
-    /* A repeat is not compared with the frame it repeats. */
-    for (int k = repeat ? 1 : 0; k < kept_ && ref < 0; k++)
+    for (int k = 0; k < kept_ && ref < 0; k++)
     {
         const int i = (newest_ - k + HISTORY) % HISTORY;
 
@@ -130,22 +142,33 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
            median, so a hand covering less than half of them does not move
            it. */
         static const int RATIO_STEPS = 128, RATIO_BINS = 4 * RATIO_STEPS;
-        int ratios[RATIO_BINS] = { 0 };
-        long counted = 0;
+        int ratios[RATIO_BINS] = { 0 }, unclipped[RATIO_BINS] = { 0 };
+        long counted = 0, countedUnclipped = 0;
 
         for (int y = 0; y < height_; y++)
             for (int x = 0; x < width_; x++)
             {
                 const int now = luma[(size_t)y * stride + x], then = was[(size_t)y * width_ + x];
 
-                if (then >= 16 && then < wasWhite && now < white)
+                if (then < 16)
+                    continue;
+
+                const int bin = std::min(RATIO_BINS - 1, now * RATIO_STEPS / then);
+
+                ratios[bin]++;
+                counted++;
+                if (then < wasWhite && now < white)
                 {
-                    ratios[std::min(RATIO_BINS - 1, now * RATIO_STEPS / then)]++;
-                    counted++;
+                    unclipped[bin]++;
+                    countedUnclipped++;
                 }
             }
 
-        if (counted * 8 >= (long)area)
+        /* A flat bright wall filling the picture looks clipped and may not
+           be: with too little left once it is set aside, all of it. */
+        if (countedUnclipped * 8 >= (long)area)
+            gain = (median(unclipped, RATIO_BINS, countedUnclipped) + 0.5) / RATIO_STEPS;
+        else if (counted * 8 >= (long)area)
             gain = (median(ratios, RATIO_BINS, counted) + 0.5) / RATIO_STEPS;
 
         /* The noise: the median residual is 0.6745 of a Gaussian's sigma,
@@ -206,13 +229,6 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
         axes_[SPREAD] = (float)fmin(1, sqrt(fmax(0, sxx / sum - mx * mx + syy / sum - my * my))
                                        / sqrt(0.5));
     }
-
-    /* A frame seen before -- a browser drawing faster than its camera --
-       is measured but not kept, so every comparison is between two of the
-       camera's own frames, and a feed that freezes reaches MAX_GAP_SECONDS
-       and goes still. */
-    if (repeat)
-        return;
 
     newest_ = (newest_ + 1) % HISTORY;
     kept_ = kept_ < HISTORY ? kept_ + 1 : HISTORY;

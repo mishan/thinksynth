@@ -473,6 +473,32 @@ static void lightIsNotMotion (void)
     check("a hand is seen while exposure steps", least > 0,
           fmt("motion fell to %.3f", least));
 
+    /* A flat bright wall filling the picture, looking clipped and not, with
+       exposure stepping down while a hand crosses it. */
+    thMotion wall(W, H);
+    unsigned seed = 11;
+    int wallStep = 0;
+    double wallLeast = 1;
+
+    play(wall, 30, 0.5, [&] (Frame &f, double t) {
+        const double g = wallStep++ % 4 < 2 ? 1 : 0.87;
+
+        for (auto &p : f.px)
+        {
+            seed = seed * 1103515245 + 12345;
+            p = (uint8_t)lround(g * (229 + (int)((seed >> 16) % 3)));
+        }
+        for (int y = 52; y < 68; y++)
+            for (int x = 0; x < W; x++)
+                if (fabs(x - (20 + 200 * t)) < 8)
+                    f.px[(size_t)y * W + x] = (uint8_t)lround(g * 120);
+        if (wallStep > 2)
+            wallLeast = fmin(wallLeast, wall.axis(thMotion::MOTION));
+    });
+
+    check("a hand is seen crossing a bright wall while exposure steps",
+          wallLeast > 0, fmt("motion fell to %.3f", wallLeast));
+
     /* A big bright hand coming in from the picture's left, in its top two
        rows of zones: the bottom row must stay quiet. */
     thMotion m(W, H);
@@ -520,8 +546,8 @@ static void repeatedFrames (void)
         check(r.name, least > 0, fmt("motion fell to %.3f", least));
     }
 
-    /* A camera at 30 fps give or take 3 ms, drawn at 60 Hz: frames come
-       twice or once or three times, unevenly. A steady hand reads steady. */
+    /* A camera at 30 fps give or take 3 ms, drawn at 60 Hz and stamped when
+       drawn: frames come twice or once or three times, unevenly. */
     thMotion m(W, H);
     Frame f;
     unsigned seed = 3;
@@ -546,9 +572,34 @@ static void repeatedFrames (void)
         }
     }
 
-    check("an uneven cadence of repeated frames reads a steady hand steadily",
-          least > 0 && most < 2.5 * least,
+    check("an uneven cadence of repeated frames never reads as stillness",
+          least > 0 && most < 2 * least,
           fmt("motion between %.3f and %.3f", least, most));
+}
+
+static void frozen (void)
+{
+    /* A feed that keeps handing over its last frame: the motion it had
+       holds, then goes still once the feed has plainly frozen. */
+    thMotion m(W, H);
+    Frame f;
+
+    play(m, 30, 0.5, sweep(200));
+    sweep(200)(f, 0.5);
+    m.feed(f.px.data(), f.stride, 0.5);
+
+    const double moving = m.axis(thMotion::MOTION);
+
+    m.feed(f.px.data(), f.stride, 0.6);
+
+    const double held = m.axis(thMotion::MOTION);
+
+    m.feed(f.px.data(), f.stride, 0.5 + thMotion::MAX_GAP_SECONDS + 0.05);
+
+    check("a frozen feed holds, then goes still",
+          moving > 0 && held == moving && m.axis(thMotion::MOTION) == 0
+          && m.axis(thMotion::ZONE6) == 0,
+          fmt("motion %.3f, held %.3f, then %.3f", moving, held, m.axis(thMotion::MOTION)));
 }
 
 static void burst (void)
@@ -607,6 +658,7 @@ int main (void)
     slowSoftHand();
     lightIsNotMotion();
     repeatedFrames();
+    frozen();
     burst();
     tooSmall();
 
