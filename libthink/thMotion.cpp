@@ -19,6 +19,8 @@
 #include <math.h>
 #include <string.h>
 
+#include <algorithm>
+
 #include "thMotion.h"
 
 thMotion::thMotion (int width, int height)
@@ -32,24 +34,26 @@ thMotion::thMotion (int width, int height)
     axes_[X] = axes_[Y] = 0.5f;
 }
 
+/* The bin holding the middle of `count' values. */
+static int median (const int *bins, int n, long count)
+{
+    long seen = 0;
+
+    for (int i = 0; i < n; i++)
+        if ((seen += bins[i]) * 2 > count)
+            return i;
+
+    return n - 1;
+}
+
 void thMotion::feed (const uint8_t *luma, int stride, double seconds)
 {
     if (width_ < 3 || height_ < 3)
         return;
 
-    const size_t area = (size_t)width_ * height_;
-    double total = 0;
-
-    for (int y = 0; y < height_; y++)
-        for (int x = 0; x < width_; x++)
-            total += luma[(size_t)y * stride + x];
-
-    const double mean = total / area;
-
-    axes_[BRIGHT] = (float)(mean / 255);
-
-    if (kept_ > 0 && seconds <= seconds_[newest_])
-        kept_ = 0;
+    /* The same frame again: nothing to say about it. */
+    if (kept_ > 0 && seconds == seconds_[newest_])
+        return;
 
     int ref = -1;
 
@@ -61,25 +65,73 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
             ref = i;
     }
 
+    const size_t area = (size_t)width_ * height_;
     const double dt = ref >= 0 ? seconds - seconds_[ref] : 0;
     const bool compare = ref >= 0 && dt <= MAX_GAP_SECONDS;
-    /* In whole levels: a fraction of one would lift a pixel sitting on the
-       noise floor over it. */
-    const double shift = compare ? round(mean - means_[ref]) : 0;
+    const uint8_t *was = compare ? &frames_[ref * area] : NULL;
+    double total = 0;
+    double gain = 1;
+    int noiseFloor = NOISE_LEVELS;
+
+    /* Medians rather than means, so a hand covering less than half the
+       picture moves neither. */
+    if (compare)
+    {
+        /* Exposure is a gain: the median ratio of each pixel to the one it
+           is compared with, in RATIO_STEPS a unit, from pixels bright
+           enough for a ratio to mean something. */
+        static const int RATIO_STEPS = 128, RATIO_BINS = 4 * RATIO_STEPS;
+        int ratios[RATIO_BINS] = { 0 };
+        long counted = 0;
+
+        for (int y = 0; y < height_; y++)
+            for (int x = 0; x < width_; x++)
+            {
+                const int now = luma[(size_t)y * stride + x], then = was[(size_t)y * width_ + x];
+
+                total += now;
+                if (then >= 16)
+                {
+                    ratios[std::min(RATIO_BINS - 1, now * RATIO_STEPS / then)]++;
+                    counted++;
+                }
+            }
+
+        if (counted * 2 > (long)area)
+            gain = (median(ratios, RATIO_BINS, counted) + 0.5) / RATIO_STEPS;
+
+        /* The noise: the median residual is 0.6745 of a Gaussian's sigma,
+           and 4 sigma passes one pixel in sixteen thousand. */
+        int residuals[256] = { 0 };
+
+        for (int y = 0; y < height_; y++)
+            for (int x = 0; x < width_; x++)
+                residuals[std::min(255, (int)fabs(luma[(size_t)y * stride + x]
+                                                  - gain * was[(size_t)y * width_ + x]))]++;
+
+        noiseFloor = std::max(noiseFloor, (int)(4 / 0.6745 * (median(residuals, 256, area) + 0.5)));
+    }
+    else
+        for (int y = 0; y < height_; y++)
+            for (int x = 0; x < width_; x++)
+                total += luma[(size_t)y * stride + x];
+
+    axes_[BRIGHT] = (float)(total / area / 255);
+
     double zone[9] = { 0 };
     double sum = 0, sx = 0, sy = 0, sxx = 0, syy = 0;
 
     for (int y = 0; compare && y < height_; y++)
     {
         const uint8_t *row = luma + (size_t)y * stride;
-        const uint8_t *was = &frames_[ref * area + (size_t)y * width_];
+        const uint8_t *then = was + (size_t)y * width_;
         const int zy = 3 * y / height_;
 
         for (int x = 0; x < width_; x++)
         {
-            const double d = fabs(row[x] - was[x] - shift);
+            const double d = fabs(row[x] - gain * then[x]);
 
-            if (d <= NOISE_LEVELS)
+            if (d <= noiseFloor)
                 continue;
 
             /* Mirrored: the player's left is the picture's right. */
@@ -116,7 +168,6 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
     newest_ = (newest_ + 1) % HISTORY;
     kept_ = kept_ < HISTORY ? kept_ + 1 : HISTORY;
     seconds_[newest_] = seconds;
-    means_[newest_] = mean;
 
     for (int y = 0; y < height_; y++)
         memcpy(&frames_[newest_ * area + (size_t)y * width_],

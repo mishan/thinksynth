@@ -43,17 +43,19 @@
  * the difference is divided by the time between them. Comparing neighbors
  * would let a slow hand at 120 fps change each pixel by less than the noise
  * floor and vanish, and would read a frame a browser hands over twice as
- * stillness. The kept frames reach back HISTORY frames, so past 240 fps
- * nothing is compared.
+ * stillness. The kept frames reach back HISTORY frames, so a camera faster
+ * than HISTORY frames in COMPARE_SECONDS, about 260 fps, is never compared.
  *
  * ONE SCALE FOR THE FRAME AND THE ZONES. Both are measured against a
  * hand-sized patch, HAND_SHARE of the frame, so a hand in one zone reads
  * the same there as in the whole-frame motion and neither clips the
  * velocity a strike is made from.
  *
- * LIGHT IS NOT MOTION. The change in the frame's mean brightness is taken
- * off every pixel's difference first, so auto-exposure stepping when a hand
- * comes in does not fire every zone at once.
+ * LIGHT IS NOT MOTION, NOISE IS NOT MOTION. Auto-exposure is a gain, so the
+ * earlier frame is scaled by the median ratio between the two before they
+ * are compared; and the floor a difference has to clear rises from
+ * NOISE_LEVELS with the noise measured in the picture. Both are medians,
+ * so a hand covering less than half the picture moves neither.
  *
  * STILLNESS. With nothing moving, motion and the zones fall to 0, but x, y
  * and spread move only while motion is above PLACE_MOTION: a theremin whose
@@ -61,7 +63,8 @@
  * would be unplayable. They start in the middle. A frame more than
  * MAX_GAP_SECONDS after the one it would be compared with is compared with
  * nothing, since a difference across a stall is a jump cut and not a
- * gesture; one stamped no later than the last starts the history over.
+ * gesture. A frame stamped the same as the last is ignored, and one stamped
+ * earlier is compared only with frames stamped before it.
  *
  * One thread; allocates only when made. */
 class THINK_API thMotion {
@@ -72,7 +75,7 @@ public:
         AXES
     };
 
-    /* A difference of this many levels out of 255 is sensor noise. */
+    /* A difference of this many levels out of 255 is always sensor noise. */
     static const int NOISE_LEVELS = 12;
     static const int HISTORY = 8;
     static constexpr double COMPARE_SECONDS = 0.03;
@@ -80,7 +83,9 @@ public:
 
     /* Motion is 1 when a patch of HAND_SHARE of the frame changes this
        much a second: about a hand at arm's length crossing ten of its own
-       widths a second. */
+       widths a second, against a background 180 levels darker. A difference
+       is all this sees, so a hand against a wall of its own tone reads
+       quieter at every speed. */
     static constexpr double HAND_SHARE = 0.05;
     static constexpr double FULL_MOTION_PER_SECOND = 14;
     static constexpr double PLACE_MOTION = 0.02;
@@ -101,7 +106,7 @@ public:
 private:
     int width_, height_;
     std::vector<uint8_t> frames_;           /* HISTORY frames, a ring */
-    double seconds_[HISTORY], means_[HISTORY];
+    double seconds_[HISTORY];
     int newest_, kept_;
     float axes_[AXES];
 };

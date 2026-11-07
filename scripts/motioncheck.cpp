@@ -267,10 +267,11 @@ static void brightness (void)
 
 static void stalls (void)
 {
-    /* The square jumps across the picture between the two frames. */
+    /* The square jumps across the picture between the two frames, and the
+       frame after is compared with the jump. */
     static const struct { const char *name; double gap; } rows[] = {
         { "a jump across a stall is not a gesture", 1.0 },
-        { "a frame stamped no later is not a gesture", 0.0 },
+        { "a jump stamped earlier is not a gesture", -1.0 },
     };
 
     for (const auto &r : rows)
@@ -278,19 +279,20 @@ static void stalls (void)
         thMotion m(W, H);
         Frame f;
 
-        f.clear(BACKGROUND);
-        f.square(20, 60);
-        m.feed(f.px.data(), f.stride, 10);
+        for (int i = 0; i < 6; i++)
+        {
+            tremble(20, 60)(f, i / 30.0);
+            m.feed(f.px.data(), f.stride, 10 + i / 30.0);
+        }
         f.clear(BACKGROUND);
         f.square(140, 60);
-        m.feed(f.px.data(), f.stride, 10 + r.gap);
+        m.feed(f.px.data(), f.stride, 10 + 5 / 30.0 + r.gap);
 
         const double jump = m.axis(thMotion::MOTION);
 
-        /* And the next frame is compared with that one. */
         f.clear(BACKGROUND);
         f.square(146, 60);
-        m.feed(f.px.data(), f.stride, 10 + r.gap + 1 / 30.0);
+        m.feed(f.px.data(), f.stride, 10 + 5 / 30.0 + r.gap + 1 / 30.0);
 
         check(r.name, jump == 0 && m.axis(thMotion::MOTION) > 0,
               fmt("motion %.3f across it, %.3f after", jump, m.axis(thMotion::MOTION)));
@@ -312,60 +314,73 @@ static void padding (void)
     check("a buffer's padding is not picture", motion == 0,
           fmt("motion %.3f", motion));
 
-    /* The picture's first and last columns, in the bottom row. */
-    static const struct { double cx; thMotion::Axis zone; } corners[] = {
-        { 5, thMotion::ZONE9 }, { 156, thMotion::ZONE7 },
+    /* One column flashing at the picture's first or last column, in the
+       bottom row of zones. */
+    static const struct { int column; thMotion::Axis zone; } edges[] = {
+        { 0, thMotion::ZONE9 }, { w - 1, thMotion::ZONE7 },
     };
 
-    for (const auto &c : corners)
+    for (const auto &e : edges)
     {
-        thMotion corner(w, h);
+        thMotion edge(w, h);
+        int flash = 0;
 
-        play(corner, 60, 0.5, tremble(c.cx, 115), thMotion::MOTION, Frame(w, h, stride));
+        play(edge, 30, 0.5, [&] (Frame &f, double) {
+            f.clear(BACKGROUND);
+            if (flash++ % 2)
+                for (int y = 100; y < h; y++)
+                    f.px[(size_t)y * stride + e.column] = HAND;
+        }, thMotion::MOTION, Frame(w, h, stride));
 
-        check(c.zone == thMotion::ZONE9 ? "an odd size's first column is the player's right"
-                                        : "an odd size's last column is the player's left",
-              loudestZone(corner) == c.zone && corner.axis(c.zone) > 0,
-              fmt("loudest zone %.0f", loudestZone(corner) - thMotion::ZONE1 + 1));
+        check(e.column == 0 ? "an odd size's first column is the player's right"
+                            : "an odd size's last column is the player's left",
+              loudestZone(edge) == e.zone && edge.axis(e.zone) > 0,
+              fmt("loudest zone %.0f", loudestZone(edge) - thMotion::ZONE1 + 1));
     }
+}
+
+/* Gaussian, as a sensor's noise is. */
+static double gaussian (unsigned &seed)
+{
+    seed = seed * 1103515245 + 12345;
+    const double u = ((seed >> 8) + 1.0) / 16777217.0;
+    seed = seed * 1103515245 + 12345;
+    const double v = ((seed >> 8) + 1.0) / 16777217.0;
+
+    return sqrt(-2 * log(u)) * cos(2 * M_PI * v);
 }
 
 static void noisyStillness (void)
 {
-    thMotion m(W, H);
-    Frame f;
-    unsigned seed = 7;
-    auto noisy = [&] (double cx, double t) {
-        f.clear(BACKGROUND);
-        f.square(cx, 30);
-        for (auto &p : f.px)
-        {
-            seed = seed * 1103515245 + 12345;
-            p = (uint8_t)(p + (int)((seed >> 16) % 13) - 6);
-        }
-        /* And a few pixels well past the floor, as a real sensor's are. */
-        for (int i = 0; i < 5; i++)
-        {
-            seed = seed * 1103515245 + 12345;
-            f.px[(seed >> 8) % f.px.size()] = BACKGROUND + 40;
-        }
-        m.feed(f.px.data(), f.stride, t);
-    };
-    double t = 0;
+    for (double sigma : { 2.0, 5.0 })
+    {
+        thMotion m(W, H);
+        Frame f;
+        unsigned seed = 7;
+        auto noisy = [&] (double cx, double t) {
+            f.clear(BACKGROUND);
+            f.square(cx, 30);
+            for (auto &p : f.px)
+                p = (uint8_t)fmin(255, fmax(0, lround(p + sigma * gaussian(seed))));
+            m.feed(f.px.data(), f.stride, t);
+        };
+        double t = 0;
 
-    for (; t < 0.5; t += 1 / 60.0)
-        noisy(120 + 3 * sin(t * 40), t);
-    for (int i = 0; i < 6; i++, t += 1 / 60.0)
-        noisy(120, t);
+        for (; t < 0.5; t += 1 / 60.0)
+            noisy(120 + 3 * sin(t * 40), t);
+        for (int i = 0; i < 6; i++, t += 1 / 60.0)
+            noisy(120, t);
 
-    const double x = m.axis(thMotion::X), y = m.axis(thMotion::Y);
+        const double x = m.axis(thMotion::X), y = m.axis(thMotion::Y);
 
-    for (int i = 0; i < 30; i++, t += 1 / 60.0)
-        noisy(120, t);
+        for (int i = 0; i < 60; i++, t += 1 / 60.0)
+            noisy(120, t);
 
-    check("a hand that stops amid sensor noise keeps its place",
-          fabs(x - 0.25) < 0.05 && m.axis(thMotion::X) == x && m.axis(thMotion::Y) == y,
-          fmt("x %.3f -> %.3f", x, m.axis(thMotion::X)));
+        check(sigma < 3 ? "a hand that stops amid a little noise keeps its place"
+                        : "a hand that stops amid a lot of noise keeps its place",
+              fabs(x - 0.25) < 0.05 && m.axis(thMotion::X) == x && m.axis(thMotion::Y) == y,
+              fmt("x %.3f -> %.3f", x, m.axis(thMotion::X)));
+    }
 }
 
 /* Like sweep, but the square's edges ramp over `soft' pixels, as a hand's
@@ -399,45 +414,98 @@ static void slowSoftHand (void)
 
 static void lightIsNotMotion (void)
 {
-    thMotion m(W, H);
-    int frame = 0;
-    const double motion = play(m, 30, 1, [&] (Frame &f, double) {
-        const int lift = frame++ % 2 ? 2 * thMotion::NOISE_LEVELS : 0;
+    /* Exposure stepping up and down on a picture with every level in it. */
+    for (double gain : { 1.1, 1.25 })
+    {
+        thMotion m(W, H);
+        int frame = 0;
+        const double motion = play(m, 30, 1, [&] (Frame &f, double) {
+            const double g = frame++ % 4 < 2 ? 1 : gain;
 
-        f.clear((uint8_t)(BACKGROUND + lift));
-        f.square(80, 60);
-        for (auto &p : f.px)
-            if (p == HAND)
-                p = (uint8_t)(HAND + lift);
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                    f.px[(size_t)y * W + x] = (uint8_t)fmin(255, g * (16 + x * 200 / W));
+        });
+
+        check(gain < 1.2 ? "exposure stepping a little is not motion"
+                         : "exposure stepping a lot is not motion",
+              motion == 0, fmt("motion %.3f", motion));
+    }
+
+    /* A hand crossing while exposure steps under it: seen on every frame,
+       the steps included. */
+    thMotion crossing(W, H);
+    int step = 0;
+    double least = 1;
+
+    play(crossing, 30, 0.5, [&] (Frame &f, double t) {
+        const double g = step++ % 4 < 2 ? 1 : 1.25;
+
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                f.px[(size_t)y * W + x] = (uint8_t)fmin(255, g * (16 + x * 200 / W));
+        f.square(20 + 200 * t, 60);
+        if (step > 2)
+            least = fmin(least, crossing.axis(thMotion::MOTION));
     });
 
-    check("the whole picture brightening is not motion", motion == 0,
-          fmt("motion %.3f", motion));
+    check("a hand is seen while exposure steps", least > 0,
+          fmt("motion fell to %.3f", least));
+
+    /* A big bright hand coming in from the picture's left, in its top two
+       rows of zones: the bottom row must stay quiet. */
+    thMotion m(W, H);
+    double bottom = 0;
+
+    play(m, 30, 0.5, [&] (Frame &f, double t) {
+        f.clear(BACKGROUND);
+        for (int y = 5; y < 75; y++)
+            for (int x = 0; x < 70; x++)
+                if (x < (int)(t * 600) - 60)
+                    f.px[(size_t)y * W + x] = HAND;
+        bottom = fmax(bottom, fmax(m.axis(thMotion::ZONE7),
+                                   fmax(m.axis(thMotion::ZONE8), m.axis(thMotion::ZONE9))));
+    });
+
+    check("a big hand coming in moves only its own zones", bottom == 0,
+          fmt("the bottom row reached %.3f", bottom));
 }
 
 static void repeatedFrames (void)
 {
-    /* A browser drawing at 60 Hz from a 30 fps camera: every frame twice. */
-    thMotion m(W, H);
-    Frame f;
-    double least = 1;
+    /* A browser drawing at 60 Hz from a 30 fps camera: every frame twice,
+       stamped when drawn or with the camera frame's own time. */
+    static const struct { const char *name; bool cameraTime; } rows[] = {
+        { "a frame handed over twice does not flicker to stillness", false },
+        { "a frame handed over twice with one stamp does not flicker", true },
+    };
 
-    for (int i = 0; i < 30; i++)
+    for (const auto &r : rows)
     {
-        sweep(200)(f, (i / 2) / 30.0);
-        m.feed(f.px.data(), f.stride, i / 60.0);
-        if (i >= 6)
-            least = fmin(least, m.axis(thMotion::MOTION));
-    }
+        thMotion m(W, H);
+        Frame f;
+        double least = 1;
 
-    check("a frame handed over twice does not flicker to stillness", least > 0,
-          fmt("motion fell to %.3f", least));
+        for (int i = 0; i < 30; i++)
+        {
+            const double camera = (i / 2) / 30.0;
+
+            sweep(200)(f, camera);
+            m.feed(f.px.data(), f.stride, r.cameraTime ? camera : i / 60.0);
+            if (i >= 6)
+                least = fmin(least, m.axis(thMotion::MOTION));
+        }
+
+        check(r.name, least > 0, fmt("motion fell to %.3f", least));
+    }
 }
 
 static void burst (void)
 {
-    /* Frames stamped a millisecond apart: a 2-pixel step must not be read
-       as a gesture two thousand pixels a second fast. */
+    /* Frames stamped a millisecond apart, as a reader stamping buffers when
+       it takes them rather than when they were captured would: none is
+       compared with another, so a step between them is never divided by a
+       millisecond. */
     thMotion m(W, H);
     double most = 0;
 
@@ -450,7 +518,7 @@ static void burst (void)
         most = fmax(most, m.axis(thMotion::MOTION));
     }
 
-    check("a burst of frames is not a strike", most < 0.1, fmt("motion reached %.3f", most));
+    check("frames stamped a millisecond apart are not compared", most < 0.1, fmt("motion reached %.3f", most));
 }
 
 static void tooSmall (void)
