@@ -44,8 +44,9 @@ thhActionValue (const thhAction &a, double argMin, double argMax)
 }
 
 thhMapper::thhMapper ()
-    : buttons_(0), axes_(0), velocity_(100), octave_(0)
+    : buttons_(0), axes_(0), velocity_(100), octave_(0), bend_(0)
 {
+    memset(aux_, 0, sizeof(aux_));
     memset(held_, 0, sizeof(held_));
     memset(heldAxis_, 0, sizeof(heldAxis_));
     memset(armed_, 0, sizeof(armed_));
@@ -244,6 +245,9 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
     axes_ = (int)controls.axes.size();
     velocity_ = profile.velocity;
     octave_ = 0;
+    bend_ = 0;
+    memset(aux_, 0, sizeof(aux_));
+    smoothing_.clear();
     for (int i = 0; i < THH_MAX_AXES; i++)
         sent_[i] = Sent();
     memset(armed_, 0, sizeof(armed_));
@@ -445,7 +449,96 @@ thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
         a.note = note;
         a.vel = std::max(1, std::min(127, vel));
         out.push_back(a);
+
+        /* A note starts where the hand's expression is, not at rest. */
+        if (bend_)
+            express(thhAction::NOTE_BEND, 0, bend_, channel, note, out);
+        for (int n = 0; n < 4; n++)
+            if (aux_[n])
+                express(thhAction::NOTE_AUX, n, aux_[n], channel, note, out);
     }
+}
+
+void
+thhMapper::express (thhAction::Kind kind, int aux, double value, int channel,
+                    int note, std::vector<thhAction> &out) const
+{
+    thhAction a = thhAction();
+
+    a.kind = kind;
+    a.channel = channel;
+    a.note = note;
+    a.aux = aux;
+    a.t = value;
+    out.push_back(a);
+}
+
+/* A share of the way from where a binding's smoothing was toward raw, the
+   more the longer since; or raw, for a binding not smoothed. */
+double
+thhMapper::smoothed (int key, double raw, double k, const thhState &s)
+{
+    auto it = smoothing_.find(key);
+
+    if (k > 0 && it != smoothing_.end())
+        raw = it->second.first + (1 - std::exp(-(s.time - it->second.second) / k)) *
+                                 (raw - it->second.first);
+    smoothing_[key] = std::make_pair(raw, s.time);
+    return raw;
+}
+
+/* Changes in the bend and the aux values, sent to every note this mapper is
+   holding: each once, however many buttons hold it. */
+void
+thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
+{
+    double bend = 0, aux[4];
+
+    memcpy(aux, aux_, sizeof(aux));
+    for (int ax = 0; ax < axes_; ax++)
+    {
+        const Layer *l = axisLayer(ax);
+
+        for (size_t i = 0; l && i < l->axis[ax].size(); i++)
+        {
+            const Bound &bd = l->binds[l->axis[ax][i]];
+            const int key = ax * 64 + (int)i;
+
+            if (bd.b.kind == thcHidBinding::BEND)
+                bend += smoothed(key, (s.axis[ax] - bd.b.center) * bd.b.range,
+                                 bd.b.smooth, s);
+            else if (bd.b.kind == thcHidBinding::AUX)
+            {
+                const double lo = bd.b.hasMin ? bd.b.min : 0;
+                const double hi = bd.b.hasMax ? bd.b.max : 1;
+
+                aux[bd.b.semis] = smoothed(key, lo + along(bd, s) * (hi - lo),
+                                           bd.b.smooth, s);
+            }
+        }
+    }
+
+    const bool bent = std::fabs(bend - bend_) >= 0.005;
+    bool moved[4];
+
+    for (int n = 0; n < 4; n++)
+        moved[n] = std::fabs(aux[n] - aux_[n]) >= THH_DEADBAND;
+
+    bend_ = bent ? bend : bend_;
+    for (int n = 0; n < 4; n++)
+        aux_[n] = moved[n] ? aux[n] : aux_[n];
+
+    for (int ch = 0; ch < 16; ch++)
+        for (int note = 0; note < 128; note++)
+        {
+            if (!sounding_[ch][note])
+                continue;
+            if (bent)
+                express(thhAction::NOTE_BEND, 0, bend_, ch, note, out);
+            for (int n = 0; n < 4; n++)
+                if (moved[n])
+                    express(thhAction::NOTE_AUX, n, aux_[n], ch, note, out);
+        }
 }
 
 void
@@ -563,6 +656,8 @@ thhMapper::update (const thhState &s, int curChannel,
 
     for (int ax = 0; ax < axes_; ax++)
         strike(ax, s, curChannel, out);
+
+    expression(s, out);
 
     for (int ax = 0; ax < axes_; ax++)
     {

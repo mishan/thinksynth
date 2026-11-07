@@ -887,6 +887,11 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
                 chan->releaseNote(cmd.noteId);
             break;
 
+        case thSynthCommand::NOTE_EXPRESSION:
+            if (chan)
+                chan->expressNote(cmd.noteId, cmd.what, cmd.value);
+            break;
+
         case thSynthCommand::ALL_NOTES_OFF:
             for (int i = 0; i < midiChannelCnt_; i++)
             {
@@ -2415,6 +2420,52 @@ int thSynth::delNote (int channum, float note)
     postCommand(cmd);
 
     return 0;
+}
+
+/* Both of these as delNote is: a command for the audio thread, which finds
+   the note there, or doesn't. */
+static void
+expression (thSynthCommand &cmd, int channum, float note, int what,
+            float value)
+{
+    cmd.type = thSynthCommand::NOTE_EXPRESSION;
+    cmd.chan = channum;
+    cmd.noteId = (int)note;
+    cmd.what = what;
+    cmd.value = value;
+}
+
+void thSynth::bendNote (int channum, float note, float semitones)
+{
+    if (channum < 0 || channum >= midiChannelCnt_)
+        return;
+
+    std::lock_guard<std::mutex> lock(synthMutex_);
+
+    if (!guiChannels_[channum] || silent_)
+        return;
+
+    thSynthCommand cmd;
+
+    expression(cmd, channum, note, -1, semitones);
+    postCommand(cmd);
+}
+
+void thSynth::setNoteAux (int channum, float note, int aux, float value)
+{
+    if (channum < 0 || channum >= midiChannelCnt_ || aux < 0 ||
+        aux >= TH_NOTE_AUX)
+        return;
+
+    std::lock_guard<std::mutex> lock(synthMutex_);
+
+    if (!guiChannels_[channum] || silent_)
+        return;
+
+    thSynthCommand cmd;
+
+    expression(cmd, channum, note, aux, value);
+    postCommand(cmd);
 }
 
 void thSynth::clearAll (void)

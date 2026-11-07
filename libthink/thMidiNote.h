@@ -77,6 +77,13 @@ public:
      * is already one long, which returns the buffer it has. */
     void retune (float note);
 
+    /* Audio thread. This voice's own expression while it sounds: what < 0
+       bends it `value' semitones from the note it was played at, which a
+       retune keeps; what = N sets auxN, if the graph reads it. Unlike a
+       retune its id stays, so its note off still finds it.
+       Allocation-free, as retune is. */
+    void express (int what, float value);
+
     void process (int length);
 
     /* Audio thread. A voice the channel has run out of room for.
@@ -128,6 +135,7 @@ private:
        what the channel keys notes_ by; this is what a retune has to preserve
        when a composer asks for something between two keys. */
     float note_;
+    float bend_ = 0;        /* semitones from note_, while it sounds */
     float level_;
 
     /* The steal ramp: how long it is, and how much of it is left. Both zero

@@ -34,6 +34,16 @@ thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
             synth.addNote(a.channel, a.note, a.vel);
         else if (a.kind == thhAction::NOTE_OFF)
             synth.delNote(a.channel, a.note);
+        else if (a.kind == thhAction::NOTE_BEND)
+        {
+            synth.bendNote(a.channel, a.note, (float)a.t);
+            continue;
+        }
+        else if (a.kind == thhAction::NOTE_AUX)
+        {
+            synth.setNoteAux(a.channel, a.note, a.aux, (float)a.t);
+            continue;
+        }
         else
         {
             /* Looked up every time: a patch loaded since would leave a kept

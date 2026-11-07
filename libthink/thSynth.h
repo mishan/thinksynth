@@ -86,6 +86,14 @@ public:
     bool addNote(int channum, float note, float velocity, float level = 1,
                  const float *aux = NULL, const unsigned char *say = NULL);
     int delNote (int channum, float note);
+
+    /* A held note's pitch, `semitones' from the note it was played at, and
+       its aux values (TH_NOTE_AUX), while it sounds: per-note expression,
+       as MPE has it. The note is the whole number it was played at, as
+       for delNote; a note that isn't held, or an aux its graph doesn't
+       read, is left alone. */
+    void bendNote (int channum, float note, float semitones);
+    void setNoteAux (int channum, float note, int aux, float value);
     void clearAll (void);
 
     /* Everything down to nothing in TH_STOP_FADE_MS: every voice on every

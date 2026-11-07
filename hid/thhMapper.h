@@ -19,6 +19,7 @@
 #ifndef THH_MAPPER_H
 #define THH_MAPPER_H
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -29,13 +30,15 @@
    calls; a chain's input turns them into composer events. */
 struct thhAction
 {
-    enum Kind { NOTE_ON, NOTE_OFF, VALUE };
+    enum Kind { NOTE_ON, NOTE_OFF, VALUE, NOTE_BEND, NOTE_AUX };
 
     Kind        kind;
     int         channel;        /* 0-15 */
     int         note, vel;      /* NOTE_*; vel is 1-127 */
     std::string arg;            /* VALUE */
-    double      t;              /* VALUE: 0..1 along the control */
+    double      t;              /* VALUE: 0..1 along the control; NOTE_BEND:
+                                   semitones; NOTE_AUX: the value */
+    int         aux;            /* NOTE_AUX: which */
     bool        hasMin, hasMax;
     double      min, max;       /* VALUE: the profile's range, where given */
     bool        exp;
@@ -144,6 +147,17 @@ private:
     double below_[THH_MAX_AXES];
 
     void postures (const thhState &s);
+
+    /* Per-note expression: the bend and the aux values last sent to the
+       notes held, which a note starting is sent too, and each binding's
+       smoothing, by axis and place among the axis's bindings. */
+    double bend_, aux_[4];
+    std::map<int, std::pair<double, double> > smoothing_;  /* value, time */
+
+    void expression (const thhState &s, std::vector<thhAction> &out);
+    void express (thhAction::Kind kind, int aux, double value, int channel,
+                  int note, std::vector<thhAction> &out) const;
+    double smoothed (int key, double raw, double k, const thhState &s);
     void press (int button, const thhState &s, int curChannel,
                 std::vector<thhAction> &out);
     void lift (int button, std::vector<thhAction> &out);

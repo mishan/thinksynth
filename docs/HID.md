@@ -39,10 +39,13 @@ the on-screen keyboard to that channel. With no profile of your own:
 | Close the ring and little fingers | breath |
 | Push the stick up or down | vibrato |
 | Roll your wrist | pan |
-| Roll your wrist with a full fist | bend, two semitones either way |
+| Roll your wrist with a full fist | bends the notes you are holding, two semitones either way |
 
 The notes play on any patch; the rest are `index.dsp`'s knobs, and do
-nothing on a patch without them. How closed a fist has to be depends on
+nothing on a patch without them. Each note's own pressure, `aux0`, opens that note's
+filter and lifts its level in `index.dsp`; nothing in the controller's own
+profile sends it, but `grip_force = aux 0;` in yours does, as does an MPE
+controller's key. How closed a fist has to be depends on
 the hand: the Controller pane shows each grip zone as you hold it, and
 your own profile can move the posture's values.
 
@@ -67,7 +70,7 @@ device index {
 
     layer fist {
         when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };
-        roll = "bend" { min = -1; max = 1; smooth = 0.05; };
+        roll = bend { range = 2; smooth = 0.05; };
     };
 };
 ```
@@ -117,6 +120,8 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | `trigger = "cutoff" { min = 200; max = 8000; shape = exp; };` | an axis | rides a knob of the patch; with no range, the knob's own. `exp` needs a range above 0, and is linear otherwise |
 | `stick_y = pitch { step = octave; range = 2; };` | an axis | moves the base note when a note starts (`step = semitone` too) |
 | `trigger = velocity { min = 30; max = 127; };` | an axis | sets how hard buttons play |
+| `stick_x = bend { range = 2; };` | an axis | bends every note it is holding, each on its own, up to that many semitones (either way on a centered axis); a note started while bent starts bent. Works on any patch |
+| `grip_force = aux 0 { min = 0; max = 1; };` | an axis | sets `aux0` (0 to 3) of every note it is holding, for a patch that reads `ionode->aux0` |
 
 A note, or a knob, can name its own `{ channel = 3; }`. A note can
 `{ latch; }`: one press starts it and the next ends it, for a drone. A knob
@@ -147,20 +152,17 @@ once any of them falls 0.15 under it.
 
 ### A theremin
 
-A latched note held while the fingers ride its pitch and the squeeze its
-level, on `dsp/index.dsp`:
+A latched note whose pitch the fingers ride an octave either side and whose
+level the squeeze rides, on `dsp/index.dsp`:
 
 ```
 device index {
     a = note 0 { latch; };
-    grip_top = "bend" { min = -1; max = 1; smooth = 0.05; };
+    grip_top = bend { center = 0.5; range = 24; smooth = 0.05; };
     grip_force = "level" { smooth = 0.05; };
     roll = "wobble";
 };
 ```
-
-`bend` is two semitones either way; a patch with a wider pitch knob plays a
-wider theremin.
 
 ### The controls
 

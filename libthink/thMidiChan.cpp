@@ -994,6 +994,12 @@ thMidiNote *thMidiChan::getNote (int note)
     return findNote(note);
 }
 
+void thMidiChan::expressNote (int note, int what, float value)
+{
+    if (thMidiNote *voice = findNote(note))
+        voice->express(what, value);
+}
+
 int thMidiChan::setNoteArg (int note, const string &name, float value)
 {
     if (thMidiNote *voice = findNote(note)) {

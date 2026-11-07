@@ -51,7 +51,7 @@ const char *const THH_INDEX_PROFILE =
     "\n"
     "    layer fist {\n"
     "        when { grip_top = 0.85; grip_mid = 0.85; grip_low = 0.85; };\n"
-    "        roll = \"bend\" { min = -1; max = 1; smooth = 0.05; };\n"
+    "        roll = bend { range = 2; smooth = 0.05; };\n"
     "    };\n"
     "};\n";
 

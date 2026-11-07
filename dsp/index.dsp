@@ -5,7 +5,10 @@
 # knob here is one the controller's own profile rides. `Bright' opens the
 # filter, `Wobble' is vibrato, `Growl' drives it harder into the filter's
 # resonance, `Air' is breath, `Bend' moves the pitch two semitones either
-# way, and `Level' and `Pan' place it. See docs/HID.md.
+# way, and `Level' and `Pan' place it. Each note's own pressure (aux0, from
+# an MPE controller's key or a controller's `aux 0') opens its filter and
+# lifts its level on top of the knobs, so one note of a chord can swell
+# alone. See docs/HID.md.
 
 name "Index";
 author "Misha Nasledov";
@@ -99,16 +102,17 @@ node drive dist::saturate {
     factor = 1 + @growl * 7;
 };
 
-# 200 Hz to 12 kHz, on an octave scale.
+# 200 Hz to 12 kHz, on an octave scale; full pressure adds half of
+# Bright's travel, up to its top.
 node tone filt::svf {
     in = drive->out;
-    cutoff = 200 * pow(60, @bright);
+    cutoff = 200 * pow(60, clamp(@bright + ionode->aux0 * 0.5, 0, 1));
     res = 0.2 + @growl * 0.5;
 };
 
 node vca mixer::mul {
     in0 = tone->out_low;
-    in1 = env->out * ionode->velocity * @level;
+    in1 = env->out * ionode->velocity * @level * (1 + ionode->aux0 * 0.6);
 };
 
 node place mixer::pan {

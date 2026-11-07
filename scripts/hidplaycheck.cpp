@@ -257,6 +257,21 @@ checkPlay (const string &plugins, const string &dsp)
     report("a note off ends it", windows < 20000 && heard == 2 ? "" :
            "still sounding after " + std::to_string(windows) + " windows");
 
+    /* A held note's bend reaches its voice. */
+    thhPlay(synth, { action(thhAction::NOTE_ON, 1, 62, NULL, 0) }, hear);
+    thhAction bend = action(thhAction::NOTE_BEND, 1, 62, NULL, 1.5);
+
+    thhPlay(synth, { bend }, hear);
+    run(2);
+
+    thMidiNote *bent = synth.getChannel(1)->getNote(62);
+    thArg *bentTo = bent ? bent->synthTree()->IONode()->getArg("note") : NULL;
+
+    report("a bend reaches the note's voice",
+           bentTo && (*bentTo)[0] == 63.5f ? "" : "it doesn't");
+    thhPlay(synth, { action(thhAction::NOTE_OFF, 1, 62, NULL, 0) }, hear);
+    heard -= 2;
+
     thArg *from = synth.getChanArg(1, "from");
     thhAction v = action(thhAction::VALUE, 1, 0, "from", 0.5);
 
@@ -333,6 +348,58 @@ checkPan (const string &plugins, const string &dsp)
     }
 }
 
+/* index.dsp's note pressed (aux0) against the same note not: louder, and
+   brighter, which a sawtooth through a low pass is as more of its
+   harmonics come through, so its sample-to-sample change grows faster than
+   its level does. */
+static void
+checkPressure (const string &plugins, const string &dsp)
+{
+    double level[2], edge[2];
+
+    for (int p = 0; p < 2; p++)
+    {
+        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(dsp + "/index.dsp", 0, 100) == NULL)
+        {
+            report("index.dsp loads", "it doesn't");
+            return;
+        }
+
+        thhAction press = action(thhAction::NOTE_AUX, 0, 48, NULL, p);
+
+        press.aux = 0;
+        thhPlay(synth, { action(thhAction::NOTE_ON, 0, 48, NULL, 0), press },
+                NULL);
+
+        level[p] = edge[p] = 0;
+        for (int w = 0; w < 60; w++)
+        {
+            synth.process();
+
+            const thMidiChan *c = synth.getChannel(0);
+            const int n = c->numChannels(), len = synth.getWindowlen();
+
+            for (int i = 1; w >= 20 && i < len; i++)
+            {
+                const float x = c->output()[i * n], was = c->output()[(i - 1) * n];
+
+                level[p] += (double)x * x;
+                edge[p] += (double)(x - was) * (x - was);
+            }
+        }
+    }
+
+    char got[128];
+
+    snprintf(got, sizeof(got), "level %.3g to %.3g, brightness %.3g to %.3g",
+             level[0], level[1], edge[0] / level[0], edge[1] / level[1]);
+    report("index.dsp's note pressed is louder and brighter",
+           level[1] > level[0] * 1.2 &&
+           edge[1] / level[1] > edge[0] / level[0] * 1.5 ? "" : got);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -366,6 +433,7 @@ main (int argc, char *argv[])
     checkProfiles(scratch.string());
     checkPlay(plugins, dsp);
     checkPan(plugins, dsp);
+    checkPressure(plugins, dsp);
     fs::remove_all(scratch);
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");

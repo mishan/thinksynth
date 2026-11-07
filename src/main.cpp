@@ -59,6 +59,7 @@ typedef void (*sighandler_t)(int);
 #include "gui/KeyboardPanel.h"
 #include "gui/PatchSelPanel.h"
 #include "gui/MainSynthWindow.h"
+#include "gthMidiPlay.h"
 
 #ifdef __linux__
 #include "gthHid.h"
@@ -244,44 +245,19 @@ static void listAudio (void)
  * nibble rather than on SND_SEQ_EVENT_*, and everything it calls is
  * unchanged.
  */
-static void dispatchmidi (const gthMidiEvent &ev, thSynth *synth)
+static void dispatchmidi (const gthMidiEvent &ev, gthMidiPlay *play)
 {
     const unsigned char kind = ev.status & 0xf0;
-    const int chan = ev.status & 0x0f;
 
     switch (kind)
     {
-        case 0x90:   /* note on */
-        {
-            if (ev.data2)
-            {
-                m_sigNoteOn(chan, ev.data1, ev.data2);
-                synth->addNote(chan, ev.data1, ev.data2);
-            }
-            else
-            {
-                /* a zero velocity can denote note off */
-                m_sigNoteOff(chan, ev.data1);
-                synth->delNote(chan, ev.data1);
-            }
-            break;
-        }
         case 0x80:   /* note off */
-        {
-            m_sigNoteOff(chan, ev.data1);
-            synth->delNote(chan, ev.data1);
-            break;
-        }
+        case 0x90:   /* note on */
         case 0xb0:   /* controller */
-        {
-            synth->handleMidiController(chan, ev.data1, ev.data2);
-            break;
-        }
+        case 0xd0:   /* channel pressure */
         case 0xe0:   /* pitch bend */
-        {
-            debug("PITCH BEND: %d\n", (ev.data2 << 7) | ev.data1);
+            play->play(ev.status, ev.data1, ev.data2);
             break;
-        }
         case 0xc0:   /* program change */
         {
             debug("PGM CHANGE %d\n", ev.data1);
@@ -536,10 +512,17 @@ int main (int argc, char *argv[])
        here if need be -- which is why MIDI is connected only after. */
     gthFollowDeviceRate(aout, Synth, asource, plugin_path);
 
+    gthMidiPlay *midiPlay = new gthMidiPlay(Synth);
+
+    midiPlay->noteOn = [](int chan, int note, int vel) {
+        m_sigNoteOn(chan, note, vel);
+    };
+    midiPlay->noteOff = [](int chan, int note) { m_sigNoteOff(chan, note); };
+
     if (midi != NULL && midi->opened())
     {
         midi->signal_event().connect(
-            sigc::bind(sigc::ptr_fun(&dispatchmidi), Synth));
+            sigc::bind(sigc::ptr_fun(&dispatchmidi), midiPlay));
     }
 
     /* On the heap, so it can be destroyed at a chosen point rather than at
@@ -561,6 +544,14 @@ int main (int argc, char *argv[])
        that are about the window itself are handed over here, before it is
        shown. */
     synthWindow->applyPrefs();
+
+    /* `mpe N' in the preferences: an MPE controller's lower zone, folded
+       onto synth channel N. */
+    string **mpe = prefs->Get("mpe");
+
+    if (mpe != NULL && mpe[0] != NULL && atoi(mpe[0]->c_str()) >= 1 &&
+        atoi(mpe[0]->c_str()) <= 16)
+        midiPlay->setMpe(atoi(mpe[0]->c_str()) - 1);
 
     /* Not make_window_and_run(), and not run(window) either: both of them own
        the window and destroy it when the loop ends, and this window has to
@@ -606,6 +597,7 @@ int main (int argc, char *argv[])
 
     delete midi;
     midi = NULL;
+    delete midiPlay;
 
     /* Before the preferences are written, because the window puts its size
        into them as it goes, and long before the synth. */
