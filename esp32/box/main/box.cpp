@@ -16,10 +16,11 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-/* thinkbox: dsp/dxbell.dsp on an ESP32-S3-BOX. Eight compiled voices on
-   one core, through the speaker; on the other, the touchscreen and the
-   IMU read 250 times a second, played through the patch's controller
-   block by the same mapper the desktop's controllers have. */
+/* thinkbox: patches compiled for an ESP32-S3-BOX (generate.sh), eight
+   voices of the one playing on one core, through the speaker; on the
+   other, the touchscreen and the IMU read 250 times a second and played
+   through the BOX's profile and the patch's block by the same mapper the
+   desktop's controllers have. The side button steps to the next patch. */
 
 #include <math.h>
 #include <stdio.h>
@@ -41,28 +42,132 @@
 #include "audio.h"
 #include "thhBox.h"
 #include "thhMapper.h"
-#include "thvDxbell.h"
+#include "patches.h"
 
 #define VOICES 8
 #define BLOCK 128
 #define GAIN 0.25f
+#define BOX_RATE 32000
 /* How long the screen must read no finger for one to have lifted. */
 #define TOUCH_LIFTED_US 40000
+/* How long the side button must read the same to have moved: it
+   bounces. */
+#define BUTTON_STEADY_US 20000
 
-/* What the controls are doing to the voices, the audio task's and the
+/* A patch, whichever compiled voice it is: its voices, its knobs, and
+   what a mapper's actions do to them. */
+struct Patch
+{
+    const char *name;
+    float gain;                 /* to peak as loud as the others */
+
+    virtual ~Patch () {}
+    virtual thcHidBlock profile () const = 0;
+    virtual void play (const thhAction &a) = 0;
+    /* Every sounding voice into l and r, added. */
+    virtual void render (float *l, float *r) = 0;
+};
+
+template <class V>
+struct PatchOf : Patch
+{
+    V voice[VOICES];
+    typename V::Knobs knobs;
+    struct
+    {
+        int     note = -1;          /* as played */
+        bool    held = false, sounding = false;
+        int64_t since = 0;          /* when it started, to steal the oldest */
+    } slot[VOICES];
+
+    PatchOf (const char *n, float g) { name = n; gain = g; }
+
+    thcHidBlock profile () const override { return V::profile(); }
+
+    void play (const thhAction &a) override
+    {
+        int v = -1;
+
+        switch (a.kind)
+        {
+        case thhAction::NOTE_ON:
+            /* A free voice, else the oldest. */
+            for (int i = 0; i < VOICES && v < 0; i++)
+                if (!slot[i].sounding)
+                    v = i;
+            if (v < 0)
+            {
+                v = 0;
+                for (int i = 1; i < VOICES; i++)
+                    if (slot[i].since < slot[v].since)
+                        v = i;
+            }
+            voice[v] = V();
+            voice[v].start(a.note, a.vel, (uint32_t)esp_timer_get_time());
+            slot[v].note = a.note;
+            slot[v].held = slot[v].sounding = true;
+            slot[v].since = esp_timer_get_time();
+            break;
+        case thhAction::NOTE_OFF:
+            for (int i = 0; i < VOICES; i++)
+                if (slot[i].held && slot[i].note == a.note)
+                {
+                    voice[i].release();
+                    slot[i].held = false;
+                }
+            break;
+        case thhAction::NOTE_BEND:
+            for (int i = 0; i < VOICES; i++)
+                if (slot[i].held && slot[i].note == a.note)
+                    voice[i].note = a.note + (float)a.t;
+            break;
+        case thhAction::VALUE:
+        {
+            float lo = 0, hi = 1;
+
+            if (V::Knobs::range(a.arg.c_str(), lo, hi))
+                knobs.set(a.arg.c_str(), (float)thhActionValue(a, lo, hi));
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    void render (float *l, float *r) override
+    {
+        static float vl[BLOCK], vr[BLOCK];
+        float *outs[2] = { vl, vr };
+
+        for (int v = 0; v < VOICES; v++)
+            if (slot[v].sounding)
+            {
+                memset(vr, 0, sizeof(vr));
+                slot[v].sounding = voice[v].render(knobs, outs, BLOCK);
+                for (int i = 0; i < BLOCK; i++)
+                {
+                    l[i] += gain * vl[i];
+                    /* A mono patch is both sides. */
+                    r[i] += gain * (V::channels > 1 ? vr[i] : vl[i]);
+                }
+            }
+    }
+};
+
+#define PATCH(type, name, gain) new PatchOf<thv##type>(name, gain),
+static Patch *const patches[] = { PATCHES };
+#undef PATCH
+#define NPATCHES (int)(sizeof(patches) / sizeof(patches[0]))
+
+/* The patch playing, and every patch's voices, the audio task's and the
    control task's both, under `lock'. */
 static SemaphoreHandle_t lock;
-static thvDxbell voice[VOICES];
-static thvDxbell::Knobs knobs;
-static struct
-{
-    int   note;                 /* as played, -1 for none */
-    bool  held, sounding;
-    int64_t since;              /* when it started, to steal the oldest */
-} slot[VOICES];
+static volatile int playing = 0;
+static volatile float load = 0;         /* of the audio task's time */
 
-/* The key the finger is on, for the screen: -1 for none. */
-static volatile int lit = -1;
+/* The key the finger is on, for the screen: -1 for none; and which patch
+   it shows as playing. */
+static volatile int lit = -1, shown = 0;
 
 static i2c_master_bus_handle_t bus;
 static i2c_master_dev_handle_t imu;
@@ -71,32 +176,27 @@ static esp_lcd_touch_handle_t touch;
 static void
 audioTask (void *)
 {
-    static float l[BLOCK], r[BLOCK], mix[2][BLOCK];
+    static float mix[2][BLOCK];
     static int16_t frames[2 * BLOCK];
-    float *outs[2] = { l, r };
 
     for (;;)
     {
         memset(mix, 0, sizeof(mix));
         xSemaphoreTake(lock, portMAX_DELAY);
-        for (int v = 0; v < VOICES; v++)
-            if (slot[v].sounding)
-            {
-                slot[v].sounding = voice[v].render(knobs, outs, BLOCK);
-                for (int i = 0; i < BLOCK; i++)
-                {
-                    mix[0][i] += l[i];
-                    mix[1][i] += r[i];
-                }
-            }
+
+        const int64_t t = esp_timer_get_time();
+
+        /* Every patch: the one playing, and any switched from, ringing
+           out. */
+        for (Patch *p : patches)
+            p->render(mix[0], mix[1]);
+        load = (esp_timer_get_time() - t) / (1e6f * BLOCK / BOX_RATE);
         xSemaphoreGive(lock);
 
         for (int i = 0; i < BLOCK; i++)
             for (int c = 0; c < 2; c++)
             {
-                /* A NaN would clamp to -1, a full-scale DC: silence. */
-                const float y = mix[c][i] * GAIN;
-                const float x = y == y ? fminf(1, fmaxf(-1, y)) : 0;
+                const float x = fminf(1, fmaxf(-1, mix[c][i] * GAIN));
 
                 frames[2 * i + c] = (int16_t)(x * 32000);
             }
@@ -104,7 +204,7 @@ audioTask (void *)
     }
 }
 
-/* The screen: the keys dxbell's block lays out, `x = pitch { scale =
+/* The screen: the keys THH_BOX_PROFILE lays out, `x = pitch { scale =
    minor_pentatonic; range = 10; }', the degree under x * 10 rounded, so
    eleven keys, the ends half as wide. Each a color of its note of the
    scale, darker the further up the screen, where it plays softer; the
@@ -112,7 +212,8 @@ audioTask (void *)
 #define W 320
 #define H 240
 #define KEYS 11
-#define STRIP 20                /* rows drawn at a time */
+#define STRIP 16                /* rows drawn at a time */
+#define TOP 16                  /* the patches' row, above the keys */
 
 static esp_lcd_panel_handle_t panel;
 
@@ -149,33 +250,26 @@ drawKey (int k, bool on)
     static const int HUE[5][3] = {
         { 230, 70, 70 }, { 230, 160, 40 }, { 200, 210, 60 }, { 60, 190, 120 },
         { 70, 120, 230 } };
-    /* Two, each filled while the other is still being sent: a draw only
-       queues its pixels, and waits for the last one's only as it starts. */
-    static uint16_t *strips[2] = { NULL, NULL };
+    static uint16_t *strip = NULL;
     int from, to;
 
     keySpan(k, from, to);
     if (to <= from)
         return;
-    for (int b = 0; b < 2; b++)
-        if (!strips[b])
-            strips[b] = (uint16_t *)heap_caps_malloc(W * STRIP * 2, MALLOC_CAP_DMA);
-    if (!strips[0] || !strips[1])
-        return;
+    if (!strip)
+        strip = (uint16_t *)heap_caps_malloc(W * STRIP * 2, MALLOC_CAP_DMA);
 
     const int *h = HUE[k % 5];
     const int w = to - from;
 
-    for (int y0 = 0; y0 < H; y0 += STRIP)
+    for (int y0 = TOP; y0 < H; y0 += STRIP)
     {
-        uint16_t *strip = strips[(y0 / STRIP) % 2];
-
         for (int y = y0; y < y0 + STRIP; y++)
             for (int x = 0; x < w; x++)
             {
                 /* Darker toward the top, softer there; a dark seam between
                    keys; the Cs' white foot; the touched key bright. */
-                const float shade = on ? 1 : 0.35f + 0.65f * y / (H - 1);
+                const float shade = on ? 1 : 0.35f + 0.65f * (y - TOP) / (H - 1 - TOP);
                 const bool seam = x == 0 || x == w - 1;
                 const bool foot = k % 5 == 0 && y >= H - 14 && x > 2 && x < w - 3;
                 uint16_t c = seam ? rgb(10, 10, 10)
@@ -193,10 +287,30 @@ drawKey (int k, bool on)
     }
 }
 
+/* The patches along the top, a square each, the playing one lit. */
+static void
+drawPatches (int n, int on)
+{
+    static uint16_t *row = NULL;
+
+    if (!row)
+        row = (uint16_t *)heap_caps_malloc(W * TOP * 2, MALLOC_CAP_DMA);
+    for (int y = 0; y < TOP; y++)
+        for (int x = 0; x < W; x++)
+        {
+            const int p = (x - 6) / 20, in = (x - 6) % 20;
+            const bool square = p >= 0 && p < n && in < 14 && y >= 2 && y < TOP - 2;
+
+            row[y * W + x] = !square ? rgb(0, 0, 0)
+                           : p == on ? rgb(255, 255, 255) : rgb(70, 70, 70);
+        }
+    esp_lcd_panel_draw_bitmap(panel, 0, 0, W, TOP, row);
+}
+
 static void
 displayTask (void *)
 {
-    int shown = -1;
+    int keyShown = -1, patchShown = -1;
 
     for (int k = 0; k < KEYS; k++)
         drawKey(k, false);
@@ -204,13 +318,19 @@ displayTask (void *)
     {
         const int now = lit;
 
-        if (now != shown)
+        if (shown != patchShown)
         {
-            if (shown >= 0)
-                drawKey(shown, false);
+            patchShown = shown;
+            drawPatches(NPATCHES, patchShown);
+        }
+
+        if (now != keyShown)
+        {
+            if (keyShown >= 0)
+                drawKey(keyShown, false);
             if (now >= 0)
                 drawKey(now, true);
-            shown = now;
+            keyShown = now;
         }
         vTaskDelay(pdMS_TO_TICKS(15));
     }
@@ -258,61 +378,6 @@ displayOpen (void)
     return true;
 }
 
-/* A mapper's actions on the voices, under the lock. */
-static void
-play (const std::vector<thhAction> &acts)
-{
-    const int64_t now = esp_timer_get_time();
-
-    for (const thhAction &a : acts)
-    {
-        int v = -1;
-
-        switch (a.kind)
-        {
-        case thhAction::NOTE_ON:
-            /* A free voice, else the oldest. */
-            for (int i = 0; i < VOICES && v < 0; i++)
-                if (!slot[i].sounding)
-                    v = i;
-            if (v < 0)
-            {
-                v = 0;
-                for (int i = 1; i < VOICES; i++)
-                    if (slot[i].since < slot[v].since)
-                        v = i;
-            }
-            voice[v] = thvDxbell();
-            voice[v].start(a.note, a.vel);
-            slot[v] = { a.note, true, true, now };
-            break;
-        case thhAction::NOTE_OFF:
-            for (int i = 0; i < VOICES; i++)
-                if (slot[i].held && slot[i].note == a.note)
-                {
-                    voice[i].release();
-                    slot[i].held = false;
-                }
-            break;
-        case thhAction::NOTE_BEND:
-            for (int i = 0; i < VOICES; i++)
-                if (slot[i].held && slot[i].note == a.note)
-                    voice[i].note = a.note + (float)a.t;
-            break;
-        case thhAction::VALUE:
-        {
-            float lo = 0, hi = 1;
-
-            if (thvDxbell::Knobs::range(a.arg.c_str(), lo, hi))
-                knobs.set(a.arg.c_str(), (float)thhActionValue(a, lo, hi));
-            break;
-        }
-        default:
-            break;
-        }
-    }
-}
-
 static bool
 imuRead (float accel[3], float gyro[3])
 {
@@ -342,9 +407,20 @@ controlTask (void *)
     int line, n = 0, presses = 0;
     int64_t last = esp_timer_get_time(), touched = 0;
 
-    if (!mapper.configure(thvDxbell::profile(), thhBoxControls(), acts, err, line))
+    if (!mapper.configure(patches[playing]->profile(), thhBoxControls(), acts, err, line))
         printf("thinkbox: the profile doesn't fit, line %d: %s\n", line, err.c_str());
     s.connected = true;
+    printf("thinkbox: %s\n", patches[playing]->name);
+
+    /* The side button, BOOT, low while pressed. */
+    gpio_config_t bc = {};
+    bool down = false, wasDown = false, reads = false;
+    int64_t readSince = 0;
+
+    bc.pin_bit_mask = 1ULL << GPIO_NUM_0;
+    bc.mode = GPIO_MODE_INPUT;
+    bc.pull_up_en = GPIO_PULLUP_ENABLE;
+    gpio_config(&bc);
 
     for (;; n++)
     {
@@ -360,10 +436,8 @@ controlTask (void *)
 
         /* The controller reports a held finger in bursts, with readings of
            none between them: lifted is none for a while, not once. */
-        if (touch)
-            esp_lcd_touch_read_data(touch);
-        if (touch && esp_lcd_touch_get_coordinates(touch, &x, &y, &strength, &count, 1) &&
-            count)
+        esp_lcd_touch_read_data(touch);
+        if (esp_lcd_touch_get_coordinates(touch, &x, &y, &strength, &count, 1) && count)
         {
             s.axis[THH_BOX_X] = x / (float)(W - 1);
             s.axis[THH_BOX_Y] = y / (float)(H - 1);
@@ -380,18 +454,51 @@ controlTask (void *)
         }
         s.time = now / 1e6;
 
+        /* A press steps to the next patch: the notes the last held end,
+           left to ring out, and its profile is the mapper's. */
+        const bool reading = gpio_get_level(GPIO_NUM_0) == 0;
+
+        if (reading != reads)
+        {
+            reads = reading;
+            readSince = now;
+        }
+        if (now - readSince >= BUTTON_STEADY_US)
+            down = reads;
         acts.clear();
+        if (down && !wasDown)
+        {
+            const int next = (playing + 1) % NPATCHES;
+
+            mapper.release(acts);
+            xSemaphoreTake(lock, portMAX_DELAY);
+            for (const thhAction &a : acts)
+                patches[playing]->play(a);
+            playing = next;
+            xSemaphoreGive(lock);
+            acts.clear();
+            if (!mapper.configure(patches[next]->profile(), thhBoxControls(), acts, err, line))
+                printf("thinkbox: %s's profile doesn't fit, line %d: %s\n",
+                       patches[next]->name, line, err.c_str());
+            acts.clear();
+            shown = next;
+            printf("thinkbox: %s\n", patches[next]->name);
+        }
+        wasDown = down;
+
         mapper.update(s, 0, acts);
         if (!acts.empty())
         {
             xSemaphoreTake(lock, portMAX_DELAY);
-            play(acts);
+            for (const thhAction &a : acts)
+                patches[playing]->play(a);
             xSemaphoreGive(lock);
         }
 
         if (n % 125 == 0)
-            printf("presses %d  touch %d x %.2f y %.2f  tilt %+.2f roll %+.2f twist %+.2f turn %+.2f  "
-                   "gravity %+.2f %+.2f %+.2f\n", presses, (s.buttons & 1) ? 1 : 0,
+            printf("%s load %3.0f%%  presses %d  touch %d x %.2f y %.2f  tilt %+.2f roll %+.2f twist %+.2f turn %+.2f  "
+                   "gravity %+.2f %+.2f %+.2f\n", patches[playing]->name, load * 100,
+                   presses, (s.buttons & 1) ? 1 : 0,
                    s.axis[THH_BOX_X], s.axis[THH_BOX_Y], s.axis[THH_BOX_TILT],
                    s.axis[THH_BOX_ROLL], s.axis[THH_BOX_TWIST], s.axis[THH_BOX_TURN],
                    pose.g[0], pose.g[1], pose.g[2]);
@@ -412,10 +519,7 @@ app_main (void)
     bc.flags.enable_internal_pullup = true;
     ESP_ERROR_CHECK(i2c_new_master_bus(&bc, &bus));
 
-    /* With nothing to write to, the audio task would never wait. */
-    const bool speaker = audio_open(bus, thvDxbell::rate, 70);
-
-    if (!speaker)
+    if (!audio_open(bus, BOX_RATE, 70))
         printf("thinkbox: no speaker\n");
 
     /* The IMU, an ICM-42607 at 0x68: accelerometer and gyro on, low noise. */
@@ -426,8 +530,7 @@ app_main (void)
     ic.device_address = 0x68;
     ic.scl_speed_hz = 400000;
     ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &imu));
-    if (i2c_master_transmit(imu, on, 2, 100) != ESP_OK)
-        printf("thinkbox: no IMU; tilt and roll stay level\n");
+    i2c_master_transmit(imu, on, 2, 100);
 
     /* The touchscreen's controller, a TT21100 at 0x24, its interrupt on 3. */
     esp_lcd_panel_io_handle_t tio;
@@ -436,25 +539,16 @@ app_main (void)
 
     tc.scl_speed_hz = 400000;
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(bus, &tc, &tio));
-    /* No touch is no keys, not a reboot with the amplifier already on. */
     touchc.x_max = 320;
     touchc.y_max = 240;
     touchc.rst_gpio_num = GPIO_NUM_NC;
     touchc.int_gpio_num = GPIO_NUM_3;
     touchc.flags.mirror_x = 1;
-    if (esp_lcd_touch_new_i2c_tt21100(tio, &touchc, &touch) != ESP_OK)
-    {
-        printf("thinkbox: no touch\n");
-        touch = NULL;
-    }
+    ESP_ERROR_CHECK(esp_lcd_touch_new_i2c_tt21100(tio, &touchc, &touch));
 
-    for (int v = 0; v < VOICES; v++)
-        slot[v].note = -1;
     lock = xSemaphoreCreateMutex();
-    configASSERT(lock);
-    printf("thinkbox: dxbell, %d voices at %d Hz\n", VOICES, (int)thvDxbell::rate);
-    if (speaker)
-        xTaskCreatePinnedToCore(audioTask, "audio", 8192, NULL, 20, NULL, 1);
+    printf("thinkbox: %d patches, %d voices each at %d Hz\n", NPATCHES, VOICES, BOX_RATE);
+    xTaskCreatePinnedToCore(audioTask, "audio", 8192, NULL, 20, NULL, 1);
     xTaskCreatePinnedToCore(controlTask, "control", 8192, NULL, 10, NULL, 0);
     if (displayOpen())
         xTaskCreatePinnedToCore(displayTask, "display", 4096, NULL, 5, NULL, 0);

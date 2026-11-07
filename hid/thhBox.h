@@ -40,6 +40,12 @@ enum
 
 const thhControls &thhBoxControls ();
 
+/* What the BOX plays with no block of a patch's: the screen a strip of
+   keys, C minor pentatonic two octaves across, louder the lower it's
+   touched, and tilt a bend. A patch's `controller box' block goes over
+   it, and says what its own knobs answer to. */
+extern const char *const THH_BOX_PROFILE;
+
 /* What the IMU's samples make of the BOX's pose, between samples. */
 struct thhBoxImu
 {

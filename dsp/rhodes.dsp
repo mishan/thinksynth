@@ -105,6 +105,11 @@ category "Keys";
     @r.max = 3000ms;
     @r.label = "Release";
 
+# On an ESP32-S3-BOX (esp32/box), over its strip of keys: roll and the tine barks harder or softer.
+controller box {
+    roll = "bark" { smooth = 0.05; };
+};
+
 node ionode {
     channels = 2;
     out0 = left->out;

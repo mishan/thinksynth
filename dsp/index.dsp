@@ -69,6 +69,12 @@ category "Experiments";
     @r.max = 4000ms;
     @r.label = "Release";
 
+# On an ESP32-S3-BOX (esp32/box), over its strip of keys: roll turns it
+# brighter or darker.
+controller box {
+    roll = "bright" { smooth = 0.05; };
+};
+
 node ionode {
     channels = 2;
     out0 = place->out0;

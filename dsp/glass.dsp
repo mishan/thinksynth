@@ -64,6 +64,11 @@ category "Keys";
     @level.max = 1;
     @level.label = "Level";
 
+# On an ESP32-S3-BOX (esp32/box), over its strip of keys: roll and it rings brighter or darker.
+controller box {
+    roll = "index" { smooth = 0.05; };
+};
+
 node ionode {
     channels = 2;
     out0 = pan->out0;

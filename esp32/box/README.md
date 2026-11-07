@@ -19,12 +19,14 @@ you down; turning it like a wheel makes the bell brighter or darker.
 With ESP-IDF 6 (`. ~/esp/esp-idf/export.sh`) and thinksynth built in
 `build/`:
 
-    esp32/box/generate.sh build     # the voice and its profile, from the patch
+    esp32/box/generate.sh build     # the voices and profiles, from the patches
     cd esp32/box
     idf.py set-target esp32s3
     idf.py -p /dev/ttyACM0 flash monitor
 
-`generate.sh` runs again whenever the patch changes. A finger counts as
+`generate.sh` runs again whenever a patch changes, and lists the
+patches. The monitor's line says how much of the audio core the patch
+playing takes. A finger counts as
 lifted only after 40 ms of the screen reading none, since the touch
 controller reports a held finger in bursts. The monitor prints
 what the controls read twice a second.

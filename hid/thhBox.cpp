@@ -29,6 +29,15 @@
 #define THH_BOX_TURN_FULL 90.0f
 #define THH_BOX_TURN_SPRING 3.0f
 
+const char *const THH_BOX_PROFILE =
+    "device box {\n"
+    "    base = \"C4\";\n"
+    "    touch = note 0;\n"
+    "    x = pitch { scale = minor_pentatonic; range = 10; };\n"
+    "    y = velocity { min = 30; max = 127; };\n"
+    "    tilt = bend { range = 2; smooth = 0.03; };\n"
+    "};\n";
+
 const thhControls &
 thhBoxControls ()
 {
