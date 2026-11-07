@@ -264,3 +264,40 @@ Axes, 0 to 1 unless they center:
 | `roll` | how far the buttons face left (+) or right (-), 1 at a quarter turn; it eases back toward 0 past that, and as the front tips toward straight up or down, but never jumps |
 | `twist` | how fast it is turning around the front, -1 to 1 |
 | `turn` | how far it has turned around the front since it was last still, -1 to 1 over a quarter turn, in any pose, however it is held; it springs back to 0 over a few seconds, as a gyro's turn has to |
+
+## Life
+
+`game/thgLife` is Conway's Life as a step sequencer, for the BOX: a 16 by
+8 board on a torus, B3/S23, with a playhead sweeping its columns at a
+tempo and the board advancing a generation each time it comes round,
+unless paused. It is a controller, `life`, played a row at a time, so a
+column's live cells sound together, a chord; a patch says how with a
+`controller life` block. A cell's note lasts until the playhead leaves
+its column, and the same row's cell in the next column strikes it again.
+
+Buttons: `cell`, down while the playhead is on a live cell of the row,
+and `born`, with it when the last generation brought that cell to life;
+paused, `born` sounds only until the playhead comes round, as no
+generation follows to bring any cell to life.
+
+| Axis | |
+|---|---|
+| `row` | which row, 0 at the bottom to 1 at the top |
+| `column` | where in the bar, 0 to 1 |
+| `neighbors` | how many of the eight round the cell are alive, 0 to 1 |
+
+With no block of a patch's, a row is a degree of C minor pentatonic up
+from C4 and a crowded cell plays louder:
+
+```
+device life {
+    base = "C4";
+    cell = note 0;
+    row = pitch { scale = minor_pentatonic; range = 7; };
+    neighbors = velocity { min = 60; max = 127; };
+};
+```
+
+`range = 7` is a degree a row. To hear only the births, as
+`composer::life`'s `trigger = 0` does, a patch binds `born` and ignores
+`cell`.

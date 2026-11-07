@@ -66,6 +66,7 @@
 #include "think.h"
 
 #include "thcHidBlock.h"
+#include "thgLife.h"
 #include "thgMarbles.h"
 #include "thhBox.h"
 #include "thhIndex.h"
@@ -542,9 +543,11 @@ main (int argc, char **argv)
                                                                          : comma - from);
         const thhControls *controls = device == "box" ? &thhBoxControls()
                                     : device == "index" ? &thhIndexControls()
-                                    : device == "marbles" ? &thgMarblesControls() : NULL;
+                                    : device == "marbles" ? &thgMarblesControls()
+                                    : device == "life" ? &thgLifeControls() : NULL;
         const char *own = device == "box" ? THH_BOX_PROFILE
-                        : device == "marbles" ? THG_MARBLES_PROFILE : THH_INDEX_PROFILE;
+                        : device == "marbles" ? THG_MARBLES_PROFILE
+                        : device == "life" ? THG_LIFE_PROFILE : THH_INDEX_PROFILE;
         thcHidBlock profile;
         string err;
 
