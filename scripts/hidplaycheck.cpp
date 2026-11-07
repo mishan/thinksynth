@@ -71,6 +71,7 @@ describe (const thcHidBlock &p)
 
         o << " " << b.control << ":" << (b.kind == thcHidBinding::VALUE ? b.arg
             : b.kind == thcHidBinding::HOLD ? "hold " + b.layer
+            : b.kind == thcHidBinding::TOGGLE ? "toggle " + b.layer
             : std::to_string(b.semis));
     }
     for (size_t l = 0; l < p.layers.size(); l++)
@@ -137,6 +138,16 @@ checkProfiles (const string &scratch)
           "device index {\n  ignore nothing;\n};", false, "/mine:2: " },
         { "a control the device doesn't have",
           "device index {\n  zz = note 5;\n};", false, "/mine:2: " },
+        { "a layer of the controller's own, toggled from the player's",
+          "device index { system = toggle fist; };", true,
+          "base60 a:0 b:7 grip_force:level grip_force:bright stick_y:wobble "
+          "thumbstick:hold fist system:toggle fist [fist: a:12]" },
+        { "a typo in an ignore, in a hand's block",
+          "device index right {\n  ignore stik_y;\n};", false, "/mine:2: " },
+        { "an error in a hand's block, with one controller",
+          "device index left {\n  bogus = note 1;\n};", false, "/mine:2: " },
+        { "the wrong device names its own line",
+          "# mine\n\ndevice other {\n};", false, "/mine:3: " },
         { "a file that doesn't parse",
           "device index {\n  a = note\n", false, "/mine:" },
     };
@@ -241,6 +252,12 @@ checkProfiles (const string &scratch)
                (*hand ? hand : "alone"),
                thhLoadProfile(scratch + "/example", c, THH_INDEX_PROFILE, hand,
                               blk, err) ? "" : err);
+
+    fs::remove_all(scratch + "/adir");
+    fs::create_directories(scratch + "/adir");
+    report("a directory where the file should be says so",
+           !thhLoadProfile(scratch + "/adir", c, own, "", blk, err) &&
+           err.find(scratch + "/adir") == 0 ? "" : "said \"" + err + "\"");
 
     std::ofstream(scratch + "/unreadable") << "device index { };\n";
     fs::permissions(scratch + "/unreadable", fs::perms::none);

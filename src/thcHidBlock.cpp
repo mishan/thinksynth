@@ -47,6 +47,11 @@ private:
 
     const Tok &peek () const { return t_[i_]; }
 
+    /* Whether a modifier's layer must be in the same block: so for a block
+       read alone, and not for a profile of blocks, overlaid on another
+       profile's, where it may be in any of them. */
+    bool ownLayers_ = true;
+
     bool fail (int line, const std::string &msg)
     {
         err_ = msg;
@@ -123,6 +128,9 @@ Parser::number (double &out, const std::string &what)
     double sign = 1;
 
     if (isPunct(peek(), '-') && t_[i_ + 1].kind == Tok::NUMBER &&
+        t_[i_ + 1].off != peek().end)
+        return fail(peek(), "a sign goes against its number, with no space: -5, not - 5");
+    if (isPunct(peek(), '-') && t_[i_ + 1].kind == Tok::NUMBER &&
         t_[i_ + 1].off == peek().end && t_[i_ + 1].text[0] != '-')
     {
         sign = -1;
@@ -145,7 +153,9 @@ Parser::integer (int &out, int lo, int hi, const std::string &what)
     const Tok &at = peek();
     double v;
 
-    if (!number(v, what) || v != std::floor(v))
+    if (!number(v, what))
+        return false;
+    if (v != std::floor(v))
         return fail(at, what + " wants a whole number");
     if (v < lo || v > hi)
         return fail(at, what + " is " + std::to_string(lo) + " to " +
@@ -426,6 +436,8 @@ Parser::binding (thcHidBinding &b, bool inLayer)
 
     if (b.kind == thcHidBinding::STRIKE)
     {
+        if (b.at <= 0)
+            return fail(b.line, "a strike's at is above 0, where it rests");
         if (b.off < 0)
             b.off = std::max(0.0, b.at - 0.2);
         if (b.off >= b.at)
@@ -505,6 +517,8 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
 bool
 Parser::when (thcHidLayer &l)
 {
+    if (l.whenLine)
+        return fail(peek(), "a layer has one when; put every axis in it");
     l.whenLine = peek().line;
     i_++;
     if (!expect('{'))
@@ -567,7 +581,7 @@ Parser::block (thcHidBlock &out)
 
     /* Layers may be named before they are declared, so this waits until
        the whole block is read. */
-    for (size_t i = 0; i < out.bindings.size(); i++)
+    for (size_t i = 0; ownLayers_ && i < out.bindings.size(); i++)
     {
         const thcHidBinding &b = out.bindings[i];
         bool found = false;
@@ -590,6 +604,7 @@ Parser::profile (thcHidBlock &out)
 {
     if (!isWord(peek(), "device"))
         return fail(peek(), "a profile starts with 'device'");
+    out.line = peek().line;
     i_++;
     if (!word(out.device, "device") || !block(out) || !expect(';'))
         return false;
@@ -603,12 +618,14 @@ bool
 Parser::profiles (std::vector<thcHidBlock> &out)
 {
     out.clear();
+    ownLayers_ = false;
     while (peek().kind != Tok::END)
     {
         thcHidBlock b;
 
         if (!isWord(peek(), "device"))
             return fail(peek(), "a profile is 'device' blocks");
+        b.line = peek().line;
         i_++;
         if (!word(b.device, "device"))
             return false;

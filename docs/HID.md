@@ -115,10 +115,12 @@ hand and, if you like, `device index left { ... };` and `device index right
 { ... };` for each: write them to `hid/index`
 in thinksynth's configuration directory, normally
 `~/.config/thinksynth/hid/index` (the Controller pane's Open file starts
-one). A control you bind replaces every binding of it in the controller's
-own profile, a layer replaces the layer of its name, `ignore NAME;` drops a
-control or a layer, and `base`, `channel` and `velocity` are yours if you
-set them. Everything else stays the controller's own, so it reaches you as
+one). A control you bind replaces every binding of it outside layers in the
+controller's own profile, a layer replaces the layer of its name, `ignore
+NAME;` drops a control's bindings outside layers, or a layer, and `base`,
+`channel` and `velocity` are yours if you set them. A control's binding
+inside one of the controller's own layers stays until you replace that
+layer. Your bindings may hold or toggle the controller's own layers. Everything else stays the controller's own, so it reaches you as
 it grows:
 
 ```
@@ -155,7 +157,7 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 | `trigger = "cutoff" { min = 200; max = 8000; shape = exp; };` | an axis | rides a knob of the patch; with no range, the knob's own. `exp` needs a range above 0, and is linear otherwise |
 | `stick_y = pitch { step = octave; range = 2; };` | an axis | moves the base note when a note starts (`step = semitone` too) |
 | `trigger = velocity { min = 30; max = 127; };` | an axis | sets how hard buttons play |
-| `stick_x = bend { range = 2; };` | an axis | bends every note it is holding, each on its own, up to that many semitones (either way on a centered axis); a note started while bent starts bent. Works on any patch |
+| `stick_x = bend { range = 2; };` | an axis | bends every note it is holding, each on its own, up to that many semitones (either way on a centered axis); a note started while bent starts bent, and a note let go of is bent no further. Works on any patch |
 | `grip_force = aux 0 { min = 0; max = 1; };` | an axis | sets `aux0` (0 to 3) of every note it is holding, for a patch that reads `ionode->aux0` |
 
 A note, or a knob, can name its own `{ channel = 3; }`. A note can

@@ -18,6 +18,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <sstream>
 
@@ -86,6 +87,7 @@ owned (thcHidBlock &b)
    control the player's file could name, says so. */
 static bool
 overlay (thcHidBlock &into, const thcHidBlock &over, bool strict,
+         const std::function<bool (const std::string &)> &known,
          std::string &err, int &line)
 {
     if (over.hasChannel)
@@ -108,7 +110,8 @@ overlay (thcHidBlock &into, const thcHidBlock &over, bool strict,
     };
 
     for (size_t i = 0; i < over.ignore.size(); i++)
-        if (!drop(over.ignore[i].first) && strict)
+        if (!drop(over.ignore[i].first) &&
+            (strict || !known(over.ignore[i].first)))
         {
             err = "there is no '" + over.ignore[i].first + "' to ignore";
             line = over.ignore[i].second;
@@ -140,7 +143,8 @@ overlay (thcHidBlock &into, const thcHidBlock &over, bool strict,
 /* The blocks of a profile for one hand, either hand's first. */
 static bool
 forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
-         bool own, thcHidBlock &into, std::string &err, int &line)
+         bool own, const std::function<bool (const std::string &)> &known,
+         thcHidBlock &into, std::string &err, int &line)
 {
     for (int pass = 0; pass < (hand.empty() ? 1 : 2); pass++)
         for (size_t i = 0; i < blocks.size(); i++)
@@ -151,7 +155,8 @@ forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
                 if (own)
                     owned(b);
                 into.device = b.device;
-                if (!overlay(into, b, hand.empty(), err, line))
+                into.line = b.line;
+                if (!overlay(into, b, hand.empty(), known, err, line))
                     return false;
             }
     return true;
@@ -164,39 +169,68 @@ thhLoadProfile (const std::string &path, const thhControls &controls,
 {
     std::error_code ec;
     std::string ignored;
-    std::vector<thcHidBlock> ownBlocks;
-    thcHidBlock own;
+    std::vector<thcHidBlock> ownBlocks, mine;
     int line = 0;
 
     err.clear();
     thcHidParseProfiles(fallback, ownBlocks, ignored, line);
-    forHand(ownBlocks, hand, true, own, ignored, line);
-    out = own;
 
+    /* What an ignore may name, in a hand that has dropped it already: a
+       control the device has, or a layer either profile declares. */
+    const auto known = [&](const std::string &name) {
+        if (controls.button(name) >= 0 || controls.axis(name) >= 0)
+            return true;
+        for (const auto *blocks : { &ownBlocks, &mine })
+            for (const thcHidBlock &b : *blocks)
+                for (const thcHidLayer &l : b.layers)
+                    if (l.name == name)
+                        return true;
+        return false;
+    };
+    const auto forOne = [&](const std::string &h, bool player, thcHidBlock &into) {
+        thcHidBlock own;
+
+        forHand(ownBlocks, h, true, known, own, ignored, line);
+        into = own;
+        return !player || forHand(mine, h, false, known, into, err, line);
+    };
+
+    forOne(hand, false, out);
     if (!std::filesystem::exists(path, ec))
         return true;
 
     std::ifstream in(path.c_str());
     std::ostringstream text;
-    std::vector<thcHidBlock> mine;
-    thcHidBlock both = own;
+    thcHidBlock both;
     thhMapper check;
     std::vector<thhAction> none;
 
-    text << in.rdbuf();
-    if (!in)
+    if (std::filesystem::is_regular_file(path, ec))
+        text << in.rdbuf();
+    if (!in || !std::filesystem::is_regular_file(path, ec))
         err = path + ": can't read it";
-    else if (thcHidParseProfiles(text.str(), mine, err, line) &&
-             forHand(mine, hand, false, both, err, line) &&
-             check.configure(both, controls, none, err, line))
+    else if (thcHidParseProfiles(text.str(), mine, err, line))
     {
-        out = both;
-        return true;
-    }
-    else
-        err = line < 0 ? "the controller's own profile, line " +
-                         std::to_string(-line) + ": " + err
-                       : path + ":" + std::to_string(line) + ": " + err;
+        /* Every hand the file speaks for, whichever is asked for now: an
+           error in a hand's block is said with one controller too. */
+        bool ok = true;
 
+        for (const char *h : { "", "left", "right" })
+            if (ok && (forOne(h, true, both) &&
+                       check.configure(both, controls, none, err, line)))
+            {
+                if (h == hand)
+                    out = both;
+            }
+            else
+                ok = false;
+        if (ok)
+            return true;
+    }
+
+    err = line < 0 ? "the controller's own profile, line " +
+                     std::to_string(-line) + ": " + err
+                   : path + ":" + std::to_string(line) + ": " + err;
+    forOne(hand, false, out);
     return false;
 }

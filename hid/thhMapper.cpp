@@ -136,7 +136,7 @@ thhMapper::configure (const thcHidBlock &profile, const thhControls &controls,
 {
     std::vector<Layer> layers(profile.layers.size() + 1);
 
-    errLine = 1;
+    errLine = profile.line ? profile.line : 1;
     if (profile.device != controls.device)
     {
         err = "this profile is for '" + profile.device + "', not '" +

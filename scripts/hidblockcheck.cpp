@@ -237,6 +237,14 @@ static const Row ROWS[] = {
       "grip_low = 0.6; };\n    roll = \"bend\";\n  };\n};",
       "index ch0 base60 vel100 | layer fist ch0 base-1 @2 when "
       "grip_top>=0.7,grip_low>=0.6 [roll:value bend @4]", 0, NULL },
+    { "a layer with two postures",
+      "device index {\n  layer f {\n    when { tilt = 0.5; };\n"
+      "    when { roll = 0.5; };\n  };\n};", NULL, 4, "when" },
+    { "a sign with a space after it, said so",
+      "device index { a = note - 5; };", NULL, 1, "space" },
+    { "a strike at 0",
+      "device index { trigger = strike 0 { at = 0; }; };", NULL, 1,
+      "above 0" },
     { "a posture outside a layer",
       "device index {\n  when { grip_top = 0.7; };\n};", NULL, 2, "layer" },
     { "a posture past the axis",

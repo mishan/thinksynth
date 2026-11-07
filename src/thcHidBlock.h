@@ -87,6 +87,7 @@ struct thcHidBlock
 {
     std::string device;
     std::string hand;       /* "left", "right", or empty for either */
+    int         line;       /* the device's, for an error about it */
     int         channel;    /* 1-16; 0 plays the host's current channel */
     int         base;       /* MIDI note */
     int         velocity;   /* what buttons play at with no velocity source */
@@ -99,7 +100,7 @@ struct thcHidBlock
     bool                       hasChannel, hasBase, hasVelocity;
     std::vector<std::pair<std::string, int> > ignore;   /* name, line */
 
-    thcHidBlock () : channel(0), base(60), velocity(100), hasChannel(false),
+    thcHidBlock () : line(0), channel(0), base(60), velocity(100), hasChannel(false),
                      hasBase(false), hasVelocity(false) {}
 };
 
