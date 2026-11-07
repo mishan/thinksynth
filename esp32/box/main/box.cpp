@@ -63,7 +63,9 @@ struct Patch
 
     virtual ~Patch () {}
     virtual thcHidBlock profile () const = 0;
-    virtual void play (const thhAction &a) = 0;
+    /* owner: whose the note is, a finger's, so a NOTE_OFF or a bend
+       reaches only the voice its own NOTE_ON started. */
+    virtual void play (const thhAction &a, int owner) = 0;
     /* Every sounding voice into l and r, added. */
     virtual void render (float *l, float *r) = 0;
 };
@@ -75,7 +77,7 @@ struct PatchOf : Patch
     typename V::Knobs knobs;
     struct
     {
-        int     note = -1;          /* as played */
+        int     note = -1, owner = -1;  /* as played, and whose */
         bool    held = false, sounding = false;
         int64_t since = 0;          /* when it started, to steal the oldest */
     } slot[VOICES];
@@ -84,7 +86,7 @@ struct PatchOf : Patch
 
     thcHidBlock profile () const override { return V::profile(); }
 
-    void play (const thhAction &a) override
+    void play (const thhAction &a, int owner) override
     {
         int v = -1;
 
@@ -105,12 +107,13 @@ struct PatchOf : Patch
             voice[v] = V();
             voice[v].start(a.note, a.vel, (uint32_t)esp_timer_get_time());
             slot[v].note = a.note;
+            slot[v].owner = owner;
             slot[v].held = slot[v].sounding = true;
             slot[v].since = esp_timer_get_time();
             break;
         case thhAction::NOTE_OFF:
             for (int i = 0; i < VOICES; i++)
-                if (slot[i].held && slot[i].note == a.note)
+                if (slot[i].held && slot[i].note == a.note && slot[i].owner == owner)
                 {
                     voice[i].release();
                     slot[i].held = false;
@@ -118,7 +121,7 @@ struct PatchOf : Patch
             break;
         case thhAction::NOTE_BEND:
             for (int i = 0; i < VOICES; i++)
-                if (slot[i].held && slot[i].note == a.note)
+                if (slot[i].held && slot[i].note == a.note && slot[i].owner == owner)
                     voice[i].note = a.note + (float)a.t;
             break;
         case thhAction::VALUE:
@@ -165,9 +168,10 @@ static SemaphoreHandle_t lock;
 static volatile int playing = 0;
 static volatile float load = 0;         /* of the audio task's time */
 
-/* The key the finger is on, for the screen: -1 for none; and which patch
-   it shows as playing. */
-static volatile int lit = -1, shown = 0;
+/* The keys fingers are on, a bit each, for the screen; and which patch it
+   shows as playing. */
+static volatile uint32_t lit = 0;
+static volatile int shown = 0;
 
 static i2c_master_bus_handle_t bus;
 static i2c_master_dev_handle_t imu;
@@ -310,13 +314,14 @@ drawPatches (int n, int on)
 static void
 displayTask (void *)
 {
-    int keyShown = -1, patchShown = -1;
+    uint32_t keysShown = 0;
+    int patchShown = -1;
 
     for (int k = 0; k < KEYS; k++)
         drawKey(k, false);
     for (;;)
     {
-        const int now = lit;
+        const uint32_t now = lit;
 
         if (shown != patchShown)
         {
@@ -324,14 +329,10 @@ displayTask (void *)
             drawPatches(NPATCHES, patchShown);
         }
 
-        if (now != keyShown)
-        {
-            if (keyShown >= 0)
-                drawKey(keyShown, false);
-            if (now >= 0)
-                drawKey(now, true);
-            keyShown = now;
-        }
+        for (int k = 0; k < KEYS; k++)
+            if (((now ^ keysShown) >> k) & 1)
+                drawKey(k, (now >> k) & 1);
+        keysShown = now;
         vTaskDelay(pdMS_TO_TICKS(15));
     }
 }
@@ -394,23 +395,69 @@ imuRead (float accel[3], float gyro[3])
     return true;
 }
 
-/* Its note tables are ten kilobytes: not a task's stack's to hold. */
-static thhMapper mapper;
+/* A finger on the screen: the controller's id for its contact, the key
+   it's on, and its own mapper, so each plays its own note at its own
+   pitch; the IMU is every finger's. Two, as many as the BOX's TT21100
+   reports at once. A mapper's note tables are ten kilobytes, not a
+   task's stack's to hold. */
+#define FINGERS 2
+
+static struct Finger
+{
+    int       id = -1;              /* the contact's, or -1 */
+    bool      down = false;
+    int       key = -1;
+    int64_t   seen = 0;             /* when it was last reported */
+    thhState  s;
+    thhMapper mapper;
+} finger[FINGERS];
+
+/* What a finger's actions do, under the lock: owner, which finger. */
+static void
+playAll (const std::vector<thhAction> &acts, int owner)
+{
+    if (acts.empty())
+        return;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    for (const thhAction &a : acts)
+        patches[playing]->play(a, owner);
+    xSemaphoreGive(lock);
+}
+
+/* Every finger's mapper given the playing patch's profile, the notes
+   they held let go. */
+static void
+configureAll ()
+{
+    std::vector<thhAction> acts;
+    std::string err;
+    int line;
+
+    for (Finger &f : finger)
+    {
+        acts.clear();
+        f.mapper.release(acts);
+        playAll(acts, (int)(&f - finger));
+        acts.clear();
+        if (!f.mapper.configure(patches[playing]->profile(), thhBoxControls(), acts,
+                                err, line))
+            printf("thinkbox: %s's profile doesn't fit, line %d: %s\n",
+                   patches[playing]->name, line, err.c_str());
+        f.s.connected = true;
+    }
+    printf("thinkbox: %s\n", patches[playing]->name);
+}
 
 static void
 controlTask (void *)
 {
-    thhState s;
-    thhBoxImu pose;
+    thhState pose;
+    thhBoxImu imu;
     std::vector<thhAction> acts;
-    std::string err;
-    int line, n = 0, presses = 0;
-    int64_t last = esp_timer_get_time(), touched = 0;
+    int n = 0, presses = 0, most = 0;
+    int64_t last = esp_timer_get_time();
 
-    if (!mapper.configure(patches[playing]->profile(), thhBoxControls(), acts, err, line))
-        printf("thinkbox: the profile doesn't fit, line %d: %s\n", line, err.c_str());
-    s.connected = true;
-    printf("thinkbox: %s\n", patches[playing]->name);
+    configureAll();
 
     /* The side button, BOOT, low while pressed. */
     gpio_config_t bc = {};
@@ -428,34 +475,11 @@ controlTask (void *)
         float accel[3], gyro[3];
 
         if (imuRead(accel, gyro))
-            thhBoxFeedImu(accel, gyro, (now - last) / 1e6f, pose, s);
+            thhBoxFeedImu(accel, gyro, (now - last) / 1e6f, imu, pose);
         last = now;
 
-        uint16_t x, y, strength;
-        uint8_t count = 0;
-
-        /* The controller reports a held finger in bursts, with readings of
-           none between them: lifted is none for a while, not once. */
-        esp_lcd_touch_read_data(touch);
-        if (esp_lcd_touch_get_coordinates(touch, &x, &y, &strength, &count, 1) && count)
-        {
-            s.axis[THH_BOX_X] = x / (float)(W - 1);
-            s.axis[THH_BOX_Y] = y / (float)(H - 1);
-            if (!(s.buttons & (1u << THH_BOX_TOUCH)))
-                presses++;
-            s.buttons |= 1u << THH_BOX_TOUCH;
-            touched = now;
-            lit = keyAt(x);
-        }
-        else if (now - touched > TOUCH_LIFTED_US)
-        {
-            s.buttons &= ~(1u << THH_BOX_TOUCH);
-            lit = -1;
-        }
-        s.time = now / 1e6;
-
-        /* A press steps to the next patch: the notes the last held end,
-           left to ring out, and its profile is the mapper's. */
+        /* A press steps to the next patch, the notes held let go and
+           left to ring out. */
         const bool reading = gpio_get_level(GPIO_NUM_0) == 0;
 
         if (reading != reads)
@@ -465,43 +489,93 @@ controlTask (void *)
         }
         if (now - readSince >= BUTTON_STEADY_US)
             down = reads;
-        acts.clear();
         if (down && !wasDown)
         {
-            const int next = (playing + 1) % NPATCHES;
-
-            mapper.release(acts);
+            for (Finger &f : finger)
+            {
+                acts.clear();
+                f.mapper.release(acts);
+                playAll(acts, (int)(&f - finger));
+            }
             xSemaphoreTake(lock, portMAX_DELAY);
-            for (const thhAction &a : acts)
-                patches[playing]->play(a);
-            playing = next;
+            playing = (playing + 1) % NPATCHES;
             xSemaphoreGive(lock);
-            acts.clear();
-            if (!mapper.configure(patches[next]->profile(), thhBoxControls(), acts, err, line))
-                printf("thinkbox: %s's profile doesn't fit, line %d: %s\n",
-                       patches[next]->name, line, err.c_str());
-            acts.clear();
-            shown = next;
-            printf("thinkbox: %s\n", patches[next]->name);
+            shown = playing;
+            configureAll();
         }
         wasDown = down;
 
-        mapper.update(s, 0, acts);
-        if (!acts.empty())
+        /* Each contact to the finger with its id, or to a free one. */
+        esp_lcd_touch_point_data_t points[FINGERS];
+        uint8_t count = 0;
+
+        esp_lcd_touch_read_data(touch);
+        if (esp_lcd_touch_get_data(touch, points, &count, FINGERS) != ESP_OK)
+            count = 0;
+        most = count > most ? count : most;
+        for (int p = 0; p < count; p++)
         {
-            xSemaphoreTake(lock, portMAX_DELAY);
-            for (const thhAction &a : acts)
-                patches[playing]->play(a);
-            xSemaphoreGive(lock);
+            Finger *f = NULL;
+
+            for (Finger &g : finger)
+                if (g.id == points[p].track_id)
+                    f = &g;
+            for (Finger &g : finger)
+                if (!f && g.id < 0)
+                    f = &g;
+            if (!f)
+                continue;
+            f->id = points[p].track_id;
+            f->seen = now;
+            f->s.axis[THH_BOX_X] = points[p].x / (float)(W - 1);
+            f->s.axis[THH_BOX_Y] = points[p].y / (float)(H - 1);
         }
 
+        uint32_t keys = 0;
+
+        for (Finger &f : finger)
+        {
+            /* The controller reports a held finger in bursts, with
+               readings of none between them: lifted is none for a while,
+               not once. */
+            const bool on = f.id >= 0 && now - f.seen <= TOUCH_LIFTED_US;
+            const int key = keyAt((int)(f.s.axis[THH_BOX_X] * (W - 1)));
+
+            for (int a = THH_BOX_TILT; a <= THH_BOX_TURN; a++)
+                f.s.axis[a] = pose.axis[a];
+            f.s.time = now / 1e6;
+            acts.clear();
+
+            /* Onto another key is that key played, as on a keyboard: the
+               pitch axis sets a note's pitch only as it starts. */
+            if (on && f.down && key != f.key)
+            {
+                f.s.buttons &= ~(1u << THH_BOX_TOUCH);
+                f.mapper.update(f.s, 0, acts);
+                f.s.time += 1e-4;
+            }
+            if (on)
+                f.s.buttons |= 1u << THH_BOX_TOUCH;
+            else
+                f.s.buttons &= ~(1u << THH_BOX_TOUCH);
+            presses += on && (!f.down || key != f.key);
+            f.mapper.update(f.s, 0, acts);
+            playAll(acts, (int)(&f - finger));
+
+            f.down = on;
+            f.key = on ? key : -1;
+            if (!on)
+                f.id = -1;
+            if (on)
+                keys |= 1u << key;
+        }
+        lit = keys;
+
         if (n % 125 == 0)
-            printf("%s load %3.0f%%  presses %d  touch %d x %.2f y %.2f  tilt %+.2f roll %+.2f twist %+.2f turn %+.2f  "
-                   "gravity %+.2f %+.2f %+.2f\n", patches[playing]->name, load * 100,
-                   presses, (s.buttons & 1) ? 1 : 0,
-                   s.axis[THH_BOX_X], s.axis[THH_BOX_Y], s.axis[THH_BOX_TILT],
-                   s.axis[THH_BOX_ROLL], s.axis[THH_BOX_TWIST], s.axis[THH_BOX_TURN],
-                   pose.g[0], pose.g[1], pose.g[2]);
+            printf("%s load %3.0f%%  presses %d  most at once %d  keys %03lx  tilt %+.2f roll %+.2f twist "
+                   "%+.2f turn %+.2f\n", patches[playing]->name, load * 100, presses, most,
+                   (unsigned long)keys, pose.axis[THH_BOX_TILT], pose.axis[THH_BOX_ROLL],
+                   pose.axis[THH_BOX_TWIST], pose.axis[THH_BOX_TURN]);
         vTaskDelay(pdMS_TO_TICKS(4));
     }
 }
