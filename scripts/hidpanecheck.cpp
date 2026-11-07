@@ -44,7 +44,7 @@ describe (const std::vector<thhPaneRow> &rows)
     {
         const thhPaneRow &r = rows[i];
 
-        s += (r.yours ? "" : "own ") +
+        s += (r.patch ? "patch " : r.yours ? "" : "own ") +
              (r.layer.empty() ? "" : r.layer + ": ") + r.control + " | " +
              r.action + " | " + r.target + " | " + r.value +
              (r.warning.empty() ? "" : " | ! " + r.warning) + "\n";
@@ -74,6 +74,9 @@ static const Row ROWS[] = {
     { "the controller's own bindings, not the player's",
       "device index { a = note 4; };", "own", NULL, 0, 0,
       "own a | note +4 | the keyboard's channel (1) | up\n" },
+    { "a patch's bindings, not the player's",
+      "device index { a = note 4; };", "patch", NULL, 0, 0,
+      "patch a | note +4 | the keyboard's channel (1) | up\n" },
     { "modifiers and octaves",
       "device index { system = toggle drone; thumbstick = hold mod; "
       "b = octave -1; layer mod { }; layer drone { }; };", NULL, NULL, 0, 0,
@@ -148,6 +151,9 @@ main (void)
         if (r.down && string(r.down) == "own")
             for (size_t k = 0; k < blk.bindings.size(); k++)
                 blk.bindings[k].line = -blk.bindings[k].line;
+        if (r.down && string(r.down) == "patch")
+            for (size_t k = 0; k < blk.bindings.size(); k++)
+                blk.bindings[k].patch = true;
 
         const string got = describe(thhPaneRows(blk, c, s, r.channel, hasArg));
 

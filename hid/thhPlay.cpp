@@ -81,6 +81,17 @@ owned (thcHidBlock &b)
     }
 }
 
+/* A patch's block's bindings, marked so the pane can say whose they are. */
+static void
+fromPatch (thcHidBlock &b)
+{
+    for (thcHidBinding &x : b.bindings)
+        x.patch = true;
+    for (thcHidLayer &l : b.layers)
+        for (thcHidBinding &x : l.bindings)
+            x.patch = true;
+}
+
 /* over on top of into: a control bound in over replaces every binding of
    it in into, a layer replaces the one of its name, an ignore drops
    either, and a setting over sets is over's. False if strict and over
@@ -145,7 +156,8 @@ overlay (thcHidBlock &into, const thcHidBlock &over, bool strict,
 /* The blocks of a profile for one hand, either hand's first. */
 static bool
 forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
-         bool own, const std::function<bool (const std::string &)> &known,
+         bool own, bool patch, bool strict,
+         const std::function<bool (const std::string &)> &known,
          thcHidBlock &into, std::string &err, int &line)
 {
     for (int pass = 0; pass < (hand.empty() ? 1 : 2); pass++)
@@ -156,9 +168,11 @@ forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
 
                 if (own)
                     owned(b);
+                if (patch)
+                    fromPatch(b);
                 into.device = b.device;
                 into.line = b.line;
-                if (!overlay(into, b, hand.empty(), known, err, line))
+                if (!overlay(into, b, strict, known, err, line))
                     return false;
             }
     return true;
@@ -167,72 +181,88 @@ forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
 bool
 thhLoadProfile (const std::string &path, const thhControls &controls,
                 const char *fallback, const std::string &hand,
-                thcHidBlock &out, std::string &err)
+                thcHidBlock &out, std::string &err, const std::string &patch,
+                const std::string &patchName)
 {
     std::error_code ec;
-    std::string ignored;
-    std::vector<thcHidBlock> ownBlocks, mine;
-    int line = 0;
+    std::string ignored, why;
+    std::vector<thcHidBlock> ownBlocks, mine, theirs;
+    int line = 0, at = 0;
 
     err.clear();
     thcHidParseProfiles(fallback, ownBlocks, ignored, line);
 
     /* What an ignore may name, in a hand that has dropped it already: a
-       control the device has, or a layer either profile declares. */
+       control the device has, or a layer any of the profiles declares. */
     const auto known = [&](const std::string &name) {
         if (controls.button(name) >= 0 || controls.axis(name) >= 0)
             return true;
-        for (const auto *blocks : { &ownBlocks, &mine })
+        for (const auto *blocks : { &ownBlocks, &mine, &theirs })
             for (const thcHidBlock &b : *blocks)
                 for (const thcHidLayer &l : b.layers)
                     if (l.name == name)
                         return true;
         return false;
     };
-    const auto forOne = [&](const std::string &h, bool player, thcHidBlock &into) {
+    /* A hand's: the device's own, then the player's file, then the
+       patch's. Only one controller alone has every control the player's
+       file could name, so only it says an ignore of nothing is wrong; and
+       a patch may drop what the file already has. */
+    const auto forOne = [&](const std::string &h, bool player, bool patched,
+                            thcHidBlock &into) {
         thcHidBlock own;
 
-        forHand(ownBlocks, h, true, known, own, ignored, line);
+        forHand(ownBlocks, h, true, false, h.empty(), known, own, ignored, line);
         into = own;
-        return !player || forHand(mine, h, false, known, into, err, line);
+        return (!player || forHand(mine, h, false, false, h.empty(), known, into, why, at)) &&
+               (!patched || forHand(theirs, h, false, true, false, known, into, why, at));
     };
-
-    forOne(hand, false, out);
-    if (!std::filesystem::exists(path, ec))
-        return true;
-
-    std::ifstream in(path.c_str());
-    std::ostringstream text;
-    thcHidBlock both;
-    thhMapper check;
-    std::vector<thhAction> none;
-
-    if (std::filesystem::is_regular_file(path, ec))
-        text << in.rdbuf();
-    if (!in || !std::filesystem::is_regular_file(path, ec))
-        err = path + ": can't read it";
-    else if (thcHidParseProfiles(text.str(), mine, err, line))
-    {
-        /* Every hand the file speaks for, whichever is asked for now: an
-           error in a hand's block is said with one controller too. */
-        bool ok = true;
+    /* Every hand, whichever is asked for now: an error in a hand's block
+       is said with one controller too. */
+    const auto fits = [&](bool player, bool patched) {
+        thcHidBlock both;
+        thhMapper check;
+        std::vector<thhAction> none;
 
         for (const char *h : { "", "left", "right" })
-            if (ok && (forOne(h, true, both) &&
-                       check.configure(both, controls, none, err, line)))
-            {
-                if (h == hand)
-                    out = both;
-            }
-            else
-                ok = false;
-        if (ok)
-            return true;
+            if (!forOne(h, player, patched, both) ||
+                !check.configure(both, controls, none, why, at))
+                return false;
+        return true;
+    };
+    const auto where = [&](const std::string &file) {
+        return at < 0 ? "the controller's own profile, line " +
+                        std::to_string(-at) + ": " + why
+                      : file + ":" + std::to_string(at) + ": " + why;
+    };
+    bool player = false, patched = false;
+
+    if (std::filesystem::exists(path, ec))
+    {
+        std::ifstream in(path.c_str());
+        std::ostringstream text;
+
+        if (std::filesystem::is_regular_file(path, ec))
+            text << in.rdbuf();
+        if (!in || !std::filesystem::is_regular_file(path, ec))
+            err = path + ": can't read it";
+        else if (!thcHidParseProfiles(text.str(), mine, why, at) ||
+                 !fits(true, false))
+            err = where(path);
+        else
+            player = true;
     }
 
-    err = line < 0 ? "the controller's own profile, line " +
-                     std::to_string(-line) + ": " + err
-                   : path + ":" + std::to_string(line) + ": " + err;
-    forOne(hand, false, out);
-    return false;
+    /* The patch's, over what of the file fits; a patch that doesn't fit
+       is left out, and the rest plays. */
+    if (!patch.empty())
+    {
+        if (!thcHidParseProfiles(patch, theirs, why, at) || !fits(player, true))
+            err += (err.empty() ? "" : "; ") + where(patchName);
+        else
+            patched = true;
+    }
+
+    forOne(hand, player, patched, out);
+    return err.empty();
 }

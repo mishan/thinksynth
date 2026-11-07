@@ -92,9 +92,26 @@ gthHid::~gthHid ()
 /* A reader for each controller found that hasn't one; a controller pulled
    out keeps its reader, which takes it up again if it comes back where it
    was. */
+/* The patch on the channel the controllers play, or NULL. */
+thSynthTree *
+gthHid::patchTree () const
+{
+    thMidiChan *chan = synth_->getChannel(channel_());
+
+    return chan ? chan->modnode() : NULL;
+}
+
 bool
 gthHid::scan ()
 {
+    /* Another patch loaded, or the channel changed, is another controller
+       block. */
+    const thSynthTree *tree = patchTree();
+    std::string err;
+
+    if ((tree ? tree->controller() : std::string()) != patchText_ && !reload(err))
+        fprintf(stderr, "controller: %s\n", err.c_str());
+
     const std::vector<thhIndexNodes> found = thhFindIndexes("/sys", "/dev");
 
     /* A controller gone that isn't anywhere now, moved to another port or
@@ -185,9 +202,14 @@ gthHid::reload (std::string &err)
     std::string again;
     bool ok = true;
 
+    const thSynthTree *tree = patchTree();
+
+    patchText_ = tree ? tree->controller() : std::string();
+    patchName_ = tree ? tree->name() : std::string();
     for (int i = 0; i < 3; i++)
         if (!thhLoadProfile(path_, thhIndexControls(), THH_INDEX_PROFILE,
-                            hand[i], profiles_[i], i ? again : err))
+                            hand[i], profiles_[i], i ? again : err, patchText_,
+                            patchName_))
             ok = false;
     if (ok || err.empty())
         err = again;
@@ -359,6 +381,14 @@ gthHid::tick ()
     looper_.tick(now(), acts);
     sound(acts);
     return looper_.loops() > 0;
+}
+
+std::string
+gthHid::patch () const
+{
+    if (patchText_.empty())
+        return "";
+    return "the controller block of " + patchName_;
 }
 
 std::string

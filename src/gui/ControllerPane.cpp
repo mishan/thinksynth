@@ -188,7 +188,8 @@ bool ControllerPane::onTick (void)
         const std::string does = row.action +
                                  (row.target.empty() || keys ? ""
                                                              : ", on " + row.target) +
-                                 (row.yours ? " (yours)" : "");
+                                 (row.yours ? " (yours)"
+                                  : row.patch ? " (the patch's)" : "");
         const std::pair<Gtk::Label *, const std::string *> text[4] = {
             { c.head, &head }, { c.now, &row.value }, { c.does, &does },
             { c.warning, &row.warning } };
@@ -213,6 +214,8 @@ bool ControllerPane::onTick (void)
                                                source_->path()
                                          : std::string(" (no changes of yours "
                                                        "yet)"));
+    if (!source_->patch().empty())
+        line += "\nPatch: " + source_->patch();
     if (!source_->loops().empty())
         line += "\nLoops: " + source_->loops();
     if (status_.get_text().raw() != line)

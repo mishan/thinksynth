@@ -192,6 +192,30 @@ layer fist {
 It is on while every axis it names is at least its value, and goes off
 once any of them falls 0.15 under it.
 
+### A patch's own controller
+
+A patch can say how a controller plays it, in a `controller` block in its
+`.dsp`, written in this same language with `controller` for `device`:
+
+```
+controller index {
+    tilt = "bright" { center = 0.25; smooth = 0.05; };
+    trigger = strike 0 { at = 0.5; };
+};
+
+controller index left {
+    grip_force = "level" { smooth = 0.03; };
+};
+```
+
+The patch on the channel the controllers play defines the controller: its
+blocks go over your own profile, either hand's first and then each hand's,
+the way yours go over the controller's own, and your profile fills in what
+the patch leaves out. Loading another patch, or playing on another
+channel, takes up its block within a second. A block that doesn't fit the
+controller is reported at its line in the patch, and the controller plays
+on without it. The pane marks a patch's bindings as the patch's.
+
 ### A theremin
 
 A latched note whose pitch the fingers ride an octave either side and whose
