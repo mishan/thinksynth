@@ -301,6 +301,9 @@ think_harness(hidpanecheck COMPOSERHOST HID)
 # What the Index controller's reports mean, against a capture (hid/thhIndex.h).
 think_harness(hidcheck COMPOSERHOST HID)
 
+# A webcam's motion as a controller's buttons and axes (hid/thhCamera.h).
+think_harness(hidcamcheck COMPOSERHOST HID)
+
 # A profile found or not, and a controller's actions on a real synth
 # (hid/thhPlay.h).
 think_harness(hidplaycheck COMPOSERHOST HID)
@@ -1112,6 +1115,7 @@ add_test(NAME notebendcheck
 add_test(NAME mpecheck
          COMMAND mpecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
+add_test(NAME hidcamcheck COMMAND hidcamcheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"
                           "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt"
