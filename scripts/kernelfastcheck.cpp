@@ -28,6 +28,7 @@
 #include "thKernel.h"
 #include "../plugins/env/adsr.h"
 #include "../plugins/mixer/pan.h"
+#include "../plugins/osc/blep.h"
 #include "../plugins/osc/simple.h"
 
 static int failed = 0;
@@ -78,6 +79,19 @@ main ()
                "width and the sine",
                c.wavelength == thkSimple::ctl(zero, 1, 1, 0, 0, 32000).wavelength &&
                c.halfwave > 0 && c.halfwave < c.wavelength && c.waveform == 0);
+    }
+    report("osc::blep's NaN frequency, waveform and width are the slowest, the saw "
+           "and the middle",
+           same(thkBlep::ctl(nan, nan, nan, 32000), thkBlep::ctl(zero, zero, 0.5f, 32000)));
+    {
+        const thkBlep::Ctl c = thkBlep::ctl(1000, 0, 0.5f, 32000);
+        thkBlep a, b;
+        float sync, edge;
+        bool ok = true;
+
+        for (int i = 0; i < 100; i++)
+            ok = ok && same(a.tick(c, nan, nan, sync, edge), b.tick(c, zero, zero, sync, edge));
+        report("osc::blep takes a NaN start and reset as none", ok);
     }
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");

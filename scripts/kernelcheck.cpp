@@ -34,6 +34,7 @@
 #include "../plugins/env/adsr.h"
 #include "../plugins/misc/midi2freq.h"
 #include "../plugins/mixer/pan.h"
+#include "../plugins/osc/blep.h"
 #include "../plugins/osc/fmop.h"
 #include "../plugins/osc/simple.h"
 
@@ -50,6 +51,22 @@ report (const char *name, double worst, double limit)
         failed++;
     }
 }
+
+/* The polyBLEP residual for a step at 0 of a cycle stepping dt a sample. */
+static double
+refBlep (double t, double dt)
+{
+    if (t < dt)
+        return 2 * (t / dt) - (t / dt) * (t / dt) - 1;
+    if (t > 1 - dt)
+        return ((t - 1) / dt) * ((t - 1) / dt) + 2 * ((t - 1) / dt) + 1;
+    return 0;
+}
+
+/* Where a step of h falls d of a sample before the next: its residual on
+   this sample and on the next. */
+static double refStepBefore (double h, double d) { return h / 2 * d * d; }
+static double refStepAfter (double h, double d) { return h / 2 * (2 * d - d * d - 1); }
 
 /* osc::simple's shapes, from where in the cycle and the level. */
 static double
@@ -251,6 +268,131 @@ main ()
             }
         }
         report("osc::simple's every waveform, every sample", worstShape, 1e-5);
+    }
+
+    /* osc::blep at 100 samples a cycle: the saw a line away from its edge
+       and the pulse its levels, a cycle begun every 100 samples, the first
+       on the 100th, and the edge saying how far into the sample the wrap
+       fell. */
+    {
+        struct Point { int wave, at; float want; };
+        static const Point POINTS[] = {
+            { 0, 25, -0.5f }, { 0, 50, 0 }, { 0, 75, 0.5f }, { 1, 25, 1 }, { 1, 75, -1 },
+        };
+        char why[120] = "";
+
+        for (const Point &p : POINTS)
+        {
+            thkBlep osc;
+            const thkBlep::Ctl c = thkBlep::ctl(441, (float)p.wave, 0.5f, 44100);
+            float sync, edge, y = 0;
+
+            /* Sample n reads the phase before it steps: n / 100. */
+            for (int n = 0; n <= p.at; n++)
+                y = osc.tick(c, 0, 0, sync, edge);
+            if (std::fabs(y - p.want) > 1e-4f)
+                snprintf(why, sizeof(why), "wave %d at %d: %.4f, wanted %.4f", p.wave,
+                         p.at, y, p.want);
+        }
+        report("osc::blep's saw and pulse away from their edges", why[0] ? 1 : 0, 0);
+        if (why[0])
+            printf("  %s\n", why);
+
+        thkBlep osc;
+        const thkBlep::Ctl c = thkBlep::ctl(441, 0, 0.5f, 44100);
+        int last = -1, gaps = 0, n = 0;
+        float worstEdge = 0;
+
+        for (int i = 0; i < 1000; i++)
+        {
+            float sync, edge;
+
+            osc.tick(c, 0, 0, sync, edge);
+            if (sync > 0)
+            {
+                gaps = std::max(gaps, last >= 0 ? std::abs(i - last - 100) : 0);
+                last = i;
+                n++;
+                worstEdge = std::max(worstEdge, edge >= 0 && edge <= 1 ? 0.0f : 1.0f);
+            }
+        }
+        report("osc::blep begins a cycle every 100 samples, its edge in the sample",
+               n == 9 ? gaps + worstEdge : 99, 0);
+    }
+
+    /* osc::blep's saw, pulse and triangle against the polyBLEP formula in
+       double, its phase stepped in float as the kernel's is: 440 Hz, so
+       the wraps fall anywhere in a sample, over a hundred cycles, the
+       triangle the pulse integrated with its leak. */
+    {
+        const float dt = 440.0f / 44100, pw = 0.3f;
+        double worstWave[3] = { 0, 0, 0 };
+
+        for (int wave = 0; wave < 3; wave++)
+        {
+            const thkBlep::Ctl c = thkBlep::ctl(440, (float)wave, pw, 44100);
+            thkBlep osc;
+            float phase = 0;
+            double tri = -(double)pw * (1 - pw);
+
+            for (int n = 0; n < 10000; n++)
+            {
+                float sync, edge;
+                const double t2 = std::fmod((double)phase + 1 - pw, 1.0);
+                const double pulse = (phase < pw ? 1 : -1) + refBlep(phase, dt) -
+                                     refBlep(t2, dt);
+                double want = 2 * (double)phase - 1 - refBlep(phase, dt);
+
+                if (wave == 1)
+                    want = pulse;
+                else if (wave == 2)
+                {
+                    tri = dt * (pulse - (2 * (double)pw - 1)) + (1 - dt / 64.0) * tri;
+                    want = tri / (pw * (1 - (double)pw));
+                }
+                worstWave[wave] = std::max(worstWave[wave],
+                                           std::fabs(osc.tick(c, 0, 0, sync, edge) - want));
+                phase += dt;
+                if (phase >= 1)
+                    phase -= std::floor(phase);
+            }
+        }
+        report("osc::blep's saw across its wraps", worstWave[0], 1e-4);
+        report("osc::blep's pulse across both its edges", worstWave[1], 1e-4);
+        report("osc::blep's triangle, leak and all", worstWave[2], 1e-4);
+
+        /* A reset a quarter into sample 37, at about 0.37 of a cycle: the
+           step down to the start corrected either side of where it fell,
+           and the cycle begun again three quarters of a step before the
+           next sample. The pulse is low there, so its step is up. */
+        double worstReset = 0;
+
+        for (int wave = 0; wave < 2; wave++)
+        {
+            const thkBlep::Ctl c = thkBlep::ctl(441, (float)wave, pw, 44100);
+            const double step = (double)c.dt, d = 0.75;
+            thkBlep osc;
+            float sync, edge, phase = 0;
+
+            for (int n = 0; n < 37; n++)
+            {
+                osc.tick(c, 0, 0, sync, edge);
+                phase += c.dt;
+            }
+
+            const double at = phase + 0.25 * step;
+            const double h = wave ? 2 : -2 * at;
+            const double want[3] = {
+                (wave ? -1 : 2 * (double)phase - 1) + refStepBefore(h, d),
+                (wave ? 1 : 2 * d * step - 1) + refStepAfter(h, d),
+                wave ? 1 : 2 * (d + 1) * step - 1,
+            };
+
+            for (int k = 0; k < 3; k++)
+                worstReset = std::max(worstReset, std::fabs(osc.tick(c, 0, k ? 0 : 0.25f,
+                                                                     sync, edge) - want[k]));
+        }
+        report("osc::blep's saw and pulse reset partway into a sample", worstReset, 1e-5);
     }
 
     /* The envelopes' shapes: (sample, level, sounding) where it matters. */

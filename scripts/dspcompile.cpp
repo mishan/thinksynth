@@ -89,6 +89,8 @@ static const Kernel KERNELS[] = {
       { "mod", "index", "reset" }, false, "thkFmop" },
     { "osc/simple", { "freq", "mul", "amp", "pw", "waveform" }, "thkSimple::ctl", true,
       { "fm", "fmamt", "reset" }, false, "thkSimple" },
+    { "osc/blep", { "freq", "waveform", "pw" }, "thkBlep::ctl", true, { "phase", "reset" },
+      false, "thkBlep" },
     { "env/ad", { "a", "d", "p" }, "thkAd::ctl", false, { "reset" }, false, "thkAd" },
     { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", false, { "trigger", "reset" },
       false, NULL },
@@ -335,6 +337,11 @@ struct Compiler
             s << "        float " << var(n, "sync") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
               << ", " << args(0) << ", " << var(n, "sync") << ");\n";
+        else if (p == "osc/blep")
+            s << "        float " << var(n, "sync") << ", " << var(n, "edge") << ";\n"
+              << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ", " << args(0) << ", " << var(n, "sync") << ", " << var(n, "edge")
+              << ");\n";
         else if (p == "env/ad" || p == "env/adsr")
             s << "        float " << var(n, "play") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
