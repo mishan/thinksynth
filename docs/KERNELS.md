@@ -42,3 +42,19 @@ A kernel included by more than one plugin's source goes in the static
 build's prelude, `plugins/thinkstatic.h`, as `thKernel.h` does: the
 static build wraps each plugin in a namespace of its own, and a header's
 guard would otherwise keep it out of every namespace but the first.
+
+## Compiled voices
+
+`scripts/dspcompile [-p plugins/] [-r rate] file.dsp Name` writes a patch
+as `struct thvName`: one voice, the state of each of its nodes' kernels,
+and a `render()` that runs them in the graph's order a sample at a time,
+with what depends only on numbers, knobs and the note worked out once a
+call, as the engine works it out once a window. Times are samples at the
+rate it is given, as the engine folds them at load. A patch using a
+plugin with no kernel, or a loop, is refused with the node named.
+
+`scripts/compilecheck` holds two compiled voices -- `dsp/dxbell.dsp`, and
+`scripts/compiled/gate.dsp` for a gated envelope's release -- to what the
+engine renders of the same note, bit for bit. The knobs hold still there:
+a knob turned while a note sounds is glided by the engine, and the
+compiled voice doesn't glide yet.
