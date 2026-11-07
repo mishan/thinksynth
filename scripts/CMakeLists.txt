@@ -167,6 +167,7 @@ think_harness(themecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthThemePolicy.cpp")
 think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
+think_harness(motioncheck)
 think_harness(dspab)
 
 # Numbers read and written the same under a comma-decimal LC_NUMERIC.
@@ -940,6 +941,7 @@ add_test(NAME argtype
 
 add_test(NAME exprcheck
          COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME motioncheck COMMAND motioncheck)
 add_test(NAME mutatecheck
          COMMAND mutatecheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  -d "${PROJECT_SOURCE_DIR}/dsp")
