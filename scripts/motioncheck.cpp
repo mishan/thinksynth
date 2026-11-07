@@ -143,7 +143,7 @@ static void stillIsStill (void)
         for (int a = thMotion::ZONE1; a <= thMotion::ZONE9; a++)
             peak = fmax(peak, m.axis((thMotion::Axis)a));
 
-        check(noise ? "noise under the fixed floor is not motion" : "a still picture is not motion",
+        check(noise ? "a little uniform noise is not motion" : "a still picture is not motion",
               peak == 0, fmt("motion or a zone at %.3f", peak));
     }
 }
@@ -416,12 +416,15 @@ static void slowSoftHand (void)
 static void lightIsNotMotion (void)
 {
     /* Exposure stepping up and down: over a gradient, over a window
-       clipped white, over a backlit wall clipped across most of the
-       picture, and over a room mostly too dark for a ratio. */
+       clipped white -- where a limited range clips at 235, and JPEG blurs
+       a clipped patch by a level or two -- over a backlit wall clipped
+       across most of the picture, and over a room mostly too dark for a
+       ratio. */
     struct Scene {
         const char *name;
         double gain;
         std::function<double (int, int)> level;
+        int white = 255;
     };
     const Scene scenes[] = {
         { "exposure stepping a little is not motion", 1.1,
@@ -432,10 +435,13 @@ static void lightIsNotMotion (void)
           [] (int x, int y) { return x < 50 && y < 70 ? 400 : 60 + x * 100.0 / W; } },
         { "exposure stepping down under a clipped window is not motion", 0.87,
           [] (int x, int y) { return x < 50 && y < 70 ? 400 : 60 + x * 100.0 / W; } },
+        { "exposure stepping under a window clipped at a limited range's white is not motion",
+          1.15, [] (int x, int y) { return x < 50 && y < 70 ? 400 : 60 + x * 100.0 / W; },
+          235 },
         { "exposure stepping on a backlit player is not motion", 1.15,
           [] (int x, int) { return x > 50 && x < 110 ? 120 : 400; } },
         { "exposure stepping in a dark room is not motion", 1.25,
-          [] (int x, int y) { return x < 64 && y < 120 ? 80 + y * 0.5 : 8; } },
+          [] (int x, int y) { return x < 64 && y < 120 ? 80 + y * 0.5 : 3; } },
     };
 
     for (const auto &sc : scenes)
@@ -447,7 +453,12 @@ static void lightIsNotMotion (void)
 
             for (int y = 0; y < H; y++)
                 for (int x = 0; x < W; x++)
-                    f.px[(size_t)y * W + x] = (uint8_t)fmin(255, g * sc.level(x, y));
+                {
+                    const double v = g * sc.level(x, y);
+
+                    f.px[(size_t)y * W + x] =
+                        (uint8_t)(v >= sc.white ? sc.white - (x + y) % 3 : v);
+                }
         });
 
         check(sc.name, motion == 0, fmt("motion %.3f", motion));

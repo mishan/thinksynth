@@ -44,7 +44,7 @@
  * would let a slow hand at 120 fps change each pixel by less than the noise
  * floor and vanish, and would read a frame a browser hands over twice as
  * stillness. The kept frames reach back HISTORY frames, so a camera faster
- * than HISTORY frames in COMPARE_SECONDS, about 260 fps, is never compared.
+ * than HISTORY frames in COMPARE_SECONDS, about 267 fps, is never compared.
  *
  * ONE SCALE FOR THE FRAME AND THE ZONES. Both are measured against a
  * hand-sized patch, HAND_SHARE of the frame, so a hand in one zone reads
@@ -65,9 +65,8 @@
  * would be unplayable. They start in the middle. A frame more than
  * MAX_GAP_SECONDS after the one it would be compared with is compared with
  * nothing, since a difference across a stall is a jump cut and not a
- * gesture. A frame stamped the same as the last is ignored, one stamped
- * earlier is compared only with frames stamped before it, and one the same
- * to the byte as the last changes nothing, until it has repeated for
+ * gesture. A frame stamped earlier than the last is compared only with
+ * frames stamped before it, and one the same to the byte as the last changes nothing, until it has repeated for
  * MAX_GAP_SECONDS and the feed goes still. A caller that can stamp frames
  * with their capture time should: a browser's repeats then share a stamp.
  * A feed that repeats its stamp while stalled is the caller's to notice.
@@ -81,7 +80,8 @@ public:
         AXES
     };
 
-    /* A difference of this many levels out of 255 is always sensor noise. */
+    /* The least a difference, in levels out of 255, has to be to count; the
+       noise in the picture can raise it. */
     static const int NOISE_LEVELS = 12;
     static const int HISTORY = 8;
     static constexpr double COMPARE_SECONDS = 0.03;

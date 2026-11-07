@@ -70,10 +70,6 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
     if (width_ < 3 || height_ < 3)
         return;
 
-    /* The same stamp again: nothing to say about it. */
-    if (kept_ > 0 && seconds == seconds_[newest_])
-        return;
-
     const size_t area = (size_t)width_ * height_;
     int levels[256] = { 0 };
     double total = 0;
@@ -100,8 +96,10 @@ void thMotion::feed (const uint8_t *luma, int stride, double seconds)
     if (repeat)
     {
         if (seconds - seconds_[newest_] > MAX_GAP_SECONDS)
-            for (int a = MOTION; a < AXES; a = a == MOTION ? ZONE1 : a + 1)
-                axes_[a] = 0;
+        {
+            axes_[MOTION] = 0;
+            std::fill(axes_ + ZONE1, axes_ + AXES, 0.0f);
+        }
 
         return;
     }
