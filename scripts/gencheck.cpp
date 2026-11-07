@@ -6203,8 +6203,8 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
 
     /* In an allowed family and refused by name: filt:: is admitted
        because a filter is a shape over time, and comb is a delay line
-       whose `size' is a raw sample count. Same criterion delay:: and
-       fft:: are refused by, arriving one category later. */
+       whose `size' is a raw sample count. Same criterion delay:: is
+       refused by, arriving one category later. */
     expectReject(plugins, synth, "node-comb-counts-samples",
         "chain c { stage k filt::comb { in = 0.5; size = 4410; };"
         " stage s gen::eno_line { }; sink { channel = 1; }; };",

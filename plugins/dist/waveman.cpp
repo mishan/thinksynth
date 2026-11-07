@@ -16,7 +16,9 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-/* Algorithm taken from waveman in #musicdsp on efnet */
+/* The curve is one waveman posted in #musicdsp on EFnet: a soft clip,
+   x/(g + |x|), added to a polynomial that bends a loud input back on
+   itself, both scaled down by the gain they were driven with. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -86,7 +88,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     {
         in = (*in_arg)[i] / TH_MAX;
         gain = thClampArg((*in_gain)[i], GAIN_MIN, 1e6f);
-        out[i] = ((((in / (gain + fabs(in))) + ((1.5 * in) - ((0.7 * in) * (0.6 * in) * (0.5 * in) * (0.4 * in) * (0.3 * in) * (0.2 * in) * (0.1 * in)))) / 3.5) / (gain + 1)) * TH_MAX;
+        const auto soft = in / (gain + fabs(in));
+        const auto bend = (1.5 * in) - ((0.7 * in) * (0.6 * in) *
+                                        (0.5 * in) * (0.4 * in) *
+                                        (0.3 * in) * (0.2 * in) *
+                                        (0.1 * in));
+
+        out[i] = (((soft + bend) / 3.5) / (gain + 1)) * TH_MAX;
     }
 
     return 0;

@@ -81,13 +81,11 @@
  * different stretch of the same noise-like wave: the same pad,
  * decorrelated, for a stereo pair from one table.
  *
- * THE TRANSFORM is the radix-2 decimation-in-frequency FFT in
- * plugins/fft/dsp.c, Embree and Kimble's, with its two faults taken out:
- * the twiddle factors are the caller's rather than a function-static
- * keyed on the last size asked for, and computed in double rather than
- * by a float recurrence that has drifted a long way by the end of a
- * quarter-million points; and a failed allocation is the caller's to
- * report, not an exit(1) from inside a library.
+ * THE TRANSFORM is a radix-2 FFT of its own, decimation in time: forward,
+ * in place, natural order in and out, its twiddle factors computed once in
+ * double (padConst) rather than by a float recurrence, which drifts a long
+ * way by the end of a quarter-million points. Not libthink's thFFT.h, which
+ * is a display's real-input spectrum and stops at 2^15 points.
  */
 
 #include <stdio.h>
@@ -208,8 +206,6 @@ static PadSlot *padSlotFor (const thPlugin *plugin)
     return NULL;
 }
 
-/* The FFT. `re' and `im' are 2^m long; forward, in place, natural order
-   out. See the head for where it comes from. */
 /* Steele, Lea and Flood's splitmix64: one 64-bit add and a mix, so the
    phases are the same sequence on every compiler. */
 static uint64_t padDice (uint64_t &x)
@@ -267,56 +263,51 @@ static const PadConst &padConst (void)
     return c;
 }
 
+/* Forward, in place, natural order in and out; `re' and `im' are 2^m
+   long. */
 static void padFft (std::vector<double> &re, std::vector<double> &im, int m)
 {
     const size_t n = (size_t)1 << m;
     const std::vector<double> &wr = padConst().wr, &wi = padConst().wi;
 
-    size_t le = n, windex = 1;
-
-    for (int l = 0; l < m; l++)
+    /* Each point to the place its index reversed in m bits names, which is
+       where a transform built up from pairs leaves it. */
+    for (size_t i = 1, r = 0; i < n; i++)
     {
-        const size_t increment = le;
+        size_t bit = n >> 1;
 
-        le >>= 1;
+        for (; r & bit; bit >>= 1)
+            r ^= bit;
 
-        /* Block by block, each run of butterflies along the arrays rather
-           than across them: the same arithmetic in another order, three
-           times as fast for the cache. */
-        for (size_t b = 0; b < n; b += increment)
-            for (size_t j = 0; j < le; j++)
-            {
-                const double ur = wr[j * windex], ui = wi[j * windex];
-                const size_t i = b + j, ip = i + le;
-                const double tr = re[i] - re[ip], ti = im[i] - im[ip];
+        r ^= bit;
 
-                re[i] += re[ip];
-                im[i] += im[ip];
-                re[ip] = tr * ur - ti * ui;
-                im[ip] = tr * ui + ti * ur;
-            }
-
-        windex <<= 1;
+        if (i < r)
+        {
+            std::swap(re[i], re[r]);
+            std::swap(im[i], im[r]);
+        }
     }
 
-    /* Bit-reversed order back to natural, as the original does after. */
-    for (size_t i = 1, j = 0; i < n - 1; i++)
+    /* Then spans of 2, 4, ... n, each the two halves below it combined. A
+       span of 2h reads the twiddles n/2h apart: wr and wi are one table of
+       e^(-2 pi i k/n), and every smaller span's are a stride through it. */
+    for (size_t half = 1; half < n; half <<= 1)
     {
-        size_t k = n >> 1;
+        const size_t stride = n / (2 * half);
 
-        while (k <= j)
-        {
-            j -= k;
-            k >>= 1;
-        }
+        for (size_t start = 0; start < n; start += 2 * half)
+            for (size_t k = 0; k < half; k++)
+            {
+                const double cr = wr[k * stride], ci = wi[k * stride];
+                const size_t a = start + k, b = a + half;
+                const double br = re[b] * cr - im[b] * ci;
+                const double bi = re[b] * ci + im[b] * cr;
 
-        j += k;
-
-        if (i < j)
-        {
-            std::swap(re[i], re[j]);
-            std::swap(im[i], im[j]);
-        }
+                re[b] = re[a] - br;
+                im[b] = im[a] - bi;
+                re[a] += br;
+                im[a] += bi;
+            }
     }
 }
 

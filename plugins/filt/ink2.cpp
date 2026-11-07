@@ -15,8 +15,9 @@
  * Public License along with this program; if not, write to the
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-/* Written by Leif Ames <ink@bespni.org>
-   Algorithm taken from musicdsp.org posted by Paul Kellett */
+/* Written by Leif Ames <ink@bespni.org>. The filter is a two-state
+   resonant low-pass after one Paul Kellett described on the music-dsp list;
+   it reads out the difference of its two states. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -82,7 +83,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_arg, *in_cutoff, *in_res;
     thArg *out_arg;
     thArg *inout_buffer;
-    float buf0, buf1, in;
+    float lag, ring, in;  /* the two states */
     float f, q;  /* cutoff, res */
     unsigned int i;
 
@@ -90,16 +91,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     out = out_arg->allocate(windowlen);
 
     inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-    buf0 = (*inout_buffer)[0];
-    buf1 = (*inout_buffer)[1];
+    lag = (*inout_buffer)[0];
+    ring = (*inout_buffer)[1];
     buffer = inout_buffer->allocate(2);
 
     /* Feedback state: one non-finite input is read back for ever after, so
        start over rather than stay dead for the life of the note. */
-    if (!thIsFinite(buf0) || !thIsFinite(buf1))
+    if (!thIsFinite(lag) || !thIsFinite(ring))
     {
-        buf0 = 0;
-        buf1 = 0;
+        lag = 0;
+        ring = 0;
     }
 
     in_arg = mod->getArg(node, args[IN_ARG]);
@@ -133,16 +134,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         in = (*in_arg)[i];
 
-        buf0 *= 1 - f;
-        buf0 += (buf1 - in) * f;
-        buf1 *= 1 - (f * q);
-        buf1 += (in - buf0) * q;
+        /* `lag' follows the ring's distance from the input at the cutoff's
+           rate; `ring' is pushed by the input's distance from `lag' and
+           decays at a rate the resonance sets. */
+        lag *= 1 - f;
+        lag += (ring - in) * f;
+        ring *= 1 - (f * q);
+        ring += (in - lag) * q;
 
-        out[i] = (buf0 - buf1);
+        out[i] = (lag - ring);
     }
 
-    buffer[0] = buf0;
-    buffer[1] = buf1;
+    buffer[0] = lag;
+    buffer[1] = ring;
 
     return 0;
 }

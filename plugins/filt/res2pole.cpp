@@ -15,11 +15,10 @@
  * Public License along with this program; if not, write to the
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-/* Written by Leif Ames <ink@bespin.org>
-   Algorithm taken from musicdsp.org
-   References : Hal Chamberlin, "Musical Applications of Microprocessors,"
-   2nd Ed, Hayden Book Company 1985. pp 490-492
- */
+/* Written by Leif Ames <ink@bespin.org>. The filter is Hal Chamberlin's
+   state-variable filter, from "Musical Applications of Microprocessors,"
+   2nd ed., Hayden Book Company, 1985, pp. 490-492: two integrators in a
+   loop, low-pass, band-pass, high-pass and notch read off it at once. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -156,13 +155,22 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                 q = QMIN;
         }
 
-        out[i] = delay[1] + f * delay[0];  /* Low Pass */
-        highout[i] = (*in_arg)[i] - out[i] - q * delay[0]; /* High Pass */
-        bandout[i] = f * highout[i] + delay[0];
-        notchout[i] = highout[i] + out[i];
-    
-        delay[0] = bandout[i];
-        delay[1] = out[i];
+        /* delay[0] is the band integrator a sample ago, delay[1] the low.
+           Each integrator adds f times what feeds it; the high-pass is
+           what is left of the input once the low and the damped band are
+           taken away, and feeds the band. */
+        const float bandWas = delay[0], lowWas = delay[1];
+        const float low = lowWas + f * bandWas;
+        const float high = (*in_arg)[i] - low - q * bandWas;
+        const float band = f * high + bandWas;
+
+        out[i] = low;
+        highout[i] = high;
+        bandout[i] = band;
+        notchout[i] = high + low;
+
+        delay[0] = band;
+        delay[1] = low;
     }
 
     return 0;

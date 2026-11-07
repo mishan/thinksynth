@@ -15,9 +15,11 @@
  * Public License along with this program; if not, write to the
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-// Moog 24 dB/oct resonant lowpass VCF
-// References: CSound source code, Stilson/Smith CCRMA paper.
-// Modified by paul.kellett@maxim.abel.co.uk July 2000
+/* A 24 dB/oct resonant low-pass after the Moog ladder: four one-pole
+   stages in series with the last fed back to the first, the analysis
+   Stilson and Smith published from CCRMA. The cutoff and resonance fit --
+   p, the feedback k, and the cubic soft clip -- is Paul Kellett's, as he
+   gave it on the music-dsp list in 2000. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -202,9 +204,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *buffer;
     thArg *in_arg, *in_cutoff, *in_cutoffhz, *in_res;
     thArg *inout_buffer;
-    float b0, b1, b2, b3, b4;  //filter buffers (beware denormals!)
-    float f, p, q;  /* feedback, cutoff, resonance */
-    float t1, t2;
+    float st[5];    /* the input a sample ago, then each stage's output */
     unsigned int i;
 
     float *out_low = mod->getArg(node, args[OUT_LOW])->allocate(windowlen);
@@ -212,20 +212,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out_band = mod->getArg(node, args[OUT_BANDPASS])->allocate(windowlen);
 
     inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-    b0 = (*inout_buffer)[0];
-    b1 = (*inout_buffer)[1];
-    b2 = (*inout_buffer)[2];
-    b3 = (*inout_buffer)[3];
-    b4 = (*inout_buffer)[4];
+    for (int k = 0; k < 5; k++)
+        st[k] = (*inout_buffer)[k];
+
     buffer = inout_buffer->allocate(5);
 
     /* Feedback state: one non-finite input is read back for ever after, so
        start over rather than stay dead for the life of the note. */
-    if (!thIsFinite(b0) || !thIsFinite(b1) || !thIsFinite(b2) ||
-        !thIsFinite(b3) || !thIsFinite(b4))
-    {
-        b0 = b1 = b2 = b3 = b4 = 0;
-    }
+    for (int k = 0; k < 5; k++)
+        if (!thIsFinite(st[k]))
+        {
+            st[0] = st[1] = st[2] = st[3] = st[4] = 0;
+            break;
+        }
 
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
@@ -263,32 +262,41 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         float res = thClampArg((*in_res)[i], 0.0f, QMAX);
         float in = (*in_arg)[i] / TH_MAX;
 
-        // Set coefficients given frequency & resonance [0.0...1.0]
-        q = 1.0f - frequency;
-        p = frequency + 0.8f * frequency * q;
-        f = p + p - 1.0f;
-        q = res* (1.0f + 0.5f * q * (1.0f - q + 5.6f * q * q));
+        /* Each stage is y = (x + x[-1]) * p - y[-1] * pole: a one-pole
+           with a zero at Nyquist. `fall' is how far the cutoff sits below
+           the top, which both the fit for p and the feedback's
+           compensation are polynomials in. */
+        const float fall = 1.0f - frequency;
+        const float p = frequency + 0.8f * frequency * fall;
+        const float pole = p + p - 1.0f;
+        const float k = res * (1.0f + 0.5f * fall *
+                               (1.0f - fall + 5.6f * fall * fall));
 
-        // Filter (in [-1.0...+1.0])
-        in -= q * b4;                          //feedback
-        t1 = b1;  b1 = (in + b0) * p - b1 * f;
-        t2 = b2;  b2 = (b1 + t1) * p - b2 * f;
-        t1 = b3;  b3 = (b2 + t2) * p - b3 * f;
-        b4 = (b3 + t1) * p - b4 * f;
-        b4 = thClampMag(b4, BMAX);             //see BMAX: keep the clip soft
-        b4 = b4 - b4 * b4 * b4 * 0.166667f;    //clipping
-        b0 = in;
+        in -= k * st[4];
 
-        out_low[i] = b4 * TH_MAX;
-        out_high[i] = (in - b4) * TH_MAX;
-        out_band[i] = 3.0f * (b3 - b4) * TH_MAX;
+        float x = in, xWas = st[0];
+
+        for (int n = 1; n <= 4; n++)
+        {
+            const float yWas = st[n];
+
+            st[n] = (x + xWas) * p - yWas * pole;
+            xWas = yWas;
+            x = st[n];
+        }
+
+        /* The cubic soft clip, held to where it is still one (BMAX). */
+        st[4] = thClampMag(st[4], BMAX);
+        st[4] = st[4] - st[4] * st[4] * st[4] * 0.166667f;
+        st[0] = in;
+
+        out_low[i] = st[4] * TH_MAX;
+        out_high[i] = (in - st[4]) * TH_MAX;
+        out_band[i] = 3.0f * (st[3] - st[4]) * TH_MAX;
     }
 
-    buffer[0] = b0;
-    buffer[1] = b1;
-    buffer[2] = b2;
-    buffer[3] = b3;
-    buffer[4] = b4;
+    for (int k = 0; k < 5; k++)
+        buffer[k] = st[k];
 
     return 0;
 }

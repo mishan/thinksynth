@@ -84,18 +84,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         in = (*in_arg)[i];
         freq = (*in_freq)[i];
 
+        /* A first-order allpass, y = a(x - y[-1]) + x[-1], its coefficient
+           from the bilinear map with tan(w) taken as w, which is good well
+           below Nyquist: the shape krodokov gave in #musicdsp. */
         omega = M_PI * freq / samples;
         a0 = -(1.0 - omega) / (1.0 + omega);
         out[i] = a0 * (in - last[0]) + last[1];
         last[0] = out[i];
         last[1] = in;
-
-        /* allpass algorithm from krodokov on #musicdsp
-        omega = pi * freq / samplerate;
-        a0 = -(1.0 - omega) / (1.0 + omega);
-        Out[0] = a0 * (In[0] - Out[1]) + In[1];
-        Out[1] = Out[0]; In[1] = In[0];
-        */
 
         //printf("%f: %f \t%f\n", freq, in, out[i]);
     }

@@ -159,11 +159,6 @@ full-scale sine reads 1.0 in its bin. `spectrum` and `spectrogram` both use it,
 and `visualcheck` checks it numerically — the one place in this whole feature
 where "are the numbers right" has an answer.
 
-Ignore `plugins/fft/dsp.c`. It does hold a working radix-2, and it keeps its
-twiddle table in a function-static keyed on the last size it was asked for — so
-two instances at different sizes rebuild each other's table on every call — and
-it calls `exit(1)` when a `calloc` fails.
-
 ---
 
 ## 3. How it works underneath

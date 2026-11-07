@@ -67,13 +67,12 @@ thcNodeHost::destroyTree (void)
  *      and filt::comb, which is a delay line. Both are refused by name
  *      in addNode, where the reasoning for each one is.
  *
- *   delay, fft  -- both count in *samples*, and a sample is four
- *      hundredths of a second here rather than twenty microseconds. A
- *      delay of 4410 is a hundred milliseconds on the audio thread and a
- *      minute and a half on this one; an FFT window is a spectrum of
- *      nothing. They would run, and produce numbers, and the numbers
- *      would mean something no author intended -- which is worse than
- *      refusing, because it looks like it worked.
+ *   delay  -- counts in *samples*, and a sample is four hundredths of a
+ *      second here rather than twenty microseconds. A delay of 4410 is a
+ *      hundred milliseconds on the audio thread and a minute and a half on
+ *      this one. It would run, and produce numbers, and the numbers would
+ *      mean something no author intended -- which is worse than refusing,
+ *      because it looks like it worked.
  *
  *   dist, mixer, input, impulse, analysis, visual, composer -- about
  *      audio as audio, or about the other host entirely. There is no
@@ -97,7 +96,7 @@ thcNodeHost::usefulAtControlRate (const std::string &category,
         if (category == ok[i])
             return true;
 
-    if (category == "delay" || category == "fft")
+    if (category == "delay")
     {
         why = "'" + category + "' counts in samples, and a sample here is "
               "a fiftieth of a second; it would run and mean something "
@@ -183,7 +182,7 @@ thcNodeHost::addNode (const std::string &name, const std::string &spelling,
      * this graph at fifty a second. filt::comb is not that. It is a
      * delay line -- `size' is a raw sample count that allocates its
      * buffer, and `period = samples / freq' -- so it counts in exactly
-     * the units delay:: and fft:: are refused for, and a `size' of 4410
+     * the units delay:: is refused for, and a `size' of 4410
      * is an eighty-eight second ring here rather than a hundred
      * milliseconds.
      *

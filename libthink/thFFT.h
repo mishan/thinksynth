@@ -22,25 +22,10 @@
 /*
  * A radix-2 FFT for the visual modules, and the window that goes with it.
  *
- * WHY NOT THE ONE ALREADY IN THE TREE
- *
- * plugins/fft/dsp.c has a working radix-2 -- Embree & Kimble's, from C
- * Language Algorithms for DSP. It is not built, nothing references it, and
- * docs/VISUALIZERS.md said finding out whether it could be reused was a
- * twenty-minute question. The answer is no, for two reasons that are about the
- * shape of it rather than the arithmetic:
- *
- *   Its twiddle table is a function-static keyed on the last size it was asked
- *   for, so two instances at different sizes free and rebuild each other's
- *   table on every call, and none of it is safe to call from two places.
- *   Every probe here is its own instance and there may be eight.
- *
- *   It calls exit(1) when a calloc fails -- a library killing the host
- *   process, which is exactly the pattern that was removed from the parser
- *   years ago.
- *
- * So: this. About eighty lines, one instance's worth of state, no globals, and
- * nothing to fail after construction.
+ * About eighty lines, one instance's worth of state, no globals, and nothing
+ * to fail after construction: every probe is its own instance and there may
+ * be eight, so a table shared between sizes, or an exit() from inside a
+ * library when an allocation fails, would not do.
  *
  * WHY NOT A DEPENDENCY
  *

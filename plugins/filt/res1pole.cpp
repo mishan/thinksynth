@@ -15,8 +15,10 @@
  * Public License along with this program; if not, write to the
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-/* Written by Leif Ames <ink@bespin.org>
-   Algorithm taken from musicdsp.org posted by Paul Kellett */
+/* Written by Leif Ames <ink@bespin.org>. The filter is the resonant pair
+   of one-poles Paul Kellett described on the music-dsp list: two low-pass
+   stages in series, the difference between them fed back into the first,
+   scaled so the peak holds as the cutoff rises. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -77,24 +79,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_arg, *in_cutoff, *in_res;
     thArg *out_arg;
     thArg *inout_buffer;
-    float buf0, buf1;
-    float fb, f, q;  /* feedback, cutoff, resonance */
+    float first, second;  /* the two stages' outputs */
+    float fb, f, q;       /* feedback, cutoff, resonance */
     unsigned int i;
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
 
     inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-    buf0 = (*inout_buffer)[0];
-    buf1 = (*inout_buffer)[1];
+    first = (*inout_buffer)[0];
+    second = (*inout_buffer)[1];
     buffer = inout_buffer->allocate(2);
 
     /* Feedback state: one non-finite input is read back for ever after, so
        start over rather than stay dead for the life of the note. */
-    if (!thIsFinite(buf0) || !thIsFinite(buf1))
+    if (!thIsFinite(first) || !thIsFinite(second))
     {
-        buf0 = 0;
-        buf1 = 0;
+        first = 0;
+        second = 0;
     }
 
     in_arg = mod->getArg(node, args[IN_ARG]);
@@ -113,15 +115,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
          * line, and anything past that diverged. */
         f = thClampArg((*in_cutoff)[i], 0.0f, FMAX);
         q = thClampArg((*in_res)[i], 0.0f, QMAX);
+        /* The band between the stages, fed back: q alone at a low cutoff,
+           growing as the cutoff rises so the peak does not sink. */
         fb = q + q/(1.0 - f);
 
-        buf0 = buf0 + f * ((*in_arg)[i] - buf0 + fb * (buf0 - buf1));
-        buf1 = buf1 + f * (buf0 - buf1);
-        out[i] = buf1;
+        const float band = first - second;
+
+        first = first + f * ((*in_arg)[i] - first + fb * band);
+        second = second + f * (first - second);
+        out[i] = second;
     }
 
-    buffer[0] = buf0;
-    buffer[1] = buf1;
+    buffer[0] = first;
+    buffer[1] = second;
 
     return 0;
 }

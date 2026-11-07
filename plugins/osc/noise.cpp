@@ -66,7 +66,9 @@ static const char desc[] = "White, pink or brown noise";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 /* Kellett's economical pink filter: three one-pole sections summed, plus a
-   little of the white itself for the top octave. */
+   little of the white itself for the top octave. The coefficients are the
+   ones Paul Kellett posted to the music-dsp list, which Robin Whittle
+   collected with the rest of that thread's pink noise work. */
 #define PINK_P0 0.99765f
 #define PINK_P1 0.96300f
 #define PINK_P2 0.57000f

@@ -87,6 +87,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         freq = (*in_freq)[i];
         fb = (*in_fb)[i];
 
+        /* filt::allpass's first-order section, with its own output fed
+           back into its input: the phase turn and the loop make a ring at
+           `freq'. */
         omega = M_PI * freq / samples;
         a0 = -(1.0 - omega) / (1.0 + omega);
 
@@ -96,13 +99,6 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         last[2] = last[0];
         last[0] = out[i];
         last[1] = in;
-
-        /* allpass algorithm from krodokov on #musicdsp
-        omega = pi * freq / samplerate;
-        a0 = -(1.0 - omega) / (1.0 + omega);
-        Out[0] = a0 * (In[0] - Out[1]) + In[1];
-        Out[1] = Out[0]; In[1] = In[0];
-        */
 
         //printf("%f %f %f: %f \t%f\n", freq, (*in_fb)[i], a0, in, out[i]);
     }
