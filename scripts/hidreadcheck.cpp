@@ -430,6 +430,65 @@ checkSilence (void)
            "edges: " + describe(r.edges));
 }
 
+/* A controller that connects and is gone at once, over and over: the
+   reader waits between tries as it does when a connect fails, rather than
+   reopening it as fast as it can. And a hand once said is kept through a
+   connect that couldn't read it. */
+static void
+checkFlapping (void)
+{
+    std::atomic<int> connects(0);
+    std::atomic<bool> said(false);
+
+    {
+        thhReader reader(
+            [&](int &in, int &imu, std::vector<int> &fds, string &hand,
+                string &) {
+                int sv[2];
+
+                if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sv) < 0)
+                    return false;
+                close(sv[1]);           /* gone as soon as it is here */
+                in = sv[0];
+                imu = -1;
+                fds.assign(1, sv[0]);
+                hand = said.exchange(true) ? "" : "right";
+                connects++;
+                return true;
+            },
+            []() {}, 60000);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        report("a controller gone as soon as it connects is tried once a second",
+               connects >= 2 && connects <= 3 ? "" :
+               "tried " + std::to_string(connects) + " times in 1.5 s");
+        report("a hand once said is kept through a connect that couldn't say",
+               reader.hand() == "right" ? "" :
+               "said \"" + reader.hand() + "\"");
+    }
+}
+
+/* What a controller connected says first may be its IMU's: nothing is
+   heard of it until its input has said where its buttons and axes are. */
+static void
+checkImuFirst (void)
+{
+    Rig r;
+    std::vector<uint8_t> imu(52, 0);
+
+    imu[0] = 0x20;
+    r.send(imu, true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    report("an IMU report before any input is nothing yet",
+           !r.reader->drain(r.edges, r.latest) ? "" :
+           "edges: " + describe(r.edges));
+    r.send(input(0, 0x40));
+    report("...and the input after it is the connect",
+           r.settle(1) == "-" &&
+           std::fabs(r.latest.axis[THH_INDEX_TRIGGER] - 0x40 / 255.0f) < 1e-6
+               ? "" : "edges: " + describe(r.edges));
+}
+
 static void
 checkPermission (const string &scratch)
 {
@@ -484,6 +543,8 @@ main (int argc, char *argv[])
     checkHand();
     checkReader();
     checkSilence();
+    checkFlapping();
+    checkImuFirst();
     checkPermission(scratch);
     fs::remove_all(scratch);
 

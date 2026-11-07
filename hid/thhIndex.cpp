@@ -16,6 +16,7 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <algorithm>
 #include <cmath>
 
 #include "thhIndex.h"
@@ -221,12 +222,12 @@ thhIndexIsImu (const uint8_t *desc, size_t len)
     return walk(desc, len, bits, ids, imu) && imu;
 }
 
-/* How much of each sample the smoothed gravity takes: at about 750 samples
-   a second, a time constant near 70 ms, steady enough to hold a pose
-   without lagging a turn of the wrist much. Twist, already a rate, is only
-   taken off its noise. */
-#define THH_INDEX_GRAVITY 0.02f
-#define THH_INDEX_TWISTING 0.2f
+/* How long the smoothed gravity takes to follow, steady enough to hold a
+   pose without lagging a turn of the wrist much, and twist, already a
+   rate, only taken off its noise; and the IMU's clock. */
+#define THH_INDEX_GRAVITY_S 0.07
+#define THH_INDEX_TWIST_S 0.006
+#define THH_INDEX_TICKS_PER_S 48e6
 /* The gyro's count at a quick twist of the wrist, which reads as 1. */
 #define THH_INDEX_TWIST_FULL 8192.0f
 /* The gyro's counts per degree a second (its range is 2000 degrees a
@@ -250,32 +251,45 @@ thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
     if (len < 52 || data[0] != 0x20)
         return false;
 
-    /* Each of the three samples a third of the time since the last report;
-       none, for the first, or after a gap that was no report's. */
-    const double since = s.time - imu.time;
-    const float dt = imu.primed && since > 0 && since < 0.1 ? since / 3 : 0;
+    /* The slots newer than the last sample seen, oldest first. */
+    int order[3], fresh = 0;
 
-    imu.time = s.time;
     for (int k = 0; k < 3; k++)
+        if (!imu.primed || (int8_t)(data[1 + 17 * k + 16] - imu.seq) > 0)
+            order[fresh++] = k;
+    std::sort(order, order + fresh, [data, &imu](int x, int y) {
+        return (int8_t)(data[1 + 17 * x + 16] - imu.seq) <
+               (int8_t)(data[1 + 17 * y + 16] - imu.seq);
+    });
+
+    for (int i = 0; i < fresh; i++)
     {
-        const uint8_t *p = data + 1 + 17 * k;
+        const uint8_t *p = data + 1 + 17 * order[i];
+        const uint32_t tick = p[12] | (p[13] << 8) | (p[14] << 16) |
+                              ((uint32_t)p[15] << 24);
+        /* A gap no run of samples has, an unplug's or a first's, starts
+           afresh. */
+        const double dt = (uint32_t)(tick - imu.tick) / THH_INDEX_TICKS_PER_S;
+        const bool afresh = !imu.primed || dt <= 0 || dt > 0.1;
         float a[3];
 
-        for (int i = 0; i < 3; i++)
-            a[i] = (int16_t)(p[2 * i] | (p[2 * i + 1] << 8));
+        for (int k = 0; k < 3; k++)
+            a[k] = (int16_t)(p[2 * k] | (p[2 * k + 1] << 8));
 
-        const float twist = (int16_t)(p[6] | (p[7] << 8)) /
-                            THH_INDEX_TWIST_FULL;
+        const int16_t gx = (int16_t)(p[6] | (p[7] << 8));
+        const float twist = gx / THH_INDEX_TWIST_FULL;
+        const float kg = afresh ? 1 : 1 - (float)std::exp(-dt / THH_INDEX_GRAVITY_S);
+        const float kt = afresh ? 1 : 1 - (float)std::exp(-dt / THH_INDEX_TWIST_S);
 
-        for (int i = 0; i < 3; i++)
-            imu.g[i] = imu.primed ? imu.g[i] + THH_INDEX_GRAVITY * (a[i] - imu.g[i])
-                                  : a[i];
-        imu.twist = imu.primed ? imu.twist + THH_INDEX_TWISTING *
-                                     (twist - imu.twist)
-                               : twist;
-        imu.turn = (imu.turn + (int16_t)(p[6] | (p[7] << 8)) /
-                                   THH_INDEX_GYRO_PER_DEGREE * dt) *
-                   (float)std::exp(-dt / THH_INDEX_TURN_SPRING);
+        for (int k = 0; k < 3; k++)
+            imu.g[k] += kg * (a[k] - imu.g[k]);
+        imu.twist += kt * (twist - imu.twist);
+        if (!afresh)
+            imu.turn = (imu.turn + gx / THH_INDEX_GYRO_PER_DEGREE * (float)dt) *
+                       (float)std::exp(-dt / THH_INDEX_TURN_SPRING);
+
+        imu.seq = p[16];
+        imu.tick = tick;
         imu.primed = true;
     }
 

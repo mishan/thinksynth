@@ -245,6 +245,38 @@ describe (const thhState &s)
     return out.str();
 }
 
+/* The IMU's ring as the controller keeps it: three slots, each new sample
+   written over the oldest, each with its sequence number and the time it
+   was taken, in ticks of a 48 MHz clock. */
+struct ImuRing
+{
+    uint8_t  r[52];
+    uint8_t  seq;
+    uint32_t tick;
+
+    ImuRing () : seq(0), tick(1000)
+    {
+        memset(r, 0, sizeof(r));
+        r[0] = 0x20;
+    }
+
+    void sample (int16_t ax, int16_t ay, int16_t az, int16_t gx, double after)
+    {
+        uint8_t *p = r + 1 + 17 * (seq % 3);
+        const int16_t v[6] = { ax, ay, az, gx, 0, 0 };
+
+        for (int i = 0; i < 6; i++)
+        {
+            p[2 * i] = v[i] & 0xff;
+            p[2 * i + 1] = (v[i] >> 8) & 0xff;
+        }
+        tick += (uint32_t)(after * 48e6);
+        for (int i = 0; i < 4; i++)
+            p[12 + i] = (tick >> (8 * i)) & 0xff;
+        p[16] = seq++;
+    }
+};
+
 static void
 checkByHand (void)
 {
@@ -405,13 +437,9 @@ checkImu (const char *path)
         thhState s;
         float lo = 0, hi = 0, tlo = 0, thi = 0;
         size_t fed = 0;
-        /* The moving poses were kept one report in eight, the still ones
-           all; the capture ran at 250 reports a second. */
-        const bool moving = pose.twist != 0;
 
         for (const std::vector<uint8_t> &r : seen[pose.label])
         {
-            s.time += (moving ? 8 : 1) / 250.0;
             if (thhIndexFeedImu(r.data(), r.size(), imu, s))
             {
                 fed++;
@@ -477,33 +505,26 @@ checkImu (const char *path)
 
     /* A steady turn of 45 degrees a second, for one second, then still:
        turn reads near half a quarter turn (less what it has sprung back
-       already, about 0.42), and springs back to the middle. */
+       already, about 0.42), and springs back to the middle. The state's
+       own clock never moves: the IMU's samples carry their time. */
     {
-        uint8_t r[52] = { 0x20 };
+        ImuRing ring;
         thhIndexImu imu;
         thhState s;
         const int16_t rate = (int16_t)(45 * 16.4);
 
-        for (int k = 0; k < 3; k++)
-        {
-            r[1 + 17 * k + 1] = 0xf0;            /* accel x -4096: level */
-            r[7 + 17 * k] = rate & 0xff;
-            r[8 + 17 * k] = (rate >> 8) & 0xff;
-        }
         for (int i = 0; i < 250; i++)
         {
-            s.time += 1 / 250.0;
-            thhIndexFeedImu(r, sizeof(r), imu, s);
+            ring.sample(-4096, 0, 0, rate, 0.004);
+            thhIndexFeedImu(ring.r, sizeof(ring.r), imu, s);
         }
 
         const float turned = s.axis[THH_INDEX_TURN];
 
-        for (int k = 0; k < 3; k++)
-            r[7 + 17 * k] = r[8 + 17 * k] = 0;
         for (int i = 0; i < 250 * 10; i++)
         {
-            s.time += 1 / 250.0;
-            thhIndexFeedImu(r, sizeof(r), imu, s);
+            ring.sample(-4096, 0, 0, 0, 0.004);
+            thhIndexFeedImu(ring.r, sizeof(ring.r), imu, s);
         }
 
         char got[64];
@@ -513,6 +534,33 @@ checkImu (const char *path)
         report("an eighth of a turn a second for a second, then still",
                turned > 0.38f && turned < 0.47f &&
                std::fabs(s.axis[THH_INDEX_TURN]) < 0.05f ? "" : got);
+    }
+
+    /* Each report repeats the two samples before its newest, and a report
+       can be read twice: a sample counts once however often it is seen. */
+    {
+        float turned[2];
+
+        for (int twice = 0; twice < 2; twice++)
+        {
+            ImuRing ring;
+            thhIndexImu imu;
+            thhState s;
+
+            for (int i = 0; i < 125; i++)
+            {
+                ring.sample(-4096, 0, 0, (int16_t)(45 * 16.4), 0.004);
+                for (int k = 0; k <= twice; k++)
+                    thhIndexFeedImu(ring.r, sizeof(ring.r), imu, s);
+            }
+            turned[twice] = s.axis[THH_INDEX_TURN];
+        }
+
+        char got[64];
+
+        snprintf(got, sizeof(got), "once %.3f, twice %.3f", turned[0], turned[1]);
+        report("a sample counts once however often it is read",
+               turned[0] > 0.2f && turned[0] == turned[1] ? "" : got);
     }
 
     /* A short report, or the input's, is refused without moving anything. */

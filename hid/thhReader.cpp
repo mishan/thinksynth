@@ -154,9 +154,11 @@ thhIndexHand (const std::string &compressed)
 }
 
 /* The configuration a controller keeps, read a feature report at a time
-   (0x10 starts it; each 0x11 is a length and that many bytes, until a
-   length of 0) from whichever of its interfaces answers, and the hand it
-   names. Empty if none does. */
+   (0x10 starts it and says how long it is; each 0x11 is a length and that
+   many bytes, until a length of 0 or all of it) from whichever of its
+   interfaces answers, the IMU's first, as libsurvive reads it, and the
+   hand it names. Empty if none does. Each read can wait on the USB, so
+   no more are made than the length it gave needs. */
 static std::string
 readHand (const std::vector<int> &fds)
 {
@@ -168,7 +170,10 @@ readHand (const std::vector<int> &fds)
         if (ioctl(fds[i], HIDIOCGFEATURE(sizeof(buf)), buf) < 0)
             continue;
 
-        for (int k = 0; k < 4096; k++)
+        const size_t expected = (buf[1] << 8) | buf[2];
+
+        for (size_t k = 0; k < expected / (sizeof(buf) - 2) + 4 &&
+                           config.size() < expected; k++)
         {
             memset(buf, 0, sizeof(buf));
             buf[0] = 0x11;
@@ -250,7 +255,16 @@ thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
         if (n.all[i] == n.imu)
             imu = opened[i];
     }
-    hand = readHand(opened);
+    /* The IMU's interface first: libsurvive reads the configuration there. */
+    std::vector<int> ask;
+
+    for (size_t i = 0; i < n.all.size(); i++)
+        if (n.all[i] == n.imu)
+            ask.push_back(opened[i]);
+    for (size_t i = 0; i < n.all.size(); i++)
+        if (n.all[i] != n.imu)
+            ask.push_back(opened[i]);
+    hand = readHand(ask);
     fds.swap(opened);
     status.clear();
     return true;
@@ -347,6 +361,7 @@ thhReader::run ()
     thhState s;
     thhIndexImu imu;
     int in = -1, motion = -1;
+    bool heard = false;         /* an input report since the connect */
 
     for (;;)
     {
@@ -359,9 +374,11 @@ thhReader::run ()
             {
                 std::lock_guard<std::mutex> l(lock_);
 
-                changed = status_ != why || (ok && hand_ != hand);
+                /* A read that couldn't say keeps the hand it said before. */
+                changed = status_ != why || (ok && !hand.empty() &&
+                                             hand_ != hand);
                 status_ = why;
-                if (ok)
+                if (ok && !hand.empty())
                     hand_ = hand;
             }
             if (changed)
@@ -372,6 +389,7 @@ thhReader::run ()
                 s = thhState();
                 s.connected = true;
                 imu = thhIndexImu();
+                heard = false;
                 continue;
             }
 
@@ -410,14 +428,31 @@ thhReader::run ()
             in = motion = -1;
             s = thhState();
             publish(s);
+
+            /* As after a connect that fails: a controller that goes as soon
+               as it is woken is not woken again at once. */
+            struct pollfd w = { stop_[0], POLLIN, 0 };
+
+            if (poll(&w, 1, 1000) > 0)
+                break;
             continue;
         }
 
         s.time = std::chrono::duration<double>(
                      std::chrono::steady_clock::now().time_since_epoch())
                      .count();
-        if (from == in ? thhIndexFeed(buf, n, s)
-                       : thhIndexFeedImu(buf, n, imu, s))
+        /* Nothing is heard of a controller until its input has said where
+           its buttons and axes are. */
+        bool fed;
+
+        if (from == in)
+        {
+            fed = thhIndexFeed(buf, n, s);
+            heard = heard || fed;
+        }
+        else
+            fed = thhIndexFeedImu(buf, n, imu, s) && heard;
+        if (fed)
             publish(s);
     }
 
