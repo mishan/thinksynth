@@ -401,6 +401,14 @@ endif()
 # src/ builds the application only with THINK_GUI.
 add_subdirectory(src)
 
+# Webcams: read with V4L2, so Linux's, and decoded with libjpeg.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_package(JPEG)
+  if(JPEG_FOUND)
+    add_subdirectory(camera)
+  endif()
+endif()
+
 if(THINK_BUILD_HARNESSES)
   add_subdirectory(scripts)
 endif()

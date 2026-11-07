@@ -168,6 +168,13 @@ think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(motioncheck)
+
+if(TARGET think_camera)
+  think_harness(cameracheck)
+  target_link_libraries(cameracheck PRIVATE think_camera)
+  think_harness(camaxes)
+  target_link_libraries(camaxes PRIVATE think_camera)
+endif()
 think_harness(dspab)
 
 # Numbers read and written the same under a comma-decimal LC_NUMERIC.
@@ -942,6 +949,9 @@ add_test(NAME argtype
 add_test(NAME exprcheck
          COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME motioncheck COMMAND motioncheck)
+if(TARGET think_camera)
+  add_test(NAME cameracheck COMMAND cameracheck)
+endif()
 add_test(NAME mutatecheck
          COMMAND mutatecheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  -d "${PROJECT_SOURCE_DIR}/dsp")

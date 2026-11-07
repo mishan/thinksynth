@@ -106,6 +106,9 @@ public:
     /* 0..1 */
     float axis (Axis a) const { return axes_[a]; }
 
+    int width (void) const { return width_; }
+    int height (void) const { return height_; }
+
     /* The name a profile uses: "motion", "x", ..., "zone_1" .. "zone_9". */
     static const char *axisName (Axis a);
 

@@ -130,7 +130,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
             libx11-dev libxcursor-dev libxext-dev libxrandr-dev \
@@ -288,7 +288,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
             xvfb
@@ -416,7 +416,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
             xvfb
@@ -515,7 +515,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
             libasound2-dev libjack-jackd2-dev
 
       # The module runs the same on 20, 22 and 24; pinned so that a change of
