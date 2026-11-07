@@ -383,6 +383,16 @@ static inline double thSinTurns (double x)
                 y2 * (1.0 / 362880 + y2 * (-1.0 / 39916800))))));
 }
 
+/* A sample count kept in a plugin's float state. A float counts by ones
+   only to 2^24 -- 16.8 s at a 1 MHz pixel clock, 6.3 minutes at 44.1 kHz
+   -- so the count goes in two slots: the float nearest it, and what that
+   left over. Read back as (double)near + rest. */
+static inline void thSplitCount (double count, float &near, float &rest)
+{
+    near = (float)count;
+    rest = (float)(count - near);
+}
+
 /* Clamp a control input into the range a plugin's arithmetic is defined over.
  *
  * A .dsp may write any number on any arg, and a node-driven arg carries

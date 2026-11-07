@@ -89,7 +89,7 @@ struct thkAdsrFree
 {
     enum { ATTACK, DECAY, SUSTAIN, RELEASE, DONE };
 
-    float position = 0;
+    uint32_t position = 0;
     int   phase = ATTACK;
 
     float tick (const thkAdsrCtl &c, float trigger, float reset, float &play)
@@ -178,7 +178,7 @@ struct thkAdsrGated
 {
     enum { ATTACK, DECAY, SUSTAIN, RELEASE, DONE, WAITING };
 
-    float position = 0;
+    uint32_t position = 0;
     int   phase = WAITING;
     bool  was = false;          /* the trigger, a sample ago */
     float level = 0;

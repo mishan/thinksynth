@@ -93,7 +93,8 @@ int module_init (thPlugin *plugin)
 /* A window of either kernel, its state carried in `position': the
    free-running envelope's [0] position and [1] stage; the gated one's
    [0] position, [1] stage, [2] whether the trigger was up, [3] the level
-   and [4] where the attack or release started. */
+   and [4] where the attack or release started. The position's remainder
+   (thSplitCount) is last: [2] free-running, [5] gated. */
 template <class K>
 static void run (K &env, thNode *node, thSynthTree *mod, unsigned int windowlen)
 {
@@ -131,13 +132,14 @@ static int freeRunning (thNode *node, thSynthTree *mod, unsigned int windowlen)
     thArg *inout = mod->getArg(node, args[INOUT_POSITION]);
     thkAdsrFree env;
 
-    env.position = (*inout)[0];
+    env.position = (uint32_t)((double)(*inout)[0] +
+                              (inout->len() >= 3 ? (*inout)[2] : 0));
     env.phase = (int)(*inout)[1];
 
-    float *state = inout->allocate(2);
+    float *state = inout->allocate(3);
 
     run(env, node, mod, windowlen);
-    state[0] = env.position;
+    thSplitCount(env.position, state[0], state[2]);
     state[1] = env.phase;
     return 0;
 }
@@ -149,19 +151,19 @@ static int gated (thNode *node, thSynthTree *mod, unsigned int windowlen)
 
     /* A new node's state reads zeros, which is attack at position 0 -- so
        a fresh one starts out waiting instead. */
-    if (inout->len() >= 5)
+    if (inout->len() >= 6)
     {
-        env.position = (*inout)[0];
+        env.position = (uint32_t)((double)(*inout)[0] + (*inout)[5]);
         env.phase = (int)(*inout)[1];
         env.was = (*inout)[2] > 0;
         env.level = (*inout)[3];
         env.from = (*inout)[4];
     }
 
-    float *state = inout->allocate(5);
+    float *state = inout->allocate(6);
 
     run(env, node, mod, windowlen);
-    state[0] = env.position;
+    thSplitCount(env.position, state[0], state[5]);
     state[1] = env.phase;
     state[2] = env.was ? 1 : 0;
     state[3] = env.level;

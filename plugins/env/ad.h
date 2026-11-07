@@ -42,7 +42,7 @@ struct thkAd
         return { a, d, p == 0 ? 1 : p, a > 0 ? 1 / a : 0, d > 0 ? 1 / d : 0 };
     }
 
-    float position = 0;
+    uint32_t position = 0;
     int   phase = ATTACK;
 
     float tick (const Ctl &c, float reset, float &play)
