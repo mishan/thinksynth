@@ -86,6 +86,13 @@
  * one WAV per instrument, as `--levels' measures it. `--stages' prints
  * every composer plugin's params as JSON and needs no piece.
  *
+ * `--video DSP --video-out FILE.y4m' renders a video synth beside the
+ * audio: DSP at the pixel clock of `--raster WxH@FPS' (160x120@60 by
+ * default), playing the notes of every instrument, or of those
+ * `--video-follow' names, and written as a .y4m (VideoRender.h). With it,
+ * --from and --length are rounded to whole frames, so the two files start
+ * and end together.
+ *
  * With no `-p', a tree's own build is found beside this binary when the
  * install prefix has no plugins, so a fresh build runs as it stands.
  *
@@ -126,6 +133,7 @@
 
 #include "JsonOut.h"
 #include "Loudness.h"
+#include "VideoRender.h"
 
 /* Enough silence to call a tail finished, and the longest we will wait
    for one. amb01's release tops out at five seconds; anything longer than
@@ -164,6 +172,11 @@ static void usage (const char *argv0)
            "      --check             load and describe the piece; no render\n"
            "      --stems DIR         one WAV per instrument channel, in DIR\n"
            "      --stages            every composer plugin's params, as JSON\n"
+           "      --video DSP         render DSP as a video synth beside the audio\n"
+           "      --video-out FILE    write its frames here, as a .y4m\n"
+           "      --raster WxH@FPS    its picture (default 160x120@60)\n"
+           "      --video-follow A,B  the instruments it plays the notes of "
+           "(default all)\n"
            "  -q, --quiet             no summary\n",
            argv0);
 }
@@ -585,6 +598,7 @@ int main (int argc, char **argv)
     bool pathGiven = false, checkOnly = false, listStages = false;
     bool levelsText = false, sectionsText = false;
     std::string jsonFile, stemsDir;
+    std::string videoDsp, videoFile, raster = "160x120@60", videoFollow;
 
     struct KnobMove { double at; std::string name; float value; };
     std::vector<KnobMove> moves;
@@ -621,6 +635,26 @@ int main (int argc, char **argv)
             midiFine = true;
         else if (!strcmp(argv[i], "-m") || !strcmp(argv[i], "--mono"))
             mono = true;
+        else if (!strcmp(argv[i], "--video"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            videoDsp = argv[i];
+        }
+        else if (!strcmp(argv[i], "--video-out"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            videoFile = argv[i];
+        }
+        else if (!strcmp(argv[i], "--raster"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            raster = argv[i];
+        }
+        else if (!strcmp(argv[i], "--video-follow"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            videoFollow = argv[i];
+        }
         else if (!strcmp(argv[i], "--from"))
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
@@ -770,6 +804,9 @@ int main (int argc, char **argv)
         return 2;
     }
 
+    /* Before the scheduler, which tells it of notes as it is torn down. */
+    VideoRender video;
+
     /* Built with the plugin path, because a piece's instruments are .dsp
        graphs and their nodes have to come from somewhere. */
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
@@ -880,6 +917,53 @@ int main (int argc, char **argv)
             other->knob(knobName)->setValue((float)knobB);
     }
 
+    if (videoDsp.empty() != videoFile.empty())
+    {
+        fprintf(stderr, "%s: --video and --video-out go together\n", argv[0]);
+        return 2;
+    }
+    if (!videoDsp.empty())
+    {
+        if (compare)
+        {
+            fprintf(stderr, "%s: --video renders one piece; --knob A,B "
+                    "renders two\n", argv[0]);
+            return 2;
+        }
+
+        /* The channels of the instruments named, or of every one. */
+        std::set<int> follow;
+        std::string why;
+
+        for (const thcInstrument &inst : sched.instruments())
+            if (inst.channel >= 0 &&
+                (videoFollow.empty() ||
+                 ("," + videoFollow + ",").find("," + inst.name + ",") !=
+                     std::string::npos))
+                follow.insert(inst.channel);
+        if (follow.empty())
+        {
+            fprintf(stderr, "%s: the video follows no instrument of %s\n",
+                    argv[0], genFile.c_str());
+            return 2;
+        }
+        if (!video.open(pluginPath, videoDsp, raster, follow, videoFile, why))
+        {
+            fprintf(stderr, "%s: %s\n", argv[0], why.c_str());
+            return 2;
+        }
+        sched.setNoteTap(&video);
+
+        /* Whole frames, so the audio starts and ends where the video does. */
+        const int64_t first = llround(std::max(from, 0.0) * video.fps());
+
+        from = (double)first / video.fps();
+        if (length >= 0)
+            length = (double)llround(length * video.fps()) / video.fps();
+        video.keep(first, length < 0 ? INT64_MAX
+                                     : first + llround(length * video.fps()));
+    }
+
     FILE *tape = NULL;
 
     if (tapeFile == "-")
@@ -980,6 +1064,8 @@ int main (int argc, char **argv)
     if (profile)
         synth.setProfiling(true);
 
+    std::string videoWhy;
+
     /* One window of audio per step of the clock. The scheduler enqueues
        what it delivers and process() applies it, exactly as the GUI's
        timer and the audio thread do between them. */
@@ -1077,6 +1163,13 @@ int main (int argc, char **argv)
 
         windowsRendered++;
 
+        if (!videoDsp.empty() && videoWhy.empty())
+        {
+            video.synth()->setTempo(synth.tempo());
+            video.advance((int64_t)(windowsRendered * window),
+                          TH_DEFAULT_SAMPLES, videoWhy);
+        }
+
         if (other)
         {
             otherSynth->process();
@@ -1140,6 +1233,8 @@ int main (int argc, char **argv)
 
     if (other)
         other->start();
+    if (!videoDsp.empty())
+        video.synth()->setSeed(sched.masterSeed());
 
     double marked = -1;
 
@@ -1215,6 +1310,15 @@ int main (int argc, char **argv)
     for (double tail = 0; tail < TAIL_MAX; tail += dt)
         if (renderWindow(false, 0) < TAIL_SILENT)
             break;
+
+    if (!videoDsp.empty() &&
+        (!videoWhy.empty() ||
+         !video.finish((int64_t)(windowsRendered * window), TH_DEFAULT_SAMPLES,
+                       videoWhy)))
+    {
+        fprintf(stderr, "%s: %s\n", argv[0], videoWhy.c_str());
+        return 1;
+    }
 
     if (tape != NULL && tape != stdout)
         fclose(tape);

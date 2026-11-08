@@ -1,0 +1,16 @@
+# One note, C4 from 1 s to 1.5 s, for cmake/RunGenwavVideo.cmake: the
+# video synth draws while it sounds and is black either side.
+
+tempo 60;
+
+section play 2 s { };
+section end;
+
+instrument org { dsp "organ0.dsp"; };
+
+chain a {
+    start = 1 beats;
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 0.5 beats; };
+    sink { instrument = org; };
+};

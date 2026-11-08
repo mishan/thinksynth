@@ -937,6 +937,16 @@ add_test(NAME genwav.meters
                  -DTAPE=${PROJECT_BINARY_DIR}/genwav-meters.tape
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMeters.cmake")
 
+add_test(NAME genwav.video
+         COMMAND "${CMAKE_COMMAND}"
+                 -DGENWAV=$<TARGET_FILE:genwav>
+                 -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/video.gen
+                 -DVIDEO_DSP=${PROJECT_SOURCE_DIR}/scripts/guard/videoramp.dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DWORK=${PROJECT_BINARY_DIR}/genwav-video
+                 -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavVideo.cmake")
+
 add_test(NAME genwav.retrigger
          COMMAND "${CMAKE_COMMAND}"
                  -DGENWAV=$<TARGET_FILE:genwav>
