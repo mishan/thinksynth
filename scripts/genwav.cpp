@@ -768,7 +768,7 @@ int main (int argc, char **argv)
 
     if (wavFile.empty() && tapeFile.empty() && midiFile.empty() && quiet &&
         !levels && !sections && !checkOnly && !listStages &&
-        stemsDir.empty())
+        stemsDir.empty() && videoFile.empty())
     {
         fprintf(stderr, "%s: nothing to write and nothing to say\n", argv[0]);
         return 2;
