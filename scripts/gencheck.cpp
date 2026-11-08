@@ -10928,6 +10928,185 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
     clearChannels(synth);
 }
 
+/* A thcNoteTap that keeps what it was told, and which keys it holds down
+ * as a synth keys its voices: an on takes the key, an off lets it go. */
+struct RecordingTap : public thcNoteTap
+{
+    std::vector<std::string> calls;
+    std::set<std::pair<int, int> > down;
+
+    void noteOn (int channel, int note, int velocity, float level,
+                 const float *aux) override
+    {
+        (void)velocity;
+        (void)level;
+        (void)aux;
+        calls.push_back("on " + std::to_string(channel) + ":" + std::to_string(note));
+        down.insert({ channel, note });
+    }
+
+    void noteOff (int channel, int note) override
+    {
+        calls.push_back("off " + std::to_string(channel) + ":" + std::to_string(note));
+        down.erase({ channel, note });
+    }
+
+    void flush (int channel) override
+    {
+        calls.push_back("flush " + std::to_string(channel));
+        for (auto k = down.begin(); k != down.end(); )
+            k = channel < 0 || k->first == channel ? down.erase(k) : std::next(k);
+    }
+
+    size_t count (const std::string &what) const
+    {
+        size_t n = 0;
+
+        for (const std::string &c : calls)
+            n += c.compare(0, what.size(), what) == 0;
+
+        return n;
+    }
+};
+
+/* setNoteTap: the tap hears each note the piece sounds and each end,
+ * whichever way the note ended -- its duration up, its key let go, a stop
+ * with the note still held, its instrument swapped out from under it --
+ * the notes of an instrument played over MIDI too, and a halt as a flush
+ * of every channel. */
+static void
+checkNoteTap (const std::map<std::string, thcPlugin *> &plugins,
+              thSynth *synth)
+{
+    const std::string text =
+        "tempo 60;\n"
+        "instrument organ { dsp \"organ0.dsp\"; };\n"
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "instrument ext { midi \"Fake\"; midichannel = 1; };\n"
+        "chain beat {\n"
+        "    stage g gen::grid { notes = \"C4\"; steps = 1; rows = 1;\n"
+        "        cells = \"x\"; period = 1 beats; hold = 0.5 beats; };\n"
+        "    sink { instrument = organ; };\n"
+        "};\n"
+        "chain keys { input midi; sink { instrument = organ; }; };\n"
+        "chain far {\n"
+        "    stage g gen::grid { notes = \"G4\"; steps = 1; rows = 1;\n"
+        "        cells = \"x\"; period = 1 beats; hold = 0.5 beats; };\n"
+        "    sink { instrument = ext; };\n"
+        "};\n";
+    const std::string path = thUtil::tempFile("gencheck-notetap-");
+
+    {
+        std::ofstream f(path.c_str(), std::ios::trunc);
+
+        f << text;
+    }
+
+    const auto run = [&](bool halt, bool swap, RecordingTap &tap, std::string &why)
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        clearChannels(synth);
+        sched.setMidiOut(&out);
+        sched.setNoteTap(&tap);
+        sched.setAuditionSynchronous(true);
+        if (!loader.load(path, &sched))
+        {
+            why = "the piece did not load";
+            return;
+        }
+
+        const int organ = sched.instruments()[0].channel;
+        const auto key = [&](thcEventType type, int note)
+        {
+            thcEvent ev = {};
+
+            ev.type = type;
+            ev.channel = organ;
+            ev.u.note.level = 1;
+            ev.u.note.note = note;
+            ev.u.note.velocity = 90;
+            ev.at = sched.now();
+            sched.injectMidiEvent(ev);
+        };
+
+        sched.start();
+        for (int step = 1; step <= 105; step++)
+        {
+            if (step == 15)
+                key(THC_EV_NOTE, 64);       /* held, and let go at 0.6 s */
+            if (step == 20 && swap)
+            {
+                std::string swhy;
+
+                if (!sched.swapInstrument(organ, "pad", swhy))
+                    why = "the swap was refused: " + swhy;
+                else if (tap.down.count({ organ, 64 }))
+                    why = "the key held when its instrument was swapped "
+                          "out is still down";
+            }
+            if (step == 30)
+                key(THC_EV_NOTEOFF, 64);
+            if (step == 65)
+                key(THC_EV_NOTE, 72);       /* held through the stop */
+            sched.stepTransport(0.02);
+        }
+        if (halt)
+            sched.halt();
+        else
+            sched.stop();
+        drainSynth();
+    };
+
+    {
+        RecordingTap tap;
+        std::string why;
+
+        run(false, false, tap, why);
+
+        /* C4 and G4 at 0, 1 and 2 s, the third cut by the stop at 2.1 s;
+           E4 held and let go; C5 held into the stop. */
+        if (why.empty() && (tap.count("on ") != 8 || tap.count("off ") != 8 ||
+                            !tap.down.empty()))
+        {
+            why = std::to_string(tap.count("on ")) + " ons and " +
+                  std::to_string(tap.count("off ")) + " offs, " +
+                  std::to_string(tap.down.size()) + " keys left down:";
+            for (const std::string &c : tap.calls)
+                why += " " + c;
+        }
+        if (!why.empty())
+            fail("a note tap did not hear every note and its end: " + why);
+    }
+
+    {
+        RecordingTap tap;
+        std::string why;
+
+        run(true, false, tap, why);
+        if (why.empty() && (tap.calls.empty() || tap.calls.back() != "flush -1"))
+            why = "the last call was " + (tap.calls.empty() ? std::string("none")
+                                                             : tap.calls.back());
+        if (!why.empty())
+            fail("a halt did not reach the note tap as a flush of every "
+                 "channel: " + why);
+    }
+
+    {
+        RecordingTap tap;
+        std::string why;
+
+        run(false, true, tap, why);
+        if (!why.empty())
+            fail("a note tap did not hear a swap end its channel's notes: " + why);
+    }
+
+    std::filesystem::remove(path);
+    clearChannels(synth);
+}
+
 static void
 checkHeldNotes (const std::map<std::string, thcPlugin *> &plugins,
                 thSynth *synth)
@@ -16490,6 +16669,7 @@ main (int argc, char *argv[])
         checkVoiceLeading(plugins, &synth);
         checkHeldNotes(plugins, &synth);
         checkMidiOut(plugins, &synth);
+        checkNoteTap(plugins, &synth);
         checkRetriggerAudio(plugins, &synth);
         checkSeedReachesNoise(plugins, &synth);
         checkFloor(plugins, &synth);

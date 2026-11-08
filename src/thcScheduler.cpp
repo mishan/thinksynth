@@ -1879,6 +1879,9 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
     if (staging_)
         return true;
 
+    if (noteTap_ != NULL)
+        noteTap_->flush(inst.channel);
+
     /* Played on a device where a port answers; its dsp, if it has one,
        where none does. The reason is kept either way, for a host to show
        which of the two is happening. */
@@ -2188,6 +2191,9 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
        first so that a refusal below still leaves a rewind knowing there
        is something to put back. */
     swapped_.insert(channel);
+
+    if (noteTap_ != NULL)
+        noteTap_->flush(channel);
 
     /* Off a device: what it holds there ends now, and the channel is a
        graph's again, or nothing's. */
@@ -3014,6 +3020,9 @@ thcScheduler::takeOff (const thcInstrument &inst)
 {
     if (inst.channel < 0 || staging_)
         return true;                    /* never got there; nothing to do */
+
+    if (noteTap_ != NULL)
+        noteTap_->flush(inst.channel);
 
     /* This instrument's route, not whatever holds the channel now: a
        graph stranded on it and retried here must not take off the
@@ -5387,6 +5396,10 @@ thcScheduler::deliver (const thcEvent &ev)
                                           ev.u.note.velocity,
                                           ev.u.note.level, ev.u.note.aux,
                                           ev.u.note.say);
+            if (sounded && noteTap_ != NULL)
+                noteTap_->noteOn(ev.channel, ev.u.note.note,
+                                 ev.u.note.velocity, ev.u.note.level,
+                                 ev.u.note.aux);
 
             /* A channel keys its voices by note number, so this note has
                just put the one sounding on its key into release
@@ -5581,6 +5594,8 @@ thcScheduler::endNote (int channel, int note, double at)
         midiOut_->noteOff(channel, note, stampAt(at));
     else
         synth_->delNote(channel, note);
+    if (noteTap_ != NULL)
+        noteTap_->noteOff(channel, note);
 }
 
 /* Transport time `at' on the monotonic clock: the step's own moment,
@@ -5977,6 +5992,8 @@ thcScheduler::halt (void)
 
     if (synth_)
         synth_->silence();
+    if (noteTap_ != NULL)
+        noteTap_->flush(-1);
 }
 
 /* reset() is what makes --seed style replays a first-class feature:

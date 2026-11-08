@@ -22,8 +22,9 @@
  *
  * Each row makes a synth of some width, plays an instrument of some width
  * whose outputs are constants, and reads each of the synth's planes back:
- * its first sample, and whether every other sample in it is the same. A row with no `want' has the limiter on, and wants
- * no plane past full scale.
+ * its first sample, and whether every other sample in it is the same. A
+ * row with no `want' has the limiter on, and wants no plane past full
+ * scale.
  */
 
 #include "config.h"

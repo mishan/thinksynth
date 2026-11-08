@@ -466,6 +466,27 @@ public:
     }
 };
 
+/* Every note the scheduler sounds and ends, told to something that plays
+ * along: a video synth drawing a piece's notes. It hears what the synth
+ * hears -- an instrument played over MIDI's notes too, a seek's none --
+ * and keys them as a channel keys its voices: an on to a key already down
+ * ends the note there, and gets no off of its own. An off can name a key
+ * that is not down, as delNote can. Called on the thread the scheduler
+ * runs on; the tap outlives the scheduler, whose teardown ends notes. */
+class thcNoteTap
+{
+public:
+    virtual ~thcNoteTap (void) {}
+
+    virtual void noteOn (int channel, int note, int velocity, float level,
+                         const float *aux) = 0;
+    virtual void noteOff (int channel, int note) = 0;
+
+    /* Every note on the channel ends now: its instrument came off or was
+       replaced, voices and all. -1 is every channel: halt(). */
+    virtual void flush (int channel) = 0;
+};
+
 /* A note a chain was heard to play, or a stage let out: what freezing a
  * chain into a pattern reads, and what a probe on an arrow draws. */
 struct thcPlayed
@@ -1181,6 +1202,9 @@ public:
     /* The host's MIDI output, or NULL; see thcMidiOut. Set before a piece
        is loaded: an instrument is offered to it when it is applied. */
     void setMidiOut (thcMidiOut *out) { midiOut_ = out; }
+
+    /* What else hears the notes, or NULL; see thcNoteTap. */
+    void setNoteTap (thcNoteTap *tap) { noteTap_ = tap; }
 
     /* The clock thcMidiOut's stamps are on, where it is not the monotonic
        one: `at' turns a transport time into a stamp, `now' says what the
@@ -2078,6 +2102,7 @@ private:
     ChannelTaken               taken_;
 
     thcMidiOut                *midiOut_ = NULL;
+    thcNoteTap                *noteTap_ = NULL;
     bool                       overMidi_[16] = {};
     std::string                midiWhy_[16];
 
