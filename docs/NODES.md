@@ -944,6 +944,8 @@ Where on the raster a sample lands
 | `vsync` | out | 1 on a frame's first pixel, else 0 |  | 0 to 1 |  |  |
 | `frame` | out | Which frame, from 0 |  |  |  |  |
 | `t` | out | Seconds since the synth started |  |  | seconds |  |
+| `width` | out | Pixels a line |  |  | samples |  |
+| `size` | out | Pixels a frame |  |  | samples |  |
 
 ### misc::slew
 

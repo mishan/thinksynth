@@ -20,11 +20,12 @@
  * scancheck -- misc::scan, where on a video synth's raster each sample
  * lands, and the synth's count of samples it reads.
  *
- * Each row renders misc::scan's six outputs onto a six-wide synth with a
+ * Each row renders misc::scan's eight outputs onto an eight-wide synth with a
  * raster of some size, in windows of some size, and checks every sample
  * against the sample's own index n counted from the synth's start: x is
  * (n mod w) / w, y is (n / w mod h) / h, hsync and vsync mark a line's and
- * a frame's first pixel, frame is n / (w h), and t is n / rate. A note
+ * a frame's first pixel, frame is n / (w h), t is n / rate, and width and
+ * size are w and w h, what a frame-long delay is set by. A note
  * struck late reads where the synth is, not where the note began.
  */
 
@@ -40,8 +41,9 @@
 using std::string;
 
 static const char GRAPH[] =
-    "node ionode { channels = 6; play = 1; out0 = s->x; out1 = s->y;"
-    " out2 = s->hsync; out3 = s->vsync; out4 = s->frame; out5 = s->t; };\n"
+    "node ionode { channels = 8; play = 1; out0 = s->x; out1 = s->y;"
+    " out2 = s->hsync; out3 = s->vsync; out4 = s->frame; out5 = s->t;"
+    " out6 = s->width; out7 = s->size; };\n"
     "node s misc::scan { };\n"
     "io ionode;\n";
 
@@ -84,7 +86,7 @@ main (int argc, char *argv[])
 
     for (const auto &r : rows)
     {
-        thSynth synth(plugins, r.window, RATE, 6);
+        thSynth synth(plugins, r.window, RATE, 8);
 
         synth.setRaster(r.w, r.h);
         synth.setLimiter(false);
@@ -94,7 +96,8 @@ main (int argc, char *argv[])
             report(r.name, "the graph does not load");
             continue;
         }
-        static const char *const names[] = { "x", "y", "hsync", "vsync", "frame", "t" };
+        static const char *const names[] = { "x", "y", "hsync", "vsync", "frame", "t",
+                                             "width", "size" };
         char why[160] = "";
 
         for (int k = 0; k < r.windows && !why[0]; k++)
@@ -112,16 +115,18 @@ main (int argc, char *argv[])
             {
                 const long n = (long)k * r.window + i;
                 const bool raster = r.w > 0;
-                const double want[6] = {
+                const double want[8] = {
                     raster ? (double)(n % r.w) / r.w : 0,
                     raster ? (double)(n / r.w % r.h) / r.h : 0,
                     raster && n % r.w == 0 ? 1.0 : 0.0,
                     raster && n % (r.w * r.h) == 0 ? 1.0 : 0.0,
                     raster ? (double)(n / (r.w * r.h)) : 0,
                     raster ? (double)n / RATE : 0,
+                    (double)r.w,
+                    (double)r.w * r.h,
                 };
 
-                for (int o = 0; o < 6; o++)
+                for (int o = 0; o < 8; o++)
                 {
                     const float got = synth.getOutput()[o * r.window + i];
 

@@ -942,6 +942,7 @@ add_test(NAME genwav.video
                  -DGENWAV=$<TARGET_FILE:genwav>
                  -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/video.gen
                  -DVIDEO_DSP=${PROJECT_SOURCE_DIR}/scripts/guard/videoramp.dsp
+                 -DVIDEO_DIR=${PROJECT_SOURCE_DIR}/video
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DWORK=${PROJECT_BINARY_DIR}/genwav-video
