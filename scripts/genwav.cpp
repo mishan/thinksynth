@@ -1183,6 +1183,7 @@ int main (int argc, char **argv)
         if (!videoDsp.empty() && videoWhy.empty())
         {
             video.synth()->setTempo(synth.tempo());
+            video.bridge(synth, sched.knobs());
             video.advance((int64_t)(windowsRendered * window),
                           TH_DEFAULT_SAMPLES, videoWhy);
         }

@@ -5,7 +5,9 @@
 # The frames are read back from the .y4m: black before the note and after
 # it, the ramp across a frame while it sounds, as many frames as the WAV
 # is long, the same bytes on a second render, and --from and --length
-# trimming the two files to the same whole frames.
+# trimming the two files to the same whole frames. And the audio reaching
+# the video synth: the ramp swapped for @in_level, @in_mid and @knob_k in
+# turn, each of which lights the frames under the note alone.
 if(NOT GENWAV OR NOT PIECE OR NOT VIDEO_DSP OR NOT PLUGIN_DIR OR NOT DSP_PATH OR NOT WORK)
   message(FATAL_ERROR "GENWAV, PIECE, VIDEO_DSP, PLUGIN_DIR, DSP_PATH and WORK are required")
 endif()
@@ -19,10 +21,12 @@ set(H 24)
 set(FPS 30)
 math(EXPR FRAME "6 + 3 * ${W} * ${H}")
 
+set(dsp "${VIDEO_DSP}")
+
 function(render name)
   execute_process(
       COMMAND "${GENWAV}" -p "${PLUGIN_DIR}" -s 4 -q -o "${WORK}/${name}.wav"
-              --video "${VIDEO_DSP}" --video-out "${WORK}/${name}.y4m"
+              --video "${dsp}" --video-out "${WORK}/${name}.y4m"
               --raster ${W}x${H}@${FPS} ${ARGN} "${PIECE}"
       ERROR_VARIABLE report
       RESULT_VARIABLE rc)
@@ -112,3 +116,21 @@ measure(tiny)
 if(NOT frames EQUAL want)
   message(FATAL_ERROR "4x1@200: ${frames} frames for ${samples} samples of audio; want ${want}")
 endif()
+
+# The bridge: a gray as bright as each chanarg, scaled so the organ's C4
+# reads well clear of black.
+set(FPS 30)
+math(EXPR FRAME "6 + 3 * ${W} * ${H}")
+file(READ "${VIDEO_DSP}" ramp)
+foreach(arg in_level in_mid knob_k)
+  string(REPLACE "in0 = s->x;" "in0 = @${arg} * 8;" text "${ramp}")
+  file(WRITE "${WORK}/${arg}.dsp" "@${arg} = 0;\n${text}")
+  set(dsp "${WORK}/${arg}.dsp")
+  render(${arg})
+  measure(${arg})
+  luma(${arg} 37 0 lit)
+  luma(${arg} 20 0 dark)
+  if(NOT lit GREATER 40 OR NOT dark EQUAL 16)
+    message(FATAL_ERROR "@${arg} does not reach the video synth: Y ${lit} under the note, ${dark} before it")
+  endif()
+endforeach()

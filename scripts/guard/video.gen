@@ -1,7 +1,10 @@
 # One note, C4 from 1 s to 1.5 s, for cmake/RunGenwavVideo.cmake: the
-# video synth draws while it sounds and is black either side.
+# video synth draws while it sounds and is black either side. @k is there
+# for the video synth to read as @knob_k.
 
 tempo 60;
+
+@k = 0.5;
 
 section play 2 s { };
 section end;

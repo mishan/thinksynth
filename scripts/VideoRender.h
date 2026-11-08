@@ -27,6 +27,20 @@
  * amp, and plays the notes the scheduler hands that channel (a
  * thcNoteTap), so a chord draws as three voices.
  *
+ * The audio reaches it as chanargs, set on every channel it follows after
+ * each audio window, where its .dsp declares them:
+ *
+ *   @in_level              the mix's RMS
+ *   @in_level0 ...         each audio channel's own RMS, before the master
+ *   @in_bass, @in_mid,     the mix's amplitude under 250 Hz (less DC), to
+ *   @in_high               2 kHz, and above: the root of the band's summed
+ *                          squared magnitudes, whatever its width, a
+ *                          full-scale sine about 1, clamped to 0..1
+ *   @knob_<name>           each of the piece's knobs
+ *
+ * `in_' and `knob_' so they cannot meet a patch's own @level. No smoothing:
+ * a .dsp that wants it filters the chanarg like any signal.
+ *
  * It renders only whole windows of whole lines that end at or before the
  * audio's time, in integer arithmetic, so it never drifts. A window is no
  * longer than an audio window, so the video trails the audio by less than
@@ -42,7 +56,10 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include <math.h>
+
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -50,6 +67,8 @@
 #include <vector>
 
 #include "think.h"
+#include "thArg.h"
+#include "thFFT.h"
 #include "thMidiChan.h"
 #include "thSynth.h"
 #include "thUtil.h"
@@ -115,6 +134,56 @@ public:
 
     thSynth *synth (void) { return synth_.get(); }
 
+    /* What the audio synth's last window said, onto every channel this
+       follows: see the header. */
+    void bridge (thSynth &audio, const std::map<std::string, thArg *> &knobs)
+    {
+        const int window = audio.getWindowlen(), channels = audio.audioChannelCount();
+        const float *mix = audio.getOutput();
+        std::vector<std::pair<std::string, float> > values;
+
+        values.push_back({ "in_level", rms(mix, (size_t)channels * window) });
+        for (int ch = 0; ch < audio.midiChanCount(); ch++)
+        {
+            int outputs = 0;
+            const float *own = audio.getChannelOutput(ch, &outputs);
+
+            values.push_back({ "in_level" + std::to_string(ch),
+                               own != NULL ? rms(own, (size_t)outputs * window) : 0 });
+        }
+
+        if (window == (int)fft_.size() && fft_.ok())
+        {
+            const auto mono = [&](unsigned int i)
+            {
+                float sum = 0;
+
+                for (int c = 0; c < channels; c++)
+                    sum += mix[(size_t)c * window + i];
+                return sum / channels;
+            };
+            const double hz = (double)audio.getSampleRate() / fft_.size();
+
+            magnitudes_.resize(fft_.bins());
+            fft_.magnitude(mono, magnitudes_.data());
+            values.push_back({ "in_bass", band(1, 250 / hz) });
+            values.push_back({ "in_mid", band(250 / hz, 2000 / hz) });
+            values.push_back({ "in_high", band(2000 / hz, fft_.bins()) });
+        }
+
+        for (const auto &k : knobs)
+            values.push_back({ "knob_" + k.first, (*k.second)[0] });
+
+        for (int ch : follow_)
+            for (const auto &v : values)
+            {
+                thArg *arg = synth_->getChanArg(ch, v.first);
+
+                if (arg != NULL)
+                    arg->setValue(v.second);
+            }
+    }
+
     /* Every whole window that ends at or before `audio' samples at
        `audioRate'. */
     bool advance (int64_t audio, int64_t audioRate, std::string &why)
@@ -171,6 +240,27 @@ public:
     }
 
 private:
+    static float rms (const float *x, size_t n)
+    {
+        double sum = 0;
+
+        for (size_t i = 0; i < n; i++)
+            sum += (double)x[i] * x[i];
+        return n ? (float)sqrt(sum / n) : 0;
+    }
+
+    /* Bins from `lo' up to `hi'. */
+    float band (double lo, double hi)
+    {
+        const unsigned int first = (unsigned int)ceil(lo);
+        const unsigned int last = std::min((unsigned int)ceil(hi), fft_.bins());
+        double sum = 0;
+
+        for (unsigned int b = first; b < last; b++)
+            sum += (double)magnitudes_[b] * magnitudes_[b];
+        return (float)std::min(1.0, sqrt(sum));
+    }
+
     /* One window, into the frame being filled; a full frame to the file. */
     bool render (std::string &why)
     {
@@ -221,6 +311,8 @@ private:
     int64_t keepFirst_ = 0, keepLast_ = INT64_MAX;
     std::vector<float> frame_;
     size_t filled_ = 0;
+    thv::FFTR fft_ { 10 };
+    std::vector<float> magnitudes_;
 };
 
 #endif /* VIDEO_RENDER_H */
