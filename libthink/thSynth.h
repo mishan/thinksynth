@@ -31,9 +31,13 @@ class thMidiChan;
 
 class THINK_API thSynth {
 public:
+    /* `channels' is how many planes getOutput() holds: 2 for stereo, 3 for
+       a video synth's R, G and B. An instrument narrower fills the first of
+       them; one wider is cut to fit. */
     thSynth (int windowlen=TH_DEFAULT_WINDOW_LENGTH,
-             int samples=TH_DEFAULT_SAMPLES);
-    thSynth (const string &plugin_path, int windowlen, int samples);
+             int samples=TH_DEFAULT_SAMPLES, int channels=2);
+    thSynth (const string &plugin_path, int windowlen, int samples,
+             int channels=2);
     ~thSynth (void);
 
     /* The first synth made in this process, until it is destroyed; NULL
@@ -312,6 +316,11 @@ public:
 
         return gain;
     }
+
+    /* The soft limiter after the master gain, on unless turned off. A
+       picture wants voices that add past white to clip there, not to be
+       pressed under it. Relaxed for the reason masterGain is. */
+    void setLimiter (bool on) { __atomic_store_n(&limiter_, on, __ATOMIC_RELAXED); }
 
     /* The piece's tempo in beats per minute, for misc::tempo: what a graph
      * times a synced delay or LFO by. Written by the scheduler and read by
@@ -641,6 +650,7 @@ private:
     int channels_;  /* Number of channels (mono/stereo/etc) */
     int windowlen_;
     float masterGain_;  /* see setMasterGain(); accessed atomically */
+    bool limiter_;      /* see setLimiter(); accessed atomically */
     float tempo_;       /* see setTempo(); accessed atomically */
     long sampleRate_; /* the number of samples per second*/
 

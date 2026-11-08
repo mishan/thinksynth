@@ -182,6 +182,7 @@ think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 think_harness(dsplevel)
 think_harness(motioncheck)
 think_harness(envcheck)
+think_harness(widthcheck)
 
 if(TARGET think_camera)
   think_harness(cameracheck)
@@ -1164,6 +1165,8 @@ add_test(NAME hidmapcheck COMMAND hidmapcheck)
 add_test(NAME hidloopcheck COMMAND hidloopcheck)
 add_test(NAME envcheck
          COMMAND envcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME widthcheck
+         COMMAND widthcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME mpecheck

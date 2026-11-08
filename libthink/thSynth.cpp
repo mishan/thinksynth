@@ -385,14 +385,25 @@ static int clampWindowlen (int windowlen)
     return TH_DEFAULT_WINDOW_LENGTH;
 }
 
-thSynth::thSynth (int windowlen, int samples)
+static int clampChannels (int channels)
+{
+    if (channels >= 1 && channels <= TH_MAX_CHANNELS)
+        return channels;
+
+    fprintf(stderr, "thSynth: %d channels out of range (1..%d), using 2\n",
+            channels, TH_MAX_CHANNELS);
+
+    return 2;
+}
+
+thSynth::thSynth (int windowlen, int samples, int channels)
 {
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
     windowlen_ = clampWindowlen(windowlen);
 
-    channels_ = 2;  /* mono / stereo / etc */
+    channels_ = clampChannels(channels);
 
     /* intialize default sample rate */
     sampleRate_ = samples;
@@ -428,6 +439,7 @@ thSynth::thSynth (int windowlen, int samples)
     }
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
+    limiter_ = true;
     tempo_ = 120;
 
     silent_ = false;
@@ -445,14 +457,15 @@ thSynth::thSynth (int windowlen, int samples)
     claimInstance();
 }
 
-thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
+thSynth::thSynth (const string &plugin_path, int windowlen, int samples,
+                  int channels)
 {
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
     windowlen_ = clampWindowlen(windowlen);
 
-    channels_ = 2;  /* mono / stereo / etc */
+    channels_ = clampChannels(channels);
 
     /* intialize default sample rate */
     sampleRate_ = samples;
@@ -488,6 +501,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     }
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
+    limiter_ = true;
     tempo_ = 120;
 
     silent_ = false;
@@ -2902,8 +2916,12 @@ void thSynth::process (void)
     const float gain = masterGain();
     const size_t samples = thOutputSamples(channels_, windowlen_);
 
-    for (size_t i = 0; i < samples; i++)
-        output_[i] = thSoftLimit(output_[i] * gain);
+    if (__atomic_load_n(&limiter_, __ATOMIC_RELAXED))
+        for (size_t i = 0; i < samples; i++)
+            output_[i] = thSoftLimit(output_[i] * gain);
+    else
+        for (size_t i = 0; i < samples; i++)
+            output_[i] *= gain;
 
     /* Deliberately after the mix and deliberately untouched by the gain or the
        limiter: a probe reports the signal at a point inside the graph, and
