@@ -21,8 +21,8 @@
  * limiter turned off.
  *
  * Each row makes a synth of some width, plays an instrument of some width
- * whose outputs are constants, and reads the first sample of each of the
- * synth's planes back. A row with no `want' has the limiter on, and wants
+ * whose outputs are constants, and reads each of the synth's planes back:
+ * its first sample, and whether every other sample in it is the same. A row with no `want' has the limiter on, and wants
  * no plane past full scale.
  */
 
@@ -103,12 +103,18 @@ main (int argc, char *argv[])
 
         for (int c = 0; c < synth.audioChannelCount(); c++)
         {
-            const float v = synth.getOutput()[c * 64];
+            const float *plane = synth.getOutput() + c * 64;
             char text[16];
 
-            snprintf(text, sizeof(text), "%s%.2g", c ? " " : "", v);
+            snprintf(text, sizeof(text), "%s%.2g", c ? " " : "", plane[0]);
             got += text;
-            under = under && v <= 1;
+            for (int i = 1; i < 64; i++)
+                if (plane[i] != plane[0])
+                {
+                    got += "(uneven)";
+                    break;
+                }
+            under = under && plane[0] <= 1;
         }
         if (r.want ? got == r.want : under)
             printf("ok    %s: %s\n", r.name, got.c_str());

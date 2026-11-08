@@ -319,7 +319,9 @@ public:
 
     /* The soft limiter after the master gain, on unless turned off. A
        picture wants voices that add past white to clip there, not to be
-       pressed under it. Relaxed for the reason masterGain is. */
+       pressed under it. Off, a non-finite sample is no longer made finite
+       here either: what reads getOutput() handles it. Relaxed for the
+       reason masterGain is. */
     void setLimiter (bool on) { __atomic_store_n(&limiter_, on, __ATOMIC_RELAXED); }
 
     /* The piece's tempo in beats per minute, for misc::tempo: what a graph
