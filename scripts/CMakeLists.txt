@@ -181,6 +181,7 @@ think_harness(dspcheck PATCH EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(motioncheck)
+think_harness(videofilecheck)
 think_harness(envcheck)
 think_harness(widthcheck)
 think_harness(scancheck)
@@ -1170,6 +1171,7 @@ add_test(NAME widthcheck
          COMMAND widthcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME scancheck
          COMMAND scancheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME videofilecheck COMMAND videofilecheck)
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME mpecheck
