@@ -932,6 +932,19 @@ Prints 'in'
 |---|---|---|---|---|---|---|
 | `in` | in | Printed to stdout, one window at a time |  |  |  |  |
 
+### misc::scan
+
+Where on the raster a sample lands
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `x` | out | Across, 0 at the left edge to 1 at the right |  | 0 to 1 |  |  |
+| `y` | out | Down, 0 at the top to 1 at the bottom |  | 0 to 1 |  |  |
+| `hsync` | out | 1 on a line's first pixel, else 0 |  | 0 to 1 |  |  |
+| `vsync` | out | 1 on a frame's first pixel, else 0 |  | 0 to 1 |  |  |
+| `frame` | out | Which frame, from 0 |  |  |  |  |
+| `t` | out | Seconds since the synth started |  |  | seconds |  |
+
 ### misc::slew
 
 One-pole lag
