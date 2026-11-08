@@ -100,7 +100,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 {
     /* User args */
     thArg *in_a, *in_d, *in_s, *in_r, *in_f, *in_p, *in_trigger, *in_reset;  
-    thArg *inout_position;  /* [0] = position in stage, [1] = current stage */
+    thArg *inout_position;  /* [0] = position in stage, [1] = current stage,
+                               [2] = the position's remainder (thSplitCount) */
     thArg *out_out, *out_play;
 
     float *out, *play;
@@ -109,7 +110,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float temp;  /* each (*in_a)[] thing uses a modulus and all that */
     float falloff;
     float peak;
-    float position;
+    /* Double, to count past 2^24; its arithmetic stays in float. */
+    double position;
     int phase;
     unsigned int i = 0;
     float val_a, val_d, val_s, val_f, val_r, val_p, val_trigger, val_reset;
@@ -118,9 +120,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     out_play = mod->getArg(node, args[OUT_PLAY]);
     inout_position = mod->getArg(node, args[INOUT_POSITION]);
 
-    position = (*inout_position)[0];
+    position = (double)(*inout_position)[0] +
+               (inout_position->len() >= 3 ? (*inout_position)[2] : 0);
     phase = (int)(*inout_position)[1];
-    out_pos = inout_position->allocate(2);
+    out_pos = inout_position->allocate(3);
 
     out = out_out->allocate(windowlen);
     play = out_play->allocate(windowlen);
@@ -180,7 +183,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             play[i] = 1;  /* Dont kill this note yet! */
             if (val_a < 1)
                 val_a = 1;
-            out[i] = ((position++)/val_a)*peak;
+            out[i] = ((float)(position++)/val_a)*peak;
             if(position >= val_a) {
                 phase = 1;   /* A ended, go to D */
                 position = 0;  /* ...and go back to the beginnning of the phase */
@@ -191,7 +194,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
             if (val_d < 1)
                 val_d = 1;
-            out[i] = val_s + ((log(M_E - (M_E - 1) * ((position++)/val_d))) *
+            out[i] = val_s + ((log(M_E - (M_E - 1) * ((float)(position++)/val_d))) *
                                 (peak - val_s));
             if(position >= val_d) {
                 phase = 2;   /* D ended, go to S */
@@ -219,7 +222,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
 
             temp = (1 - log(1 + (M_E - 1) *
-                            ((position++) / falloff))) * val_s;
+                            ((float)(position++) / falloff))) * val_s;
             if(temp == 0 || position > falloff) {  /* If there is no D section,
                                                       make it end */
                 out[i] = 0;
@@ -233,7 +236,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
             if(val_trigger <= 0) {
                 phase = 3;   /* D ended, time to fade out the note */
-                position = (position / falloff) * val_r;
+                position = (float)(((float)position / falloff) * val_r);
             }
             break;
         case 3:
@@ -246,7 +249,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             else {
                 play[i] = 1;
                 out[i] = (1 - log(1 + (M_E - 1) *
-                                  ((position++)/val_r))) * val_s;
+                                  ((float)(position++)/val_r))) * val_s;
             }
 
             if(val_trigger > 0) { // We have been retriggered
@@ -266,7 +269,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
     }
 
-    out_pos[0] = position;
+    thSplitCount(position, out_pos[0], out_pos[2]);
     out_pos[1] = phase;
 /*    node->SetArg("position", out_pos, 2);
     node->SetArg("out", out, windowlen);

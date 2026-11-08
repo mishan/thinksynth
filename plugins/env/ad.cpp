@@ -80,14 +80,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_d = mod->getArg(node, args[IN_D]);
     thArg *in_p = mod->getArg(node, args[IN_P]);
     thArg *in_reset = mod->getArg(node, args[IN_RESET]);
-    /* [0] the position in the stage, [1] the stage. */
+    /* [0] the position in the stage, [1] the stage, [2] the position's
+       remainder (thSplitCount). */
     thArg *inout_position = mod->getArg(node, args[INOUT_POSITION]);
     thkAd env;
 
-    env.position = (*inout_position)[0];
+    env.position = (uint32_t)((double)(*inout_position)[0] +
+                              (inout_position->len() >= 3 ? (*inout_position)[2] : 0));
     env.phase = (int)(*inout_position)[1];
 
-    float *state = inout_position->allocate(2);
+    float *state = inout_position->allocate(3);
     float *out = mod->getArg(node, args[OUT_OUT])->allocate(windowlen);
     float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
 
@@ -102,7 +104,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         out[i] = TH_MAX * env.tick(c, (*in_reset)[i], play[i]);
     }
 
-    state[0] = env.position;
+    thSplitCount(env.position, state[0], state[2]);
     state[1] = env.phase;
 
     return 0;
