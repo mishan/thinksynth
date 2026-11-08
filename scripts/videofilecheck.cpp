@@ -92,9 +92,14 @@ main (void)
         }
     }
 
-    std::ifstream in(path, std::ios::binary);
-    const string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    string bytes;
 
+    /* Closed before the remove, which Windows refuses on an open file. */
+    {
+        std::ifstream in(path, std::ios::binary);
+
+        bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
     std::filesystem::remove(path);
 
     /* The header, a token at a time: what is there, whatever the order. */
