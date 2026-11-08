@@ -100,7 +100,7 @@ main (void)
     /* The header, a token at a time: what is there, whatever the order. */
     const size_t eol = bytes.find('\n');
     std::istringstream header(bytes.substr(0, eol));
-    string tok, magic, size, rate, chroma;
+    string tok, magic, size, rate, scan, aspect, chroma;
 
     header >> magic;
     while (header >> tok)
@@ -108,10 +108,14 @@ main (void)
             size += tok;
         else if (tok[0] == 'F')
             rate = tok;
+        else if (tok[0] == 'I')
+            scan = tok;
+        else if (tok[0] == 'A')
+            aspect = tok;
         else if (tok[0] == 'C')
             chroma = tok;
-    report("the header", magic + " " + size + " " + rate + " " + chroma,
-           "YUV4MPEG2 W" + std::to_string(W) + "H1 F60:1 C444");
+    report("the header", magic + " " + size + " " + rate + " " + scan + " " + aspect + " " + chroma,
+           "YUV4MPEG2 W" + std::to_string(W) + "H1 F60:1 Ip A1:1 C444");
 
     /* Two frames, each FRAME and its three planes. */
     const size_t frame = 6 + 3 * (size_t)W * H;

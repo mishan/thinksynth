@@ -67,6 +67,8 @@ thVideoFile::open (const std::string &path, int width, int height, int fps,
                 width, height, fps) < 0)
     {
         why = path + ": " + strerror(errno);
+        fclose(file_);
+        file_ = NULL;
         return false;
     }
 

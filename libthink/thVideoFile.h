@@ -17,10 +17,11 @@
 
 /*
  * A video synth's frames, written as a .y4m: YUV4MPEG2, every pixel's Y,
- * Cb and Cr at full resolution (C444), in BT.601's limited range, which is
- * what a reader assumes of a .y4m that says nothing more. No library: mpv
- * plays it and ffmpeg reads it, and a frame's bytes are the same on every
- * platform. A frame is three planes of R, G and B, 0 black to 1 full; past
+ * Cb and Cr at full resolution (C444), in BT.601's limited range. A .y4m
+ * cannot say which matrix it uses; up to 1279x576 ffmpeg and mpv both read
+ * it as BT.601, and past that mpv guesses BT.709 and shows the colors
+ * shifted. No library: mpv plays it and ffmpeg reads it, and a frame's
+ * bytes are the same on every platform. A frame is three planes of R, G and B, 0 black to 1 full; past
  * either end is clamped, NaN is black and infinity white.
  */
 
