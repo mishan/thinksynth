@@ -3,7 +3,7 @@
 #
 # `@in_level' sets the brightness, scaled by `Response': a quiet passage
 # is a dim glow, a loud one blooms. The rings are copper and their gaps
-# violet, from the same wave with the sign turned over.
+# blue, from the same wave with the sign turned over.
 
 name "Rings";
 author "Misha Nasledov";

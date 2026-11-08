@@ -5,9 +5,12 @@
 # A video synth's effect, for genwav's --video-fx. Each of R, G and B goes
 # through a delay::echo a frame long (misc::scan's `size') and `Drift Down'
 # lines and `Drift Right' pixels more, so what was drawn comes round a
-# little down and to the right of where it was, wrapping at the edges. `Keep' is how much of the trail each frame keeps; past about 0.95 a
-# trail outlasts the piece. `Mix' is how much of the live picture is laid
-# over it.
+# little down and to the right of where it was, wrapping at the edges.
+#
+# `Keep' is how much of the trail each frame keeps: at 60 frames a second
+# 0.88 fades to a tenth in a third of a second, 0.98 in about two. `Mix' crossfades
+# the live picture against the trail: 1 is no trail, 0 no live picture,
+# and the 0.5 between dims each by half.
 #
 # What comes in is held at 0 and up first: a patch's negative half is
 # black on screen, but fed back it would be a dark trail eating whatever
@@ -60,7 +63,7 @@ node rin math::max { in0 = ionode->in0; in1 = 0; };
 
 node r delay::echo {
     in = rin->out;
-    size = s->size * 2;
+    size = s->size + 9 * s->width + 9;
     delay = s->size + @down * s->width + @right;
     feedback = @keep;
     dry = @mix;
@@ -70,7 +73,7 @@ node gin math::max { in0 = ionode->in1; in1 = 0; };
 
 node g delay::echo {
     in = gin->out;
-    size = s->size * 2;
+    size = s->size + 9 * s->width + 9;
     delay = s->size + @down * s->width + @right;
     feedback = @keep;
     dry = @mix;
@@ -80,7 +83,7 @@ node bin math::max { in0 = ionode->in2; in1 = 0; };
 
 node b delay::echo {
     in = bin->out;
-    size = s->size * 2;
+    size = s->size + 9 * s->width + 9;
     delay = s->size + @down * s->width + @right;
     feedback = @keep;
     dry = @mix;

@@ -13,8 +13,10 @@ side.
 
 ## Rendering
 
+From the source tree, with the build in `build/`:
+
 ```
-scripts/genwav -p plugins/ -s 60 -o ebb.wav \
+build/scripts/genwav -p build/plugins/ -s 60 -o ebb.wav \
     --video video/moire.dsp --video-out ebb.y4m gen/ebb.gen
 ```
 
@@ -34,8 +36,8 @@ ffmpeg -i ebb.y4m -i ebb.wav -vf scale=640:480:flags=neighbor \
        -color_primaries bt470bg -color_trc gamma28 -c:a aac -shortest ebb.mp4
 ```
 
-The frames are BT.601. A `.y4m` cannot say so, and past 1279x576 mpv
-guesses BT.709 and shows the colors shifted; the `-colorspace` flags above
+The frames are BT.601. A `.y4m` cannot say so, and on a picture 1280 or
+more wide or over 576 tall mpv guesses BT.709 and shows the colors shifted; the `-colorspace` flags above
 keep an encode right at any size.
 
 With `--video`, `--from` and `--length` are rounded to whole frames, so
@@ -71,20 +73,23 @@ Two dimensions are an expression away: a ring is a `math::sin` of
 picture multiply the x term by 1.78 for round rings.
 
 Pitch maps straight to the picture. At 60 frames a second a note at f Hz
-draws f / 60 bars down the screen, drifting at what is left over: C4 is
-4.36 bars, crawling. Multiplied by about the number of lines, the bars
-turn into diagonals.
+draws f / 60 bars down the screen, moving by what is left over each frame:
+C4 is 4.36 bars, jumping a third of a bar a frame, which strobes. A pitch
+near a multiple of 60 Hz holds still or crawls. At a frequency near a
+multiple of the line rate (60 x 120 lines, 7200 Hz) the bars stand up and
+lean into diagonals.
 Fast full-screen stripes are hard to watch; rings and moire are kinder.
 
 **Audio patches do not port.** At a pixel clock of a megahertz or more:
 
-- a sample is a microsecond, so a time given as samples (`env::adsr`'s
-  units) runs about 26 times faster than at 44.1 kHz; give times in
+- a time given as samples (`env::adsr`'s units) runs as many times
+  faster as the pixel clock is than 44.1 kHz: 26 at 160x120@60, 104 at
+  320x240@60; give times in
   `ms` or `s`, which are converted at the synth's own rate;
 - the slowest frequency a node can hold is the rate / 2^24, 0.07 Hz at
   160x120@60 and 0.27 Hz at 320x240@60;
-- `misc::scan`'s `t` is a float and coarsens over hours: steps of 1/4096 s
-  after one.
+- `misc::scan`'s `t` is a float and coarsens as it grows: steps of
+  1/4096 s from about half an hour in.
 
 ## What the music says
 
@@ -138,6 +143,7 @@ After each audio window, the video synth renders every window of its own
 that ends at or before the audio's time, counted in whole samples on both
 clocks, so the two never drift. A video window is whole lines and no
 longer than an audio window, so the picture trails the sound by less than
-one, about 23 ms, and a note reaches it within two. It gets the piece's
+one, about 23 ms, and a note reaches it within two. (On a picture so short
+that one line outlasts an audio window, a window is that line.) It gets the piece's
 seed and tempo as the audio synth does. After the music's tail it renders
 on to the end of the frame that holds the last of the audio.

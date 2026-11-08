@@ -59,7 +59,7 @@ function(measure name)
   set(want ${want} PARENT_SCOPE)
 endfunction()
 
-# Y at column `x' of the first row of frame `f'.
+# Y at pixel `x' of frame `f', counted row by row from the top left.
 function(luma name f x out)
   math(EXPR at "${start} + ${f} * ${FRAME} + 6 + ${x}")
   file(READ "${WORK}/${name}.y4m" byte OFFSET ${at} LIMIT 1 HEX)
@@ -157,7 +157,7 @@ function(lit name f out)
   set(${out} ${n} PARENT_SCOPE)
 endfunction()
 
-set(PIXELS 768)
+math(EXPR PIXELS "${W} * ${H}")
 set(dsp "${VIDEO_DSP}")
 render(trail --video-fx "${VIDEO_DIR}/fx/feedback.dsp")
 measure(trail)
