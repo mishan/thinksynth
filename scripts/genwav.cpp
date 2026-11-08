@@ -91,7 +91,7 @@
  * default), playing the notes of every instrument, or of those
  * `--video-follow' names, and written as a .y4m (VideoRender.h). With it,
  * --from and --length are rounded to whole frames, so the two files start
- * and end together.
+ * and end together: to the sample, where the frame rate divides 44100.
  *
  * With no `-p', a tree's own build is found beside this binary when the
  * install prefix has no plugins, so a fresh build runs as it stands.
@@ -941,9 +941,26 @@ int main (int argc, char **argv)
                  ("," + videoFollow + ",").find("," + inst.name + ",") !=
                      std::string::npos))
                 follow.insert(inst.channel);
+        for (size_t at = 0; at < videoFollow.size(); )
+        {
+            const size_t comma = std::min(videoFollow.find(',', at),
+                                          videoFollow.size());
+            const std::string name = videoFollow.substr(at, comma - at);
+            bool found = false;
+
+            for (const thcInstrument &inst : sched.instruments())
+                found = found || inst.name == name;
+            if (!found)
+            {
+                fprintf(stderr, "%s: %s declares no instrument %s to follow\n",
+                        argv[0], genFile.c_str(), name.c_str());
+                return 2;
+            }
+            at = comma + 1;
+        }
         if (follow.empty())
         {
-            fprintf(stderr, "%s: the video follows no instrument of %s\n",
+            fprintf(stderr, "%s: %s has no instrument for the video to follow\n",
                     argv[0], genFile.c_str());
             return 2;
         }
@@ -1030,10 +1047,10 @@ int main (int argc, char **argv)
 
     /* The frames --from and --length keep. The meters read only these, so
        what they say is what the files written hold. */
-    const size_t keepFirst = (size_t)(std::max(from, 0.0) *
-                                      TH_DEFAULT_SAMPLES);
+    const size_t keepFirst = (size_t)llround(std::max(from, 0.0) *
+                                             TH_DEFAULT_SAMPLES);
     const size_t keepLast = length < 0 ? SIZE_MAX :
-        keepFirst + (size_t)(length * TH_DEFAULT_SAMPLES);
+        keepFirst + (size_t)llround(length * TH_DEFAULT_SAMPLES);
     const auto kept = [&] (size_t at) { return at >= keepFirst &&
                                                at < keepLast; };
 
@@ -1339,9 +1356,9 @@ int main (int argc, char **argv)
         from = std::max(from, 0.0);
 
         const size_t first = std::min(pcm.size(),
-            (size_t)(from * TH_DEFAULT_SAMPLES) * (size_t)channels);
+            (size_t)llround(from * TH_DEFAULT_SAMPLES) * (size_t)channels);
         const size_t last = length < 0 ? pcm.size() : std::min(pcm.size(),
-            first + (size_t)(length * TH_DEFAULT_SAMPLES) *
+            first + (size_t)llround(length * TH_DEFAULT_SAMPLES) *
                     (size_t)channels);
 
         pcm = std::vector<float>(pcm.begin() + first, pcm.begin() + last);

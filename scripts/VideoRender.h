@@ -30,12 +30,15 @@
  * It renders only whole windows of whole lines that end at or before the
  * audio's time, in integer arithmetic, so it never drifts. A window is no
  * longer than an audio window, so the video trails the audio by less than
- * one, and a note reaches it within two of its time.
+ * one, and a note reaches it within two of its time -- unless one line
+ * takes longer to scan than an audio window lasts, as on a picture a few
+ * lines tall, when a window is that line.
  */
 
 #ifndef VIDEO_RENDER_H
 #define VIDEO_RENDER_H
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdint.h>
 
@@ -62,11 +65,17 @@ public:
                const std::string &raster, const std::set<int> &follow,
                const std::string &path, std::string &why)
     {
-        if (sscanf(raster.c_str(), "%dx%d@%d", &width_, &height_, &fps_) != 3 ||
-            width_ < 1 || height_ < 1 || fps_ < 1 || width_ > TH_MAX_WINDOW_LENGTH)
+        int end = 0;
+
+        if (sscanf(raster.c_str(), "%dx%d@%d%n", &width_, &height_, &fps_,
+                   &end) != 3 || end != (int)raster.size() ||
+            width_ < 1 || height_ < 1 || fps_ < 1 ||
+            width_ > TH_MAX_WINDOW_LENGTH ||
+            (int64_t)width_ * height_ * fps_ > INT_MAX)
         {
-            why = "--raster wants WIDTHxHEIGHT@FPS, at most " +
-                  std::to_string(TH_MAX_WINDOW_LENGTH) + " wide: " + raster;
+            why = "--raster wants WIDTHxHEIGHT@FPS in whole numbers, at most " +
+                  std::to_string(TH_MAX_WINDOW_LENGTH) + " wide and " +
+                  std::to_string(INT_MAX) + " pixels a second: " + raster;
             return false;
         }
 
