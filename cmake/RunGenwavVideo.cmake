@@ -6,8 +6,9 @@
 # it, the ramp across a frame while it sounds, as many frames as the WAV
 # is long, the same bytes on a second render, and --from and --length
 # trimming the two files to the same whole frames. And the audio reaching
-# the video synth: the ramp swapped for @in_level, @in_mid and @knob_k in
-# turn, each of which lights the frames under the note alone.
+# the video synth: the ramp swapped for each of the bridge's chanargs in
+# turn, which light the frames under the note, or for @in_bass, which a
+# C4 organ leaves dark.
 if(NOT GENWAV OR NOT PIECE OR NOT VIDEO_DSP OR NOT PLUGIN_DIR OR NOT DSP_PATH OR NOT WORK)
   message(FATAL_ERROR "GENWAV, PIECE, VIDEO_DSP, PLUGIN_DIR, DSP_PATH and WORK are required")
 endif()
@@ -122,15 +123,24 @@ endif()
 set(FPS 30)
 math(EXPR FRAME "6 + 3 * ${W} * ${H}")
 file(READ "${VIDEO_DSP}" ramp)
-foreach(arg in_level in_mid knob_k)
+foreach(arg in_level in_level0 in_mid in_bass knob_k)
   string(REPLACE "in0 = s->x;" "in0 = @${arg} * 8;" text "${ramp}")
   file(WRITE "${WORK}/${arg}.dsp" "@${arg} = 0;\n${text}")
   set(dsp "${WORK}/${arg}.dsp")
   render(${arg})
   measure(${arg})
-  luma(${arg} 37 0 lit)
-  luma(${arg} 20 0 dark)
-  if(NOT lit GREATER 40 OR NOT dark EQUAL 16)
-    message(FATAL_ERROR "@${arg} does not reach the video synth: Y ${lit} under the note, ${dark} before it")
+  luma(${arg} 37 0 y)
+  if(arg STREQUAL "in_bass")
+    # A note's onset and the window's skirt reach below 250 Hz a little.
+    math(EXPR bass "${y} - 16")
+    math(EXPR quarter "(${mid_y} - 16) / 4")
+    if(NOT bass LESS quarter)
+      message(FATAL_ERROR "@in_bass reads a C4 organ as bass: Y ${y} under the note, @in_mid ${mid_y}")
+    endif()
+  elseif(NOT y GREATER 40)
+    message(FATAL_ERROR "@${arg} does not reach the video synth: Y ${y} under the note")
+  endif()
+  if(arg STREQUAL "in_mid")
+    set(mid_y ${y})
   endif()
 endforeach()

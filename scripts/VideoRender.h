@@ -28,14 +28,14 @@
  * thcNoteTap), so a chord draws as three voices.
  *
  * The audio reaches it as chanargs, set on every channel it follows after
- * each audio window, where its .dsp declares them:
+ * each audio window, where its .dsp uses them:
  *
  *   @in_level              the mix's RMS
  *   @in_level0 ...         each audio channel's own RMS, before the master
- *   @in_bass, @in_mid,     the mix's amplitude under 250 Hz (less DC), to
- *   @in_high               2 kHz, and above: the root of the band's summed
- *                          squared magnitudes, whatever its width, a
- *                          full-scale sine about 1, clamped to 0..1
+ *   @in_bass, @in_mid,     the mix's amplitude under 250 Hz, to 2 kHz, and
+ *   @in_high               above, with its DC taken out: the root of the
+ *                          band's summed squared magnitudes, whatever its
+ *                          width, a full-scale sine 1, clamped to 0..1
  *   @knob_<name>           each of the piece's knobs
  *
  * `in_' and `knob_' so they cannot meet a patch's own @level. No smoothing:
@@ -152,15 +152,29 @@ public:
                                own != NULL ? rms(own, (size_t)outputs * window) : 0 });
         }
 
-        if (window == (int)fft_.size() && fft_.ok())
+        if (window != (int)fft_.size() || !fft_.ok())
         {
+            if (!bandsSaid_)
+                fprintf(stderr, "the video's @in_bass, @in_mid and @in_high "
+                        "want audio windows of %u samples, not %d\n",
+                        fft_.size(), window);
+            bandsSaid_ = true;
+        }
+        else
+        {
+            double dc = 0;
+
+            for (size_t i = 0; i < (size_t)channels * window; i++)
+                dc += mix[i];
+            dc /= (double)channels * window;
+
             const auto mono = [&](unsigned int i)
             {
                 float sum = 0;
 
                 for (int c = 0; c < channels; c++)
                     sum += mix[(size_t)c * window + i];
-                return sum / channels;
+                return sum / channels - (float)dc;
             };
             const double hz = (double)audio.getSampleRate() / fft_.size();
 
@@ -249,7 +263,8 @@ private:
         return n ? (float)sqrt(sum / n) : 0;
     }
 
-    /* Bins from `lo' up to `hi'. */
+    /* A Hann window spreads a sine over bins whose squares sum to 1.5 times
+       its peak's: divided out, a full-scale sine reads 1 wherever it falls. */
     float band (double lo, double hi)
     {
         const unsigned int first = (unsigned int)ceil(lo);
@@ -258,7 +273,7 @@ private:
 
         for (unsigned int b = first; b < last; b++)
             sum += (double)magnitudes_[b] * magnitudes_[b];
-        return (float)std::min(1.0, sqrt(sum));
+        return (float)std::min(1.0, sqrt(sum / 1.5));
     }
 
     /* One window, into the frame being filled; a full frame to the file. */
@@ -312,6 +327,7 @@ private:
     std::vector<float> frame_;
     size_t filled_ = 0;
     thv::FFTR fft_ { 10 };
+    bool bandsSaid_ = false;
     std::vector<float> magnitudes_;
 };
 
