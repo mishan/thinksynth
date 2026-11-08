@@ -24,7 +24,8 @@
  * raster of some size, in windows of some size, and checks every sample
  * against the sample's own index n counted from the synth's start: x is
  * (n mod w) / w, y is (n / w mod h) / h, hsync and vsync mark a line's and
- * a frame's first pixel, frame is n / (w h), and t is n / rate.
+ * a frame's first pixel, frame is n / (w h), and t is n / rate. A note
+ * struck late reads where the synth is, not where the note began.
  */
 
 #include "config.h"
@@ -70,13 +71,14 @@ main (int argc, char *argv[])
 
     static const struct {
         const char *name;
-        int w, h, window, windows;
+        int w, h, window, windows, late;
     } rows[] = {
-        { "a window a line long", 8, 4, 8, 12 },
-        { "a window of lines", 8, 4, 16, 6 },
-        { "a window across lines and frames", 5, 3, 7, 13 },
-        { "a window longer than a frame", 4, 2, 11, 5 },
-        { "no raster", 0, 0, 16, 3 },
+        { "a window a line long", 8, 4, 8, 12, 0 },
+        { "a window of lines", 8, 4, 16, 6, 0 },
+        { "a window across lines and frames", 5, 3, 7, 13, 0 },
+        { "a window longer than a frame", 4, 2, 11, 5, 0 },
+        { "a note struck three windows in", 5, 3, 7, 9, 3 },
+        { "no raster", 0, 0, 16, 3, 0 },
     };
     const int RATE = 1000;
 
@@ -92,13 +94,13 @@ main (int argc, char *argv[])
             report(r.name, "the graph does not load");
             continue;
         }
-        synth.addNote(0, 60, MIDIVALMAX);
-
         static const char *const names[] = { "x", "y", "hsync", "vsync", "frame", "t" };
         char why[160] = "";
 
         for (int k = 0; k < r.windows && !why[0]; k++)
         {
+            if (k == r.late)
+                synth.addNote(0, 60, MIDIVALMAX);
             synth.process();
             if (synth.position() != (int64_t)k * r.window)
             {
@@ -106,7 +108,7 @@ main (int argc, char *argv[])
                          (long long)synth.position(), k * r.window);
                 break;
             }
-            for (int i = 0; i < r.window && !why[0]; i++)
+            for (int i = 0; i < r.window && !why[0] && k >= r.late; i++)
             {
                 const long n = (long)k * r.window + i;
                 const bool raster = r.w > 0;

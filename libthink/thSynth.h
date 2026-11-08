@@ -326,7 +326,8 @@ public:
 
     /* The sample that begins the window process() is rendering, or last
        rendered, counted from the first: where a node is in time without a
-       clock of its own. Every window counts, a silent synth's too. Audio
+       clock of its own. Every window process() renders counts, a silent
+       synth's too; a tree run without it sees no time pass. Audio
        thread. */
     int64_t position (void) const { return position_; }
 

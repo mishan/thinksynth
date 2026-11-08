@@ -26,9 +26,10 @@
  * (x - 0.5)^2 + (y - 0.5)^2, and a bar a sine of y. `t' is seconds since
  * the synth started, for what moves.
  *
- * Worked out from the count in 64-bit integers, so the picture is as
- * steady after an hour as in the first frame. On a synth with no raster
- * every output is 0.
+ * x, y, the syncs and the frame are worked out from the count in 64-bit
+ * integers, so they are as steady after an hour as in the first frame.
+ * `t' is a float, so it coarsens as it grows: steps of 1/4096 s after an
+ * hour. On a synth with no raster every output is 0.
  */
 
 #include <stdio.h>
