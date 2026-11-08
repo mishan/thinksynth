@@ -10951,10 +10951,11 @@ struct RecordingTap : public thcNoteTap
         down.erase({ channel, note });
     }
 
-    void allOff (void) override
+    void flush (int channel) override
     {
-        calls.push_back("all off");
-        down.clear();
+        calls.push_back("flush " + std::to_string(channel));
+        for (auto k = down.begin(); k != down.end(); )
+            k = channel < 0 || k->first == channel ? down.erase(k) : std::next(k);
     }
 
     size_t count (const std::string &what) const
@@ -10970,8 +10971,9 @@ struct RecordingTap : public thcNoteTap
 
 /* setNoteTap: the tap hears each note the piece sounds and each end,
  * whichever way the note ended -- its duration up, its key let go, a stop
- * with the note still held -- the notes of an instrument played over MIDI
- * too, and a halt as one all-off. */
+ * with the note still held, its instrument swapped out from under it --
+ * the notes of an instrument played over MIDI too, and a halt as a flush
+ * of every channel. */
 static void
 checkNoteTap (const std::map<std::string, thcPlugin *> &plugins,
               thSynth *synth)
@@ -10979,6 +10981,7 @@ checkNoteTap (const std::map<std::string, thcPlugin *> &plugins,
     const std::string text =
         "tempo 60;\n"
         "instrument organ { dsp \"organ0.dsp\"; };\n"
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
         "instrument ext { midi \"Fake\"; midichannel = 1; };\n"
         "chain beat {\n"
         "    stage g gen::grid { notes = \"C4\"; steps = 1; rows = 1;\n"
@@ -10999,7 +11002,7 @@ checkNoteTap (const std::map<std::string, thcPlugin *> &plugins,
         f << text;
     }
 
-    const auto run = [&](bool halt, RecordingTap &tap, std::string &why)
+    const auto run = [&](bool halt, bool swap, RecordingTap &tap, std::string &why)
     {
         FakeMidiOut out;
         thcScheduler sched(synth);
@@ -11034,6 +11037,16 @@ checkNoteTap (const std::map<std::string, thcPlugin *> &plugins,
         {
             if (step == 15)
                 key(THC_EV_NOTE, 64);       /* held, and let go at 0.6 s */
+            if (step == 20 && swap)
+            {
+                std::string swhy;
+
+                if (!sched.swapInstrument(organ, "pad", swhy))
+                    why = "the swap was refused: " + swhy;
+                else if (tap.down.count({ organ, 64 }))
+                    why = "the key held when its instrument was swapped "
+                          "out is still down";
+            }
             if (step == 30)
                 key(THC_EV_NOTEOFF, 64);
             if (step == 65)
@@ -11051,12 +11064,12 @@ checkNoteTap (const std::map<std::string, thcPlugin *> &plugins,
         RecordingTap tap;
         std::string why;
 
-        run(false, tap, why);
+        run(false, false, tap, why);
 
         /* C4 and G4 at 0, 1 and 2 s, the third cut by the stop at 2.1 s;
            E4 held and let go; C5 held into the stop. */
         if (why.empty() && (tap.count("on ") != 8 || tap.count("off ") != 8 ||
-                            !tap.down.empty() || tap.count("all off") != 0))
+                            !tap.down.empty()))
         {
             why = std::to_string(tap.count("on ")) + " ons and " +
                   std::to_string(tap.count("off ")) + " offs, " +
@@ -11072,12 +11085,22 @@ checkNoteTap (const std::map<std::string, thcPlugin *> &plugins,
         RecordingTap tap;
         std::string why;
 
-        run(true, tap, why);
-        if (why.empty() && (tap.calls.empty() || tap.calls.back() != "all off"))
+        run(true, false, tap, why);
+        if (why.empty() && (tap.calls.empty() || tap.calls.back() != "flush -1"))
             why = "the last call was " + (tap.calls.empty() ? std::string("none")
                                                              : tap.calls.back());
         if (!why.empty())
-            fail("a halt did not reach the note tap as an all-off: " + why);
+            fail("a halt did not reach the note tap as a flush of every "
+                 "channel: " + why);
+    }
+
+    {
+        RecordingTap tap;
+        std::string why;
+
+        run(false, true, tap, why);
+        if (!why.empty())
+            fail("a note tap did not hear a swap end its channel's notes: " + why);
     }
 
     std::filesystem::remove(path);

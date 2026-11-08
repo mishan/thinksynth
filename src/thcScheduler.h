@@ -469,8 +469,10 @@ public:
 /* Every note the scheduler sounds and ends, told to something that plays
  * along: a video synth drawing a piece's notes. It hears what the synth
  * hears -- an instrument played over MIDI's notes too, a seek's none --
- * and every end, however the note ended: its duration up, its key let go,
- * a stop. Called on the thread the scheduler runs on. */
+ * and keys them as a channel keys its voices: an on to a key already down
+ * ends the note there, and gets no off of its own. An off can name a key
+ * that is not down, as delNote can. Called on the thread the scheduler
+ * runs on; the tap outlives the scheduler, whose teardown ends notes. */
 class thcNoteTap
 {
 public:
@@ -480,8 +482,9 @@ public:
                          const float *aux) = 0;
     virtual void noteOff (int channel, int note) = 0;
 
-    /* Every note on every channel, at once: halt(). */
-    virtual void allOff (void) = 0;
+    /* Every note on the channel ends now: its instrument came off or was
+       replaced, voices and all. -1 is every channel: halt(). */
+    virtual void flush (int channel) = 0;
 };
 
 /* A note a chain was heard to play, or a stage let out: what freezing a
