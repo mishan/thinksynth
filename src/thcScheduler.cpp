@@ -5387,6 +5387,10 @@ thcScheduler::deliver (const thcEvent &ev)
                                           ev.u.note.velocity,
                                           ev.u.note.level, ev.u.note.aux,
                                           ev.u.note.say);
+            if (sounded && noteTap_ != NULL)
+                noteTap_->noteOn(ev.channel, ev.u.note.note,
+                                 ev.u.note.velocity, ev.u.note.level,
+                                 ev.u.note.aux);
 
             /* A channel keys its voices by note number, so this note has
                just put the one sounding on its key into release
@@ -5581,6 +5585,8 @@ thcScheduler::endNote (int channel, int note, double at)
         midiOut_->noteOff(channel, note, stampAt(at));
     else
         synth_->delNote(channel, note);
+    if (noteTap_ != NULL)
+        noteTap_->noteOff(channel, note);
 }
 
 /* Transport time `at' on the monotonic clock: the step's own moment,
@@ -5977,6 +5983,8 @@ thcScheduler::halt (void)
 
     if (synth_)
         synth_->silence();
+    if (noteTap_ != NULL)
+        noteTap_->allOff();
 }
 
 /* reset() is what makes --seed style replays a first-class feature:
