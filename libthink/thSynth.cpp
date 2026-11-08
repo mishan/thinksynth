@@ -385,6 +385,14 @@ static int clampWindowlen (int windowlen)
     return TH_DEFAULT_WINDOW_LENGTH;
 }
 
+void thSynth::setRaster (int width, int height)
+{
+    const bool some = width > 0 && height > 0;
+
+    rasterWidth_ = some ? width : 0;
+    rasterHeight_ = some ? height : 0;
+}
+
 static int clampChannels (int channels)
 {
     if (channels >= 1 && channels <= TH_MAX_CHANNELS)
@@ -440,6 +448,8 @@ thSynth::thSynth (int windowlen, int samples, int channels)
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
     limiter_ = true;
+    position_ = rendered_ = 0;
+    rasterWidth_ = rasterHeight_ = 0;
     tempo_ = 120;
 
     silent_ = false;
@@ -502,6 +512,8 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples,
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
     limiter_ = true;
+    position_ = rendered_ = 0;
+    rasterWidth_ = rasterHeight_ = 0;
     tempo_ = 120;
 
     silent_ = false;
@@ -2680,6 +2692,9 @@ void thSynth::process (void)
     int mixchannels, notechannels;
     thMidiChan *chan;
     float *chanoutput;
+
+    position_ = rendered_;
+    rendered_ += windowlen_;
 
     /* Apply anything the GUI thread has queued. This is the only place
        midiChannels_ and everything below it is mutated, which is what makes

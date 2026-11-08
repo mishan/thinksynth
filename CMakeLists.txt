@@ -47,8 +47,8 @@ include(TestBigEndian)
 # a ring of them inline, so thSynth is a different size; thMidiNote gained the
 # bend it keeps across a retune; thSynthTree gained the patch's controller
 # blocks, before members its inline accessors read; thSynth gained a limiter
-# switch, before the tempo its inline tempo() reads, and a channel count in
-# both constructors.
+# switch, a sample count and a raster, before the tempo its inline tempo()
+# reads, and a channel count in both constructors.
 # ---------------------------------------------------------------------------
 
 set(THINK_LIB_MAJOR 9)

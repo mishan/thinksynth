@@ -324,6 +324,20 @@ public:
        reason masterGain is. */
     void setLimiter (bool on) { __atomic_store_n(&limiter_, on, __ATOMIC_RELAXED); }
 
+    /* The sample that begins the window process() is rendering, or last
+       rendered, counted from the first: where a node is in time without a
+       clock of its own. Every window process() renders counts, a silent
+       synth's too; a tree run without it sees no time pass. Audio
+       thread. */
+    int64_t position (void) const { return position_; }
+
+    /* The raster a video synth scans, one sample a pixel, row by row:
+       what misc::scan reads. 0 x 0, no raster, for an audio synth. Set
+       before the first process(). */
+    void setRaster (int width, int height);
+    int rasterWidth (void) const { return rasterWidth_; }
+    int rasterHeight (void) const { return rasterHeight_; }
+
     /* The piece's tempo in beats per minute, for misc::tempo: what a graph
      * times a synced delay or LFO by. Written by the scheduler and read by
      * the audio thread, relaxed for the reason masterGain is. 120 until a
@@ -653,6 +667,8 @@ private:
     int windowlen_;
     float masterGain_;  /* see setMasterGain(); accessed atomically */
     bool limiter_;      /* see setLimiter(); accessed atomically */
+    int64_t position_, rendered_;           /* see position() */
+    int rasterWidth_, rasterHeight_;        /* see setRaster() */
     float tempo_;       /* see setTempo(); accessed atomically */
     long sampleRate_; /* the number of samples per second*/
 
