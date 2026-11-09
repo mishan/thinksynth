@@ -171,7 +171,10 @@ heard. A machine that cannot draw that fast skips ahead to the frame that
 is due rather than falling behind, and the pane says that it is dropping
 frames. Behind twice in a second, it draws at 80x60 instead, a quarter of
 the pixels, and says so; another patch or effect, or the pane shown
-again, starts at 160x120 again.
+again, starts at 160x120 again. So does the same patch once drawing it
+small has taken under an eighth of the worker's time for 4 s running,
+which means that at full size it would take under half. Each time 160x120
+falls behind again, the wait before the next try doubles, up to 30 s.
 
 The video runs only while its pane is in front and the tab is shown. When
 the pane comes back, the video starts again from the present, with any

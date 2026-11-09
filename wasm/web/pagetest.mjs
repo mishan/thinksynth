@@ -4843,6 +4843,50 @@ try
               `patch at 160x120: ${hiccup}, ${shrunk[0]}x${shrunk[1]}, ` +
               `${shrunk[2].painted - small} painted, told ${told}, response ${shrunk[3]}`);
 
+        /* Slow for a moment only: the full size again once the small one
+           has had room to spare a while, and after failing there again, a
+           longer wait before the next try. */
+        const width = () => v.evaluate(() => document.getElementById('videocanvas').width);
+
+        await response(5);
+        await stall();
+        await stall();
+
+        const down = await width();
+
+        /* Kept from drawing now and then at 80x60, as a machine is, though
+           the drawing itself takes little time. */
+        for (let i = 0; i < 4; i++)
+        {
+            await v.waitForTimeout(1500);
+            await stall();
+        }
+
+        const held = await width();
+        const t0 = Date.now();
+
+        while (await width() !== 160 && Date.now() - t0 < 10000)
+            await v.waitForTimeout(100);
+
+        const upS = (Date.now() - t0) / 1000;
+        const kept = await v.evaluate(() =>
+            document.querySelector('#videoknobs [data-knob="response"]').value);
+
+        /* A stall before the reopened worker has its first batch is not a skip. */
+        await v.waitForTimeout(500);
+        await stall();
+        await stall();
+
+        const again = await width();
+
+        await v.waitForTimeout(6000);
+        check(down === 80 && held === 80 && upS >= 3 && upS < 10 && kept === '5' &&
+              again === 80 && await width() === 80,
+              'a machine slow for a moment is back at 160x120 with its knobs as set, ' +
+              'not while it still drops frames, and waits longer after failing ' +
+              `again: ${down}, ${held}, up after ${upS} s, ` +
+              `response ${kept}, ${again}, then ${await width()}`);
+
         /* An output a quarter of a second behind: every frame waits that
            long on the page, and there are buffers enough for all of them.
            Opened again for the pool to be sized, and the clock given time
