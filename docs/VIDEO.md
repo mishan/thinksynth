@@ -130,7 +130,7 @@ and up first. An effect of your own wants the same.
 
 | | |
 |---|---|
-| `video/aurora.dsp` | a rippling curtain of light per note, hanging lower the lower the note, taller with the bass |
+| `video/aurora.dsp` | a rippling curtain of light per note, pink at its edge, green, then red and violet above; hanging lower the lower the note, taller with the bass |
 | `video/constellation.dsp` | a star per note, placed by its pitch and lingering, so a tune leaves its shape |
 | `video/moire.dsp` | fine rings per note, wandering slowly, interfering into moire; brighter as the music is louder |
 | `video/pond.dsp` | a ripple per note, dropped where its pitch chooses, spreading slowly; crossing ripples reinforce and cancel |
