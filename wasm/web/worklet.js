@@ -767,10 +767,25 @@ class ThinkProcessor extends AudioWorkletProcessor
            channel is heard by; or off. */
         if (m.type === 'video')
         {
+            const was = this.videoPort;
+
             this.videoPort = m.on ? m.port ?? this.videoPort : null;
+            if (was !== null && was !== this.videoPort)
+                was.close();
             this.videoQuanta = 0;
             this.videoChannels = -1;
-            this.M._tw_video(this.videoPort !== null ? 1 : 0, m.delayMs ?? 0);
+            this.videoDelay = m.delayMs ?? 0;
+            this.M._tw_video(this.videoPort !== null ? 1 : 0, this.videoDelay);
+
+            /* The worker asks again for what is down each time it opens a
+               patch, which starts it with nothing held; asked on this port,
+               the answer cannot overtake the open. */
+            if (m.port)
+                m.port.onmessage = (e) =>
+                {
+                    if (e.data?.type === 'resend' && this.videoPort === m.port)
+                        this.M._tw_video(1, this.videoDelay);
+                };
             return;
         }
 

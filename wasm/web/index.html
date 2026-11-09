@@ -527,6 +527,22 @@
   </fieldset>
 </details>
 
+<!-- The picture, drawn live beside the sound (videoview.js). -->
+<section id="videoview"
+         data-pane data-pane-title="Video" data-pane-min="240">
+  <div class="row">
+    <label>Patch <select id="videopatch"></select></label>
+    <label>Effect <select id="videofx"></select></label>
+    <button id="videofull">Fullscreen</button>
+  </div>
+  <div id="videoframe">
+    <canvas id="videocanvas" role="img"
+            aria-label="The picture the music is drawing"></canvas>
+  </div>
+  <div id="videoknobs" class="row"></div>
+  <p id="videostatus" class="hint" aria-live="polite"></p>
+</section>
+
 <!-- Recorded instruments, downloaded when asked and kept (packs.js). -->
 <section id="packs" data-pane-off
          data-pane data-pane-title="Sample packs" data-pane-min="280">

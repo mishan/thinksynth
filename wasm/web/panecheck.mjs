@@ -908,7 +908,7 @@ try
         site: document.getElementById('site').closest('#menu') !== null,
     }));
 
-    check(!menu.open && !menu.row && menu.listed === 'patchsource detail' &&
+    check(!menu.open && !menu.row && menu.listed === 'patchsource detail videoview' &&
           menu.site,
           'a phone lists the closed panes in its menu and not over the ' +
           `layout, with the source link: ${menu.listed}`);
