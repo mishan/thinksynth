@@ -23,6 +23,8 @@
 
 #include "think.h"
 
+#include "sin.h"
+
 static const char desc[] = "Sine Calculation";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
@@ -68,7 +70,6 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_index, *in_wavelength, *in_amp;
     thArg *out_arg;
     unsigned int i, n;
-    float amp, wavelength;
 
     in_index = mod->getArg(node, args[IN_INDEX]);
     in_wavelength = mod->getArg(node, args[IN_WAVELENGTH]);
@@ -78,22 +79,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     n = thOutLen(windowlen, in_index, in_wavelength, in_amp);
     out = out_arg->allocate(n);
 
-    for(i = 0; i < n; i++)
-    {
-        amp = (*in_amp)[i];
-        wavelength = (*in_wavelength)[i];
-
-        if (amp == 0)
-        {
-            amp = 1;
-        }
-        if (wavelength == 0)
-        {
-            wavelength = 1;
-        }
-
-        out[i] = sin(((*in_index)[i] / wavelength) * M_PI * 2) * amp;
-    }
+    for (i = 0; i < n; i++)
+        out[i] = thkSin((*in_index)[i], (*in_wavelength)[i], (*in_amp)[i]);
 
     return 0;
 }

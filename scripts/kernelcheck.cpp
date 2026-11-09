@@ -32,6 +32,7 @@
 #include "thKernel.h"
 #include "../plugins/env/ad.h"
 #include "../plugins/env/adsr.h"
+#include "../plugins/math/sin.h"
 #include "../plugins/misc/midi2freq.h"
 #include "../plugins/mixer/pan.h"
 #include "../plugins/dice.h"
@@ -173,6 +174,21 @@ main ()
             std::fabs(thkMidi2freq(INFINITY, 32000) - 15999) +
             std::fabs(thkMidi2freq(4210, 32000) - 15999);
     report("nothing is 0 Hz, and past the top is the top", worst, 0);
+
+    /* math::sin against the double sine it used to take, of the same
+       float turns, out to a video patch's thousands of them; a 0
+       wavelength or amp is 1. */
+    worst = 0;
+    for (const float wavelength : { 1.0f, 0.05f, 0.0f })
+        for (const float amp : { 1.0f, 0.4f, 0.0f })
+            for (float index = -3000; index < 3000; index += 0.0731f)
+            {
+                const float turns = index / (wavelength == 0 ? 1 : wavelength);
+                const double want = std::sin(turns * 2 * M_PI) * (amp == 0 ? 1 : amp);
+
+                worst = std::max(worst, std::fabs(thkSin(index, wavelength, amp) - want));
+            }
+    report("math::sin, against the double", worst, 2e-6);
 
     /* The pan's sides against cos and sin of (pan + 1) pi / 4, and their
        powers summing to 1 wherever it's put; past the ends is the end. */
