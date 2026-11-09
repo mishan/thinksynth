@@ -254,7 +254,10 @@ think_harness(dspcompile COMPOSERHOST HID)
 set(THINK_COMPILED "${CMAKE_CURRENT_BINARY_DIR}/compiled")
 foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box"
               "Gate;${CMAKE_CURRENT_SOURCE_DIR}/compiled/gate.dsp"
-              "Names;${CMAKE_CURRENT_SOURCE_DIR}/compiled/names.dsp")
+              "Names;${CMAKE_CURRENT_SOURCE_DIR}/compiled/names.dsp"
+              "Noise;${CMAKE_CURRENT_SOURCE_DIR}/compiled/noise.dsp"
+              "Grab;${PROJECT_SOURCE_DIR}/dsp/grab.dsp"
+              "Index;${PROJECT_SOURCE_DIR}/dsp/index.dsp")
   list(GET voice 0 vname)
   list(GET voice 1 vfile)
   set(vflags "")

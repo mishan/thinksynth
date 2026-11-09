@@ -36,7 +36,9 @@
  * What comes out (thv<Name>, a voice):
  *
  *   struct Knobs { ... };          the patch's @controls, at their defaults
- *   void start (note, velocity);   as the engine starts a voice
+ *   void start (note, velocity, seed = 0);
+ *                                  as the engine starts a voice; seed
+ *                                  is its noises', one a voice
  *   void release ();               the trigger falls
  *   bool render (k, out, n);       n samples into out[channel], and
  *                                  whether the voice still sounds
@@ -78,21 +80,35 @@ struct Kernel
     const char *plugin;
     std::vector<string> ctl;
     const char *ctlCall;        /* the control struct's maker, or NULL */
+    bool ctlRate;               /* which takes the rate after them */
     std::vector<string> ins;
     bool pure;                  /* keeps nothing: control-rate if its inputs are */
     const char *type;           /* the state's struct, or NULL */
 };
 
 static const Kernel KERNELS[] = {
-    { "osc/fmop", { "freq", "ratio", "feedback" }, "thkFmop::ctl", { "mod", "index", "reset" },
-      false, "thkFmop" },
-    { "env/ad", { "a", "d", "p" }, "thkAd::ctl", { "reset" }, false, "thkAd" },
-    { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", { "trigger", "reset" }, false, NULL },
-    { "misc/midi2freq", {}, NULL, { "note" }, true, NULL },
-    { "math/add", {}, NULL, { "in0", "in1" }, true, NULL },
-    { "math/sub", {}, NULL, { "in0", "in1" }, true, NULL },
-    { "math/mul", {}, NULL, { "in0", "in1" }, true, NULL },
-    { "mixer/mul", {}, NULL, { "in0", "in1" }, true, NULL },
+    { "osc/fmop", { "freq", "ratio", "feedback" }, "thkFmop::ctl", true,
+      { "mod", "index", "reset" }, false, "thkFmop" },
+    { "osc/simple", { "freq", "mul", "amp", "pw", "waveform" }, "thkSimple::ctl", true,
+      { "fm", "fmamt", "reset" }, false, "thkSimple" },
+    { "osc/blep", { "freq", "waveform", "pw" }, "thkBlep::ctl", true, { "phase", "reset" },
+      false, "thkBlep" },
+    { "osc/noise", { "color", "amp" }, "thkNoise::ctl", false, {}, false, "thkNoise" },
+    { "filt/svf", { "cutoff", "res" }, "thkSvf::ctl", true, { "in" }, false, "thkSvf" },
+    { "dist/saturate", {}, NULL, false, { "in", "factor" }, true, NULL },
+    { "math/exp2", {}, NULL, false, { "in" }, true, NULL },
+    { "math/pow", {}, NULL, false, { "base", "exp" }, true, NULL },
+    { "env/ad", { "a", "d", "p" }, "thkAd::ctl", false, { "reset" }, false, "thkAd" },
+    { "env/adsr", { "a", "d", "s", "r", "p" }, "thkAdsr", false, { "trigger", "reset" },
+      false, NULL },
+    { "misc/midi2freq", {}, NULL, false, { "note" }, true, NULL },
+    { "mixer/pan", { "pan" }, "thkPan::ctl", false, { "in" }, true, NULL },
+    { "math/clamp", {}, NULL, false, { "in", "lo", "hi" }, true, NULL },
+    { "math/add", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/sub", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/mul", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/div", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "mixer/mul", {}, NULL, false, { "in0", "in1" }, true, NULL },
 };
 
 struct Value
@@ -283,7 +299,7 @@ struct Compiler
         placing.erase(n);
         ctls[n] = cs;
         ins[n] = vs;
-        control[n] = ctl;
+        control[n] = ctl && once;
         ctlOnce[n] = once;
         order[n] = (int)placed.size();
         placed.push_back(n);
@@ -298,7 +314,7 @@ struct Compiler
 
         for (size_t i = 0; i < ctls[n].size(); i++)
             a += (i ? ", " : "") + ctls[n][i].text;
-        if (string(k->plugin) == "osc/fmop")
+        if (k->ctlRate)
             a += ", rate";
         return "        const auto " + var(n, "ctl") + " = " + k->ctlCall + "(" + a + ");\n";
     }
@@ -325,15 +341,48 @@ struct Compiler
         if (p == "osc/fmop")
             s << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
               << ", " << args(0) << ");\n";
+        else if (p == "osc/simple")
+            s << "        float " << var(n, "sync") << ";\n"
+              << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ", " << args(0) << ", " << var(n, "sync") << ");\n";
+        else if (p == "osc/blep")
+            s << "        float " << var(n, "sync") << ", " << var(n, "edge") << ";\n"
+              << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ", " << args(0) << ", " << var(n, "sync") << ", " << var(n, "edge")
+              << ");\n";
+        else if (p == "osc/noise")
+            s << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ");\n";
+        else if (p == "filt/svf")
+            s << "        float " << var(n, "out_band") << ", " << var(n, "out_high") << ";\n"
+              << "        const float " << var(n, "out_low") << " = " << self << ".tick("
+              << var(n, "ctl") << ", " << args(0) << ", " << var(n, "out_band") << ", "
+              << var(n, "out_high") << ");\n";
+        else if (p == "dist/saturate")
+            s << "        const float " << out << " = thkSaturate(" << args(0) << ");\n";
+        else if (p == "math/exp2")
+            s << "        const float " << out << " = exp2f(" << v[0].text << ");\n";
+        else if (p == "math/pow")
+            s << "        const float " << out << " = powf(" << args(0) << ");\n";
         else if (p == "env/ad" || p == "env/adsr")
             s << "        float " << var(n, "play") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
               << ", " << args(0) << ", " << var(n, "play") << ");\n";
+        else if (p == "mixer/pan")
+            s << "        const float " << var(n, "out0") << " = " << v[0].text << " * "
+              << var(n, "ctl") << ".left;\n"
+              << "        const float " << var(n, "out1") << " = " << v[0].text << " * "
+              << var(n, "ctl") << ".right;\n";
+        else if (p == "math/clamp")
+            s << "        const float " << out << " = " << v[0].text << " < " << v[1].text
+              << " ? " << v[1].text << " : " << v[0].text << " > " << v[2].text << " ? "
+              << v[2].text << " : " << v[0].text << ";\n";
         else if (p == "misc/midi2freq")
             s << "        const float " << out << " = thkMidi2freq(" << v[0].text << ", rate);\n";
         else
             s << "        const float " << out << " = " << v[0].text
-              << (p == "math/add" ? " + " : p == "math/sub" ? " - " : " * ") << v[1].text << ";\n";
+              << (p == "math/add" ? " + " : p == "math/sub" ? " - " : p == "math/div" ? " / " : " * ")
+              << v[1].text << ";\n";
         return s.str();
     }
 
@@ -510,7 +559,7 @@ main (int argc, char **argv)
         headers.insert(string(Compiler::kernelFor(n)->plugin));
 
     /* The kernels' headers are named for their plugins. */
-    printf("/* %s as a compiled voice at %d Hz.\n   Written by dspcompile; do not edit. */\n\n#ifndef THV_%s_H\n#define THV_%s_H 1\n\n#include <string.h>\n\n#include \"thKernel.h\"\n",
+    printf("/* %s as a compiled voice at %d Hz.\n   Written by dspcompile; do not edit. */\n\n#ifndef THV_%s_H\n#define THV_%s_H 1\n\n#include <math.h>\n#include <stdint.h>\n#include <string.h>\n\n#include \"thKernel.h\"\n",
            argv[at], rate, name.c_str(), name.c_str());
     for (const string &h : headers)
         if (h.compare(0, 5, "math/") && h != "mixer/mul")
@@ -543,22 +592,31 @@ main (int argc, char **argv)
             printf("    %s n%d;    /* %s */\n", Compiler::stateType(n).c_str(), c.order[n],
                    n->name().c_str());
 
-    printf("\n    /* As the engine starts a voice: velocity 0..127 to 0..1. */\n"
-           "    void start (float n, float v)\n    {\n"
+    printf("\n    /* As the engine starts a voice: velocity 0..127 to 0..1; each noise\n"
+           "       its own stream, from seed. Not the engine's streams, which come\n"
+           "       from the synth's; and one stream for every voice given the same\n"
+           "       seed, so a firmware gives each voice its own. */\n"
+           "    void start (float n, float v, uint32_t seed = 0)\n    {\n"
            "        *this = thv%s();\n"
-           "        note = n;\n        velocity = v * %s / %d;\n        trigger = 1;\n    }\n\n"
+           "        note = n;\n        velocity = v * %s / %d;\n        trigger = 1;\n",
+           name.c_str(), Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
+    for (thNode *n : c.placed)
+        if (Compiler::stateType(n) == "thkNoise")
+            printf("        n%d.seed(seed * 2654435761u + %du);\n", c.order[n], c.order[n] + 1);
+    printf("        (void)seed;\n    }\n\n"
            "    void release () { trigger = 0; }\n\n"
            "    bool render (const Knobs &k, float *const *out, int count)\n    {\n"
-           "        (void)k;\n        float sounding = 1;\n\n",
-           name.c_str(), Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
+           "        (void)k;\n        float sounding = 1;\n\n");
 
     /* Once a call: what numbers, knobs and the note alone decide, and the
        control structs of kernels whose control inputs are all that. */
     for (thNode *n : c.placed)
+    {
+        if (Compiler::kernelFor(n)->ctlCall && c.ctlOnce[n])
+            printf("%s", c.emitCtl(n).c_str());
         if (c.control[n])
             printf("%s", c.emit(n).c_str());
-        else if (Compiler::kernelFor(n)->ctlCall && c.ctlOnce[n])
-            printf("%s", c.emitCtl(n).c_str());
+    }
     printf("\n        for (int i = 0; i < count; i++)\n        {\n");
     for (thNode *n : c.placed)
         if (!c.control[n])

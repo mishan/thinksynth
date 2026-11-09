@@ -24,6 +24,8 @@
 
 #include "think.h"
 
+#include "simple.h"
+
 #include "thArg.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
@@ -31,10 +33,6 @@
 #include "thSynthTree.h"
 #include "thSynth.h"
 
-static inline float SQR (float x)
-{
-    return x*x;
-}
 
 enum {IN_FREQ, IN_AMP, IN_PW, IN_WAVEFORM, IN_FM, IN_FMAMT, IN_RESET, IN_MUL,
     OUT_ARG, OUT_SYNC, INOUT_LAST};
@@ -51,8 +49,6 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 static const char *const waveforms[] = {
     "Sine", "Sawtooth", "Square", "Triangle", "Half-circle", "Parabola"
 };
-
-const float SQRT2_2 = 2*sqrt(2);
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -136,214 +132,40 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    int i;
-    float *out;
-    float *out_last, *sync;
-    float halfwave, ratio;
-    float position, fmpos;
-    double wavelength, freq;
-    float amp_max, amp_min, amp_range;
-    float mul;
-    float pw; /* Make pw cooler! */
-//    float fmamt;
-    thArg *in_freq, *in_amp, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset, *in_mul;
-    thArg *out_arg, *out_sync;
-    thArg *inout_last;
-    float buf_freq[windowlen], buf_amp[windowlen], buf_pw[windowlen], buf_waveform[windowlen], buf_fm[windowlen], buf_fmamt[windowlen], buf_reset[windowlen], buf_mul[windowlen];
+    thArg *in_freq = mod->getArg(node, args[IN_FREQ]);
+    thArg *in_amp = mod->getArg(node, args[IN_AMP]);
+    thArg *in_pw = mod->getArg(node, args[IN_PW]);
+    thArg *in_waveform = mod->getArg(node, args[IN_WAVEFORM]);
+    thArg *in_fm = mod->getArg(node, args[IN_FM]);
+    thArg *in_fmamt = mod->getArg(node, args[IN_FMAMT]);
+    thArg *in_reset = mod->getArg(node, args[IN_RESET]);
+    thArg *in_mul = mod->getArg(node, args[IN_MUL]);
+    thArg *inout_last = mod->getArg(node, args[INOUT_LAST]);
+    thkSimple osc;
 
-    out_arg = mod->getArg(node, args[OUT_ARG]);
-    out_sync = mod->getArg(node, args[OUT_SYNC]); /* Output a 1 when the wave begins 
-                                             its cycle */
-    inout_last = mod->getArg(node, args[INOUT_LAST]);
-    position = (*inout_last)[0];
-    out_last = inout_last->allocate(1);
-    sync = out_sync->allocate(windowlen);
+    osc.position = (*inout_last)[0];
 
-    out = out_arg->allocate(windowlen);
+    float *last = inout_last->allocate(1);
+    float *sync = mod->getArg(node, args[OUT_SYNC])->allocate(windowlen);
+    float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
+    const auto ctl = [&](unsigned int i) {
+        return thkSimple::ctl((*in_freq)[i], (*in_mul)[i], (*in_amp)[i] / TH_MAX,
+                              (*in_pw)[i], (*in_waveform)[i], (float)samples);
+    };
+    /* The cycle once a window while what makes it holds still. */
+    const bool still = in_freq->len() <= 1 && in_mul->len() <= 1 &&
+                       in_amp->len() <= 1 && in_pw->len() <= 1 &&
+                       in_waveform->len() <= 1;
+    thkSimple::Ctl c = ctl(0);
 
-    in_freq = mod->getArg(node, args[IN_FREQ]);
-    in_amp = mod->getArg(node, args[IN_AMP]);
-    in_pw = mod->getArg(node, args[IN_PW]);
-    in_waveform = mod->getArg(node, args[IN_WAVEFORM]);
-    in_fm = mod->getArg(node, args[IN_FM]); /* FM Input */
-    in_fmamt = mod->getArg(node, args[IN_FMAMT]); /* Modulation amount */
-    in_reset = mod->getArg(node, args[IN_RESET]); /* Reset position to 0 when this 
-                                              goes to 1 */
-    in_mul = mod->getArg(node, args[IN_MUL]);  /* Multiply the wavelength by this */
-
-    in_freq->getBuffer(buf_freq, windowlen);
-    in_amp->getBuffer(buf_amp, windowlen);
-    in_pw->getBuffer(buf_pw, windowlen);
-    in_waveform->getBuffer(buf_waveform, windowlen);
-    in_fm->getBuffer(buf_fm, windowlen);
-    in_fmamt->getBuffer(buf_fmamt, windowlen);
-    in_reset->getBuffer(buf_reset, windowlen);
-    in_mul->getBuffer(buf_mul, windowlen);
-
-    for(i=0; i < (int)windowlen; i++) {
-        //wavelength = TH_SAMPLE/(*in_freq)[i];
-        freq = buf_freq[i];
-
-        mul = buf_mul[i];  /* optional frequency multiplier */
-        if(mul) {
-            freq *= mul;
-        }
-
-        amp_max = buf_amp[i];
-        if(amp_max == 0) {
-          amp_max = TH_MAX;
-        }
-        amp_min = -amp_max;
-        amp_range = amp_max-amp_min;
-
-        wavelength = samples/thBoundFreq(freq, samples);
-
-        position += 1 + ((buf_fm[i] / TH_MAX) * buf_fmamt[i]);
-        //printf("%f\n", position);
-        /* worked FM into the position counter */
-
-        if(buf_reset[i] == 1) {
-            position = 0;
-            sync[i] = 1;
-        }
-
-        /* One subtraction is all a cycle ever needs: `position' advances by a
-           sample at a time, so it passes the end of the cycle by less than
-           one. The fmod is for the other way a phase leaves its range --
-           `wavelength' moving under it. A note retuned upwards shortens the
-           wavelength by whatever the interval is, and the phase it left
-           behind is then several cycles long.
-
-           Taking one wavelength off that leaves `position' still past the
-           end, so `ratio' below came out at ten or fifteen rather than at
-           one, and every waveform ran off its scale until the subtractions
-           caught up a cycle at a time. A bare saw retuned from C1 to C5 put
-           four samples at roughly twenty-nine times full scale into the mix,
-           which the output clamp turned into a click. The same jump arrives
-           through an `fm' input large enough to carry the phase past a whole
-           cycle in one sample. */
-        if(position > wavelength) {
-            position -= wavelength;
-
-            if(position > wavelength) {
-                position = fmod(position, wavelength);
-            }
-
-            sync[i] = 1;
-        } else if (position < 0) {
-            position += wavelength;
-
-            if(position < 0) {
-                position = fmod(position, wavelength) + wavelength;
-            }
-
-            sync[i] = 1;
-        } else {
-            sync[i] = 0;
-        }
-
-//    fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
-//    fmpos = (int)(position + (((*in_fm)[i] / TH_MAX) * wavelength * fmamt)) % (int)wavelength;
-        fmpos = position;
-
-        pw = buf_pw[i];  /* Pulse Width */
-        if(pw == 0) {
-            pw = 0.5;
-        }
-
-        /* Both halves of the cycle divide by their own length below, so
-           neither may be empty. pw = 1 makes `wavelength - halfwave' zero for
-           every wavelength, and a wavelength that is an exact integer -- which
-           is what a frequency of exactly Nyquist gives -- lands `position' on
-           `halfwave' precisely, so the 0/0 is reached rather than merely
-           approached. */
-        pw = thClampArg(pw, TH_PW_MIN, TH_PW_MAX);
-
-        halfwave = wavelength * pw;
-        if(fmpos < halfwave) {
-            ratio = fmpos/(2*halfwave);
-        } else {
-            ratio = 0.5*((fmpos - halfwave) / (wavelength - halfwave)) + 0.5;
-        }
-
-        switch((int)buf_waveform[i]) {
-            /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle,
-               5 = parabola */
-            case 0:    /* SINE WAVE */
-                out[i] = amp_max*thSinTurns(ratio); /* This will fuck up if 
-                                                       TH_MIX is not the 
-                                                       negative of TH_MIN */
-                break;
-            case 1:    /* SAWTOOTH WAVE */
-                out[i] = amp_range*ratio+amp_min;
-                break;
-            case 2:    /* SQUARE WAVE */
-            {
-                /* out[i] is amp_max with the sign bit of (ratio - 0.5) OR'd
-                   in, so the wave flips at the half-way point.
-                 *
-                 * Two things were wrong with how this was spelled. u_int32_t
-                 * is a BSD name that glibc happens to provide and MinGW does
-                 * not, so Windows would not compile the file at all; uint32_t
-                 * is the standard one and <stdint.h> is already in scope. And
-                 * reading a float through a uint32_t * breaks strict
-                 * aliasing -- GCC warns, and at -O2 it is entitled to assume
-                 * the two never name the same storage. memcpy is the
-                 * well-defined spelling and compiles to the same instruction.
-                 *
-                 * Left as an OR rather than rewritten to a ternary or to
-                 * copysignf(): those differ when amp_max is itself negative,
-                 * where an OR cannot clear the sign bit that is already set
-                 * and the output therefore stays negative for the whole
-                 * cycle. Whether that was intended is a question about the
-                 * oscillator, not about portability, so it is not changed
-                 * here. */
-                static_assert(sizeof(float) == sizeof(uint32_t),
-                              "the sign-bit trick assumes a 32-bit float");
-
-                float adjusted = ratio - 0.5;
-
-                uint32_t ampBits, adjBits, level;
-
-                memcpy(&ampBits, &amp_max, sizeof(ampBits));
-                memcpy(&adjBits, &adjusted, sizeof(adjBits));
-
-                level = ampBits | (adjBits & 0x80000000u);
-
-                memcpy(&out[i], &level, sizeof(out[i]));
-                break;
-            }
-            case 3:    /* TRIANGLE WAVE */
-                ratio *= 2;
-                if(ratio < 1) {
-                    out[i] = amp_range*ratio+amp_min;
-                } else {
-                    out[i] = (-amp_range)*(ratio-1)+amp_max;
-                }
-                break;
-            case 4:    /* HALF-CIRCLE WAVE */
-                if(ratio < 0.5) {
-                    out[i] = SQRT2_2*sqrt((wavelength-(2*position))*position/
-                                          SQR(wavelength))*amp_max;
-                } else {
-                    out[i] = SQRT2_2*sqrt((wavelength-(2*(position-halfwave)))
-                                          *(position-halfwave)/SQR(wavelength))
-                        *amp_min;
-                }
-                break;
-            case 5:    /* PARABOLA WAVE */
-                if(ratio < 0.5) {
-                    out[i] = amp_max*(1-SQR(ratio*4-1));
-                } else {
-                    out[i] = amp_max*(SQR((ratio-0.5)*4-1)-1);
-                }
-        }
+    for (unsigned int i = 0; i < windowlen; i++)
+    {
+        if (!still)
+            c = ctl(i);
+        out[i] = TH_MAX * osc.tick(c, (*in_fm)[i] / TH_MAX, (*in_fmamt)[i],
+                                   (*in_reset)[i], sync[i]);
     }
-    
-    out_last[0] = position;
-/*    node->SetArg("out", out, windowlen);
-    last[0] = position;
-    node->SetArg("last", (float*)last, 1);
-*/    
+    last[0] = osc.position;
+
     return 0;
 }

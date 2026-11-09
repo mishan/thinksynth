@@ -62,38 +62,10 @@
 #include "noiseslot.h"
 #include "plugins/dice.h"
 
+#include "noise.h"
+
 static const char desc[] = "White, pink or brown noise";
 thPlugin::State    mystate = thPlugin::ACTIVE;
-
-/* Kellett's economical pink filter: three one-pole sections summed, plus a
-   little of the white itself for the top octave. */
-#define PINK_P0 0.99765f
-#define PINK_P1 0.96300f
-#define PINK_P2 0.57000f
-#define PINK_G0 0.0990460f
-#define PINK_G1 0.2965164f
-#define PINK_G2 1.0526913f
-#define PINK_GW 0.1848f
-
-/* Its output's standard deviation for a white input uniform over -1..1,
-   measured over twenty million samples: 1.720370, against the white's own
-   0.577270. Analytically it is a sum of correlated terms and not worth
-   writing out; what matters is that it is a constant of the coefficients
-   above, so it moves only if they do. */
-#define PINK_SIGMA 1.720370f
-
-/* The leaky integrator's pole. A corner at rate*(1 - p)/2pi -- 35 Hz at
-   44.1k -- below which the slope flattens to nothing rather than running
-   away to DC, and above which it is the 6 dB an octave that makes it brown.
-   Its standard deviation is exact: sqrt((1 - p)/(1 + p)/3) for a white input
-   uniform over -1..1, which is 0.0289044. */
-#define BROWN_P 0.995f
-#define BROWN_SIGMA 0.0289044f
-
-/* Where `amp' sits on a color with no peak of its own. Five sigma is the
-   largest excursion in twenty million samples of either; a Gaussian is past
-   it one sample in three and a half million. */
-#define NOISE_SIGMAS 5.0f
 
 static const char *const colors[] = { "White", "Pink", "Brown" };
 
@@ -154,99 +126,50 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    float *out;
-    float *out_last;
-    thArg *in_color, *in_amp;
-    thArg *out_arg;
-    thArg *inout_last;
-    unsigned int i;
-    float b0, b1, b2, brown;
+    thArg *inout_last = mod->getArg(node, args[INOUT_LAST]);
+    thArg *in_color = mod->getArg(node, args[IN_COLOR]);
+    thArg *in_amp = mod->getArg(node, args[IN_AMP]);
+    thkNoise noise;
 
-    out_arg = mod->getArg(node, args[OUT_ARG]);
-    inout_last = mod->getArg(node, args[INOUT_LAST]);
-
-    b0 = (*inout_last)[0];
-    b1 = (*inout_last)[1];
-    b2 = (*inout_last)[2];
-    brown = (*inout_last)[3];
-
-    float dice[2] = { (*inout_last)[4], (*inout_last)[5] };
-
+    /* [0..3] the pink filter's three poles and the brown, [4] and [5] the
+       generator's high and low 24 bits, [6] whether it is seeded. */
+    noise.b0 = (*inout_last)[0];
+    noise.b1 = (*inout_last)[1];
+    noise.b2 = (*inout_last)[2];
+    noise.brown = (*inout_last)[3];
+    noise.x = ((uint64_t)(uint32_t)(*inout_last)[4] << 24) |
+              (uint64_t)(uint32_t)(*inout_last)[5];
     if ((*inout_last)[6] == 0)
-        thDiceSeedBits(dice, thDiceMix(thNoiseSeed(thNoiseSlotFor(
-            node->plugin()), mod->seedGeneration()), mod->seed()));
-
-    out_last = inout_last->allocate(7);
+        noise.seed(thDiceMix(thNoiseSeed(thNoiseSlotFor(node->plugin()),
+                                         mod->seedGeneration()), mod->seed()));
 
     /* Both filters feed back, so one non-finite sample would be read back
        for the life of the note. Nothing here can produce one -- the input is
        a bounded draw and every pole is inside the unit circle -- so this is
        about a buffer that has been somewhere else. */
-    if (!thIsFinite(b0) || !thIsFinite(b1) || !thIsFinite(b2) ||
-        !thIsFinite(brown))
+    if (!thIsFinite(noise.b0) || !thIsFinite(noise.b1) || !thIsFinite(noise.b2) ||
+        !thIsFinite(noise.brown))
+        noise.b0 = noise.b1 = noise.b2 = noise.brown = 0;
+
+    float *last = inout_last->allocate(7);
+    float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
+    const bool still = in_color->len() <= 1 && in_amp->len() <= 1;
+    thkNoise::Ctl c = thkNoise::ctl((*in_color)[0], (*in_amp)[0] / TH_MAX);
+
+    for (unsigned int i = 0; i < windowlen; i++)
     {
-        b0 = b1 = b2 = brown = 0;
+        if (!still)
+            c = thkNoise::ctl((*in_color)[i], (*in_amp)[i] / TH_MAX);
+        out[i] = TH_MAX * noise.tick(c);
     }
 
-    out = out_arg->allocate(windowlen);
-
-    in_color = mod->getArg(node, args[IN_COLOR]);
-    in_amp = mod->getArg(node, args[IN_AMP]);
-
-    for (i = 0; i < windowlen; i++)
-    {
-        float w, y, amp;
-
-        w = (float)(TH_RANGE * thDiceNext(dice) + TH_MIN);
-
-        /* Both run every sample whatever the color is. A filter that only
-           ran while it was selected would take a second to settle every time
-           `color' moved, and a pink node next to a brown one would then
-           disagree about what the same stream sounds like. */
-        b0 = PINK_P0 * b0 + w * PINK_G0;
-        b1 = PINK_P1 * b1 + w * PINK_G1;
-        b2 = PINK_P2 * b2 + w * PINK_G2;
-        brown = BROWN_P * brown + (1.0f - BROWN_P) * w;
-
-        /* Clamped before the cast: converting a NaN or a large float to an
-           int is undefined, and `color' is an arg like any other -- a graph
-           may drive it from a node. */
-        switch ((int)thClampArg((*in_color)[i], 0.0f,
-                                (float)(sizeof(colors) / sizeof(colors[0]) - 1)))
-        {
-        case 1:
-            y = (b0 + b1 + b2 + w * PINK_GW) /
-                (PINK_SIGMA * NOISE_SIGMAS);
-            break;
-
-        case 2:
-            y = brown / (BROWN_SIGMA * NOISE_SIGMAS);
-            break;
-
-        default:
-            y = w;
-            break;
-        }
-
-        amp = thClampArg((*in_amp)[i], 0.0f, TH_MAX);
-
-        if (amp == 0)
-            amp = TH_MAX;
-
-        y *= amp;
-
-        /* The one in three million that five sigma leaves over, and any
-           clipping a graph asked for by driving `amp' from something. */
-        out[i] = (y > amp) ? amp : ((y < -amp) ? -amp : y);
-    }
-
-    out_last[0] = b0;
-    out_last[1] = b1;
-    out_last[2] = b2;
-    out_last[3] = brown;
-    out_last[4] = dice[0];
-    out_last[5] = dice[1];
-    out_last[6] = 1;
+    last[0] = noise.b0;
+    last[1] = noise.b1;
+    last[2] = noise.b2;
+    last[3] = noise.brown;
+    last[4] = (float)(uint32_t)(noise.x >> 24);
+    last[5] = (float)(uint32_t)(noise.x & 0xFFFFFFu);
+    last[6] = 1;
 
     return 0;
 }

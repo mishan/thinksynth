@@ -23,6 +23,8 @@
 
 #include "think.h"
 
+#include "saturate.h"
+
 static const char desc[] = "Applies tanh saturation";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
@@ -60,22 +62,12 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    float *out;
-    thArg *in_arg, *in_factor;
-    thArg *out_arg;
-    float factor;
-    unsigned int i;
+    thArg *in_arg = mod->getArg(node, args[IN_ARG]);
+    thArg *in_factor = mod->getArg(node, args[IN_FACTOR]);
+    float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
 
-    in_arg = mod->getArg(node, args[IN_ARG]);
-    in_factor = mod->getArg(node, args[IN_FACTOR]);
-
-    out_arg = mod->getArg(node, args[OUT_ARG]);
-    out = out_arg->allocate(windowlen);
-
-    for(i=0;i<windowlen;i++) {
-        factor = (*in_factor)[i];
-        out[i] = tanh(factor * ((*in_arg)[i] / TH_MAX)) * TH_MAX;
-    }
+    for (unsigned int i = 0; i < windowlen; i++)
+        out[i] = TH_MAX * thkSaturate((*in_arg)[i] / TH_MAX, (*in_factor)[i]);
 
     return 0;
 }

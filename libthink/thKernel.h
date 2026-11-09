@@ -57,6 +57,12 @@ static inline float thkClamp (float x, float lo, float hi)
     return !thkFinite(x) || x < lo ? lo : x > hi ? hi : x;
 }
 
+/* thClampMag's: |x| held to hi, a non-finite x answering 0. */
+static inline float thkClampMag (float x, float hi)
+{
+    return !thkFinite(x) ? 0 : x > hi ? hi : x < -hi ? -hi : x;
+}
+
 /* thBoundFreq's, in float: no slower than a wave a float's mantissa can
    step through, and no faster than Nyquist. A NaN lands on the floor. */
 static inline float thkBoundFreq (float freq, float rate)

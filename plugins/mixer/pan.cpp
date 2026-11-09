@@ -41,6 +41,8 @@
 
 #include "think.h"
 
+#include "pan.h"
+
 enum {IN_ARG, IN_PAN, OUT_ARG0, OUT_ARG1};
 std::atomic<int> args[OUT_ARG1 + 1];
 
@@ -81,14 +83,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out0 = mod->getArg(node, args[OUT_ARG0])->allocate(windowlen);
     float *out1 = mod->getArg(node, args[OUT_ARG1])->allocate(windowlen);
 
+    /* The sides once a window while the pan holds still. */
+    const bool still = in_pan->len() <= 1;
+    thkPan::Ctl c = thkPan::ctl((*in_pan)[0]);
+
     for (unsigned int i = 0; i < windowlen; i++)
     {
-        const float pan = thClampMag((*in_pan)[i], 1);
-        const double theta = (pan + 1) * (M_PI / 4);
+        if (!still)
+            c = thkPan::ctl((*in_pan)[i]);
+
         const float in = (*in_arg)[i];
 
-        out0[i] = in * (float)cos(theta);
-        out1[i] = in * (float)sin(theta);
+        out0[i] = in * c.left;
+        out1[i] = in * c.right;
     }
 
     return 0;
