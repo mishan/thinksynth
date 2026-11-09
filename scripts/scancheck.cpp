@@ -26,7 +26,8 @@
  * (n mod w) / w, y is (n / w mod h) / h, hsync and vsync mark a line's and
  * a frame's first pixel, frame is n / (w h), t is n / rate, and width and
  * size are w and w h, what a frame-long delay is set by. A note
- * struck late reads where the synth is, not where the note began.
+ * struck late reads where the synth is, not where the note began, and a
+ * synth skipped ahead carries on from where the skip put it.
  */
 
 #include "config.h"
@@ -73,14 +74,15 @@ main (int argc, char *argv[])
 
     static const struct {
         const char *name;
-        int w, h, window, windows, late;
+        int w, h, window, windows, late, skipAt, skip;
     } rows[] = {
-        { "a window a line long", 8, 4, 8, 12, 0 },
-        { "a window of lines", 8, 4, 16, 6, 0 },
-        { "a window across lines and frames", 5, 3, 7, 13, 0 },
-        { "a window longer than a frame", 4, 2, 11, 5, 0 },
-        { "a note struck three windows in", 5, 3, 7, 9, 3 },
-        { "no raster", 0, 0, 16, 3, 0 },
+        { "a window a line long", 8, 4, 8, 12, 0, -1, 0 },
+        { "a window of lines", 8, 4, 16, 6, 0, -1, 0 },
+        { "a window across lines and frames", 5, 3, 7, 13, 0, -1, 0 },
+        { "a window longer than a frame", 4, 2, 11, 5, 0, -1, 0 },
+        { "a note struck three windows in", 5, 3, 7, 9, 3, -1, 0 },
+        { "a skip of 23 samples four windows in", 5, 3, 7, 9, 0, 4, 23 },
+        { "no raster", 0, 0, 16, 3, 0, -1, 0 },
     };
     const int RATE = 1000;
 
@@ -102,18 +104,22 @@ main (int argc, char *argv[])
 
         for (int k = 0; k < r.windows && !why[0]; k++)
         {
+            const int skipped = r.skipAt >= 0 && k >= r.skipAt ? r.skip : 0;
+
             if (k == r.late)
                 synth.addNote(0, 60, MIDIVALMAX);
+            if (k == r.skipAt)
+                synth.skip(r.skip);
             synth.process();
-            if (synth.position() != (int64_t)k * r.window)
+            if (synth.position() != (int64_t)k * r.window + skipped)
             {
                 snprintf(why, sizeof(why), "window %d begins at %lld, not %d", k,
-                         (long long)synth.position(), k * r.window);
+                         (long long)synth.position(), k * r.window + skipped);
                 break;
             }
             for (int i = 0; i < r.window && !why[0] && k >= r.late; i++)
             {
-                const long n = (long)k * r.window + i;
+                const long n = (long)k * r.window + i + skipped;
                 const bool raster = r.w > 0;
                 const double want[8] = {
                     raster ? (double)(n % r.w) / r.w : 0,

@@ -185,6 +185,7 @@ think_harness(videofilecheck)
 think_harness(envcheck)
 think_harness(widthcheck)
 think_harness(scancheck)
+think_harness(videosynthcheck)
 
 if(TARGET think_camera)
   think_harness(cameracheck)
@@ -1183,6 +1184,8 @@ add_test(NAME widthcheck
 add_test(NAME scancheck
          COMMAND scancheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME videofilecheck COMMAND videofilecheck)
+add_test(NAME videosynthcheck
+         COMMAND videosynthcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME mpecheck

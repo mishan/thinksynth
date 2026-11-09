@@ -331,6 +331,12 @@ public:
        thread. */
     int64_t position (void) const { return position_; }
 
+    /* The next window begins `samples' (0 or more) later than it would
+       have, those samples never rendered: a video synth that fell behind
+       its sound, carried on from where it should be. Delays keep what they
+       held. Audio thread, between process() calls. */
+    void skip (int64_t samples) { rendered_ += samples; }
+
     /* The raster a video synth scans, one sample a pixel, row by row:
        what misc::scan reads. 0 x 0, no raster, for an audio synth. Set
        before the first process(). */
