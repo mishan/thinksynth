@@ -37,6 +37,7 @@
 #include <math.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <deque>
 #include <map>
 #include <memory>
@@ -55,12 +56,13 @@ namespace {
 enum { OFF = 0, ON = 1, FLUSH = 2 };
 
 /* tv_notes' records, as the worklet writes them. */
-enum { AT, KIND, CHANNEL, NOTE, VELOCITY, LEVEL, AUX, RECORD = AUX + 4 };
+enum { AT, KIND, CHANNEL, NOTE, VELOCITY, LEVEL, AUX, VOICE = AUX + 4, RECORD };
 
 struct Note
 {
     double at;
     int64_t serial;     /* which striking this is */
+    double voice;       /* the worklet's: an off's is its on's, 0 any */
     int    kind, channel, note, velocity;
     float  level, aux[4];
 };
@@ -108,6 +110,17 @@ keep (int64_t frame, const float *r, const float *g, const float *b)
     return true;
 }
 
+/* Whether off `n' ends the note held on its key: not one struck since, on
+   a key whose off was stamped later than its next on -- a channel moved off
+   a device, whose offs come its MIDI delay late. */
+bool
+ends (const std::map<std::pair<int, int>, Note> &held, const Note &n)
+{
+    const auto h = held.find({ n.channel, n.note });
+
+    return h != held.end() && (n.voice == 0 || h->second.voice == n.voice);
+}
+
 /* Notes for a channel the picture does not follow are not held: nothing
    draws them, and a skip must not strike them if it comes to. */
 void
@@ -118,7 +131,10 @@ hold (std::map<std::pair<int, int>, Note> &held, const Note &n)
     if (n.kind == ON)
         held[{ n.channel, n.note }] = n;
     else if (n.kind == OFF)
-        held.erase({ n.channel, n.note });
+    {
+        if (ends(held, n))
+            held.erase({ n.channel, n.note });
+    }
     else
         for (auto k = held.begin(); k != held.end(); )
             k = n.channel < 0 || k->first.first == n.channel ? held.erase(k) : std::next(k);
@@ -130,9 +146,9 @@ play (const Note &n)
 {
     if (n.kind == ON)
         video_->noteOn(n.channel, n.note, n.velocity, n.level, n.aux);
-    else if (n.kind == OFF)
+    else if (n.kind == OFF && ends(held_, n))
         video_->noteOff(n.channel, n.note);
-    else
+    else if (n.kind == FLUSH)
         video_->flush(n.channel);
     hold(held_, n);
 }
@@ -227,7 +243,7 @@ tv_unfollow (int channel)
 {
     if (video_ != NULL)
         video_->unfollow(channel);
-    hold(held_, Note { 0, 0, FLUSH, channel, 0, 0, 0, {} });
+    hold(held_, Note { 0, 0, 0, FLUSH, channel, 0, 0, 0, {} });
 }
 
 /* Room for `count' records, for tv_notes to read. */
@@ -239,7 +255,7 @@ tv_note_buffer (int count)
 }
 
 /* `count' records of RECORD doubles each in tv_note_buffer, in the order
-   they were played. */
+   they were played; those at the same frame keep it. */
 EMSCRIPTEN_KEEPALIVE void
 tv_notes (int count)
 {
@@ -248,11 +264,15 @@ tv_notes (int count)
     for (int i = 0; i < count; i++)
     {
         const double *r = records + (size_t)i * RECORD;
-        Note n = { r[AT], serial_++, (int)r[KIND], (int)r[CHANNEL], (int)r[NOTE], (int)r[VELOCITY],
+        Note n = { r[AT], serial_++, r[VOICE], (int)r[KIND], (int)r[CHANNEL], (int)r[NOTE], (int)r[VELOCITY],
                    (float)r[LEVEL], { (float)r[AUX], (float)r[AUX + 1], (float)r[AUX + 2],
                                       (float)r[AUX + 3] } };
 
-        queue_.push_back(n);
+        /* In time order: a device's channel is stamped its delay late, so
+           a batch is not. */
+        queue_.insert(std::upper_bound(queue_.begin(), queue_.end(), n,
+                                       [](const Note &a, const Note &b) { return a.at < b.at; }),
+                      n);
     }
 }
 

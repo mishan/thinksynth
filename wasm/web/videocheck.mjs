@@ -58,8 +58,9 @@ function check (name, ok, why = '')
 const W = 160, H = 120, FPS = 60, RATE = 48000, LINES = 8;
 const PER_FRAME = RATE / FPS;
 
-/* twvideo.cpp's record: at, kind, channel, note, velocity, level, aux0-3. */
-const OFF = 0, ON = 1, FLUSH = 2, RECORD = 10;
+/* twvideo.cpp's record: at, kind, channel, note, velocity, level, aux0-3,
+   voice. */
+const OFF = 0, ON = 1, FLUSH = 2, RECORD = 11;
 
 const call = (name, ret, types, args) => M.ccall(name, ret, types, args);
 
@@ -84,7 +85,8 @@ function notes (list)
     const records = new Float64Array(list.length * RECORD);
 
     list.forEach((n, i) => records.set([n.at, n.kind, n.channel ?? 0, n.note ?? 60,
-                                        n.velocity ?? 127, 1, ...(n.aux ?? [0, 0, 0, 0])],
+                                        n.velocity ?? 127, 1, ...(n.aux ?? [0, 0, 0, 0]),
+                                        n.voice ?? 0],
                                        i * RECORD));
 
     M.HEAPF64.set(records, M._tv_note_buffer(list.length) / 8);
@@ -189,6 +191,35 @@ if (bench)
           frames.length === 12 && !lit(f(9), H - 1) && Math.abs(first - H / 2) <= LINES &&
           lit(f(11), 0),
           `${frames.length} frames; frame 10 lit from line ${first}`);
+}
+
+/* A batch out of time order, as a MIDI-out channel's later stamps make one:
+   the earlier note is not held up behind the later. */
+{
+    open();
+    follow(0, 'white', flat([1, 1, 1]));
+    notes([{ at: 10 * PER_FRAME, kind: ON, note: 61 }, { at: 2 * PER_FRAME, kind: ON }]);
+    M._tv_generated(4 * PER_FRAME);
+
+    const frames = render();
+
+    check('a note stamped before one ahead of it in its batch draws on time',
+          frames.length === 4 && lit(frames[3], 0), `${frames.length} frames`);
+}
+
+/* A key struck again before the off of its first voice arrives, as a
+   channel moved off a device has it: that off ends nothing. */
+{
+    open();
+    follow(0, 'white', flat([1, 1, 1]));
+    notes([{ at: 0, kind: ON, voice: 1 }, { at: PER_FRAME, kind: ON, voice: 2 },
+           { at: 2 * PER_FRAME, kind: OFF, voice: 1 }]);
+    M._tv_generated(4 * PER_FRAME);
+
+    const frames = render();
+
+    check("an off for a key's earlier voice does not end the one struck since",
+          frames.length === 4 && lit(frames[3], 0), `${frames.length} frames`);
 }
 
 /* Nothing past the audio. */
@@ -342,6 +373,454 @@ for (const fx of [false, true])
     const why = follow(0, 'broken', 'node ionode { out0 = nope->out; }; io ionode;');
 
     check('a patch that does not load says so', why === "'broken' did not load", why);
+}
+
+/* ---- the worklet's side ------------------------------------------------
+ *
+ * What a worklet's instance of the module (thinkweb.cpp, tw_video) hands the
+ * worker: every note it sounds, with the frame it sounds at, and what the
+ * sound says. Each in an instance of its own, driven as worklet.js drives
+ * one: 128-frame quanta, drained every four. */
+
+const WINDOW = 256, QUANTUM = 128, EVERY = 4;
+const TW_SEEK = 13;
+
+async function worklet ()
+{
+    const W = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    W._tw_create(RATE, WINDOW, QUANTUM);
+    W._tw_video(1, 0);
+    take(W);
+
+    return W;
+}
+
+/* What tw_video_take hands over, as { at, kind, channel, note, velocity,
+   voice }. */
+function take (W)
+{
+    const count = W._tw_video_take();
+    const p = W._tw_video_notes() / 8;
+    const out = [];
+
+    for (let i = 0; i < count; i++)
+    {
+        const r = W.HEAPF64.subarray(p + i * RECORD, p + (i + 1) * RECORD);
+
+        out.push({ at: r[0], kind: r[1], channel: r[2], note: r[3], velocity: r[4],
+                   voice: r[10] });
+    }
+    W._tw_video_clear();
+
+    return out;
+}
+
+/* `frames' of audio, and every record taken on the way. */
+function play (W, frames)
+{
+    const got = [];
+
+    for (let q = 0; q * QUANTUM < frames; q++)
+    {
+        W._tw_render(QUANTUM);
+        W._tw_events_clear();
+        W._tw_keys_clear();
+        if (q % EVERY === EVERY - 1)
+            got.push(...take(W));
+    }
+
+    return got.concat(take(W));
+}
+
+const sine = (hz) => `node ionode { channels = 1; play = 1; out0 = o->out; };
+                      node o osc::simple { freq = ${hz}; waveform = 0; amp = 1; };
+                      io ionode;`;
+
+const load = (W, channel, text) =>
+    W.ccall('tw_load', 'number', ['number', 'string'], [channel, text]);
+
+/* One C4 a second, half a second long, on `instrument'. */
+function grid (W, instrument)
+{
+    W.ccall('tw_instrument', 'number', ['string', 'string'], ['sine.dsp', sine(100)]);
+
+    return W.ccall('tw_piece_load', 'number', ['string', 'number'], [
+        'tempo 60;\n@warmth = 0.25;\n@air = 0.75;\n' + instrument +
+        'chain notes { stage g gen::grid { notes = "C4"; steps = 1; rows = 1;\n' +
+        '    cells = "x"; period = 1 beats; hold = 0.5 beats; };\n' +
+        '    sink { instrument = a; }; };\n', 1]) !== 0;
+}
+
+const said = (list) => JSON.stringify(list.map((r) => [r.at, r.kind, r.channel, r.note]));
+
+/* A resend: every channel let go of, at `at'. */
+const flushes = (list, at) =>
+    list.filter((r) => r.kind === FLUSH).map((r) => `${r.at}:${r.channel}`).join() ===
+    [...Array(16).keys()].map((c) => `${at}:${c}`).join();
+
+const struck = (list) => list.filter((r) => r.kind !== FLUSH);
+
+/* Whether `got' is `want', a [seconds, kind] each from `origin', every one
+   at the top of the window that holds it, `late' frames later. */
+function inWindows (got, want, origin, channel, late = 0)
+{
+    return got.length === want.length && got.every((r, k) =>
+    {
+        const at = origin + want[k][0] * RATE;
+        const top = r.at - late;
+
+        return r.kind === want[k][1] && r.channel === channel && r.note === 60 &&
+               top % WINDOW === 0 && top <= at && at <= top + WINDOW;
+    });
+}
+
+{
+    const W = await worklet();
+    const loaded = grid(W, 'instrument a { dsp "sine.dsp"; };\n');
+    const channel = W._tw_instrument_channel(0);
+
+    W._tw_transport(0, 0, 0);
+
+    const got = play(W, 2.2 * RATE).filter((r) => r.kind !== FLUSH);
+    const want = [[0, ON], [0.5, OFF], [1, ON], [1.5, OFF], [2, ON]];
+
+    check("the piece's notes go to the picture at the windows they sound in",
+          loaded && inWindows(got, want, W._tw_origin(), channel), `${loaded} ${said(got)}`);
+}
+
+/* A key, straight onto a channel: at the top of the window it lands in, as
+   the synth sounds it. */
+{
+    const W = await worklet();
+
+    load(W, 2, sine(100));
+    W._tw_note_on(1000, 2, 64, 90);
+    W._tw_note_off(3000, 2, 64);
+
+    const got = play(W, 4096);
+    const want = [[768, ON, 2, 64], [2816, OFF, 2, 64]];
+
+    check('a key goes to the picture at the window it sounds in',
+          said(got) === JSON.stringify(want) && got[0].velocity === 90, said(got));
+}
+
+/* All off half way through a window, with a key down: at the next window,
+   which is where the synth applies it, and nothing is down after. */
+{
+    const W = await worklet();
+
+    load(W, 2, sine(100));
+    W._tw_note_on(0, 2, 60, 100);
+    play(W, 1152);
+    W._tw_all_off();
+
+    const got = take(W);
+
+    W._tw_video(1, 0);
+
+    const after = struck(take(W));
+
+    check('all off lets go of every channel at the window it applies in',
+          said(got) === JSON.stringify([[1280, FLUSH, -1, 0]]) && after.length === 0,
+          `${said(got)}, then ${said(after)}`);
+}
+
+/* Video turned on with a key already down, and one that came and went. */
+{
+    const W = await worklet();
+
+    W._tw_video(0, 0);
+    load(W, 2, sine(100));
+    W._tw_note_on(0, 2, 60, 100);
+    W._tw_note_on(0, 2, 62, 100);
+    W._tw_note_off(512, 2, 62);
+    play(W, 1024);
+    W._tw_video(1, 0);
+
+    const got = take(W);
+
+    check('turned on, it lets go of everything and says which keys are down',
+          flushes(got, 1024) && said(struck(got)) === JSON.stringify([[1024, ON, 2, 60]]),
+          said(got));
+}
+
+/* A late joiner's catch-up steps the piece from a zero three seconds gone,
+   silently: none of the notes in it draw. */
+{
+    const W = await worklet();
+
+    grid(W, 'instrument a { dsp "sine.dsp"; };\n');
+    play(W, 3 * RATE);
+    W._tw_begin(0, 0, 1);
+
+    const ons = play(W, 1.6 * RATE).filter((r) => r.kind === ON);
+
+    check("a late joiner's catch-up draws none of the run it steps over",
+          inWindows(ons, [[4, ON]], 0, W._tw_instrument_channel(0)), said(ons));
+}
+
+/* A key pressed while a seek steps silently, a window at a time. */
+{
+    const W = await worklet();
+
+    grid(W, 'instrument a { dsp "sine.dsp"; };\n');
+    load(W, 2, sine(100));
+    W._tw_transport(0, 0, 0);
+    play(W, 1024);
+    W._tw_note_on(-1, 2, 62, 100);
+
+    const before = play(W, 1024).filter((r) => r.kind === ON && r.channel === 2);
+
+    W._tw_catch_budget(0);
+    W._tw_transport(-1, TW_SEEK, 300);
+    play(W, 1024);
+    W._tw_note_on(-1, 2, 64, 100);
+
+    const got = play(W, 1024).filter((r) => r.kind === ON);
+
+    check('a key pressed while a seek is silent does not draw',
+          before.length === 1 && got.length === 0, `${said(before)} then ${said(got)}`);
+}
+
+/* What the sound says: a 100 Hz sine on channel 1. */
+{
+    const W = await worklet();
+
+    load(W, 1, sine(100));
+    W._tw_note_on(0, 1, 60, 127);
+    play(W, 8192);
+
+    const channels = W._tw_video_inputs();
+    const q = W._tw_video_input_buffer() / 4;
+    const [level, bass, mid, high, ...levels] =
+        W.HEAPF32.slice(q, q + 4 + channels);
+
+    check('what the sound says: a low sine lights the bass and its channel',
+          level > 0.05 && bass > 0.05 && mid < bass / 20 && high < bass / 20 &&
+          channels >= 2 && levels[1] > 0.05 && levels[0] === 0,
+          `level ${level} bass ${bass} mid ${mid} high ${high} levels ${levels}`);
+}
+
+/* Which channels draw, and the piece's knobs: names when they change,
+   values every batch. */
+{
+    const W = await worklet();
+    const names = () =>
+    {
+        const p = W._tw_video_knob_names();
+
+        return p === 0 ? null : W.UTF8ToString(p);
+    };
+
+    load(W, 3, sine(100));
+
+    const loose = W._tw_video_channels();
+    const none = names();
+
+    grid(W, 'instrument a { dsp "sine.dsp"; };\n');
+
+    const channel = W._tw_instrument_channel(0);
+    const both = W._tw_video_channels();
+    const first = names(), again = names();
+    const channels = W._tw_video_inputs();
+    const q = W._tw_video_input_buffer() / 4 + 4 + channels;
+    const values = [...W.HEAPF32.slice(q, q + 2)];
+
+    check('the channels with something on them draw',
+          loose === 1 << 3 && both === (1 << 3 | 1 << channel), `${loose} ${both}`);
+    check("the piece's knobs, by name when they change and by value each batch",
+          none === '' && first === 'air\nwarmth' && again === null &&
+          values.join() === '0.75,0.25', `${none} ${first} ${again} ${values}`);
+
+    /* More than there is room for: the first 64, said once. */
+    W.ccall('tw_piece_load', 'number', ['string', 'number'],
+            [Array.from({ length: 70 }, (_, k) => `@k${10 + k} = ${k};\n`).join(''), 1]);
+
+    const many = names(), then = names();
+
+    check('a piece with more knobs than there is room for says the first once',
+          many?.split('\n').length === 64 && then === null, `${many?.length} then ${then}`);
+}
+
+/* An instrument played over MIDI out: its device hears it the page's delay
+   late, and so does the picture. */
+{
+    const W = await worklet();
+
+    grid(W, 'instrument a { midi "Surge"; midichannel = 3; dsp "sine.dsp"; };\n');
+    W.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+            ['Surge XT Out', 1, 1]);
+    W._tw_video(1, 50);
+    W._tw_transport(0, 0, 0);
+
+    const ons = play(W, 1.2 * RATE).filter((r) => r.kind === ON);
+
+    check("a MIDI-out channel's notes draw its delay late",
+          inWindows(ons, [[0, ON], [1, ON]], W._tw_origin(), W._tw_instrument_channel(0),
+                    0.05 * RATE),
+          said(ons));
+}
+
+/* A key on a device's channel while a seek is silent: the device hears it,
+   so it draws. */
+{
+    const W = await worklet();
+
+    grid(W, 'instrument a { midi "Surge"; midichannel = 3; dsp "sine.dsp"; };\n');
+    W.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+            ['Surge XT Out', 1, 1]);
+
+    const channel = W._tw_instrument_channel(0);
+
+    W._tw_transport(0, 0, 0);
+    play(W, 1024);
+    W._tw_catch_budget(0);
+    W._tw_transport(-1, TW_SEEK, 300);
+    play(W, 1024);
+    W._tw_note_on(-1, channel, 64, 100);
+
+    const got = play(W, 1024).filter((r) => r.kind === ON);
+
+    check("a key on a device's channel while a seek is silent draws",
+          got.length === 1 && got[0].note === 64, said(got));
+}
+
+/* A channel moved off a device, drawn as the worker would: the offs still
+   to come its delay late do not end what is struck on it since. */
+{
+    const W = await worklet();
+
+    grid(W, 'instrument a { midi "Surge"; midichannel = 3; dsp "sine.dsp"; };\n');
+    W.ccall('tw_midiout_ports', 'number', ['string', 'number', 'number'],
+            ['Surge XT Out', 1, 1]);
+    W._tw_video(1, 50);
+    W._tw_transport(0, 0, 0);
+
+    const got = play(W, 1.2 * RATE);
+
+    grid(W, 'instrument a { dsp "sine.dsp"; };\n');
+    W._tw_transport(W._tw_frame(), 0, 0);
+    got.push(...play(W, 0.4 * RATE));
+
+    open();
+    follow(W._tw_instrument_channel(0), 'white', flat([1, 1, 1]));
+    notes(got);
+    M._tv_generated(1.6 * RATE);
+
+    const frames = render();
+    const at = (seconds) => frames.find((f) => f.frame === Math.round(seconds * FPS));
+
+    check("a channel moved off a device: its late offs end nothing struck since",
+          at(1.35) !== undefined && lit(at(1.35), H / 2), said(got.slice(-6)));
+}
+
+/* More in one batch than there is room for: what is down instead. */
+{
+    const W = await worklet();
+
+    load(W, 2, sine(100));
+    W._tw_note_on(0, 2, 40, 100);
+    for (let k = 0; k < 1500; k++)
+    {
+        W._tw_note_on(100, 2, 50 + k % 20, 100);
+        W._tw_note_off(100, 2, 50 + k % 20);
+    }
+
+    const got = play(W, 512);
+
+    check('a batch with no room left says which keys are down instead',
+          flushes(got, 512) && said(struck(got)) === JSON.stringify([[512, ON, 2, 40]]),
+          said(got).slice(0, 200));
+}
+
+/* worklet.js itself, in the scope it expects, stubbed: on, with a port, it
+   posts the channels and knobs once and a batch every four quanta, the
+   notes and the sound in each; off, nothing. */
+{
+    let Processor = null;
+
+    globalThis.sampleRate = RATE;
+    globalThis.currentFrame = 0;
+    globalThis.registerProcessor = (name, cls) => { Processor = cls; };
+    globalThis.AudioWorkletProcessor = class
+    {
+        constructor () { this.port = new MessageChannel().port1; }
+    };
+    await import(pathToFileURL(path.join(build, 'worklet.js')).href);
+
+    const p = new Processor();
+
+    await p.start({ bytes: fs.readFileSync(path.join(build, 'thinkweb.wasm')),
+                    windowlen: WINDOW });
+
+    const { port1, port2 } = new MessageChannel();
+    const got = [];
+    const quanta = async (n) =>
+    {
+        const out = [[new Float32Array(QUANTUM), new Float32Array(QUANTUM)]];
+
+        for (let k = 0; k < n; k++)
+        {
+            p.process([[]], out);
+            globalThis.currentFrame += QUANTUM;
+        }
+        await new Promise((done) => setTimeout(done, 20));
+    };
+
+    port2.onmessage = (e) => got.push(e.data);
+    load(p.M, 1, sine(100));
+    p.M._tw_note_on(0, 1, 64, 100);
+    p.receive({ type: 'video', on: true, port: port1, delayMs: 0 });
+    await quanta(8);
+
+    const batches = got.filter((m) => m.type === 'batch');
+    const ons = batches.flatMap((b) => [...b.notes].filter((v, i) => i % RECORD === 1));
+    const types = got.map((m) => m.type).join();
+
+    p.receive({ type: 'video', on: false });
+    got.length = 0;
+    await quanta(8);
+    port2.close();
+
+    check('the worklet posts the channels, the knobs and a batch every four quanta',
+          types === 'channels,knobs,batch,batch' &&
+          batches.map((b) => b.frame).join() === '512,1024' &&
+          ons.filter((k) => k !== FLUSH).join() === `${ON}` && batches[1].inputs[4 + 1] > 0 &&
+          batches[1].knobs.length === 0 &&
+          got.length === 0,
+          `${types}; frames ${batches.map((b) => b.frame)}; kinds ${ons}; ` +
+          `inputs ${batches[1]?.inputs}; then ${got.length} more`);
+}
+
+/* Ten seconds of a piece, drained every four quanta, with video on and with
+   it off: the engine holds more as a piece warms up, and the feed holds
+   nothing more than that. */
+{
+    const growth = [];
+
+    for (const on of [0, 1])
+    {
+        const W = await worklet();
+
+        W._tw_video(on, 0);
+        grid(W, 'instrument a { dsp "sine.dsp"; };\n');
+        W._tw_transport(0, 0, 0);
+        play(W, RATE);
+
+        const before = W._tw_heap_in_use();
+
+        for (let s = 0; s < 10; s++)
+        {
+            play(W, RATE);
+            W._tw_video_inputs();
+            W._tw_video_knob_names();
+        }
+        growth.push(W._tw_heap_in_use() - before);
+    }
+
+    check('the feed keeps nothing on the heap as it plays', growth[1] === growth[0],
+          `${growth[0]} bytes with video off, ${growth[1]} on`);
 }
 
 process.exit(failures);
