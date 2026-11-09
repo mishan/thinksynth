@@ -22,9 +22,11 @@
    times a second and played through the BOX's profile and the patch's
    block by the same mapper the desktop's controllers have. Or marbles
    and pegs (game/thgMarbles), the balls rolling as the BOX is tipped and
-   playing what they strike, the walls on a percussion patch. The side
-   button steps to the next patch, the last's notes ringing out, and
-   held, between the keys and the marbles. */
+   playing what they strike, the walls on a percussion patch. Or Conway's
+   Life (game/thgLife), a playhead sweeping the board and playing its
+   live cells, painted with a finger. The side button steps to the next
+   patch, the last's notes ringing out, and held, to the next of the
+   keys, the marbles and Life. */
 
 #include <cmath>
 #include <stdint.h>
@@ -46,6 +48,7 @@
 
 #include "audio.h"
 #include "thhBox.h"
+#include "thgLife.h"
 #include "thgMarbles.h"
 #include "thhMapper.h"
 #include "patches.h"
@@ -89,8 +92,9 @@ struct Patch
     virtual ~Patch () {}
     virtual thcHidBlock profile () const = 0;
     virtual thcHidBlock marbles () const = 0;
-    /* owner: whose the note is, a finger's or a ball's, so a NOTE_OFF or
-       a bend reaches only the voice its own NOTE_ON started. */
+    virtual thcHidBlock life () const = 0;
+    /* owner: whose the note is, a finger's, a ball's or Life's, so a
+       NOTE_OFF or a bend reaches only the voice its own NOTE_ON started. */
     virtual void play (const thhAction &a, int owner) = 0;
     /* Every sounding voice of one half, even or odd, into l and r, added:
        the two halves on the two cores at once. */
@@ -132,6 +136,7 @@ struct PatchOf : Patch
 
     thcHidBlock profile () const override { return V::profile_box(); }
     thcHidBlock marbles () const override { return V::profile_marbles(); }
+    thcHidBlock life () const override { return V::profile_life(); }
 
     /* Released before held, the oldest first. */
     int64_t rank (int i) const
@@ -294,8 +299,10 @@ static Patch *const patches[] = { PATCHES };
 #define PERC_TYPE(type) PERC_OF(type)
 static Patch *const percussion = new PERC_TYPE(PERCUSSION)("percussion", PERCUSSION_GAIN);
 
-/* Whether the screen is the keys or the marbles. */
-static volatile bool game = false;
+/* What the screen is. */
+enum { ON_KEYS, ON_MARBLES, ON_LIFE, SCREENS };
+static const char *const SCREEN_NAME[SCREENS] = { "keys", "marbles", "life" };
+static volatile int screen = ON_KEYS;
 #define NPATCHES (int)(sizeof(patches) / sizeof(patches[0]))
 
 /* The patch playing, and every patch's voices, the audio task's and the
@@ -306,7 +313,7 @@ static SemaphoreHandle_t lock;
    shows as playing. */
 static volatile uint32_t lit = 0;
 static volatile int shown = 0;
-/* The whole screen drawn again: the keys or the marbles, switched. */
+/* The whole screen drawn again: the keys, the marbles or Life, switched. */
 static volatile bool redraw = false;
 
 /* What the screen draws of the marbles, copied under `seen' from the
@@ -317,6 +324,10 @@ static int shownBallCount = 0;
 static thgPeg shownPegs[thgMarbles::PEGS];
 static int shownPegCount = 0;
 static volatile unsigned pegsChanged = 0;
+/* And of Life, under `seen' too. */
+static bool shownCells[thgLife::COLS][thgLife::ROWS];
+static int shownColumn = -1;
+static bool shownPaused = false;
 
 
 static i2c_master_bus_handle_t bus;
@@ -483,6 +494,11 @@ audioTask (void *)
 
 static esp_lcd_panel_handle_t panel;
 
+/* C, E flat, F, G, B flat. */
+static const int HUE[5][3] = {
+    { 230, 70, 70 }, { 230, 160, 40 }, { 200, 210, 60 }, { 60, 190, 120 },
+    { 70, 120, 230 } };
+
 static uint16_t
 rgb (int r, int g, int b)
 {
@@ -512,10 +528,6 @@ keySpan (int k, int &from, int &to)
 static void
 drawKey (int k, bool on)
 {
-    /* C, E flat, F, G, B flat. */
-    static const int HUE[5][3] = {
-        { 230, 70, 70 }, { 230, 160, 40 }, { 200, 210, 60 }, { 60, 190, 120 },
-        { 70, 120, 230 } };
     /* Two, each filled while the other is still being sent: a draw only
        queues its pixels, and waits for the last one's only as it starts. */
     static uint16_t *strips[2] = { NULL, NULL };
@@ -560,9 +572,10 @@ drawKey (int k, bool on)
     }
 }
 
-/* The patches along the top, a square each, the playing one lit. */
+/* The patches along the top, a square each, the playing one lit; at the
+   right end, Life's paused as a pause sign. */
 static void
-drawPatches (int n, int on)
+drawPatches (int n, int on, bool paused)
 {
     static uint16_t *row = NULL;
 
@@ -575,8 +588,11 @@ drawPatches (int n, int on)
         {
             const int p = (x - 6) / 20, in = (x - 6) % 20;
             const bool square = p >= 0 && p < n && in < 14 && y >= 2 && y < TOP - 2;
+            const bool bar = paused && y >= 3 && y < TOP - 3 &&
+                             ((x >= 301 && x < 305) || (x >= 308 && x < 312));
 
-            row[y * W + x] = !square ? rgb(0, 0, 0)
+            row[y * W + x] = bar ? rgb(255, 255, 255)
+                           : !square ? rgb(0, 0, 0)
                            : p == on ? rgb(255, 255, 255) : rgb(70, 70, 70);
         }
     esp_lcd_panel_draw_bitmap(panel, 0, 0, W, TOP, row);
@@ -593,9 +609,6 @@ static int framePegCount = 0;
 static uint16_t
 fieldAt (int x, int y)
 {
-    static const int HUE[5][3] = {
-        { 230, 70, 70 }, { 230, 160, 40 }, { 200, 210, 60 }, { 60, 190, 120 },
-        { 70, 120, 230 } };
     const float wy = (float)(y - TOP);
 
     for (int i = 0; i < frameBallCount; i++)
@@ -712,37 +725,115 @@ drawMarbles (bool all)
         last[i] = frameBalls[i];
 }
 
+/* Life's board, below the patches' row: a cell 20 by 28, alive its row's
+   note's color, dead a dim one, the playhead's column lighter. */
+#define CELL_W (W / thgLife::COLS)
+#define CELL_H ((H - TOP) / thgLife::ROWS)
+
+static void
+drawCell (int c, int r, bool alive, bool head)
+{
+    /* Two, as the keys' strips, so one is filled while the other is sent. */
+    static uint16_t *bufs[2] = { NULL, NULL };
+    static int next = 0;
+    const int *h = HUE[r % 5];
+    const int x0 = c * CELL_W, y0 = TOP + (thgLife::ROWS - 1 - r) * CELL_H;
+
+    for (int b = 0; b < 2; b++)
+        if (!bufs[b])
+            bufs[b] = (uint16_t *)heap_caps_malloc(CELL_W * CELL_H * 2, MALLOC_CAP_DMA);
+    if (!bufs[0] || !bufs[1])
+        return;
+
+    uint16_t *buf = bufs[next];
+    const uint16_t fill = alive && head ? rgb(240 - (240 - h[0]) / 3, 240 - (240 - h[1]) / 3,
+                                              240 - (240 - h[2]) / 3)
+                        : alive ? rgb(h[0], h[1], h[2])
+                        : head ? rgb(h[0] / 3, h[1] / 3, h[2] / 3)
+                               : rgb(h[0] / 6, h[1] / 6, h[2] / 6);
+
+    next ^= 1;
+    for (int y = 0; y < CELL_H; y++)
+        for (int x = 0; x < CELL_W; x++)
+            buf[y * CELL_W + x] = x == 0 || y == 0 ? rgb(0, 0, 0) : fill;
+    esp_lcd_panel_draw_bitmap(panel, x0, y0, x0 + CELL_W, y0 + CELL_H, buf);
+}
+
+/* The cells whose life or playhead changed since they were drawn, or all. */
+static void
+drawLife (bool all)
+{
+    static uint8_t drawn[thgLife::COLS][thgLife::ROWS];
+    bool cells[thgLife::COLS][thgLife::ROWS];
+    int column;
+
+    portENTER_CRITICAL(&seen);
+    memcpy(cells, shownCells, sizeof(cells));
+    column = shownColumn;
+    portEXIT_CRITICAL(&seen);
+
+    for (int c = 0; c < thgLife::COLS; c++)
+        for (int r = 0; r < thgLife::ROWS; r++)
+        {
+            const uint8_t now = cells[c][r] | (c == column) << 1;
+
+            if (all || drawn[c][r] != now)
+            {
+                drawn[c][r] = now;
+                drawCell(c, r, cells[c][r], c == column);
+            }
+        }
+}
+
 static void
 displayTask (void *)
 {
     uint32_t keysShown = 0;
     int patchShown = -1;
+    bool pausedShown = false;
 
     for (int k = 0; k < KEYS; k++)
         drawKey(k, false);
     for (;;)
     {
         const uint32_t now = lit;
+        /* Cleared only where it was read set: a request between the
+           reading and the clearing would be lost. */
+        const bool again = redraw;
 
-        if (shown != patchShown)
+        if (again)
+            redraw = false;
+
+        const int on = screen;
+        const bool paused = on == ON_LIFE && shownPaused;
+
+        if (shown != patchShown || paused != pausedShown)
         {
             patchShown = shown;
-            drawPatches(NPATCHES, patchShown);
+            pausedShown = paused;
+            drawPatches(NPATCHES, patchShown, pausedShown);
         }
-        if (redraw)
+        if (again)
         {
-            redraw = false;
             keysShown = 0;
-            if (!game)
+            if (on == ON_KEYS)
                 for (int k = 0; k < KEYS; k++)
                     drawKey(k, false);
-            else
+            else if (on == ON_MARBLES)
                 drawMarbles(true);
+            else
+                drawLife(true);
         }
-        if (game)
+        if (on == ON_MARBLES)
         {
             drawMarbles(false);
             vTaskDelay(pdMS_TO_TICKS(30));
+            continue;
+        }
+        if (on == ON_LIFE)
+        {
+            drawLife(false);
+            vTaskDelay(pdMS_TO_TICKS(15));
             continue;
         }
 
@@ -852,8 +943,15 @@ static struct Ball
     int64_t   until[2] = { 0, 0 };
 } ball[thgMarbles::BALLS];
 
+/* Life's, a mapper a row: a hundred kilobytes, for the heap and its PSRAM. */
+static thgLifePlayer *const player = new thgLifePlayer;
+/* Its notes' owner, after the fingers' and the balls': its rows each
+   play a note of their own. */
+#define LIFE_OWNER (FINGERS + thgMarbles::BALLS)
+
 /* Every finger's mapper given the playing patch's profile for the keys,
-   and every ball's for the marbles, the notes they held let go. */
+   every ball's for the marbles and Life's player its, the notes they held
+   let go. */
 static void
 configureAll ()
 {
@@ -885,7 +983,14 @@ configureAll ()
                    patches[playing]->name, line, err.c_str());
         b.s.connected = true;
     }
-    printf("thinkbox: %s, %s\n", patches[playing]->name, game ? "marbles" : "keys");
+    acts.clear();
+    player->release(acts);
+    playAll(acts, LIFE_OWNER);
+    acts.clear();
+    if (!player->configure(patches[playing]->life(), acts, err, line))
+        printf("thinkbox: %s's life profile doesn't fit, line %d: %s\n",
+               patches[playing]->name, line, err.c_str());
+    printf("thinkbox: %s, %s\n", patches[playing]->name, SCREEN_NAME[screen]);
 }
 
 /* The marbles, the control task's. */
@@ -896,6 +1001,18 @@ static thgMarbles marbles(W, H - TOP, 0x5eed);
 #define MARBLE_G 900.0f
 #define SHAKE_G 2.0f
 
+static bool
+shaken (const float accel[3], int64_t now)
+{
+    static int64_t last = 0;
+
+    if (sqrtf(accel[0] * accel[0] + accel[1] * accel[1] + accel[2] * accel[2]) <= SHAKE_G ||
+        now - last <= 400000)
+        return false;
+    last = now;
+    return true;
+}
+
 /* One step of the marbles: gravity from the IMU in the screen's axes,
    a tap, a shake, and what the balls strike played. Upright facing you,
    the sensor's +x is up, and its +y the screen's right. */
@@ -903,7 +1020,6 @@ static void
 playMarbles (const thhBoxImu &imu, const float accel[3], bool tapped, float tx, float ty,
              int64_t now)
 {
-    static int64_t lastShake = 0;
     std::vector<thgHit> hits;
     std::vector<thhAction> acts;
     const float gx = -imu.g[1] * MARBLE_G, gy = imu.g[0] * MARBLE_G;
@@ -913,12 +1029,8 @@ playMarbles (const thhBoxImu &imu, const float accel[3], bool tapped, float tx, 
 
     if (onField)
         marbles.tap(tx, ty - TOP);
-    if (sqrtf(accel[0] * accel[0] + accel[1] * accel[1] + accel[2] * accel[2]) > SHAKE_G &&
-        now - lastShake > 400000)
-    {
+    if (shaken(accel, now))
         marbles.shake();
-        lastShake = now;
-    }
     marbles.step(gx, gy, 0.004f, hits);
 
     for (const thgHit &h : hits)
@@ -966,6 +1078,68 @@ playMarbles (const thhBoxImu &imu, const float accel[3], bool tapped, float tx, 
     portEXIT_CRITICAL(&seen);
 }
 
+/* Life, the control task's, started with a glider and a blinker, so it
+   plays at once. */
+static thgLife life(0x5eed);
+
+/* One step of Life: the finger painting it, a tap on the patches' row its
+   pause, a shake, and the column the playhead reached played. A finger is
+   the first contact, down again only after TOUCH_LIFTED_US of none, as a
+   key's: a press toggles its cell. */
+static void
+playLife (const float accel[3], float dt, int count, const Contact &at, int64_t now)
+{
+    static int64_t seenAt = -TOUCH_LIFTED_US - 1;
+    static bool onTop = false;
+    static int col = -1, row = -1;
+    std::vector<thgCell> cells;
+    std::vector<thhAction> acts;
+
+    if (count > 0)
+    {
+        int c = -1, r = -1;
+        const bool on = thgLife::cellAt(at.x, at.y - TOP, W, H - TOP, c, r);
+
+        if (now - seenAt > TOUCH_LIFTED_US)
+        {
+            onTop = at.y < TOP;
+            if (onTop)
+                life.pause(!life.paused());
+            else if (on)
+                life.press(c, r);
+            col = !onTop && on ? c : -1;
+            row = r;
+        }
+        else if (col >= 0 && on && (c != col || r != row))
+        {
+            /* The cells between too, so a quick stroke is still a line. */
+            const int n = abs(c - col) > abs(r - row) ? abs(c - col) : abs(r - row);
+
+            for (int i = 1; i <= n; i++)
+                life.drag(col + (int)lroundf((c - col) * i / (float)n),
+                          row + (int)lroundf((r - row) * i / (float)n));
+            col = c;
+            row = r;
+        }
+        seenAt = now;
+    }
+    if (shaken(accel, now))
+        life.shake();
+    if (life.step(dt, cells))
+    {
+        player->play(cells, now / 1e6, 0, acts);
+        playAll(acts, LIFE_OWNER);
+    }
+
+    portENTER_CRITICAL(&seen);
+    for (int c = 0; c < thgLife::COLS; c++)
+        for (int r = 0; r < thgLife::ROWS; r++)
+            shownCells[c][r] = life.alive(c, r);
+    shownColumn = life.column();
+    shownPaused = life.paused();
+    portEXIT_CRITICAL(&seen);
+}
+
 static void
 controlTask (void *)
 {
@@ -992,13 +1166,15 @@ controlTask (void *)
         const int64_t now = esp_timer_get_time();
         float accel[3] = { -1, 0, 0 }, gyro[3] = { 0, 0, 0 };
 
+        const float dt = (now - last) / 1e6f;
+
         if (imuRead(accel, gyro))
-            thhBoxFeedImu(accel, gyro, (now - last) / 1e6f, imu, pose);
+            thhBoxFeedImu(accel, gyro, dt, imu, pose);
         last = now;
 
         /* A press steps to the next patch, let go, the notes held let go
-           and left to ring out; held, it switches between the keys and
-           the marbles. */
+           and left to ring out; held, it switches to the next screen: the
+           keys, the marbles, Life. */
         const bool reading = gpio_get_level(GPIO_NUM_0) == 0;
         static int64_t pressed = 0;
         static bool switched = false;
@@ -1024,7 +1200,7 @@ controlTask (void *)
                 f.mapper.release(acts);
                 playAll(acts, (int)(&f - finger));
             }
-            game = !game;
+            screen = (screen + 1) % SCREENS;
             lit = 0;
             redraw = true;
             configureAll();
@@ -1073,7 +1249,16 @@ controlTask (void *)
             f->s.axis[THH_BOX_Y] = points[p].y / (float)(H - 1);
         }
 
-        if (game)
+        if (screen == ON_LIFE)
+        {
+            playLife(accel, dt, count, points[0], now);
+            if (n % 125 == 0)
+                printf("%s life, load %3.0f%%  generation %d%s\n", patches[playing]->name,
+                       load * 100, life.generation(), life.paused() ? ", paused" : "");
+            vTaskDelay(pdMS_TO_TICKS(4));
+            continue;
+        }
+        if (screen == ON_MARBLES)
         {
             /* A tap a touch, down again only after TOUCH_LIFTED_US of
                none, as a key's: the controller reports one in bursts. */
@@ -1182,6 +1367,12 @@ app_main (void)
 
     marbles.scatter(6);
     marbles.shake();
+    life.board(".O............../"
+               "..O............./"
+               "OOO............./"
+               "................/"
+               "................/"
+               "...........OOO../");
     lock = xSemaphoreCreateMutex();
     go = xSemaphoreCreateBinary();
     done = xSemaphoreCreateBinary();

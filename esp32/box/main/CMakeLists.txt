@@ -4,7 +4,7 @@ set(T "${CMAKE_CURRENT_LIST_DIR}/../../..")
 idf_component_register(
     SRCS "box.cpp" "audio.c"
          "${T}/hid/thhMapper.cpp" "${T}/hid/thhControls.cpp" "${T}/hid/thhBox.cpp"
-         "${T}/game/thgMarbles.cpp"
+         "${T}/game/thgMarbles.cpp" "${T}/game/thgLife.cpp"
     INCLUDE_DIRS "." "${T}/hid" "${T}/game" "${T}/src" "${T}/libthink" "${T}/plugins"
     REQUIRES esp_driver_i2s esp_driver_i2c esp_timer esp_lcd)
 # The mapper and the touch driver both leave members to their defaults.

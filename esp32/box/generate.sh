@@ -12,12 +12,12 @@ list="$here/main/patches.h"
 echo "/* The patches the BOX steps through. Written by generate.sh. */" > "$list"
 for p in $patches; do
     name=$(echo "$p" | sed 's/^./\U&/')
-    "$build/scripts/dspcompile" -p "$build/plugins/" -r 32000 -c box,marbles \
+    "$build/scripts/dspcompile" -p "$build/plugins/" -r 32000 -c box,marbles,life \
         "$here/../../dsp/$p.dsp" "$name" > "$here/main/thv$name.h"
     echo "#include \"thv$name.h\"" >> "$list"
 done
 # The percussion a game's walls play, on channel 2.
-"$build/scripts/dspcompile" -p "$build/plugins/" -r 32000 -c box,marbles \
+"$build/scripts/dspcompile" -p "$build/plugins/" -r 32000 -c box,marbles,life \
     "$here/../../dsp/clave.dsp" Clave > "$here/main/thvClave.h"
 echo "#include \"thvClave.h\"" >> "$list"
 echo "#define PERCUSSION Clave" >> "$list"
