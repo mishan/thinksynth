@@ -1,6 +1,6 @@
 dependencies:
   boxsim:
-    component_hash: 8b3e5a6dde989628728f72c69614ef74c80ee501b60703bf1e3caaeabbe6fc69
+    component_hash: 4c25c33926874fb41d7658766edff8e1545d2771b23852e073e52f3a9d316ee1
     dependencies:
     - name: espressif/esp_codec_dev
       rules:
@@ -10,13 +10,13 @@ dependencies:
       git: https://github.com/mishan/boxsim.git
       path: components/boxsim
       type: git
-    version: 7367e36f03c54f851eb84851a19c65053435dd3c
+    version: 4e6fb3768b6b2e2d74727845a0afb29a959dfa85
   idf:
     source:
       type: idf
     version: 6.1.0
 direct_dependencies:
 - boxsim
-manifest_hash: 039cd5f46a391d956d67b5f9b352a0ac1b17fa082af240873f0038c06fd3e57c
+manifest_hash: 18a012937581154e2077956bd8388b419a84ed4c5c490e30219df6be01c20c79
 target: linux
 version: 3.0.0
