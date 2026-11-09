@@ -274,7 +274,7 @@ main (int argc, char **argv)
         std::vector<thhAction> acts;
         std::string err;
         int line;
-        const bool ok = m.configure(thvDxbell::profile(), thhBoxControls(), acts, err, line);
+        const bool ok = m.configure(thvDxbell::profile_box(), thhBoxControls(), acts, err, line);
 
         st.connected = true;
         st.axis[THH_BOX_X] = 0.5f;

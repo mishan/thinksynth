@@ -42,3 +42,14 @@ takes, and each patch's most and how many blocks ran late. A finger counts as
 lifted only after 40 ms of the screen reading none, since the touch
 controller reports a held finger in bursts. The monitor prints
 what the controls read twice a second.
+
+## Marbles
+
+Held, the side button switches the screen to marbles and pegs
+(`game/thgMarbles`) and back. Balls roll the way the BOX is tipped, and
+play what they strike, through the BOX's mapper with the game's controls
+(`THG_MARBLES_PROFILE`, and a patch's `controller marbles` block over it):
+a peg plays the note of its column, harder louder, and a wall plays
+`clave.dsp`, on channel 2. A tap puts a peg, or takes one away; a shake
+drops another ball in, up to four. It starts with a few pegs scattered
+and one ball.

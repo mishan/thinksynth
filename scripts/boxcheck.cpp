@@ -35,7 +35,7 @@ static void
 pose (thhBoxImu &imu, float degrees, float rollDegrees, float &tilt, float &roll)
 {
     const float a = degrees * (float)M_PI / 180, b = rollDegrees * (float)M_PI / 180;
-    const float up[3] = { -std::cos(a) * std::cos(b), std::sin(b),
+    const float up[3] = { std::cos(a) * std::cos(b), -std::sin(b),
                           -std::sin(a) * std::cos(b) };
     const float still[3] = { 0, 0, 0 };
     thhState s;
