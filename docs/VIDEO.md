@@ -174,7 +174,7 @@ the pixels, and says so; another patch or effect, or the pane shown
 again, starts at 160x120 again. So does the same patch once drawing it
 small has taken under an eighth of the worker's time for 4 s running,
 which means that at full size it would take under half. Each time 160x120
-falls behind again, the wait before the next try doubles.
+falls behind again, the wait before the next try doubles, up to 30 s.
 
 The video runs only while its pane is in front and the tab is shown. When
 the pane comes back, the video starts again from the present, with any
