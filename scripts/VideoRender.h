@@ -25,7 +25,9 @@
  * no limiter, so voices that add past white clip there when the frame is
  * written. Its .dsp is loaded on each audio channel it follows, at full
  * amp, and plays the notes the scheduler hands that channel (a
- * thcNoteTap), so a chord draws as three voices.
+ * thcNoteTap), so a chord draws as three voices. An effect on those
+ * channels sees their whole picture and outlives every note: a delay a
+ * frame long is video feedback.
  *
  * The audio reaches it as chanargs, set on every channel it follows after
  * each audio window, where its .dsp uses them:
@@ -78,11 +80,13 @@
 class VideoRender : public thcNoteTap
 {
 public:
-    /* `raster' is WxH@FPS. False, with a sentence, for a raster that is no
-       picture, a .dsp that does not load, or a file that cannot be made. */
+    /* `raster' is WxH@FPS; `fx', if not empty, an effect for each channel.
+       False, with a sentence, for a raster that is no picture, a .dsp that
+       does not load, or a file that cannot be made. */
     bool open (const std::string &pluginPath, const std::string &dsp,
-               const std::string &raster, const std::set<int> &follow,
-               const std::string &path, std::string &why)
+               const std::string &fx, const std::string &raster,
+               const std::set<int> &follow, const std::string &path,
+               std::string &why)
     {
         int end = 0;
 
@@ -112,6 +116,8 @@ public:
 
         const std::string found =
             thUtil::findDataFile(dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+        const std::string foundFx = fx.empty() ? "" :
+            thUtil::findDataFile(fx, "dsp", "THINK_DSP_PATH", DSP_PATH);
 
         for (int ch : follow_)
         {
@@ -119,6 +125,12 @@ public:
                                  MIDIVALMAX) == NULL)
             {
                 why = "'" + dsp + "' did not load";
+                return false;
+            }
+            if (!fx.empty() &&
+                synth_->loadEffect(foundFx.empty() ? fx : foundFx, ch) == NULL)
+            {
+                why = "'" + fx + "' did not load as an effect";
                 return false;
             }
         }

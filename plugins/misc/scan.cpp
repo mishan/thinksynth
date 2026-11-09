@@ -24,7 +24,8 @@
  * samples instead, so every voice draws onto the one raster whenever it
  * began. `x' and `y' run 0 to 1 across and down: a ring is a sine of
  * (x - 0.5)^2 + (y - 0.5)^2, and a bar a sine of y. `t' is seconds since
- * the synth started, for what moves.
+ * the synth started, for what moves. `width' and `size' are a line's and a
+ * frame's pixels, what a delay a frame long is set by: video feedback.
  *
  * x, y, the syncs and the frame are worked out from the count in 64-bit
  * integers, so they are as steady after an hour as in the first frame.
@@ -45,7 +46,8 @@
 #include "thSynthTree.h"
 #include "thSynth.h"
 
-enum {OUT_X, OUT_Y, OUT_HSYNC, OUT_VSYNC, OUT_FRAME, OUT_T, INOUT_LAST};
+enum {OUT_X, OUT_Y, OUT_HSYNC, OUT_VSYNC, OUT_FRAME, OUT_T, OUT_WIDTH, OUT_SIZE,
+      INOUT_LAST};
 
 std::atomic<int> args[INOUT_LAST];
 
@@ -78,6 +80,12 @@ int module_init (thPlugin *plugin)
     args[OUT_T] = plugin->regArg("t", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_T], "Seconds since the synth started");
     plugin->setArgUnits(args[OUT_T], "seconds");
+    args[OUT_WIDTH] = plugin->regArg("width", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_WIDTH], "Pixels a line");
+    plugin->setArgUnits(args[OUT_WIDTH], "samples");
+    args[OUT_SIZE] = plugin->regArg("size", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_SIZE], "Pixels a frame");
+    plugin->setArgUnits(args[OUT_SIZE], "samples");
 
     return 0;
 }
@@ -96,9 +104,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *vsync = mod->getArg(node, args[OUT_VSYNC])->allocate(windowlen);
     float *frame = mod->getArg(node, args[OUT_FRAME])->allocate(windowlen);
     float *t = mod->getArg(node, args[OUT_T])->allocate(windowlen);
+    float *width = mod->getArg(node, args[OUT_WIDTH])->allocate(windowlen);
+    float *size = mod->getArg(node, args[OUT_SIZE])->allocate(windowlen);
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
+        width[i] = (float)w;
+        size[i] = (float)(w * h);
         if (w == 0)
         {
             x[i] = y[i] = hsync[i] = vsync[i] = frame[i] = t[i] = 0;

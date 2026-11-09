@@ -8,9 +8,11 @@
 # trimming the two files to the same whole frames. And the audio reaching
 # the video synth: the ramp swapped for each of the bridge's chanargs in
 # turn, which light the frames under the note, or for @in_bass, which a
-# C4 organ leaves dark.
-if(NOT GENWAV OR NOT PIECE OR NOT VIDEO_DSP OR NOT PLUGIN_DIR OR NOT DSP_PATH OR NOT WORK)
-  message(FATAL_ERROR "GENWAV, PIECE, VIDEO_DSP, PLUGIN_DIR, DSP_PATH and WORK are required")
+# C4 organ leaves dark. And video/'s own: the feedback effect keeping a
+# trail on screen after the note has gone, and each patch drawing
+# something while it sounds.
+if(NOT GENWAV OR NOT PIECE OR NOT VIDEO_DSP OR NOT VIDEO_DIR OR NOT PLUGIN_DIR OR NOT DSP_PATH OR NOT WORK)
+  message(FATAL_ERROR "GENWAV, PIECE, VIDEO_DSP, VIDEO_DIR, PLUGIN_DIR, DSP_PATH and WORK are required")
 endif()
 
 file(REMOVE_RECURSE "${WORK}")
@@ -57,7 +59,7 @@ function(measure name)
   set(want ${want} PARENT_SCOPE)
 endfunction()
 
-# Y at column `x' of the first row of frame `f'.
+# Y at pixel `x' of frame `f', counted row by row from the top left.
 function(luma name f x out)
   math(EXPR at "${start} + ${f} * ${FRAME} + 6 + ${x}")
   file(READ "${WORK}/${name}.y4m" byte OFFSET ${at} LIMIT 1 HEX)
@@ -144,3 +146,49 @@ foreach(arg in_level in_level0 in_mid in_bass knob_k)
     set(mid_y ${y})
   endif()
 endforeach()
+
+# Any pixel of frame `f' lit.
+function(lit name f out)
+  math(EXPR at "${start} + ${f} * ${FRAME} + 6")
+  file(READ "${WORK}/${name}.y4m" plane OFFSET ${at} LIMIT ${PIXELS} HEX)
+  string(REGEX MATCHALL ".." bytes "${plane}")
+  list(REMOVE_ITEM bytes "10")
+  list(LENGTH bytes n)
+  set(${out} ${n} PARENT_SCOPE)
+endfunction()
+
+math(EXPR PIXELS "${W} * ${H}")
+set(dsp "${VIDEO_DSP}")
+render(trail --video-fx "${VIDEO_DIR}/fx/feedback.dsp")
+measure(trail)
+lit(trail 52 n)
+if(n EQUAL 0)
+  message(FATAL_ERROR "with video/fx/feedback.dsp, nothing is left on screen a quarter second after the note")
+endif()
+
+file(GLOB patches "${VIDEO_DIR}/*.dsp")
+foreach(patch IN LISTS patches)
+  get_filename_component(stem "${patch}" NAME_WE)
+  set(dsp "${patch}")
+  render(patch-${stem})
+  measure(patch-${stem})
+  lit(patch-${stem} 37 n)
+  if(n EQUAL 0)
+    message(FATAL_ERROR "video/${stem}.dsp draws nothing under the note")
+  endif()
+endforeach()
+
+# A disk whose outside runs far under black: fed back unheld, that dark
+# trail eats the disk while the note still holds it.
+set(dsp "${WORK}/disk.dsp")
+string(REPLACE "in0 = s->x;"
+       "in0 = 1 - ((s->x - 0.5) * (s->x - 0.5) + (s->y - 0.5) * (s->y - 0.5)) * 40;"
+       text "${ramp}")
+file(WRITE "${dsp}" "${text}")
+render(disk --video-fx "${VIDEO_DIR}/fx/feedback.dsp")
+measure(disk)
+math(EXPR middle "12 * ${W} + 16")
+luma(disk 42 ${middle} y)
+if(NOT y GREATER 100)
+  message(FATAL_ERROR "fed back, a disk with a dark outside goes out under its own note: Y ${y} at its middle")
+endif()

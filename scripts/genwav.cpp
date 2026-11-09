@@ -89,7 +89,8 @@
  * `--video DSP --video-out FILE.y4m' renders a video synth beside the
  * audio: DSP at the pixel clock of `--raster WxH@FPS' (160x120@60 by
  * default), playing the notes of every instrument, or of those
- * `--video-follow' names, and written as a .y4m (VideoRender.h). With it,
+ * `--video-follow' names, through the effect `--video-fx' names if any,
+ * and written as a .y4m (VideoRender.h). With it,
  * --from and --length are rounded to whole frames, so the two files start
  * and end together: to the sample, where the frame rate divides 44100.
  *
@@ -174,6 +175,7 @@ static void usage (const char *argv0)
            "      --stages            every composer plugin's params, as JSON\n"
            "      --video DSP         render DSP as a video synth beside the audio\n"
            "      --video-out FILE    write its frames here, as a .y4m\n"
+           "      --video-fx DSP      an effect on each of its channels\n"
            "      --raster WxH@FPS    its picture (default 160x120@60)\n"
            "      --video-follow A,B  the instruments it plays the notes of "
            "(default all)\n"
@@ -598,7 +600,7 @@ int main (int argc, char **argv)
     bool pathGiven = false, checkOnly = false, listStages = false;
     bool levelsText = false, sectionsText = false;
     std::string jsonFile, stemsDir;
-    std::string videoDsp, videoFile, raster = "160x120@60", videoFollow;
+    std::string videoDsp, videoFx, videoFile, raster = "160x120@60", videoFollow;
 
     struct KnobMove { double at; std::string name; float value; };
     std::vector<KnobMove> moves;
@@ -639,6 +641,11 @@ int main (int argc, char **argv)
         {
             if (++i >= argc) { usage(argv[0]); return 2; }
             videoDsp = argv[i];
+        }
+        else if (!strcmp(argv[i], "--video-fx"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            videoFx = argv[i];
         }
         else if (!strcmp(argv[i], "--video-out"))
         {
@@ -964,7 +971,8 @@ int main (int argc, char **argv)
                     argv[0], genFile.c_str());
             return 2;
         }
-        if (!video.open(pluginPath, videoDsp, raster, follow, videoFile, why))
+        if (!video.open(pluginPath, videoDsp, videoFx, raster, follow,
+                        videoFile, why))
         {
             fprintf(stderr, "%s: %s\n", argv[0], why.c_str());
             return 2;
