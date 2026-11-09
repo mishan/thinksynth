@@ -54,7 +54,8 @@
 class VideoRender : public thcNoteTap
 {
 public:
-    /* `raster' is WxH@FPS; `fx', if not empty, an effect for each channel.
+    /* `raster' is WxH@FPS; `fx', if not empty, an effect on the whole
+       picture.
        False, with a sentence, for a raster that is no picture, a .dsp that
        does not load, or a file that cannot be made. */
     bool open (const std::string &pluginPath, const std::string &dsp,
@@ -79,9 +80,10 @@ public:
             thUtil::findDataFile(fx, "dsp", "THINK_DSP_PATH", DSP_PATH);
 
         for (int ch : follow)
-            if (!video_.follow(ch, found.empty() ? dsp : found,
-                               foundFx.empty() ? fx : foundFx, why))
+            if (!video_.follow(ch, found.empty() ? dsp : found, why))
                 return false;
+        if (!fx.empty() && !video_.effect(foundFx.empty() ? fx : foundFx, why))
+            return false;
         return file_.open(path, width, height, fps, why);
     }
 

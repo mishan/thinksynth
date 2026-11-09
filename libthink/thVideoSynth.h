@@ -24,8 +24,8 @@
  * and no limiter, so voices that add past white clip where the frame is
  * shown. A .dsp is loaded on each audio channel it follows, at full amp,
  * and plays the notes that channel plays, so a chord draws as three
- * voices. An effect on those channels sees their whole picture and
- * outlives every note: a delay a frame long is video feedback.
+ * voices. An effect, once, on the whole picture, outlives every note: a
+ * delay a frame long is video feedback.
  *
  * What the audio says (thVideoBridge) reaches it as chanargs on every
  * channel it follows, where its .dsp uses them: @in_level, @in_level<N>,
@@ -71,12 +71,27 @@ public:
     bool open (const std::string &pluginPath, int width, int height, int fps,
                int lines, std::string &why);
 
-    /* `dsp', and `fx' as its effect if not empty, on `channel'. */
-    bool follow (int channel, const std::string &dsp, const std::string &fx,
-                 std::string &why);
+    /* `dsp' on `channel'. */
+    bool follow (int channel, const std::string &dsp, std::string &why);
 
+    /* The same over text in memory, `name' what it is called in a
+       sentence: a host with no files to load from. */
+    bool followText (int channel, const std::string &name, const std::string &dsp,
+                     std::string &why);
+
+    /* `fx' on the whole picture, after every channel's voices are summed. */
+    bool effect (const std::string &fx, std::string &why);
+    bool effectText (const std::string &name, const std::string &fx, std::string &why);
+
+    /* `channel' emptied, its notes cut rather than released. */
+    void unfollow (int channel);
+
+    /* Onto every followed channel's patch and the effect, where they
+       declare it. */
     void setInputs (const thVideoInputs &in);
     void set (const std::string &chanarg, float value);
+
+    bool follows (int channel) const { return follow_.count(channel) != 0; }
 
     /* One window. */
     bool render (const Frame &frame);
@@ -108,6 +123,9 @@ public:
     int fps (void) const { return fps_; }
     int window (void) const { return window_; }
     int64_t frames (void) const { return frames_; }
+    /* Samples rendered, or skipped: where the next window begins. */
+    int64_t rendered (void) const { return rendered_; }
+    int64_t rate (void) const { return rate_; }
     thSynth *synth (void) { return synth_.get(); }
 
 private:

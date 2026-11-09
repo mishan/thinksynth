@@ -175,7 +175,7 @@ static void usage (const char *argv0)
            "      --stages            every composer plugin's params, as JSON\n"
            "      --video DSP         render DSP as a video synth beside the audio\n"
            "      --video-out FILE    write its frames here, as a .y4m\n"
-           "      --video-fx DSP      an effect on each of its channels\n"
+           "      --video-fx DSP      an effect on its whole picture\n"
            "      --raster WxH@FPS    its picture (default 160x120@60)\n"
            "      --video-follow A,B  the instruments it plays the notes of "
            "(default all)\n"

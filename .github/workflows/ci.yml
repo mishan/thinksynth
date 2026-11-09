@@ -701,6 +701,7 @@ jobs:
             build-web/dsp
             build-web/gen
             build-web/patches
+            build-web/video
             build-web/icons
             build-web/packs
             build-web/sdk
@@ -808,6 +809,12 @@ jobs:
       # camera's own profile plays for them, and a camera gone letting go.
       - name: A camera's notes, through the module
         run: node wasm/web/camcheck.mjs
+
+      # A video synth played live, through the module: notes landing on the
+      # line they sounded on, nothing drawn past the audio, a picture far
+      # behind skipping to the frame that is due (twvideo.cpp).
+      - name: Live video, through the module
+        run: node wasm/web/videocheck.mjs
 
       # The tape gate, without a browser: every seeded piece composed by this
       # module at four steps, against the tape genwav.mjs delivers out of

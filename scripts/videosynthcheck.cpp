@@ -164,7 +164,7 @@ checkSkip (const string &plugins)
     thVideoSynth video;
     string why;
 
-    if (!video.open(plugins, W, H, FPS, 1, why) || !video.follow(0, path, "", why))
+    if (!video.open(plugins, W, H, FPS, 1, why) || !video.follow(0, path, why))
     {
         std::remove(path.c_str());
         report("the scan loads", why);

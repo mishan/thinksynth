@@ -60,23 +60,55 @@ bool thVideoSynth::open (const std::string &pluginPath, int width, int height,
     return true;
 }
 
-bool thVideoSynth::follow (int channel, const std::string &dsp, const std::string &fx,
-                           std::string &why)
+bool thVideoSynth::follow (int channel, const std::string &dsp, std::string &why)
 {
     if (synth_->loadTree(dsp.c_str(), channel, MIDIVALMAX) == NULL)
     {
         why = "'" + dsp + "' did not load";
         return false;
     }
-    if (!fx.empty() && synth_->loadEffect(fx, channel) == NULL)
-    {
-        why = "'" + fx + "' did not load as an effect";
-        return false;
-    }
     follow_.insert(channel);
     if (dsp_.empty())
         dsp_ = dsp;
     return true;
+}
+
+bool thVideoSynth::followText (int channel, const std::string &name,
+                               const std::string &dsp, std::string &why)
+{
+    if (synth_->loadTreeText(name, dsp, channel, MIDIVALMAX) == NULL)
+    {
+        why = "'" + name + "' did not load";
+        return false;
+    }
+    follow_.insert(channel);
+    if (dsp_.empty())
+        dsp_ = name;
+    return true;
+}
+
+bool thVideoSynth::effect (const std::string &fx, std::string &why)
+{
+    if (synth_->loadMasterEffect(fx) != NULL)
+        return true;
+    why = "'" + fx + "' did not load as an effect";
+    return false;
+}
+
+bool thVideoSynth::effectText (const std::string &name, const std::string &fx,
+                               std::string &why)
+{
+    if (synth_->loadMasterEffectText(name, fx) != NULL)
+        return true;
+    why = "'" + name + "' did not load as an effect";
+    return false;
+}
+
+void thVideoSynth::unfollow (int channel)
+{
+    flush(channel);
+    synth_->removeChan(channel);
+    follow_.erase(channel);
 }
 
 void thVideoSynth::set (const std::string &chanarg, float value)
@@ -88,6 +120,11 @@ void thVideoSynth::set (const std::string &chanarg, float value)
         if (arg != NULL)
             arg->setValue(value);
     }
+
+    thArg *master = synth_->getMasterArg(chanarg);
+
+    if (master != NULL)
+        master->setValue(value);
 }
 
 void thVideoSynth::setInputs (const thVideoInputs &in)

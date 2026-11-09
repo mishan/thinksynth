@@ -209,7 +209,9 @@ add_library(thinkweb_parts OBJECT
     "${THINK_TOP}/hid/thhCamera.cpp"
     "${THINK_TOP}/hid/thhControls.cpp"
     "${THINK_TOP}/hid/thhMapper.cpp"
-    twcamera.cpp)
+    twcamera.cpp
+    # The video worker's synth (videoworker.js).
+    twvideo.cpp)
 
 set(THINKWEB_INCLUDES
     "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -392,6 +394,28 @@ list(JOIN dsp_names ", " dsp_names)
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/dsp/index.json"
      CONTENT "[${dsp_names}]\n")
 
+# The video patches -- video/*.dsp, and their effects as `fx/<name>' -- and
+# their list, apart from dsp/'s: they draw rather than sound, and nothing
+# that offers dsp/ as instruments should offer them.
+file(GLOB SHIPPED_VIDEO RELATIVE "${THINK_TOP}/video"
+     "${THINK_TOP}/video/*.dsp" "${THINK_TOP}/video/fx/*.dsp")
+list(SORT SHIPPED_VIDEO)
+
+set(video_names "")
+
+foreach(name IN LISTS SHIPPED_VIDEO)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/video/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${THINK_TOP}/video/${name}" "${PROJECT_BINARY_DIR}/video/${name}"
+      DEPENDS "${THINK_TOP}/video/${name}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/video/${name}")
+  list(APPEND video_names "\"${name}\"")
+endforeach()
+
+list(JOIN video_names ", " video_names)
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/video/index.json"
+     CONTENT "[${video_names}]\n")
+
 # The shipped pieces, and their list. The page offers these; the worklet
 # hands the .dsp files above to the module before it loads one, since an
 # instrument is a .dsp looked up by name and a worklet cannot fetch.
@@ -537,7 +561,8 @@ list(APPEND PRECACHE_FILES
     "${PROJECT_BINARY_DIR}/thinkevolve.wasm"
     "${PROJECT_BINARY_DIR}/dsp/index.json"
     "${PROJECT_BINARY_DIR}/gen/index.json"
-    "${PROJECT_BINARY_DIR}/patches/index.json")
+    "${PROJECT_BINARY_DIR}/patches/index.json"
+    "${PROJECT_BINARY_DIR}/video/index.json")
 list(JOIN PRECACHE_FILES "\n" precache_list)
 
 # What sw.js is rebuilt on is the same list less the .wasm files, which
@@ -637,6 +662,28 @@ if(DIST_SAMPLE_FILES)
   install(FILES ${DIST_SAMPLE_FILES}
           DESTINATION dsp/samples PERMISSIONS ${SITE_FILE_MODE})
 endif()
+
+# The video patches, one install rule per directory.
+foreach(dir IN ITEMS "" "fx")
+  set(DIST_VIDEO_FILES "")
+
+  foreach(name IN LISTS SHIPPED_VIDEO)
+    get_filename_component(d "${name}" DIRECTORY)
+
+    if(d STREQUAL dir)
+      list(APPEND DIST_VIDEO_FILES "${PROJECT_BINARY_DIR}/video/${name}")
+    endif()
+  endforeach()
+
+  if(dir STREQUAL "")
+    list(APPEND DIST_VIDEO_FILES "${PROJECT_BINARY_DIR}/video/index.json")
+  endif()
+
+  if(DIST_VIDEO_FILES)
+    install(FILES ${DIST_VIDEO_FILES}
+            DESTINATION "video/${dir}" PERMISSIONS ${SITE_FILE_MODE})
+  endif()
+endforeach()
 
 set(DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/index.json")
 foreach(f IN LISTS SHIPPED_GEN)

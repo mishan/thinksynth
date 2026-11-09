@@ -2248,10 +2248,20 @@ thSynthTree *thSynth::checkEffect (const string &filename, thSynthTree *raw,
  * and runs on the buffer the mix is accumulated into. */
 thSynthTree *thSynth::loadMasterEffect (const string &filename)
 {
+    return loadMasterEffectFrom(filename, NULL);
+}
+
+thSynthTree *thSynth::loadMasterEffectText (const string &name, const string &text)
+{
+    return loadMasterEffectFrom(name, &text);
+}
+
+thSynthTree *thSynth::loadMasterEffectFrom (const string &filename, const string *text)
+{
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
-    thSynthTree *tree = parseEffect(filename);
+    thSynthTree *tree = parseEffect(filename, text);
 
     if (tree == NULL)
         return NULL;
