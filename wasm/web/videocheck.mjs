@@ -163,7 +163,7 @@ if (bench)
 {
     const SECONDS = 3, CHANNELS = 4, VOICES = 2;
 
-    for (const fx of ['', 'fx/feedback.dsp'])
+    for (const fx of ['', ...fs.readdirSync(path.join(video, 'fx')).filter((n) => n.endsWith('.dsp')).sort().map((n) => `fx/${n}`)])
         for (const name of patches)
         {
             open();
@@ -387,6 +387,52 @@ for (const fx of [false, true])
 
     check('one trail for the whole picture: a light and its negative leave none',
           left === 0, `frame 12 red ${left}`);
+}
+
+/* Soften: the left half lit and the right dark, a hard edge between, goes
+   from lit to black over a few pixels. Only around the edge: the left
+   column is the line above's end, wrapped. */
+for (const fx of [false, true])
+{
+    open();
+    follow(0, 'half', `node ionode { channels = 3; out0 = lit->out; out1 = lit->out;
+                        out2 = lit->out; play = env->play; };
+                       node s misc::scan { };
+                       node lit math::clamp { in = (0.5 - s->x) * 1000 * env->out;
+                                              lo = 0; hi = 1; };
+                       node env env::adsr { a = 0 ms; d = 0 ms; s = 1; r = 0 ms; p = 1;
+                                            trigger = ionode->trigger; };
+                       io ionode;`);
+    if (fx)
+        effect('fx/soften.dsp', fs.readFileSync(path.join(video, 'fx/soften.dsp'), 'utf8'));
+    notes([{ at: 0, kind: ON }]);
+    M._tv_generated(3 * PER_FRAME);
+
+    const frame = render()[2];
+    const row = [...Array(20).keys()].map((i) => pixel(frame, W / 2 - 10 + i, H / 2, 0));
+    const between = row.filter((v) => v > 10 && v < 245).length;
+
+    check(fx ? 'soften grades a hard edge over a few pixels' : 'without it, the edge is hard',
+          fx ? between >= 2 && between <= 4 : between === 0, `${between} between: ${row}`);
+}
+
+/* Palette: black stays black, and a mid gray leans to the palette's
+   middle color, Ember's red or Ice's blue. */
+for (const [n, name, warm] of [[0, 'Ember', true], [1, 'Ice', false]])
+{
+    open();
+    follow(0, 'gray', flat([0.5, 0.5, 0.5]));
+    effect('fx/palette.dsp', fs.readFileSync(path.join(video, 'fx/palette.dsp'), 'utf8'));
+    call('tv_set', null, ['string', 'number'], ['palette', n]);
+    notes([{ at: 0, kind: ON }, { at: 2 * PER_FRAME, kind: OFF }]);
+    M._tv_generated(4 * PER_FRAME);
+
+    const frames = render();
+    const [r, g, b] = [0, 1, 2].map((c) => pixel(frames[1], W / 2, H / 2, c));
+
+    check(`palette ${n} is ${name}: a mid gray turns ${warm ? 'red' : 'blue'}, black stays black`,
+          (warm ? r - b > 60 : b - r > 60) && peak(frames[3]) === 0,
+          `gray ${r},${g},${b}; after ${peak(frames[3])}`);
 }
 
 /* aux. */

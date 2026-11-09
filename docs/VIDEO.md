@@ -137,6 +137,8 @@ and up first. An effect of your own wants the same.
 | `video/rings.dsp` | rings from the middle, as many as the note is high, as bright as it is loud |
 | `video/wells.dsp` | two points per note circling the middle, with bands along lines of equal total pull, moire near each point |
 | `video/fx/feedback.dsp` | the picture a frame late, drifting and fading |
+| `video/fx/palette.dsp` | the picture recolored by brightness into one of four palettes: Ember, Ice, Verdigris, Violet |
+| `video/fx/soften.dsp` | the picture blurred and mixed back in, softening hard edges |
 
 They live in `video/` and not `dsp/`: they are not instruments, and the
 page's menus, the corpus sweeps and the sound hashes are all of `dsp/`.

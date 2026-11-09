@@ -4655,7 +4655,7 @@ try
         const offered = await v.evaluate(() => ['videopatch', 'videofx'].map((id) =>
             [...document.getElementById(id).options].map((o) => o.textContent).join()));
 
-        check(offered[0] === 'aurora,constellation,moire,pond,rings,wells' && offered[1] === 'none,feedback' &&
+        check(offered[0] === 'aurora,constellation,moire,pond,rings,wells' && offered[1] === 'none,feedback,palette,soften' &&
               await v.textContent('#videoknobs') === 'Fineness Response ',
               `the video pane offers the patches, the effects and the knobs: ${offered}`);
 
