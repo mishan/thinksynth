@@ -24,7 +24,8 @@
  * sounded on; nothing is drawn past the audio generated; a picture asked
  * for a frame far ahead skips to it, drawing what is held there and
  * nothing that began and ended in between; a flush lets go; a note's aux
- * reaches the patch.
+ * reaches the patch; every shipped patch draws a held note and goes dark
+ * after.
  *
  * --bench renders the shipped patches as a busy piece would ask, and says
  * how many times faster than real time each goes.
@@ -93,9 +94,9 @@ function notes (list)
     M._tv_notes(list.length);
 }
 
-function inputs (level)
+function inputs (level, bass = 0, mid = 0, high = 0)
 {
-    M.HEAPF32.set([level, 0, 0, 0], M._tv_input_buffer() / 4);
+    M.HEAPF32.set([level, bass, mid, high], M._tv_input_buffer() / 4);
     M._tv_inputs(0);
 }
 
@@ -143,11 +144,23 @@ function flat (rgb, release = '0 ms', voiced = false)
 }
 
 const pixel = (f, x, y, c) => f.rgba[4 * (y * W + x) + c];
+
+/* How bright a frame's brightest pixel is, 0-765: a star is a few. */
+const peak = (f) =>
+{
+    let most = 0;
+
+    for (let i = 0; i < f.rgba.length; i += 4)
+        most = Math.max(most, f.rgba[i] + f.rgba[i + 1] + f.rgba[i + 2]);
+    return most;
+};
+
+/* The shipped patches, as the page lists them. */
+const patches = fs.readdirSync(video).filter((n) => n.endsWith('.dsp')).sort();
 const lit = (f, y, c = 0) => pixel(f, W / 2, y, c) > 128;
 
 if (bench)
 {
-    const patches = ['moire.dsp', 'rings.dsp'];
     const SECONDS = 3, CHANNELS = 4, VOICES = 2;
 
     for (const fx of ['', 'fx/feedback.dsp'])
@@ -174,6 +187,33 @@ if (bench)
                         `${CHANNELS * VOICES} voices, ${(SECONDS / took).toFixed(2)}x real time`);
         }
     process.exit(0);
+}
+
+/* Every shipped patch: it loads, draws in color, lights while a note is
+   held with the music at a typical level, loud in the bass and the highs,
+   and goes dark again within ten seconds of the note's end. */
+check('the shipped patches are found', patches.length > 0, video);
+for (const name of patches)
+{
+    open();
+
+    const why = follow(0, name, fs.readFileSync(path.join(video, name), 'utf8'));
+
+    inputs(0.15, 0.3, 0.1, 0.3);
+    notes([{ at: 30 * PER_FRAME, kind: ON, note: 60 }]);
+    M._tv_generated(150 * PER_FRAME);
+
+    const held = render().at(-1);
+
+    notes([{ at: 150 * PER_FRAME, kind: OFF, note: 60 }]);
+    M._tv_generated(750 * PER_FRAME);
+
+    const after = render().at(-1);
+    const narrow = call('tv_narrow', 'string', [], []);
+
+    check(`${name} draws a held note and goes dark after`,
+          why === '' && narrow === '' && peak(held) > 64 && peak(after) === 0,
+          `${why}${narrow} held ${peak(held)}, after ${peak(after)}`);
 }
 
 /* A note struck half way through frame 10. */
