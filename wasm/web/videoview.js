@@ -93,6 +93,10 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
     let run = null, starting = false;
     let listed = null, opens = 0, narrow = '';
     const late = [];
+    let painted = 0;
+
+    /* Compiled once for every worker this page starts. */
+    let compiled = null;
 
     canvas.width = WIDTH;
     canvas.height = HEIGHT;
@@ -228,6 +232,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         {
             g.putImageData(new ImageData(new Uint8ClampedArray(pick.buffer), WIDTH, HEIGHT),
                            0, 0);
+            painted++;
             late.push(Math.floor((heard - pick.at) * FPS / ctx.sampleRate));
             if (late.length > KEEP)
                 late.shift();
@@ -259,13 +264,18 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
 
     const begin = async () =>
     {
-        let bytes, worker;
+        let module, worker;
 
         starting = true;
         try
         {
             await list();
-            bytes = (await wasmBytes()).slice(0);
+            compiled ??= wasmBytes().then((bytes) => WebAssembly.compile(bytes));
+            module = await compiled.catch((e) =>
+            {
+                compiled = null;
+                throw e;
+            });
             worker = new Worker(new URL('videoworker.js', import.meta.url), { type: 'module' });
         }
         catch (e)
@@ -314,7 +324,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             if (run === r)
                 fail(`the video's worker: ${e.message ?? 'failed'}`);
         };
-        worker.postMessage({ type: 'start', bytes }, [bytes]);
+        worker.postMessage({ type: 'start', module });
         worker.postMessage({ type: 'port', port: port2 }, [port2]);
         try
         {
@@ -369,8 +379,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
     list().catch((e) => say(e.message));
 
     return {
-        /* A new synth: the picture follows it, whatever happened to the
-           last. */
+        /* A new synth, or none (null): the picture follows it, whatever
+           happened to the last. */
         attach (s, c)
         {
             end();
@@ -396,9 +406,10 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             update();
         },
 
-        /* Whether it is running, its line, and how late each of the last
-           KEEP frames painted was, in frames (0: the frame being heard) --
-           what to read to measure it. */
-        stats: () => ({ running: run !== null, late: [...late], status: status.textContent }),
+        /* Whether it is running, its line, how many frames it has painted,
+           and how late each of the last KEEP was, in frames (0: the frame
+           being heard) -- what to read to measure it. */
+        stats: () => ({ running: run !== null, painted, late: [...late],
+                        status: status.textContent }),
     };
 }

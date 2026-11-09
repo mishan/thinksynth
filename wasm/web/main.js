@@ -3315,6 +3315,7 @@ async function start ()
         if (ctx !== null)
             ctx.close().catch(() => {});
 
+        video.attach(null, null);
         ctx = null;
         synth = null;
 

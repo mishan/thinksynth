@@ -65,17 +65,18 @@ let worklet = null;     /* the worklet's port */
 
 const post = (m, transfer) => postMessage(m, transfer ?? []);
 
-async function start ({ bytes })
+/* The module the page compiled, instantiated here. */
+async function start ({ module })
 {
     try
     {
         M = await createThinkWeb({
             instantiateWasm: (imports, done) =>
             {
-                WebAssembly.instantiate(bytes, imports)
-                    .then((r) => done(r.instance, r.module))
+                WebAssembly.instantiate(module, imports)
+                    .then((instance) => done(instance, module))
                     .catch((e) => post({ type: 'failed',
-                        text: `the video's module did not compile: ${e}` }));
+                        text: `the video's module would not start: ${e}` }));
 
                 return {};
             },

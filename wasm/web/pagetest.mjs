@@ -4555,7 +4555,10 @@ try
             MessagePort.prototype.postMessage = function (m, ...rest)
             {
                 if (m?.type === 'video')
+                {
                     window.videoAsked.push(m.on);
+                    window.videoDelay = m.delayMs;
+                }
                 return post.call(this, m, ...rest);
             };
             window.Worker = class extends window.Worker
@@ -4589,6 +4592,21 @@ try
                                   { get: () => window.tabHidden ? 'hidden' : 'visible' });
             Object.defineProperty(document, 'hidden', { get: () => window.tabHidden });
 
+            /* An output this many seconds behind the generated audio, as a
+               Bluetooth one is. */
+            window.fakeLatency = 0;
+            const stamp = AudioContext.prototype.getOutputTimestamp;
+
+            AudioContext.prototype.getOutputTimestamp = function ()
+            {
+                const t = stamp.call(this);
+
+                return { contextTime: t.contextTime - window.fakeLatency,
+                         performanceTime: t.performanceTime };
+            };
+            Object.defineProperty(AudioContext.prototype, 'outputLatency',
+                                  { get: () => window.fakeLatency });
+
             /* Everything the pane's line has said. */
             window.videoSaid = [];
             addEventListener('DOMContentLoaded', () =>
@@ -4599,11 +4617,37 @@ try
         });
         await v.goto(url.replace('?panes=0', ''));
         await v.waitForFunction(() => document.body.classList.contains('tiled'));
+
+        /* The pane up, and a Start that fails on an instrument that will
+           not load, then one that works: the picture is the second's. */
+        await v.evaluate(() => window.solo.pane('present', 'videoview'));
+
+        let refused = false;
+
+        await v.route('**/dsp/*.dsp', (r) =>
+        {
+            if (refused)
+                return r.continue();
+            refused = true;
+            return r.fulfill({ status: 404, body: '' });
+        });
+        await v.click('#start');
+        await v.waitForFunction(() => document.getElementById('status').textContent
+                                          .startsWith('Could not start'),
+                                null, { timeout: 60000 });
+        await v.unrouteAll();
+
+        /* A failed Start shows what went wrong in front; the picture back
+           in front has no synth to draw. */
+        await v.evaluate(() => window.solo.pane('present', 'videoview'));
+        await v.waitForTimeout(500);
+        check(!await v.evaluate(() => window.solo.video().running),
+              'a Start that fails leaves no picture running');
         await v.click('#start');
         await v.waitForFunction(() => !document.getElementById('loadpiece').disabled,
                                 null, { timeout: 60000 });
         await v.evaluate(() => window.solo.settled());
-        await v.evaluate(() => window.solo.pane('present', 'videoview'));
+        await v.evaluate(() => { window.videoSaid = []; });
         await v.waitForFunction(() => window.solo.video().running &&
                                       document.getElementById('videoknobs').children.length > 0,
                                 null, { timeout: 30000 });
@@ -4653,7 +4697,8 @@ try
                                              window.videoSaid.join('|')]);
 
         check(dark < 1 && lit && out && said[0],
-              `a key held lights the picture, and it goes dark after: ${dark} ${lit} ${out}`);
+              'a key held lights the picture, and it goes dark after -- on the ' +
+              `synth of a Start after one that failed: ${dark} ${lit} ${out}`);
         check(!said[1].includes('dropping'),
               `catching up as it opens is not dropping frames: ${said[1]}`);
 
@@ -4739,6 +4784,35 @@ try
               await v.evaluate(() => window.videoAsked.at(-1)) === true,
               'a hidden tab turns the picture off, and shown again on, with the key ' +
               `held: ${hidden} ${back}`);
+
+        /* A new MIDI delay reaches the worklet's feed. */
+        await v.evaluate(() =>
+        {
+            const delay = document.getElementById('midioutdelay');
+
+            delay.value = '120';
+            delay.dispatchEvent(new Event('change'));
+        });
+        check(await v.evaluate(() => window.videoDelay) === 120,
+              'a change of MIDI delay reaches the picture');
+
+        /* An output a quarter of a second behind: every frame waits that
+           long on the page, and there are buffers enough for all of them.
+           Opened again for the pool to be sized, and the clock given time
+           to take the new line. */
+        await v.evaluate(() => { window.fakeLatency = 0.25; });
+        await v.selectOption('#videopatch', 'moire.dsp');
+        await v.waitForTimeout(5000);
+
+        const paintedBefore = await v.evaluate(() => window.solo.video().painted);
+
+        await v.waitForTimeout(2000);
+
+        const paints = await v.evaluate(() => window.solo.video().painted) - paintedBefore;
+
+        await v.evaluate(() => { window.fakeLatency = 0; });
+        check(paints > 60, 'an output far behind still gets most frames, not a few and then ' +
+              `a freeze: ${paints} in 2 s`);
 
         /* A worker that dies: it says so, the worklet stops feeding it, and
            the sound goes on. */
