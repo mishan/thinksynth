@@ -51,6 +51,14 @@ import { drain, loadErrors } from './tape.js';
 /* How many 128-frame quanta between posts to the page: 43 ms at 48 kHz. */
 const TAPE_EVERY = 16;
 
+/* And between batches to the video worker: 11 ms at 48 kHz. A frame is
+   drawn only once its audio has arrived, so this is part of how late a
+   picture can be. */
+const VIDEO_EVERY = 4;
+
+/* thinkweb.cpp's video record, in doubles. */
+const VIDEO_RECORD = 11;
+
 /* process() calls counted by whole milliseconds taken, the last bin
    holding everything slower. */
 const TOOK_BINS = 8;
@@ -142,6 +150,15 @@ class ThinkProcessor extends AudioWorkletProcessor
            and the last start. */
         this.clockStepMs = Infinity;
         this.lastStart = Infinity;
+
+        /* The picture's feed (thinkweb.cpp, tw_video), posted straight to
+           the video worker on a port of its own, not through the page's
+           thread; and what the worker was last told of the channels and
+           knobs. */
+        this.videoPort = null;
+        this.videoQuanta = 0;
+        this.videoChannels = -1;
+        this.videoKnobs = 0;
 
         this.epoch = 0;         /* the epoch this.events belong to */
         this.port.onmessage = (e) => this.receive(e.data);
@@ -746,11 +763,62 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* On, with the worker's port and the MIDI delay a device's
+           channel is heard by; or off. */
+        if (m.type === 'video')
+        {
+            this.videoPort = m.on ? m.port ?? this.videoPort : null;
+            this.videoQuanta = 0;
+            this.videoChannels = -1;
+            this.M._tw_video(this.videoPort !== null ? 1 : 0, m.delayMs ?? 0);
+            return;
+        }
+
         if (m.type === 'ping')
         {
             this.postTape();
             this.port.postMessage({ type: 'pong', id: m.id });
         }
+    }
+
+    /* What the picture draws from since the last batch: the notes, what
+       the sound says and the knobs' values, up to the frame the audio has
+       been generated to; and the channels and knob names, when they have
+       changed. Copies, handed over rather than cloned. */
+    postVideo ()
+    {
+        const M = this.M, port = this.videoPort;
+        const mask = M._tw_video_channels();
+
+        if (mask !== this.videoChannels)
+        {
+            this.videoChannels = mask;
+            port.postMessage({ type: 'channels',
+                               list: [...Array(16).keys()].filter((c) => mask & 1 << c) });
+        }
+
+        const names = M._tw_video_knob_names();
+
+        if (names !== 0)
+        {
+            const list = M.UTF8ToString(names).split('\n').filter((n) => n !== '');
+
+            this.videoKnobs = list.length;
+            port.postMessage({ type: 'knobs', names: list });
+        }
+
+        const at = M._tw_video_notes() >>> 3;
+        const notes = M.HEAPF64.slice(at, at + M._tw_video_take() * VIDEO_RECORD);
+
+        M._tw_video_clear();
+
+        const channels = M._tw_video_inputs();
+        const q = (M._tw_video_input_buffer() >>> 2) + 4 + channels;
+        const inputs = M.HEAPF32.slice(q - 4 - channels, q);
+        const knobs = M.HEAPF32.slice(q, q + this.videoKnobs);
+
+        port.postMessage({ type: 'batch', frame: M._tw_frame(), notes, inputs, knobs },
+                         [notes.buffer, inputs.buffer, knobs.buffer]);
     }
 
     /* What the page needs to draw a piece: its name, and the number and
@@ -971,6 +1039,9 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.drainProbes();
         this.postParamEdits();
         this.postMidi();
+
+        if (this.videoPort !== null && ++this.videoQuanta % VIDEO_EVERY === 0)
+            this.postVideo();
 
         /* What the searches' graphs applied in this quantum came to, for
            the page that put each there (thinkweb.cpp, tw_tried_json). */

@@ -64,6 +64,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -91,6 +92,7 @@
 
 #include "thDynLib.h"
 #include "thUtil.h"
+#include "thVideoBridge.h"
 
 #include "cairo2d.h"
 #include "cairomm/context.h"
@@ -2441,6 +2443,182 @@ void midiCaughtUp (void)
     catchControls_.clear();
 }
 
+/* ---- the picture's feed ------------------------------------------------
+ *
+ * What the video worker (videoworker.js, twvideo.cpp) draws from: every note
+ * this instance sounds, with the frame it sounds at, and what the sound says
+ * (thVideoBridge). The worklet takes it every few quanta and posts it
+ * straight to the worker.
+ *
+ * Notes as they are heard: the scheduler's through its tap, which is where
+ * the offs it derives from durations come out, and keys straight onto a
+ * channel, which never pass the scheduler. Each at the window the synth
+ * applies it in; a device's channel hears it the page's MIDI delay later
+ * (midiout.js), and the picture draws it then too. Nothing a silent synth
+ * drops -- a seek's, a late joiner's catch-up -- since nothing it drops is
+ * heard; but a device still hears keys during a seek, so they still draw.
+ *
+ * Every on is a voice, and its off names it and comes as late as it did. A
+ * channel moved off a device has offs still to come its delay late, after
+ * the new notes on the same keys, and they must not end those.
+ *
+ * A fixed ring and a fixed held set, because both fill on the audio thread.
+ * The held set is kept with video off too: turned on, the picture is told
+ * what is already down, so a drone that started first draws. A batch that
+ * runs out of room is replaced by the same: let go of everything, then what
+ * is down. */
+enum { TW_VIDEO_OFF = 0, TW_VIDEO_ON = 1, TW_VIDEO_FLUSH = 2 };
+
+/* twvideo.cpp's record: at, kind, channel, note, velocity, level, aux0-3,
+   voice. */
+static const int TW_VIDEO_RECORD = 11;
+static const int TW_VIDEO_NOTES = 1024;
+static const int TW_VIDEO_KNOBS = 64;
+
+struct twHeld
+{
+    bool   down;
+    double late, voice;
+    int    velocity;
+    float  level, aux[4];
+};
+
+twHeld        videoHeld_[TH_MIDI_CHANNELS][128];
+double        videoNotes_[TW_VIDEO_NOTES * TW_VIDEO_RECORD];
+int           videoCount_ = 0;
+bool          videoOn_ = false, videoFull_ = false;
+double        videoDelay_ = 0;     /* frames, for a channel on a device */
+double        videoVoices_ = 0;
+thVideoBridge *videoBridge_ = NULL;
+float         videoInputs_[4 + TH_MIDI_CHANNELS + TW_VIDEO_KNOBS];
+std::vector<std::string> videoKnobs_;
+bool          videoKnobsSaid_ = false;
+
+void videoWrite (double at, int kind, int channel, int note, int velocity,
+                 float level, const float *aux, double voice)
+{
+    if (videoCount_ == TW_VIDEO_NOTES)
+    {
+        videoFull_ = true;
+        return;
+    }
+
+    double *r = &videoNotes_[(size_t)videoCount_++ * TW_VIDEO_RECORD];
+
+    r[0] = at;
+    r[1] = kind;
+    r[2] = channel;
+    r[3] = note;
+    r[4] = velocity;
+    r[5] = level;
+    for (int k = 0; k < 4; k++)
+        r[6 + k] = aux != NULL ? aux[k] : 0;
+    r[10] = voice;
+}
+
+/* The first frame of the window the synth applies what it is told now. */
+double videoFrame (void)
+{
+    return rendered_ + source_->pending();
+}
+
+double videoLate (int channel)
+{
+    return sched_->playsOverMidi(channel) ? videoDelay_ : 0;
+}
+
+/* Let go of everything, then strike what is down. A device's channel is
+   let go of its delay late, after the ons already sent for it; one of
+   those whose off did not fit is not held, and goes with it. */
+void videoResend (void)
+{
+    videoCount_ = 0;
+    for (int c = 0; c < TH_MIDI_CHANNELS; c++)
+        videoWrite(videoFrame() + videoLate(c), TW_VIDEO_FLUSH, c, 0, 0, 0, NULL, 0);
+    for (int c = 0; c < TH_MIDI_CHANNELS; c++)
+        for (int n = 0; n < 128; n++)
+        {
+            const twHeld &h = videoHeld_[c][n];
+
+            if (h.down)
+                videoWrite(videoFrame() + h.late, TW_VIDEO_ON, c, n, h.velocity,
+                           h.level, h.aux, h.voice);
+        }
+    videoFull_ = false;
+}
+
+void videoNote (int kind, int channel, int note, int velocity, float level,
+                const float *aux)
+{
+    if (catching_ || (synth_->silent() && !sched_->playsOverMidi(channel)))
+        return;
+
+    const bool known = channel >= 0 && channel < TH_MIDI_CHANNELS &&
+                       note >= 0 && note < 128;
+    double late = videoLate(channel), voice = 0;
+
+    if (kind == TW_VIDEO_FLUSH)
+    {
+        /* Now; and each of a device's notes at its off's own time. */
+        for (int c = 0; c < TH_MIDI_CHANNELS; c++)
+            for (int n = 0; n < 128; n++)
+            {
+                twHeld &h = videoHeld_[c][n];
+
+                if ((channel < 0 || c == channel) && h.down)
+                {
+                    if (videoOn_ && h.late > 0)
+                        videoWrite(videoFrame() + h.late, TW_VIDEO_OFF, c, n, 0, 0, NULL,
+                                   h.voice);
+                    h.down = false;
+                }
+            }
+        late = 0;
+    }
+    else if (known && kind == TW_VIDEO_ON)
+    {
+        twHeld &h = videoHeld_[channel][note];
+
+        h = { true, late, ++videoVoices_, velocity, level, {} };
+        for (int k = 0; k < 4; k++)
+            h.aux[k] = aux != NULL ? aux[k] : 0;
+        voice = h.voice;
+    }
+    else if (known && videoHeld_[channel][note].down)
+    {
+        twHeld &h = videoHeld_[channel][note];
+
+        late = h.late;
+        voice = h.voice;
+        h.down = false;
+    }
+
+    if (videoOn_)
+        videoWrite(videoFrame() + late, kind, channel, note, velocity, level, aux, voice);
+}
+
+class twVideoTap : public thcNoteTap
+{
+public:
+    void noteOn (int channel, int note, int velocity, float level,
+                 const float *aux) override
+    {
+        videoNote(TW_VIDEO_ON, channel, note, velocity, level, aux);
+    }
+
+    void noteOff (int channel, int note) override
+    {
+        videoNote(TW_VIDEO_OFF, channel, note, 0, 0, NULL);
+    }
+
+    void flush (int channel) override
+    {
+        videoNote(TW_VIDEO_FLUSH, channel, 0, 0, 0, NULL);
+    }
+};
+
+twVideoTap videoTap_;
+
 /* A key straight onto a channel, wherever the channel sounds: the synth,
    or the device an instrument played over MIDI is on, as the scheduler's
    own notes do (thcScheduler::deliver, endNote). At transport time `at',
@@ -2451,6 +2629,8 @@ void keyOnChannel (int channel, float note, float velocity, bool on,
     const int64_t when = at < 0 ? twMidiOut::now() : twMidiOut::stamp(at);
 
     playedKey(channel, (int)note, (int)velocity, on);
+    videoNote(on ? TW_VIDEO_ON : TW_VIDEO_OFF, channel, (int)note,
+              (int)velocity, 1, NULL);
 
     if (!sched_->playsOverMidi(channel))
     {
@@ -2795,6 +2975,7 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     sched_->setReplayDeferred(true);
     sched_->setMidiOut(&midiOut_);
     sched_->setMidiClock(twMidiOut::stamp, twMidiOut::now);
+    sched_->setNoteTap(&videoTap_);
     loader_ = new thcGenLoader(plugins_);
 
     return synth_->getWindowlen();
@@ -7198,6 +7379,7 @@ EMSCRIPTEN_KEEPALIVE void tw_all_off (void)
 {
     pending_.clear();
     synth_->clearAll();
+    videoNote(TW_VIDEO_FLUSH, -1, 0, 0, 0, NULL);
 }
 
 /* ---- the transport, and what it delivered ---- */
@@ -7355,7 +7537,9 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
 
         /* Nothing held: the next render() makes a window, and its first
            frame is the next one handed out. */
-        if (held == 0)
+        const bool fresh = held == 0;
+
+        if (fresh)
         {
             replayOn(rendered_, catchBudget_);
             applyDue(rendered_, len);
@@ -7374,6 +7558,9 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
 
         source_->render(&block_[(size_t)done * TW_CHANNELS], (unsigned)n,
                         TW_CHANNELS);
+
+        if (fresh && videoOn_)
+            videoBridge_->hear(*synth_);
 
         done += n;
         rendered_ += n;
@@ -7588,6 +7775,120 @@ EMSCRIPTEN_KEEPALIVE void tw_seek_release (double frame)
 EMSCRIPTEN_KEEPALIVE double tw_dropped (void)
 {
     return (double)synth_->droppedCommands();
+}
+
+/* ---- the picture's feed (videoNote above) ---- */
+
+/* On or off; a device's channel drawn `delayMs' late, as midiout.js sends
+   it. Turned on, the next batch says what is down already. */
+EMSCRIPTEN_KEEPALIVE void tw_video (int on, double delayMs)
+{
+    videoOn_ = on != 0;
+    videoDelay_ = delayMs * rate_ / 1000;
+    videoCount_ = 0;
+    videoFull_ = false;
+    videoKnobsSaid_ = false;
+    if (!videoOn_)
+        return;
+    if (videoBridge_ == NULL)
+        videoBridge_ = new thVideoBridge;
+    videoResend();
+}
+
+/* How many records tw_video_notes holds. */
+EMSCRIPTEN_KEEPALIVE int tw_video_take (void)
+{
+    if (videoFull_)
+        videoResend();
+    return videoCount_;
+}
+
+EMSCRIPTEN_KEEPALIVE const double *tw_video_notes (void)
+{
+    return videoNotes_;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_video_clear (void)
+{
+    videoCount_ = 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const float *tw_video_input_buffer (void)
+{
+    return videoInputs_;
+}
+
+/* What the sound says into tw_video_input_buffer: level, bass, mid, high,
+   each channel's level, then the piece's knobs in tw_video_knob_names'
+   order. Returns how many channels. */
+EMSCRIPTEN_KEEPALIVE int tw_video_inputs (void)
+{
+    thVideoInputs in;
+
+    if (videoBridge_ != NULL)
+        videoBridge_->inputs(in);
+
+    float *out = videoInputs_;
+
+    *out++ = in.level;
+    *out++ = in.bass;
+    *out++ = in.mid;
+    *out++ = in.high;
+    for (int c = 0; c < in.channels; c++)
+        *out++ = in.levels[c];
+
+    int k = 0;
+
+    for (const auto &knob : sched_->knobs())
+        if (k++ < TW_VIDEO_KNOBS)
+            *out++ = (*knob.second)[0];
+
+    return in.channels;
+}
+
+/* The piece's knob names, a line each, when they have changed since last
+   asked or video was turned on; NULL otherwise. */
+EMSCRIPTEN_KEEPALIVE const char *tw_video_knob_names (void)
+{
+    static std::string said;
+    const auto &knobs = sched_->knobs();
+    bool same = videoKnobsSaid_ &&
+                std::min(knobs.size(), (size_t)TW_VIDEO_KNOBS) == videoKnobs_.size();
+    size_t k = 0;
+
+    for (auto i = knobs.begin(); same && k < videoKnobs_.size(); ++i)
+        same = i->first == videoKnobs_[k++];
+    if (same)
+        return NULL;
+
+    videoKnobs_.clear();
+    said.clear();
+    for (const auto &knob : knobs)
+        if (videoKnobs_.size() < TW_VIDEO_KNOBS)
+        {
+            said += (said.empty() ? "" : "\n") + knob.first;
+            videoKnobs_.push_back(knob.first);
+        }
+    videoKnobsSaid_ = true;
+    return said.c_str();
+}
+
+/* A bit for each channel the picture draws: one with something loaded on
+   it, or played on a device. */
+EMSCRIPTEN_KEEPALIVE int tw_video_channels (void)
+{
+    int mask = 0;
+
+    for (int c = 0; c < TH_MIDI_CHANNELS; c++)
+        if (synth_->getChannel(c) != NULL || sched_->playsOverMidi(c))
+            mask |= 1 << c;
+    return mask;
+}
+
+/* The bytes allocated and not yet freed. */
+EMSCRIPTEN_KEEPALIVE double tw_heap_in_use (void)
+{
+    return (double)mallinfo().uordblks;
 }
 
 /* The frame the next tw_render starts at. */
