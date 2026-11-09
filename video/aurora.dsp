@@ -1,7 +1,8 @@
 # Aurora -- each note a curtain of light hanging over the picture,
-# rippling slowly side to side: green at its lower edge, fading up into
-# violet, streaked with rays. A low note's curtain hangs low, a high
-# note's high, and a chord stacks them.
+# rippling slowly side to side, streaked with rays: a pink fringe at its
+# lower edge, green above, fading up into red and violet. A low note's
+# curtain hangs low, a high note's high and redder, as an aurora is
+# higher up, and a chord stacks them.
 #
 # `@in_level', the music's loudness, brightens every curtain, scaled by
 # `Response'; `@in_bass' makes them taller. `Drift' is how fast they
@@ -9,7 +10,7 @@
 
 name "Aurora";
 author "Misha Nasledov";
-description "A rippling curtain of light per note, green below and violet above.";
+description "A rippling curtain of light per note: pink fringe, green, then red and violet above.";
 category "Video";
 
     @in_level = 0;
@@ -68,13 +69,16 @@ node ray math::sin { index = s->x * 23 + w1->out * 30 + up->out * 1.5 +
                          s->t * 0.03 * @drift; };
 
 node lit math::mul {
-    in0 = near->out * near->out * bottom->out * (0.55 + 0.45 * ray->out) * env->out;
+    in0 = near->out * (0.4 + 0.6 * near->out) * bottom->out * (0.55 + 0.45 * ray->out) * env->out;
     in1 = 0.45 + loud->out_low;
 };
 
-# Green at the edge to violet at the top.
-node r math::mul { in0 = lit->out; in1 = 0.7 - 0.6 * near->out; };
-node g math::mul { in0 = lit->out; in1 = 0.15 + 0.75 * near->out; };
-node b math::mul { in0 = lit->out; in1 = 0.8 - 0.5 * near->out; };
+# 0 green, 1 red-violet: higher up the curtain, and higher for a high
+# note. The fringe is the pink in the first few lines over the edge.
+node hue math::clamp { in = up->out * 1.2 + 0.5 * high->out - 0.2; lo = 0; hi = 1; };
+node fringe math::clamp { in = 1 - up->out * 10; lo = 0; hi = 1; };
+node r math::mul { in0 = lit->out; in1 = 0.15 + 0.75 * hue->out + 0.6 * fringe->out; };
+node g math::mul { in0 = lit->out; in1 = (0.9 - 0.75 * hue->out) * (1 - 0.6 * fringe->out); };
+node b math::mul { in0 = lit->out; in1 = 0.3 + 0.2 * hue->out + 0.3 * fringe->out; };
 
 io ionode;
