@@ -2,4 +2,4 @@ dependencies:
   boxsim:
     git: https://github.com/mishan/boxsim.git
     path: components/boxsim
-    version: v0.1.0
+    version: v0.1.1

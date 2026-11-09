@@ -1032,7 +1032,7 @@ controlTask (void *)
     for (;; n++)
     {
         const int64_t now = esp_timer_get_time();
-        float accel[3] = { -1, 0, 0 }, gyro[3] = { 0, 0, 0 };
+        float accel[3] = { 1, 0, 0 }, gyro[3] = { 0, 0, 0 };
 
         const float dt = (now - last) / 1e6f;
 
