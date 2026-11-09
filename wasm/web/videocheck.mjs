@@ -227,6 +227,44 @@ if (bench)
                     : 'no frame');
 }
 
+/* Asked for a frame past the audio: to the frame the audio is in, and that
+   frame handed over once the audio reaches its end. */
+{
+    open();
+    follow(0, 'white', flat([1, 1, 1]));
+    M._tv_generated(20.5 * PER_FRAME);
+
+    const early = render(1000);
+
+    M._tv_generated(21.5 * PER_FRAME);
+
+    const frames = render(1000);
+
+    check('a skip goes no further than the audio generated',
+          early.length === 0 && frames.length === 1 && frames[0].frame === 20,
+          `${early.length} frames, then ${frames.map((f) => f.frame)}`);
+}
+
+/* A note held across the gap, let go and struck again inside it, softer:
+   the picture is the new striking's. */
+{
+    open();
+    follow(0, 'level', flat(['ionode->velocity', 0, 0]));
+    notes([{ at: 0, kind: ON, velocity: 127 },
+           { at: 20 * PER_FRAME, kind: OFF },
+           { at: 21 * PER_FRAME, kind: ON, velocity: 64 }]);
+    M._tv_generated(2 * PER_FRAME);
+    render();
+    M._tv_generated(60 * PER_FRAME);
+
+    const frames = render(50);
+    const red = frames[0] && pixel(frames[0], W / 2, H / 2, 0);
+
+    check('a note struck again in the gap draws as struck again',
+          frames[0]?.frame === 50 && Math.abs(red - 129) <= 2,
+          `frame ${frames[0]?.frame}, red ${red}`);
+}
+
 /* A flush. */
 {
     open();
@@ -242,7 +280,9 @@ if (bench)
 }
 
 /* A white flash through feedback, on the whole picture: dark again by
-   frame 12 without it, a fading trail there with it. */
+   frame 12 without it, a fading trail there with it. And the effect sees
+   the whole picture, not each channel's: a light on one channel and its
+   negative on another sum to nothing, and leave no trail. */
 for (const fx of [false, true])
 {
     open();
@@ -259,6 +299,23 @@ for (const fx of [false, true])
 
     check(fx ? 'feedback leaves a trail after the note' : 'without it, nothing is left',
           fx ? left > 0 : left === 0, `frame 12 red ${left}`);
+}
+
+{
+    open();
+    follow(0, 'white', flat([1, 1, 1]));
+    follow(1, 'black', flat([-1, -1, -1]));
+    effect('fx/feedback.dsp', fs.readFileSync(path.join(video, 'fx/feedback.dsp'), 'utf8'));
+    notes([{ at: 0, kind: ON, channel: 0 }, { at: 0, kind: ON, channel: 1 },
+           { at: 5 * PER_FRAME, kind: OFF, channel: 0 },
+           { at: 5 * PER_FRAME, kind: OFF, channel: 1 }]);
+    M._tv_generated(13 * PER_FRAME);
+
+    const frames = render();
+    const left = frames[12] && pixel(frames[12], W / 2, H / 2, 0);
+
+    check('one trail for the whole picture: a light and its negative leave none',
+          left === 0, `frame 12 red ${left}`);
 }
 
 /* aux. */

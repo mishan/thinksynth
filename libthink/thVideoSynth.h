@@ -83,11 +83,15 @@ public:
     bool effect (const std::string &fx, std::string &why);
     bool effectText (const std::string &name, const std::string &fx, std::string &why);
 
-    /* `channel' let go of and emptied. */
+    /* `channel' emptied, its notes cut rather than released. */
     void unfollow (int channel);
 
+    /* Onto every followed channel's patch and the effect, where they
+       declare it. */
     void setInputs (const thVideoInputs &in);
     void set (const std::string &chanarg, float value);
+
+    bool follows (int channel) const { return follow_.count(channel) != 0; }
 
     /* One window. */
     bool render (const Frame &frame);

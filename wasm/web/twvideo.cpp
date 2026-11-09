@@ -23,8 +23,8 @@
  * The worklet says what it played and when, in its own audio frames,
  * counted here from when video was turned on: notes, and what the sound
  * says (thVideoBridge). They wait in a queue until the picture reaches
- * their time, so a note lands where it sounded rather than where its batch
- * arrived. tv_render draws as far as the audio has been generated, and no
+ * their time, and land on the first window after it, a millisecond or so
+ * late, rather than where their batch arrived. tv_render draws as far as the audio has been generated, and no
  * further, and hands back each finished frame as RGBA.
  *
  * A picture that cannot keep up does not fall further and further behind
@@ -60,6 +60,7 @@ enum { AT, KIND, CHANNEL, NOTE, VELOCITY, LEVEL, AUX, RECORD = AUX + 4 };
 struct Note
 {
     double at;
+    int64_t serial;     /* which striking this is */
     int    kind, channel, note, velocity;
     float  level, aux[4];
 };
@@ -68,7 +69,7 @@ struct Note
 const size_t DONE_MOST = 8;
 
 std::unique_ptr<thVideoSynth> video_;
-int64_t audioRate_ = 0, generated_ = 0, skips_ = 0;
+int64_t audioRate_ = 0, generated_ = 0, skips_ = 0, serial_ = 0;
 std::deque<Note> queue_;
 std::map<std::pair<int, int>, Note> held_;
 std::deque<std::pair<int64_t, std::vector<uint8_t> > > done_;
@@ -107,9 +108,13 @@ keep (int64_t frame, const float *r, const float *g, const float *b)
     return true;
 }
 
+/* Notes for a channel the picture does not follow are not held: nothing
+   draws them, and a skip must not strike them if it comes to. */
 void
 hold (std::map<std::pair<int, int>, Note> &held, const Note &n)
 {
+    if (n.kind != FLUSH && !video_->follows(n.channel))
+        return;
     if (n.kind == ON)
         held[{ n.channel, n.note }] = n;
     else if (n.kind == OFF)
@@ -150,13 +155,23 @@ skipTo (int64_t frame)
         hold(then, queue_.front());
         queue_.pop_front();
     }
+    /* A note let go and struck again in the gap is a new voice, with its
+       own velocity, level and aux. */
     for (const auto &h : held_)
-        if (!then.count(h.first))
+    {
+        const auto t = then.find(h.first);
+
+        if (t == then.end() || t->second.serial != h.second.serial)
             video_->noteOff(h.first.first, h.first.second);
+    }
     for (const auto &t : then)
-        if (!held_.count(t.first))
+    {
+        const auto h = held_.find(t.first);
+
+        if (h == held_.end() || h->second.serial != t.second.serial)
             video_->noteOn(t.first.first, t.first.second, t.second.velocity,
                            t.second.level, t.second.aux);
+    }
     held_ = then;
     video_->skipTo(frame);
     skips_++;
@@ -173,6 +188,7 @@ tv_open (int width, int height, int fps, int lines, int audioRate)
     video_.reset(new thVideoSynth);
     queue_.clear();
     held_.clear();
+    serial_ = 0;
     done_.clear();
     audioRate_ = audioRate;
     generated_ = skips_ = 0;
@@ -211,7 +227,7 @@ tv_unfollow (int channel)
 {
     if (video_ != NULL)
         video_->unfollow(channel);
-    hold(held_, Note { 0, FLUSH, channel, 0, 0, 0, {} });
+    hold(held_, Note { 0, 0, FLUSH, channel, 0, 0, 0, {} });
 }
 
 /* Room for `count' records, for tv_notes to read. */
@@ -232,7 +248,7 @@ tv_notes (int count)
     for (int i = 0; i < count; i++)
     {
         const double *r = records + (size_t)i * RECORD;
-        Note n = { r[AT], (int)r[KIND], (int)r[CHANNEL], (int)r[NOTE], (int)r[VELOCITY],
+        Note n = { r[AT], serial_++, (int)r[KIND], (int)r[CHANNEL], (int)r[NOTE], (int)r[VELOCITY],
                    (float)r[LEVEL], { (float)r[AUX], (float)r[AUX + 1], (float)r[AUX + 2],
                                       (float)r[AUX + 3] } };
 

@@ -589,8 +589,9 @@ private:
                               int parseResult);
 
     /* The bodies of loadTree/loadTreeText, loadEffect/loadEffectText and
-       loadMasterEffect/loadMasterEffectText, with `text' NULL for a file. placeChannel is loadChannel after the
-       parse, with synthMutex_ held. */
+       loadMasterEffect/loadMasterEffectText, with `text' NULL for a file.
+       placeChannel is loadChannel after the parse, with synthMutex_
+       held. */
     thSynthTree *loadChannel (const string &filename, const string *text,
                               int channum, float amp);
     thSynthTree *placeChannel (const string &filename, thSynthTree *raw,

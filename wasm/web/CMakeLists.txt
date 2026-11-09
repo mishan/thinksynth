@@ -679,8 +679,10 @@ foreach(dir IN ITEMS "" "fx")
     list(APPEND DIST_VIDEO_FILES "${PROJECT_BINARY_DIR}/video/index.json")
   endif()
 
-  install(FILES ${DIST_VIDEO_FILES}
-          DESTINATION "video/${dir}" PERMISSIONS ${SITE_FILE_MODE})
+  if(DIST_VIDEO_FILES)
+    install(FILES ${DIST_VIDEO_FILES}
+            DESTINATION "video/${dir}" PERMISSIONS ${SITE_FILE_MODE})
+  endif()
 endforeach()
 
 set(DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/index.json")

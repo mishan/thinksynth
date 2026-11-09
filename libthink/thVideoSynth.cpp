@@ -120,6 +120,11 @@ void thVideoSynth::set (const std::string &chanarg, float value)
         if (arg != NULL)
             arg->setValue(value);
     }
+
+    thArg *master = synth_->getMasterArg(chanarg);
+
+    if (master != NULL)
+        master->setValue(value);
 }
 
 void thVideoSynth::setInputs (const thVideoInputs &in)
