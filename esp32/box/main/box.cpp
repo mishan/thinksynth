@@ -34,19 +34,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "driver/gpio.h"
-#include "driver/i2c_master.h"
-#include "driver/spi_master.h"
 #include "esp_heap_caps.h"
-#include "esp_lcd_panel_io.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_vendor.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-#include "audio.h"
+#include "box_hal.h"
+#include "debugcon.h"
 #include "thhBox.h"
 #include "thgLife.h"
 #include "thgMarbles.h"
@@ -73,6 +68,7 @@
    next, as their patches' costs say. */
 static volatile float load = 0, loadAvg = 0, loadAdded = 0;
 static volatile int playing = 0;
+static volatile int voicesNow = 0;
 
 /* A patch, whichever compiled voice it is: its voices, its knobs, and
    what a mapper's actions do to them. */
@@ -328,73 +324,7 @@ static volatile unsigned pegsChanged = 0;
 static bool shownCells[thgLife::COLS][thgLife::ROWS];
 static int shownColumn = -1;
 static bool shownPaused = false;
-
-
-static i2c_master_bus_handle_t bus;
-static i2c_master_dev_handle_t imu, touch;
-
-/* A contact the touch controller reports. */
-struct Contact
-{
-    int id, x, y;
-};
-
-/* The BOX's touch controller, a TT21100 at 0x24, read as it asks to be:
-   the length of its report, then the whole report, whatever its length.
-   A report left unread is offered again and again, and nothing newer
-   behind it, so every one is read through. Finger records are ten bytes
-   each after a seven-byte header; a 14-byte report is the buttons'. */
-/* The red button under the screen, as its report last said. */
-static bool homeDown = false;
-
-static int
-touchRead (Contact *out, int most)
-{
-    static uint8_t report[512];
-    uint8_t len[2];
-
-    if (i2c_master_receive(touch, len, 2, 20) != ESP_OK)
-        return 0;
-
-    const int n = len[0] | (len[1] << 8);
-
-    if (n > (int)sizeof(report))
-    {
-        uint8_t *const whole = (uint8_t *)malloc(n);
-
-        if (whole)
-            i2c_master_receive(touch, whole, n, 20);
-        free(whole);
-        return 0;
-    }
-    if (n < 2 || i2c_master_receive(touch, report, n, 20) != ESP_OK || n < 7)
-        return 0;
-    if (n == 14)
-    {
-        homeDown = report[5] & 1;
-        return 0;
-    }
-
-    int count = 0;
-
-    for (int r = 0; r < (report[5] & 0x1f) && 7 + 10 * (r + 1) <= n; r++)
-    {
-        const uint8_t *t = report + 7 + 10 * r;
-
-        if ((t[0] & 0x07) != 0 || count >= most)    /* a finger, not a pen */
-            continue;
-        /* A finger's last record says it has lifted: its tip off, its
-           event 3. */
-        if (!(t[1] & 0x80) || ((t[1] >> 5) & 3) == 3)
-            continue;
-        out[count].id = t[1] & 0x1f;
-        /* Mirrored across the 320 columns, as the screen is drawn. */
-        out[count].x = 319 - (t[2] | (t[3] << 8));
-        out[count].y = t[4] | (t[5] << 8);
-        count++;
-    }
-    return count;
-}
+static int shownGeneration = 0;
 
 /* The odd voices, on the other core, while the audio task does the even:
    started by `go', done when it gives `done'. */
@@ -445,8 +375,12 @@ audioTask (void *)
         load = (esp_timer_get_time() - t) / (1e6f * BLOCK / BOX_RATE);
         loadAvg += 0.25f * (load - loadAvg);
         loadAdded = 0;
+        voicesNow = percussion->sounding();
         for (Patch *p : patches)
+        {
             p->account();
+            voicesNow += p->sounding();
+        }
         percussion->account();
         /* Two blocks over shed one voice, whichever patch's goes first,
            the percussion's too; the block it fades out over, still paying
@@ -477,7 +411,7 @@ audioTask (void *)
 
                 frames[2 * i + c] = (int16_t)(x * 32000);
             }
-        audio_write(frames, BLOCK);
+        box_audio_write(frames, BLOCK);
     }
 }
 
@@ -491,8 +425,6 @@ audioTask (void *)
 #define KEYS 11
 #define STRIP 16                /* rows drawn at a time */
 #define TOP 16                  /* the patches' row, above the keys */
-
-static esp_lcd_panel_handle_t panel;
 
 /* C, E flat, F, G, B flat. */
 static const int HUE[5][3] = {
@@ -568,7 +500,7 @@ drawKey (int k, bool on)
                             240 - (240 - h[2]) / 3);
                 strip[(y - y0) * w + x] = c;
             }
-        esp_lcd_panel_draw_bitmap(panel, from, y0, to, y0 + STRIP, strip);
+        box_lcd_draw(from, y0, to, y0 + STRIP, strip);
     }
 }
 
@@ -595,7 +527,7 @@ drawPatches (int n, int on, bool paused)
                            : !square ? rgb(0, 0, 0)
                            : p == on ? rgb(255, 255, 255) : rgb(70, 70, 70);
         }
-    esp_lcd_panel_draw_bitmap(panel, 0, 0, W, TOP, row);
+    box_lcd_draw(0, 0, W, TOP, row);
 }
 
 /* The marbles' field, below the patches' row: a pixel of it, the balls
@@ -666,7 +598,7 @@ drawField (int x0, int y0, int x1, int y1)
         for (int y = ya; y < yb; y++)
             for (int x = x0; x < x1; x++)
                 buf[(y - ya) * (x1 - x0) + (x - x0)] = fieldAt(x, y);
-        esp_lcd_panel_draw_bitmap(panel, x0, ya, x1, yb, buf);
+        box_lcd_draw(x0, ya, x1, yb, buf);
     }
 }
 
@@ -756,7 +688,7 @@ drawCell (int c, int r, bool alive, bool head)
     for (int y = 0; y < CELL_H; y++)
         for (int x = 0; x < CELL_W; x++)
             buf[y * CELL_W + x] = x == 0 || y == 0 ? rgb(0, 0, 0) : fill;
-    esp_lcd_panel_draw_bitmap(panel, x0, y0, x0 + CELL_W, y0 + CELL_H, buf);
+    box_lcd_draw(x0, y0, x0 + CELL_W, y0 + CELL_H, buf);
 }
 
 /* The cells whose life or playhead changed since they were drawn, or all. */
@@ -843,64 +775,6 @@ displayTask (void *)
         keysShown = now;
         vTaskDelay(pdMS_TO_TICKS(15));
     }
-}
-
-/* The BOX's LCD, an ILI9342C on SPI as Espressif's esp-box BSP drives it. */
-static bool
-displayOpen (void)
-{
-    spi_bus_config_t sb = {};
-    esp_lcd_panel_io_handle_t io;
-    esp_lcd_panel_io_spi_config_t ic = {};
-    esp_lcd_panel_dev_config_t pc = {};
-
-    sb.mosi_io_num = GPIO_NUM_6;
-    sb.miso_io_num = GPIO_NUM_NC;
-    sb.sclk_io_num = GPIO_NUM_7;
-    sb.quadwp_io_num = GPIO_NUM_NC;
-    sb.quadhd_io_num = GPIO_NUM_NC;
-    sb.max_transfer_sz = W * STRIP * 2;
-    ic.dc_gpio_num = GPIO_NUM_4;
-    ic.cs_gpio_num = GPIO_NUM_5;
-    ic.pclk_hz = 40 * 1000 * 1000;
-    ic.lcd_cmd_bits = 8;
-    ic.lcd_param_bits = 8;
-    ic.trans_queue_depth = 2;
-    pc.reset_gpio_num = GPIO_NUM_48;
-    pc.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;
-    pc.bits_per_pixel = 16;
-    if (spi_bus_initialize(SPI2_HOST, &sb, SPI_DMA_CH_AUTO) != ESP_OK ||
-        esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &ic, &io) != ESP_OK ||
-        esp_lcd_new_panel_st7789(io, &pc, &panel) != ESP_OK)
-        return false;
-    esp_lcd_panel_reset(panel);
-    esp_lcd_panel_init(panel);
-    esp_lcd_panel_mirror(panel, true, true);
-    esp_lcd_panel_disp_on_off(panel, true);
-
-    gpio_config_t bl = {};
-
-    bl.pin_bit_mask = 1ULL << GPIO_NUM_45;
-    bl.mode = GPIO_MODE_OUTPUT;
-    gpio_config(&bl);
-    gpio_set_level(GPIO_NUM_45, 1);
-    return true;
-}
-
-static bool
-imuRead (float accel[3], float gyro[3])
-{
-    uint8_t reg = 0x0b, d[12];
-
-    if (i2c_master_transmit_receive(imu, &reg, 1, d, sizeof(d), 20) != ESP_OK)
-        return false;
-    for (int k = 0; k < 3; k++)
-    {
-        /* At its defaults: 2048 to the g, 16.4 to the degree a second. */
-        accel[k] = (int16_t)((d[2 * k] << 8) | d[2 * k + 1]) / 2048.0f;
-        gyro[k] = (int16_t)((d[6 + 2 * k] << 8) | d[7 + 2 * k]) / 16.4f;
-    }
-    return true;
 }
 
 /* A finger on the screen: the controller's id for its contact, the key
@@ -1087,7 +961,7 @@ static thgLife life(0x5eed);
    the first contact, down again only after TOUCH_LIFTED_US of none, as a
    key's: a press toggles its cell. */
 static void
-playLife (const float accel[3], float dt, int count, const Contact &at, int64_t now)
+playLife (const float accel[3], float dt, int count, const box_hal_contact &at, int64_t now)
 {
     static int64_t seenAt = -TOUCH_LIFTED_US - 1;
     static bool onTop = false;
@@ -1137,6 +1011,7 @@ playLife (const float accel[3], float dt, int count, const Contact &at, int64_t 
             shownCells[c][r] = life.alive(c, r);
     shownColumn = life.column();
     shownPaused = life.paused();
+    shownGeneration = life.generation();
     portEXIT_CRITICAL(&seen);
 }
 
@@ -1151,15 +1026,8 @@ controlTask (void *)
 
     configureAll();
 
-    /* The side button, BOOT, low while pressed. */
-    gpio_config_t bc = {};
     bool down = false, wasDown = false, reads = false;
     int64_t readSince = 0;
-
-    bc.pin_bit_mask = 1ULL << GPIO_NUM_0;
-    bc.mode = GPIO_MODE_INPUT;
-    bc.pull_up_en = GPIO_PULLUP_ENABLE;
-    gpio_config(&bc);
 
     for (;; n++)
     {
@@ -1168,14 +1036,14 @@ controlTask (void *)
 
         const float dt = (now - last) / 1e6f;
 
-        if (imuRead(accel, gyro))
+        if (box_imu_read(accel, gyro))
             thhBoxFeedImu(accel, gyro, dt, imu, pose);
         last = now;
 
         /* A press steps to the next patch, let go, the notes held let go
            and left to ring out; held, it switches to the next screen: the
            keys, the marbles, Life. */
-        const bool reading = gpio_get_level(GPIO_NUM_0) == 0;
+        const bool reading = box_button_down(BOX_HAL_SIDE);
         static int64_t pressed = 0;
         static bool switched = false;
 
@@ -1222,13 +1090,15 @@ controlTask (void *)
         wasDown = down;
 
         /* Each contact to the finger with its id, or to a free one. */
-        Contact points[FINGERS];
-        const bool wasHome = homeDown;
-        const int count = touchRead(points, FINGERS);
+        box_hal_contact points[FINGERS];
+        static bool wasHome = false;
+        const int count = box_touch_read(points, FINGERS);
+        const bool home = box_button_down(BOX_HAL_HOME);
 
         /* The red button: the pose it's in now is level. */
-        if (homeDown && !wasHome)
+        if (home && !wasHome)
             thhBoxLevel(imu);
+        wasHome = home;
 
         most = count > most ? count : most;
         for (int p = 0; p < count; p++)
@@ -1332,38 +1202,40 @@ controlTask (void *)
     }
 }
 
+/* For the console's `status'. */
+static void
+status (char *line, size_t size)
+{
+    const int on = screen;
+    const int n = snprintf(line, size, "screen %s  patch %s (%d of %d)  voices %d  load %.0f%%",
+                           SCREEN_NAME[on], patches[playing]->name, playing + 1, NPATCHES,
+                           voicesNow, load * 100);
+
+    if (on == ON_LIFE && n > 0 && n < (int)size)
+    {
+        portENTER_CRITICAL(&seen);
+        const int g = shownGeneration;
+        const bool p = shownPaused;
+        portEXIT_CRITICAL(&seen);
+
+        snprintf(line + n, size - n, "  generation %d%s", g, p ? ", paused" : "");
+    }
+}
+
 extern "C" void
 app_main (void)
 {
-    i2c_master_bus_config_t bc = {};
+    debugcon_start(BOX_RATE, DEBUGCON_TOUCH | DEBUGCON_HOME | DEBUGCON_SHAKE, status);
 
-    bc.i2c_port = I2C_NUM_0;
-    bc.sda_io_num = GPIO_NUM_8;
-    bc.scl_io_num = GPIO_NUM_18;
-    bc.clk_source = I2C_CLK_SRC_DEFAULT;
-    bc.glitch_ignore_cnt = 7;
-    bc.flags.enable_internal_pullup = true;
-    ESP_ERROR_CHECK(i2c_new_master_bus(&bc, &bus));
-
+    const unsigned opened = box_hal_open(BOX_HAL_SPEAKER | BOX_HAL_IMU | BOX_HAL_TOUCH |
+                                         BOX_HAL_SIDE_BUTTON, BOX_RATE, 70);
     /* With nothing to write to, the audio task would never wait. */
-    const bool speaker = audio_open(bus, BOX_RATE, 70);
+    const bool speaker = opened & BOX_HAL_SPEAKER;
 
     if (!speaker)
         printf("thinkbox: no speaker\n");
-
-    /* The IMU, an ICM-42607 at 0x68: accelerometer and gyro on, low noise. */
-    i2c_device_config_t ic = {};
-    uint8_t on[2] = { 0x1f, 0x0f };
-
-    ic.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    ic.device_address = 0x68;
-    ic.scl_speed_hz = 400000;
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &imu));
-    if (i2c_master_transmit(imu, on, 2, 100) != ESP_OK)
+    if (!(opened & BOX_HAL_IMU))
         printf("thinkbox: no IMU; tilt and roll stay level\n");
-
-    ic.device_address = 0x24;
-    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus, &ic, &touch));
 
     marbles.scatter(6);
     marbles.shake();
@@ -1382,7 +1254,7 @@ app_main (void)
         xTaskCreatePinnedToCore(audioTask, "audio", 8192, NULL, 20, NULL, 1);
     xTaskCreatePinnedToCore(helperTask, "helper", 8192, NULL, 19, NULL, 0);
     xTaskCreatePinnedToCore(controlTask, "control", 8192, NULL, 10, NULL, 0);
-    if (displayOpen())
+    if (box_hal_open(BOX_HAL_SCREEN, BOX_RATE, 70))
         xTaskCreatePinnedToCore(displayTask, "display", 4096, NULL, 5, NULL, 0);
     else
         printf("thinkbox: no screen\n");
