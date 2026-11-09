@@ -29,13 +29,8 @@
 #include "thVideoBridge.h"
 #include "thVideoSynth.h"
 
-thVideoSynth::thVideoSynth (void)
-{
-}
-
-thVideoSynth::~thVideoSynth (void)
-{
-}
+thVideoSynth::thVideoSynth (void) = default;
+thVideoSynth::~thVideoSynth (void) = default;
 
 bool thVideoSynth::open (const std::string &pluginPath, int width, int height,
                          int fps, int lines, std::string &why)
@@ -109,6 +104,7 @@ bool thVideoSynth::render (const Frame &frame)
 {
     synth_->process();
     rendered_ += window_;
+    processed_ = true;
 
     const float *out = synth_->getOutput();
     const size_t pixels = (size_t)width_ * height_;
@@ -189,7 +185,7 @@ void thVideoSynth::flush (int channel)
 
 std::string thVideoSynth::narrow (void)
 {
-    if (narrowSaid_ || rendered_ == 0)
+    if (narrowSaid_ || !processed_)
         return "";
     narrowSaid_ = true;
     for (int ch : follow_)

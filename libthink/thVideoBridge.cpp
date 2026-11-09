@@ -40,7 +40,13 @@ void thVideoBridge::hear (const thSynth &audio)
     const int skip = std::max(0, window - N), n = window - skip;
     const float *out = audio.getOutput();
 
-    mixChannels_ = std::min(audio.audioChannelCount(), TH_MAX_CHANNELS);
+    const int mixChannels = std::min(audio.audioChannelCount(), TH_MAX_CHANNELS);
+
+    /* Planes the mix had no part in until now start silent. */
+    if (mixChannels > mixChannels_)
+        std::fill(mix_.begin() + (size_t)mixChannels_ * N,
+                  mix_.begin() + (size_t)mixChannels * N, 0.0f);
+    mixChannels_ = mixChannels;
     channels_ = std::min(audio.midiChanCount(), TH_MIDI_CHANNELS);
     sampleRate_ = (double)audio.getSampleRate();
 
@@ -67,10 +73,8 @@ void thVideoBridge::hear (const thSynth &audio)
 
                 sum += x * x;
             }
-            squares_[(size_t)ch * N + (at_ + i) % N] = sum;
+            squares_[(size_t)ch * N + (at_ + i) % N] = outputs > 0 ? sum / outputs : 0;
         }
-        /* An empty channel's level is 0, whatever its outputs were. */
-        levelOutputs_[ch] = own != NULL ? outputs : 0;
     }
 
     at_ = (at_ + n) % N;
@@ -100,7 +104,7 @@ void thVideoBridge::inputs (thVideoInputs &out)
 
         for (int i = 0; i < N; i++)
             own += squares_[(size_t)ch * N + (at_ + i) % N];
-        out.levels[ch] = levelOutputs_[ch] ? (float)sqrt(own / ((double)levelOutputs_[ch] * N)) : 0;
+        out.levels[ch] = (float)sqrt(own / N);
     }
 
     const auto mono = [&](unsigned int i)

@@ -65,7 +65,8 @@ public:
     ~thVideoSynth (void);
 
     /* `lines' a window, or 0 for as many as last about as long as an audio
-       window: the longest that keeps the picture within one of the sound.
+       window: the longest that keeps the picture within one of the sound,
+       and the most `lines' is held to. Before anything else.
        False, with a sentence, for a raster too big to be a synth's. */
     bool open (const std::string &pluginPath, int width, int height, int fps,
                int lines, std::string &why);
@@ -118,7 +119,7 @@ private:
     int64_t rate_ = 0, rendered_ = 0, frames_ = 0;
     std::vector<float> frame_;
     size_t filled_ = 0;
-    bool narrowSaid_ = false;
+    bool processed_ = false, narrowSaid_ = false;
 };
 
 #endif /* TH_VIDEO_SYNTH_H */

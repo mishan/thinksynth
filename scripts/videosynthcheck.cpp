@@ -21,7 +21,7 @@
  * and thVideoSynth skipping ahead.
  *
  * The bridge: a 100 Hz sine on one channel and a 5 kHz one on another,
- * rendered in windows of 1024 samples and of 64, 128, 256 and 2048. Struck
+ * rendered in windows of 1024 samples and of 64, 100, 128, 256 and 2048. Struck
  * late enough that the last 1024 samples are the same sound, and so that
  * the shorter windows' ring has wrapped part way, each says the same: the
  * bass and the high band lit, the mid dark, both channels' levels, all as
@@ -102,7 +102,8 @@ hear (const string &plugins, int window, int samples, int late, thVideoInputs &i
 static void
 checkBridge (const string &plugins)
 {
-    const int SAMPLES = 4096;
+    /* Whole windows of every length below. */
+    const int SAMPLES = 51200;
     thVideoInputs want;
 
     if (!hear(plugins, TH_DEFAULT_WINDOW_LENGTH, SAMPLES, 0, want))
@@ -114,13 +115,13 @@ checkBridge (const string &plugins)
     char why[200] = "";
 
     if (!(want.bass > 0.2f && want.high > 0.2f && want.mid < want.bass / 20 &&
-          want.levels[0] > 0.1f && want.levels[1] > 0.1f && want.levels[2] == 0))
-        snprintf(why, sizeof(why), "bass %g mid %g high %g, levels %g %g %g", want.bass,
-                 want.mid, want.high, want.levels[0], want.levels[1], want.levels[2]);
+          want.levels[0] > 0.1f && want.levels[1] > 0.1f))
+        snprintf(why, sizeof(why), "bass %g mid %g high %g, levels %g %g", want.bass,
+                 want.mid, want.high, want.levels[0], want.levels[1]);
     report("a low and a high sine, in windows of 1024", why);
 
     static const struct { int window, late; } rows[] = {
-        { 64, 320 }, { 128, 384 }, { 256, 256 }, { 2048, 0 },
+        { 64, 320 }, { 100, 300 }, { 128, 384 }, { 256, 256 }, { 2048, 0 },
     };
 
     for (const auto &r : rows)

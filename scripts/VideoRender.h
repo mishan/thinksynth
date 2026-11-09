@@ -109,7 +109,10 @@ public:
        `audioRate'. */
     bool advance (int64_t audio, int64_t audioRate, std::string &why)
     {
-        return video_.advance(audio, audioRate, write(why)) && said();
+        const bool ok = video_.advance(audio, audioRate, write(why));
+
+        said();
+        return ok;
     }
 
     /* On to the end of the frame that holds the last audio sample, and the
@@ -117,7 +120,10 @@ public:
     bool finish (int64_t audio, int64_t audioRate, std::string &why)
     {
         keepLast_ = std::min(keepLast_, (audio * fps() + audioRate - 1) / audioRate);
-        return video_.finish(audio, audioRate, write(why)) && file_.close(why);
+        const bool ok = video_.finish(audio, audioRate, write(why));
+
+        said();
+        return ok && file_.close(why);
     }
 
     int64_t framesWritten (void) const { return written_; }
@@ -143,13 +149,12 @@ private:
         };
     }
 
-    bool said (void)
+    void said (void)
     {
         const std::string narrow = video_.narrow();
 
         if (!narrow.empty())
             fprintf(stderr, "%s\n", narrow.c_str());
-        return true;
     }
 
     thVideoSynth video_;

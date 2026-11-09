@@ -23,7 +23,8 @@
  * of each channel, so what it measures is the same whatever the window
  * length: one 1024-sample window under genwav, eight of 128 in a worklet.
  * hear() copies and nothing more, and allocates nothing, so it can run on
- * the audio thread; inputs() does the arithmetic, when it is wanted.
+ * the audio thread; inputs() does the arithmetic, when it is wanted, on
+ * the same thread: nothing here is shared safely between two.
  *
  * What it measures, over those 1024 samples:
  *
@@ -71,9 +72,8 @@ private:
 
     thv::FFTR fft_ { 10 };
     std::vector<float> mix_;        /* TH_MAX_CHANNELS planes of N */
-    std::vector<double> squares_;   /* per channel, each sample's outputs' summed squares */
+    std::vector<double> squares_;   /* per channel, each sample's mean square */
     std::vector<float> magnitudes_;
-    int levelOutputs_[TH_MIDI_CHANNELS] = {};
     int at_ = 0;                    /* the oldest sample's slot */
     int mixChannels_ = 0, channels_ = 0;
     double sampleRate_ = TH_DEFAULT_SAMPLES;
