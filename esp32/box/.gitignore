@@ -1,4 +1,5 @@
-main/thvDxbell.h
+main/thv*.h
+main/patches.h
 build/
 sdkconfig
 sdkconfig.old

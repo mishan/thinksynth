@@ -59,6 +59,11 @@ category "Leads and stabs";
     @r.max = 2000ms;
     @r.label = "Release";
 
+# On an ESP32-S3-BOX (esp32/box), over its strip of keys: roll and its filter opens or closes.
+controller box {
+    roll = "cutoff" { smooth = 0.05; };
+};
+
 node ionode {
     channels = 2;
     out0 = vca->out;

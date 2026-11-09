@@ -40,6 +40,12 @@ enum
 
 const thhControls &thhBoxControls ();
 
+/* What the BOX plays with no block of a patch's: the screen a strip of
+   keys, C minor pentatonic two octaves across, louder the lower it's
+   touched, and tilt a bend. A patch's `controller box' block goes over
+   it, and says what its own knobs answer to. */
+extern const char *const THH_BOX_PROFILE;
+
 /* What the IMU's samples make of the BOX's pose, between samples. */
 struct thhBoxImu
 {
@@ -47,6 +53,8 @@ struct thhBoxImu
     float twist = 0;
     float turn = 0;                     /* degrees, springing back */
     bool  primed = false;
+    /* Turns gravity as the pose leveled is to upright. */
+    float level[3][3] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
 };
 
 /* One sample: acceleration in g and rotation in degrees a second, each in
@@ -58,5 +66,9 @@ struct thhBoxImu
    seconds. */
 void thhBoxFeedImu (const float accel[3], const float gyro[3], float dt,
                     thhBoxImu &imu, thhState &s);
+
+/* The pose it's in now is level from here on: tilt and roll count from
+   it, for a BOX lying on a desk or leaning back in its stand. */
+void thhBoxLevel (thhBoxImu &imu);
 
 #endif /* THH_BOX_H */

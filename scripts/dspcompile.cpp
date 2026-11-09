@@ -45,7 +45,8 @@
  *
  * With each knob's range, set() turns a knob by name, for what a
  * controller's profile rides. With -c, the patch's controller block for
- * that device, checked against its controls, is profile(): a thcHidBlock
+ * that device over the device's own, checked against its controls, is
+ * profile(): a thcHidBlock
  * a thhMapper plays, so the firmware needn't parse one.
  *
  * It renders what the engine renders, to the bit, for a voice whose knobs
@@ -537,7 +538,7 @@ main (int argc, char **argv)
     {
         const thhControls *controls = device == "box" ? &thhBoxControls()
                                     : device == "index" ? &thhIndexControls() : NULL;
-        const string own = "device " + device + " { };";
+        const char *own = device == "box" ? THH_BOX_PROFILE : THH_INDEX_PROFILE;
         string err;
 
         if (controls == NULL)
@@ -545,7 +546,7 @@ main (int argc, char **argv)
             fprintf(stderr, "%s: no controller called '%s'\n", argv[at], device.c_str());
             return 1;
         }
-        if (!thhLoadProfile("", *controls, own.c_str(), "", profile, err,
+        if (!thhLoadProfile("", *controls, own, "", profile, err,
                             tree->controller(device), argv[at]))
         {
             fprintf(stderr, "%s\n", err.c_str());
@@ -567,8 +568,9 @@ main (int argc, char **argv)
 
     if (!device.empty())
         printf("#include \"thcHidBlock.h\"\n");
-    printf("\nstruct thv%s\n{\n    static constexpr float rate = %d;\n\n"
-           "    struct Knobs\n    {\n", name.c_str(), rate);
+    printf("\nstruct thv%s\n{\n    static constexpr float rate = %d;\n"
+           "    static constexpr int channels = %zu;\n\n"
+           "    struct Knobs\n    {\n", name.c_str(), rate, outs.size());
     for (const auto &k : c.knobs)
         printf("        float %s = %s;\n", Compiler::knobField(k.first).c_str(),
                Compiler::literal(k.second).c_str());
