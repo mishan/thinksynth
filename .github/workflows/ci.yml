@@ -701,6 +701,7 @@ jobs:
             build-web/dsp
             build-web/gen
             build-web/patches
+            build-web/video
             build-web/icons
             build-web/packs
             build-web/sdk
