@@ -175,9 +175,8 @@ main ()
             std::fabs(thkMidi2freq(4210, 32000) - 15999);
     report("nothing is 0 Hz, and past the top is the top", worst, 0);
 
-    /* math::sin against the double sine it used to take, of the same
-       float turns, out to a video patch's thousands of them; a 0
-       wavelength or amp is 1. */
+    /* math::sin against the double sine of the same float turns, out to a
+       video patch's thousands of them; a 0 wavelength or amp is 1. */
     worst = 0;
     for (const float wavelength : { 1.0f, 0.05f, 0.0f })
         for (const float amp : { 1.0f, 0.4f, 0.0f })
@@ -188,7 +187,7 @@ main ()
 
                 worst = std::max(worst, std::fabs(thkSin(index, wavelength, amp) - want));
             }
-    report("math::sin, against the double", worst, 2e-6);
+    report("math::sin, against the double", worst, 1.3e-6);
 
     /* The pan's sides against cos and sin of (pan + 1) pi / 4, and their
        powers summing to 1 wherever it's put; past the ends is the end. */

@@ -26,8 +26,7 @@
 
 /* sin(index / wavelength turns) * amp, from the kernels' sine table: the
    video patches read one or more of these a pixel, a million pixels a
-   second, where libm's double sine was most of what they cost. A 0
-   wavelength or amp is 1, as the plugin has always taken them. */
+   second. A 0 wavelength or amp is 1. */
 static inline float thkSin (float index, float wavelength, float amp)
 {
     return thkSin2pi(index / (wavelength == 0 ? 1 : wavelength)) * (amp == 0 ? 1 : amp);
