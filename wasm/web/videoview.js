@@ -53,6 +53,12 @@ const SPARE = 4;
    the full size in time. */
 const SMALLER = 2;
 
+/* The full size is tried again once the small one has, for this many
+   seconds running, been busy little enough that the full size's
+   SMALLER^2 pixels would fill at most ROOMY of the worker's time. */
+const PATIENCE_S = 4;
+const ROOMY = 0.5;
+
 /* A video .dsp's knobs: each `@name' it gives a widget, with the value,
    range, step and label the text declares. */
 export function knobsOf (text)
@@ -287,12 +293,25 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         {
             r.scale = SMALLER;
             r.dropping = 0;
+            /* Too slow again after a try: wait longer before the next. */
+            r.patience = r.patience * 2 || PATIENCE_S;
+            r.roomy = 0;
             open(r, true).catch((e) => fail(`the video: ${e.message}`));
         }
         else if (m.type === 'dropping')
         {
             r.dropping = performance.now();
             say('dropping frames: this machine cannot draw it in time');
+        }
+        else if (m.type === 'busy' && r.scale > 1)
+        {
+            r.roomy = m.fraction * r.scale * r.scale < ROOMY ? r.roomy + 1 : 0;
+            if (r.roomy >= r.patience)
+            {
+                r.scale = 1;
+                r.roomy = 0;
+                open(r, true).catch((e) => fail(`the video: ${e.message}`));
+            }
         }
     };
 
@@ -329,7 +348,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         }
 
         const r = { worker, clock: new AudioClock(ctx.sampleRate), frames: [], raf: 0,
-                    timer: 0, last: performance.now(), dropping: 0, scale: 1 };
+                    timer: 0, last: performance.now(), dropping: 0, scale: 1,
+                    patience: 0, roomy: 0 };
         const { port1, port2 } = new MessageChannel();
         const tick = () =>
         {
@@ -396,6 +416,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         {
             run.scale = 1;
             run.dropping = 0;
+            run.patience = 0;
             open(run).catch((e) => fail(`the video: ${e.message}`));
         }
         else if (failed && shown)

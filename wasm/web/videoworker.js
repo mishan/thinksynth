@@ -59,6 +59,8 @@ let clock = null;       /* { offset, timeOrigin, rate } from the page */
 let most = 0, made = 0;
 const pool = [];
 let pending = false, skips = 0;
+/* Time spent drawing since `since', told to the page each second. */
+let spent = 0, since = performance.now();
 let settling = false;   /* catching up to now after an open */
 let knobs = [];         /* their values as last set */
 let worklet = null;     /* the worklet's port */
@@ -255,6 +257,16 @@ function draw ()
         hand(count);
     }
     while (count > 0 && performance.now() - began < SLICE_MS);
+
+    const now = performance.now();
+
+    spent += now - began;
+    if (now - since >= 1000)
+    {
+        post({ type: 'busy', fraction: spent / (now - since) });
+        spent = 0;
+        since = now;
+    }
 
     const narrow = M.ccall('tv_narrow', 'string', [], []);
 
