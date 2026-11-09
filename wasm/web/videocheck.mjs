@@ -163,7 +163,7 @@ if (bench)
 {
     const SECONDS = 3, CHANNELS = 4, VOICES = 2;
 
-    for (const fx of ['', ...fs.readdirSync(path.join(video, 'fx')).sort().map((n) => `fx/${n}`)])
+    for (const fx of ['', ...fs.readdirSync(path.join(video, 'fx')).filter((n) => n.endsWith('.dsp')).sort().map((n) => `fx/${n}`)])
         for (const name of patches)
         {
             open();
@@ -390,7 +390,8 @@ for (const fx of [false, true])
 }
 
 /* Soften: the left half lit and the right dark, a hard edge between, goes
-   from black to lit over a few pixels. */
+   from lit to black over a few pixels. Only around the edge: the left
+   column is the line above's end, wrapped. */
 for (const fx of [false, true])
 {
     open();
@@ -408,15 +409,15 @@ for (const fx of [false, true])
     M._tv_generated(3 * PER_FRAME);
 
     const frame = render()[2];
-    const row = [...Array(W).keys()].map((x) => pixel(frame, x, H / 2, 0));
+    const row = [...Array(20).keys()].map((i) => pixel(frame, W / 2 - 10 + i, H / 2, 0));
     const between = row.filter((v) => v > 10 && v < 245).length;
 
     check(fx ? 'soften grades a hard edge over a few pixels' : 'without it, the edge is hard',
           fx ? between >= 2 && between <= 4 : between === 0, `${between} between: ${row}`);
 }
 
-/* Palette: black stays black, and a mid gray takes the palette's middle,
-   Ember's red or Ice's blue. */
+/* Palette: black stays black, and a mid gray leans to the palette's
+   middle color, Ember's red or Ice's blue. */
 for (const [n, name, warm] of [[0, 'Ember', true], [1, 'Ice', false]])
 {
     open();
