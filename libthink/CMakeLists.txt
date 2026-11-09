@@ -25,7 +25,9 @@ set(THINK_SOURCES
     thMidiControllerConnection.cpp
     thMidiController.cpp
     thSoundFile.cpp
+    thVideoBridge.cpp
     thVideoFile.cpp
+    thVideoSynth.cpp
     thSynth.cpp
     thUtil.cpp
     ${FLEX_ThinkLexer_OUTPUTS})
