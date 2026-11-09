@@ -4796,12 +4796,59 @@ try
         check(await v.evaluate(() => window.videoDelay) === 120,
               'a change of MIDI delay reaches the picture');
 
+        /* A worker kept from drawing once, a hiccup: still 160x120. Twice
+           in a second, as a slow machine is: the picture goes on at a
+           quarter of the pixels, and another patch has the full size
+           again. */
+        const drawer = v.workers().filter((w) => w.url().includes('videoworker')).at(-1);
+        const stall = async () =>
+        {
+            await drawer.evaluate(() =>
+            {
+                for (const t = performance.now(); performance.now() - t < 300;)
+                    ;
+            });
+            await v.waitForTimeout(200);
+        };
+
+        await stall();
+        await v.waitForTimeout(1200);
+
+        const hiccup = await v.evaluate(() => document.getElementById('videocanvas').width);
+
+        await response(3);
+        await stall();
+        await stall();
+
+        const small = await v.evaluate(() => window.solo.video().painted);
+
+        await v.waitForTimeout(1000);
+
+        const shrunk = await v.evaluate(() =>
+            [document.getElementById('videocanvas').width,
+             document.getElementById('videocanvas').height,
+             window.solo.video(),
+             document.querySelector('#videoknobs [data-knob="response"]').value]);
+
+        const told = await v.evaluate(() =>
+            window.videoSaid.some((t) => t.startsWith('drawn at 80x60')));
+
+        await v.selectOption('#videopatch', 'moire.dsp');
+        await v.waitForTimeout(500);
+        check(hiccup === 160 && shrunk[0] === 80 && shrunk[1] === 60 &&
+              shrunk[2].painted - small > 30 && told && shrunk[3] === '3' &&
+              await v.evaluate(() => document.getElementById('videocanvas').width) === 160,
+              'a hiccup draws on at 160x120, a machine too slow at 80x60 with its ' +
+              'knobs as set, and a new ' +
+              `patch at 160x120: ${hiccup}, ${shrunk[0]}x${shrunk[1]}, ` +
+              `${shrunk[2].painted - small} painted, told ${told}, response ${shrunk[3]}`);
+
         /* An output a quarter of a second behind: every frame waits that
            long on the page, and there are buffers enough for all of them.
            Opened again for the pool to be sized, and the clock given time
            to take the new line. */
         await v.evaluate(() => { window.fakeLatency = 0.25; });
-        await v.selectOption('#videopatch', 'moire.dsp');
+        await v.selectOption('#videopatch', 'rings.dsp');
         await v.waitForTimeout(5000);
 
         const paintedBefore = await v.evaluate(() => window.solo.video().painted);
