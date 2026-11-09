@@ -167,7 +167,9 @@ played and what the sound says every four quanta, about 11 ms. Each
 finished frame is painted when the audio clock says its sound is being
 heard. A machine that cannot draw that fast skips ahead to the frame that
 is due rather than falling behind, and the pane says that it is dropping
-frames.
+frames. Behind twice in a second, it draws at 80x60 instead, a quarter of
+the pixels, and says so; another patch or effect, or the pane shown
+again, starts at 160x120 again.
 
 The video runs only while its pane is in front and the tab is shown. When
 the pane comes back, the video starts again from the present, with any

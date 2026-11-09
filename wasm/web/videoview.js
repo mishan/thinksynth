@@ -49,6 +49,10 @@ const KEEP = 600;
 /* Frames in the pool beyond those that wait out the output's latency. */
 const SPARE = 4;
 
+/* Drawn this many times smaller each way on a machine that cannot draw
+   the full size in time. */
+const SMALLER = 2;
+
 /* A video .dsp's knobs: each `@name' it gives a widget, with the value,
    range, step and label the text declares. */
 export function knobsOf (text)
@@ -143,8 +147,9 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         throw e;
     });
 
-    /* The patch and its effect onto the worker, and their sliders. */
-    const open = async (r) =>
+    /* The patch and its effect onto the worker, and their sliders: as they
+       were set if `keep', else as the patch has them. */
+    const open = async (r, keep = false) =>
     {
         const name = patch.value, effect = fx.value, mine = ++opens;
         const dsp = await text(name);
@@ -156,12 +161,24 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         /* A frame waits on the page until its sound is heard. */
         const latency = (ctx.outputLatency || 0) + (ctx.baseLatency || 0);
 
-        narrow = '';
-        r.worker.postMessage({ type: 'open', width: WIDTH, height: HEIGHT, fps: FPS,
-                               lines: LINES, rate: ctx.sampleRate,
+        /* A canvas resized is cleared, even to the size it was. */
+        if (canvas.width !== WIDTH / r.scale)
+        {
+            r.frames.length = 0;
+            canvas.width = WIDTH / r.scale;
+            canvas.height = HEIGHT / r.scale;
+        }
+        narrow = r.scale > 1 ? `drawn at ${canvas.width}x${canvas.height}: this machine ` +
+                               `cannot draw ${WIDTH}x${HEIGHT} in time` : '';
+        say(narrow);
+        r.worker.postMessage({ type: 'open', width: canvas.width, height: canvas.height,
+                               fps: FPS, lines: LINES, rate: ctx.sampleRate,
                                pool: Math.ceil(latency * FPS) + SPARE,
                                patch: { name, text: dsp },
                                fx: effect ? { name: effect, text: fxText } : null });
+
+        const set = new Map(keep ? [...knobs.querySelectorAll('input')]
+                                       .map((i) => [i.dataset.knob, i.value]) : []);
 
         knobs.replaceChildren();
         for (const k of [...knobsOf(dsp), ...knobsOf(fxText)])
@@ -180,6 +197,11 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
                                           value: Number(input.value) }));
             label.append(k.label, ' ', input);
             knobs.append(label);
+            if (set.has(k.name))
+            {
+                input.value = set.get(k.name);
+                input.dispatchEvent(new Event('input'));
+            }
         }
     };
 
@@ -194,7 +216,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         clearInterval(run.timer);
         cancelAnimationFrame(run.raf);
         run = null;
-        g.clearRect(0, 0, WIDTH, HEIGHT);
+        g.clearRect(0, 0, canvas.width, canvas.height);
     };
 
     const fail = (why) =>
@@ -230,8 +252,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         }
         if (pick !== null)
         {
-            g.putImageData(new ImageData(new Uint8ClampedArray(pick.buffer), WIDTH, HEIGHT),
-                           0, 0);
+            g.putImageData(new ImageData(new Uint8ClampedArray(pick.buffer), canvas.width,
+                                         canvas.height), 0, 0);
             painted++;
             late.push(Math.floor((heard - pick.at) * FPS / ctx.sampleRate));
             if (late.length > KEEP)
@@ -249,12 +271,24 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
     {
         if (run !== r)
             return;
+        /* One drawn before a change of size is not this size's. */
         if (m.type === 'frame')
-            r.frames.push(m);
+        {
+            if (m.buffer.byteLength === 4 * canvas.width * canvas.height)
+                r.frames.push(m);
+        }
         else if (m.type === 'failed')
             fail(m.text);
         else if (m.type === 'narrow')
-            say(narrow = m.text);
+            say(narrow = [narrow, m.text].filter((t) => t !== '').join('; '));
+        /* Behind twice in a second is a machine too slow for the size,
+           not a hiccup. */
+        else if (m.type === 'dropping' && r.scale === 1 && r.dropping > 0)
+        {
+            r.scale = SMALLER;
+            r.dropping = 0;
+            open(r, true).catch((e) => fail(`the video: ${e.message}`));
+        }
         else if (m.type === 'dropping')
         {
             r.dropping = performance.now();
@@ -295,7 +329,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         }
 
         const r = { worker, clock: new AudioClock(ctx.sampleRate), frames: [], raf: 0,
-                    timer: 0, last: performance.now(), dropping: 0 };
+                    timer: 0, last: performance.now(), dropping: 0, scale: 1 };
         const { port1, port2 } = new MessageChannel();
         const tick = () =>
         {
@@ -357,8 +391,13 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
 
     const reopen = () =>
     {
+        /* Another patch gets its chance at the full size. */
         if (run !== null)
+        {
+            run.scale = 1;
+            run.dropping = 0;
             open(run).catch((e) => fail(`the video: ${e.message}`));
+        }
         else if (failed && shown)
         {
             failed = false;
