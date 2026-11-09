@@ -28,12 +28,18 @@ than a free one.
 
 ## Building
 
-With ESP-IDF 6 (`. ~/esp/esp-idf/export.sh`) and thinksynth built in
-`build/`:
+thinkbox plays the BOX through the `box_hal.h` of boxsim
+(https://github.com/mishan/boxsim), which also runs it on the desktop.
+The component manager fetches it, pinned to its v0.1.0 in
+`main/idf_component.yml`, and the lock files, `dependencies.lock.esp32s3`
+and `dependencies.lock.linux`, hold it and esp_codec_dev to the commits
+they came to; `BOXSIM_DIR` pointed at a boxsim checkout builds against
+that instead, writing the checkout into the lock file, which is then not
+to be committed. The BOX, an esp32s3, is the default target. With ESP-IDF 6
+(`. ~/esp/esp-idf/export.sh`) and thinksynth built in `build/`:
 
     esp32/box/generate.sh build     # the voices and profiles, from the patches
     cd esp32/box
-    idf.py set-target esp32s3
     idf.py -p /dev/ttyACM0 flash monitor
 
 `generate.sh` runs again whenever a patch changes, and lists the
@@ -42,6 +48,22 @@ takes, and each patch's most and how many blocks ran late. A finger counts as
 lifted only after 40 ms of the screen reading none, since the touch
 controller reports a held finger in bursts. The monitor prints
 what the controls read twice a second.
+
+## On the desktop
+
+The same firmware builds for ESP-IDF's linux target as boxsim's
+simulator: thinkbox in a window titled `boxsim: thinkbox`, its sound on
+the desktop's. Its own build directory and sdkconfig keep it apart from
+the BOX's (boxsim's README says what the linux target needs):
+
+    cd esp32/box
+    idf.py --preview -B build-sim -D SDKCONFIG=build-sim/sdkconfig set-target linux
+    idf.py -B build-sim -D SDKCONFIG=build-sim/sdkconfig build
+    build-sim/thinkbox.elf
+
+The mouse is a finger; S is the side button, pressed for the next patch
+and held for the next screen; H the red button; the arrow keys tilt and
+roll it, R levels it and X shakes it. `--help` lists the rest.
 
 ## Marbles
 
@@ -70,3 +92,30 @@ patches' row pauses the board, a pause sign at its right end, so the bar
 loops as drawn, the playhead still playing it; another tap lets it go on
 again. A shake brings a fifth of the cells to life, for a board that died
 out. It starts with a glider and a blinker.
+
+## Debug console
+
+The USB serial link the monitor reads also takes commands (boxsim's debug
+console), so the BOX can be seen, heard and played from the desktop, by a
+person or a script. `tools/boxctl.py` in a boxsim checkout speaks it,
+with pyserial:
+
+    python3 -m venv venv && venv/bin/pip install pyserial
+    venv/bin/python boxsim/tools/boxctl.py status
+    boxctl.py shot screen.png        # the screen as drawn, a 320x240 PNG
+    boxctl.py audio 5 out.wav        # 5 s of exactly what the codec is sent
+    boxctl.py tap 160 120            # a finger down there, lifted 80 ms later
+    boxctl.py down X Y / move X Y / up
+    boxctl.py press side             # 100 ms: the next patch
+    boxctl.py hold side              # 800 ms: the next screen
+    boxctl.py home                   # the red button
+    boxctl.py shake
+    boxctl.py raw "help"             # any command, its reply printed
+    boxctl.py log                    # the log, as the monitor would show it
+
+`status` is the screen, the patch, Life's generation, the voices
+sounding, those of a patch ringing out and the percussion's among them,
+the load, and the free heap. In the simulator the console is on a pty,
+which thinkbox names as it starts (`debugcon: on /dev/pts/N`), for
+`boxctl.py -p /dev/pts/N`. boxsim's README has the rest: checking
+shots and recordings with shotbox, the frames, and QEMU.
