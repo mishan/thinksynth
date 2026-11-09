@@ -4853,6 +4853,16 @@ try
         await stall();
 
         const down = await width();
+
+        /* Kept from drawing now and then at 80x60, as a machine is, though
+           the drawing itself takes little time. */
+        for (let i = 0; i < 4; i++)
+        {
+            await v.waitForTimeout(1500);
+            await stall();
+        }
+
+        const held = await width();
         const t0 = Date.now();
 
         while (await width() !== 160 && Date.now() - t0 < 10000)
@@ -4862,16 +4872,19 @@ try
         const kept = await v.evaluate(() =>
             document.querySelector('#videoknobs [data-knob="response"]').value);
 
+        /* A stall before the reopened worker has its first batch is not a skip. */
+        await v.waitForTimeout(500);
         await stall();
         await stall();
 
         const again = await width();
 
         await v.waitForTimeout(6000);
-        check(down === 80 && upS < 10 && kept === '5' && again === 80 &&
-              await width() === 80,
+        check(down === 80 && held === 80 && upS >= 3 && upS < 10 && kept === '5' &&
+              again === 80 && await width() === 80,
               'a machine slow for a moment is back at 160x120 with its knobs as set, ' +
-              `and waits longer after failing again: ${down}, up after ${upS} s, ` +
+              'not while it still drops frames, and waits longer after failing ' +
+              `again: ${down}, ${held}, up after ${upS} s, ` +
               `response ${kept}, ${again}, then ${await width()}`);
 
         /* An output a quarter of a second behind: every frame waits that
