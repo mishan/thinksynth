@@ -135,7 +135,7 @@ and up first. An effect of your own wants the same.
 | `video/moire.dsp` | fine rings per note, wandering slowly, interfering into moire; brighter as the music is louder |
 | `video/pond.dsp` | a ripple per note, dropped where its pitch chooses, spreading slowly; crossing ripples reinforce and cancel |
 | `video/rings.dsp` | rings from the middle, as many as the note is high, as bright as it is loud |
-| `video/wells.dsp` | two points per note circling the middle, with bands where their pull is equal, moire near each point |
+| `video/wells.dsp` | two points per note circling the middle, with bands along lines of equal total pull, moire near each point |
 | `video/fx/feedback.dsp` | the picture a frame late, drifting and fading |
 
 They live in `video/` and not `dsp/`: they are not instruments, and the

@@ -1,17 +1,17 @@
 # Two Wells -- each note two bright points circling the middle slowly,
-# with bands around them where their pull is the same: rounds about each
+# with bands along lines of equal total pull: rounds about each
 # one, merging into a figure eight and wider loops around both. Near a
 # point the bands are finer than the pixels can hold, and what shows is
 # moire; a chord's pairs, turned apart by their pitches, interfere.
 #
-# One point is copper and the other blue, and a band takes the color of
-# the one that pulls it harder. `Fineness' is how close the bands are,
+# One point is copper and the other blue, and a band leans to the color
+# of the one that pulls it harder. `Fineness' is how close the bands are,
 # `Drift' how fast the pairs turn. `@in_level', the music's loudness,
 # brightens it, scaled by `Response'.
 
 name "Two Wells";
 author "Misha Nasledov";
-description "Two points per note, circling, with moire bands where their pull is equal.";
+description "Two points per note, circling, with moire bands along lines of equal pull.";
 category "Video";
 
     @in_level = 0;
@@ -70,7 +70,7 @@ node p2 math::div { in0 = 1; in1 = d2->out + 0.01; };
 node pull math::add { in0 = p1->out; in1 = p2->out; };
 
 # The bands creep outward, a band every half minute or so.
-node band math::sin { index = pull->out * 0.05 * @fineness - s->t * 0.03 * @drift; };
+node band math::sin { index = pull->out * 0.05 * @fineness + s->t * 0.03 * @drift; };
 
 # Brighter nearer the points, so the far field is a dim frame for them.
 node near math::div { in0 = pull->out; in1 = pull->out + 30; };
@@ -79,7 +79,7 @@ node lit math::mul {
     in1 = 0.4 + @in_level * @response;
 };
 
-# 1 where the first point pulls harder, 0 where the second does.
+# Toward 1 where the first point pulls harder, toward 0 where the second does.
 node a math::div { in0 = p1->out; in1 = pull->out; };
 node r math::mul { in0 = lit->out; in1 = 0.15 + 0.85 * a->out; };
 node g math::mul { in0 = lit->out; in1 = 0.45; };
