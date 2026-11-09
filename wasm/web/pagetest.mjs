@@ -4536,6 +4536,229 @@ try
                   ? `: ${tapes.recent.join(', ')}` : ''));
     }
 
+    /* ---- the picture ---- */
+
+    /* Tiled, which is where a pane is put in front, in a window of its
+       own so its animation frames are not a background tab's. */
+    {
+        const wide = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+        const v = await wide.newPage();
+
+        v.on('pageerror', (e) => errors.push(`video: ${e.message}`));
+        await v.addInitScript(() =>
+        {
+            /* The worklet's video messages, the worker, a fullscreen asked
+               for, and whether the tab is hidden: the harness's to say. */
+            window.videoAsked = [];
+            const post = MessagePort.prototype.postMessage;
+
+            MessagePort.prototype.postMessage = function (m, ...rest)
+            {
+                if (m?.type === 'video')
+                    window.videoAsked.push(m.on);
+                return post.call(this, m, ...rest);
+            };
+            window.Worker = class extends window.Worker
+            {
+                constructor (url, options)
+                {
+                    super(url, options);
+                    if (!String(url).includes('videoworker'))
+                        return;
+                    window.videoWorker = this;
+
+                    /* A slow machine's compile, which the worklet's
+                       batches queue up behind. */
+                    const post = this.postMessage.bind(this);
+
+                    this.postMessage = (m, ...rest) =>
+                    {
+                        if (m?.type === 'start')
+                            setTimeout(() => post(m, ...rest), 300);
+                        else
+                            post(m, ...rest);
+                    };
+                }
+            };
+            Element.prototype.requestFullscreen = async function ()
+            {
+                window.fullscreened = this.id;
+            };
+            window.tabHidden = false;
+            Object.defineProperty(document, 'visibilityState',
+                                  { get: () => window.tabHidden ? 'hidden' : 'visible' });
+            Object.defineProperty(document, 'hidden', { get: () => window.tabHidden });
+
+            /* Everything the pane's line has said. */
+            window.videoSaid = [];
+            addEventListener('DOMContentLoaded', () =>
+                new MutationObserver(() => window.videoSaid.push(
+                    document.getElementById('videostatus').textContent))
+                    .observe(document.getElementById('videostatus'),
+                             { childList: true, characterData: true, subtree: true }));
+        });
+        await v.goto(url.replace('?panes=0', ''));
+        await v.waitForFunction(() => document.body.classList.contains('tiled'));
+        await v.click('#start');
+        await v.waitForFunction(() => !document.getElementById('loadpiece').disabled,
+                                null, { timeout: 60000 });
+        await v.evaluate(() => window.solo.settled());
+        await v.evaluate(() => window.solo.pane('present', 'videoview'));
+        await v.waitForFunction(() => window.solo.video().running &&
+                                      document.getElementById('videoknobs').children.length > 0,
+                                null, { timeout: 30000 });
+
+        const offered = await v.evaluate(() => ['videopatch', 'videofx'].map((id) =>
+            [...document.getElementById(id).options].map((o) => o.textContent).join()));
+
+        check(offered[0] === 'moire,rings' && offered[1] === 'none,feedback' &&
+              await v.textContent('#videoknobs') === 'Fineness Response ',
+              `the video pane offers the patches, the effects and the knobs: ${offered}`);
+
+        /* How bright the picture is, 0-765. */
+        const light = () => v.evaluate(() =>
+        {
+            const d = document.getElementById('videocanvas').getContext('2d')
+                .getImageData(0, 0, 160, 120).data;
+            let sum = 0;
+
+            for (let i = 0; i < d.length; i += 4)
+                sum += d[i] + d[i + 1] + d[i + 2];
+            return sum / (160 * 120);
+        });
+        const until = async (test, tries = 50) =>
+        {
+            for (let k = 0; k < tries; k++)
+            {
+                if (test(await light()))
+                    return true;
+                await v.waitForTimeout(100);
+            }
+            return false;
+        };
+
+        await v.keyboard.press('Escape');
+
+        const dark = await light();
+
+        await v.keyboard.down('z');
+
+        const lit = await until((l) => l > 20);
+
+        await v.keyboard.up('z');
+
+        const out = await until((l) => l < 1);
+
+        const said = await v.evaluate(() => [window.solo.video().running,
+                                             window.videoSaid.join('|')]);
+
+        check(dark < 1 && lit && out && said[0],
+              `a key held lights the picture, and it goes dark after: ${dark} ${lit} ${out}`);
+        check(!said[1].includes('dropping'),
+              `catching up as it opens is not dropping frames: ${said[1]}`);
+
+        /* Moire, blue, with a key held; changed to rings, copper, with the
+           key still down: it draws in the new patch too. Then rings'
+           Response at nothing and at most: dark, then lit. */
+        /* How much redder than blue, on average. */
+        const red = () => v.evaluate(() =>
+        {
+            const d = document.getElementById('videocanvas').getContext('2d')
+                .getImageData(0, 0, 160, 120).data;
+            let r = 0, b = 0;
+
+            for (let i = 0; i < d.length; i += 4)
+            {
+                r += d[i];
+                b += d[i + 2];
+            }
+            return (r - b) / (160 * 120);
+        });
+        const response = (value) => v.evaluate((value) =>
+        {
+            const input = document.querySelector('#videoknobs [data-knob="response"]');
+
+            input.value = String(value);
+            input.dispatchEvent(new Event('input'));
+        }, value);
+
+        await v.keyboard.down('z');
+        await until((l) => l > 20);
+
+        const blue = await red() <= 0;
+
+        await v.selectOption('#videopatch', 'rings.dsp');
+        await v.waitForFunction(() => document.getElementById('videoknobs').textContent
+                                          .includes('Speed'));
+
+        let copper = false;
+
+        for (let k = 0; k < 50 && !copper; k++, await v.waitForTimeout(100))
+            copper = await red() > 0 && await light() > 20;
+
+        await v.keyboard.up('z');
+        await response(0);
+        await v.waitForTimeout(500);
+        await v.keyboard.down('z');
+
+        const quiet = !await until((l) => l > 1, 5);
+
+        await response(16);
+
+        const loud = await until((l) => l > 20);
+
+        await v.keyboard.up('z');
+        check(blue && copper, 'a key held across a change of patch draws in the new one');
+        check(quiet && loud, "a patch's knob reaches it");
+
+        await v.click('#videofull');
+        check(await v.evaluate(() => window.fullscreened) === 'videoframe',
+              'fullscreen asks for the picture alone');
+
+        /* Hidden, with a key down: off, and the worklet told so; shown: on
+           again, drawing the key. */
+        const tab = (hidden) => v.evaluate((hidden) =>
+        {
+            window.tabHidden = hidden;
+            document.dispatchEvent(new Event('visibilitychange'));
+        }, hidden);
+
+        await v.keyboard.down('z');
+        await tab(true);
+
+        const hidden = await v.evaluate(() => [window.solo.video().running,
+                                               window.videoAsked.at(-1)]);
+
+        await tab(false);
+        await v.waitForFunction(() => window.solo.video().running, null, { timeout: 30000 });
+
+        const back = await until((l) => l > 20);
+
+        await v.keyboard.up('z');
+        check(hidden[0] === false && hidden[1] === false && back &&
+              await v.evaluate(() => window.videoAsked.at(-1)) === true,
+              'a hidden tab turns the picture off, and shown again on, with the key ' +
+              `held: ${hidden} ${back}`);
+
+        /* A worker that dies: it says so, the worklet stops feeding it, and
+           the sound goes on. */
+        await v.evaluate(() => window.videoWorker.dispatchEvent(
+            new ErrorEvent('error', { message: 'gone' })));
+
+        const before = await v.evaluate(() => window.solo.quanta().calls);
+
+        await v.waitForTimeout(500);
+
+        const after = await v.evaluate(() => window.solo.quanta().calls);
+        const died = await v.evaluate(() => [window.solo.video(), window.videoAsked.at(-1)]);
+
+        check(!died[0].running && died[0].status.includes('gone') && died[1] === false &&
+              after > before,
+              `a worker that dies says so and the sound goes on: ${died[0].status}, ` +
+              `${after - before} quanta`);
+        await wide.close();
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

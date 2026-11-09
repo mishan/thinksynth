@@ -74,6 +74,7 @@ import { createSynth } from './host.js';
 import { micAvailable, openMic } from './mic.js';
 import { midiAvailable, midiToggle } from './midi.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
+import { createVideoView } from './videoview.js';
 import { MidiOutControls } from './midioutui.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
@@ -140,7 +141,7 @@ const VELOCITY = 100;
  */
 const PANES = ['roll', 'bandview', 'seqview', 'composerview', 'knobs',
                'channelbox', 'paramview', 'nodeview', 'keyboard', 'patchsource',
-               'growview', 'piecesource', 'detail', 'packs'];
+               'growview', 'piecesource', 'detail', 'packs', 'videoview'];
 
 /* Which of them belong to which mode. Everything not named here is in
    all of them -- the keys, the parameters, the graph, the numbers.
@@ -376,6 +377,8 @@ function tile (phone, forced)
                 nodes?.show(on);
             else if (id === 'paramview' && on)
                 pollParams();
+            else if (id === 'videoview')
+                video.show(on);
         },
     });
 }
@@ -457,6 +460,7 @@ let midiOutUI = null;
 let mic = null;                  /* what openMic returned, or null */
 let midiIn = null;               /* the MIDI in button (midi.js)    */
 let cameraIn = null;             /* the camera button (camera.js)   */
+let video = null;                /* the picture (videoview.js)      */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
 let micDropped = 0;
 let keyboard = null;
@@ -3223,6 +3227,7 @@ async function start ()
         await ctx.resume();
 
         midiOutUI.start(synth, ctx);
+        video.attach(synth, ctx);
     }
     catch (e)
     {
@@ -4007,6 +4012,10 @@ window.solo = {
        were ever compiled for this page. */
     pane: (what, ...args) => panes[what](...args),
 
+    /* The picture's state (videoview.js): running, how late each painted
+       frame was, and what its line says. */
+    video: () => video.stats(),
+
     /* What the worklet's process() calls have cost (host.js, quanta),
        and the audio clock to hold the wall clock against, for
        worklettime.mjs. */
@@ -4353,12 +4362,18 @@ async function init ()
         onNoteOn: (note, velocity) => press(note, velocity, 'camera'),
         onNoteOff: (note) => release(note, 'camera'),
     });
+    video = createVideoView({
+        canvas: $('videocanvas'), frame: $('videoframe'), patch: $('videopatch'),
+        fx: $('videofx'), knobs: $('videoknobs'), status: $('videostatus'),
+        full: $('videofull'), delay: () => midiOutUI.delay,
+    });
     midiOutUI = new MidiOutControls({
         button: $('midiout'), delay: $('midioutdelay'),
         status: $('midioutstatus'), clock: $('midiclock'),
         instruments: () => piece?.instruments ?? [],
         onChange: showChannels,
     });
+    $('midioutdelay').addEventListener('change', () => video.delayed());
     $('mode').addEventListener('change', pickMode);
 
     $('load').addEventListener('click', loadPatch);

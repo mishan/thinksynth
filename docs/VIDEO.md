@@ -8,8 +8,8 @@ sine of the distance from a point draws rings; anything finer than the
 pixels draws moire. It plays a piece's notes and hears its music, and a
 render is the same bytes every time.
 
-Offline for now: `genwav` renders a piece's audio and its video side by
-side.
+`genwav` renders a piece's audio and its video side by side, and the page
+draws the video live (see "On the page").
 
 ## Rendering
 
@@ -147,3 +147,28 @@ one, about 23 ms, and a note reaches it within two. (On a picture so short
 that one line outlasts an audio window, a window is that line.) It gets the piece's
 seed and tempo as the audio synth does. After the music's tail it renders
 on to the end of the frame that holds the last of the audio.
+
+## On the page
+
+The page draws the same patches live, beside the sound, in the **Video**
+pane. Where the page is laid out in panes, it starts closed: open it from
+the closed panes. Choose a patch and an effect. The patch's own knobs and the effect's appear under the picture.
+**Fullscreen** puts the picture alone on the whole screen.
+
+- Every note heard draws, whether it comes from the piece, the keys, MIDI
+  or the camera.
+- An instrument played on a MIDI device draws at the moment the device
+  hears it, after the page's MIDI delay.
+- The picture is 160x120 at 60 frames a second, scaled up with square
+  pixels.
+
+The synth runs in its own worker, and the audio thread tells it what was
+played and what the sound says every four quanta, about 11 ms. Each
+finished frame is painted when the audio clock says its sound is being
+heard. A machine that cannot draw that fast skips ahead to the frame that
+is due rather than falling behind, and the pane says that it is dropping
+frames.
+
+The video runs only while its pane is in front and the tab is shown. When
+the pane comes back, the video starts again from the present, with any
+notes already held.

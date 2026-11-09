@@ -1793,6 +1793,24 @@ body.tiled .panelrows
 .bandscenes .toggle[aria-pressed="true"] { background: var(--fg);
                                            color: var(--bg); }
 
+/* The picture (videoview.js): 160x120 scaled up with its pixels square, as
+   large as fits at 4:3 -- in the pane, under its controls, or on the whole
+   screen. */
+#videoframe {
+    background: #000;
+    aspect-ratio: 4 / 3;
+    max-height: 70vh;
+}
+body.tiled #videoframe { flex: 1 1 0; min-height: 90px; aspect-ratio: auto; max-height: none; }
+#videoframe:fullscreen { max-height: none; }
+#videocanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+
 /* The camera's nine zones (camera.js), each as bright as it is moving. */
 #camerazones {
     display: inline-grid;

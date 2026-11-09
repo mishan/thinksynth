@@ -1124,6 +1124,13 @@ export async function createSynth (ctx, { windowlen = 128,
                                     node: nodeName, arg });
         }),
 
+        /* The picture's feed on, to the video worker's port and with the
+           MIDI delay a device's channel is heard by, or off. To the
+           worklet alone: it is what sounds. */
+        video: (on, port = null, delayMs = 0) =>
+            node.port.postMessage({ type: 'video', on, port, delayMs },
+                                  port !== null ? [port] : []),
+
         unprobe: (slot) =>
             node.port.postMessage({ type: 'unprobe', slot }),
 
