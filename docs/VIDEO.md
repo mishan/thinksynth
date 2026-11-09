@@ -130,6 +130,8 @@ and up first. An effect of your own wants the same.
 
 | | |
 |---|---|
+| `video/aurora.dsp` | a rippling curtain of light per note, hanging lower the lower the note, taller with the bass |
+| `video/constellation.dsp` | a star per note, placed by its pitch and lingering, so a tune leaves its shape |
 | `video/moire.dsp` | fine rings per note, wandering slowly, interfering into moire; brighter as the music is louder |
 | `video/rings.dsp` | rings from the middle, as many as the note is high, as bright as it is loud |
 | `video/fx/feedback.dsp` | the picture a frame late, drifting and fading |
