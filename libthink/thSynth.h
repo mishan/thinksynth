@@ -430,6 +430,9 @@ public:
      * graph with no in0 is loadEffect's, for loadEffect's reason. */
     thSynthTree *loadMasterEffect (const string &filename);
 
+    /* loadMasterEffect over text in memory, as loadEffectText is. */
+    thSynthTree *loadMasterEffectText (const string &name, const string &text);
+
     /* Takes the master effect off. False only when the command queue is
        full, in which case it is still running. */
     bool removeMasterEffect (void);
@@ -585,8 +588,8 @@ private:
     thSynthTree *checkEffect (const string &filename, thSynthTree *raw,
                               int parseResult);
 
-    /* The bodies of loadTree/loadTreeText and loadEffect/loadEffectText,
-       with `text' NULL for a file. placeChannel is loadChannel after the
+    /* The bodies of loadTree/loadTreeText, loadEffect/loadEffectText and
+       loadMasterEffect/loadMasterEffectText, with `text' NULL for a file. placeChannel is loadChannel after the
        parse, with synthMutex_ held. */
     thSynthTree *loadChannel (const string &filename, const string *text,
                               int channum, float amp);
@@ -594,6 +597,7 @@ private:
                                int parseResult, int channum, float amp);
     thSynthTree *loadEffectFrom (const string &filename, const string *text,
                                  int channum, int sideChan);
+    thSynthTree *loadMasterEffectFrom (const string &filename, const string *text);
 
     /* GUI thread, with synthMutex_ held. True if putting an effect with
        `sideChan' onto `channum' would make a channel wait on itself --

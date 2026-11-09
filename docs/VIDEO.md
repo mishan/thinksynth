@@ -26,7 +26,7 @@ build/scripts/genwav -p build/plugins/ -s 60 -o ebb.wav \
 | `--video-out FILE` | where its frames go, as a `.y4m` |
 | `--raster WxH@FPS` | the picture: 160x120@60 unless given |
 | `--video-follow A,B` | the instruments whose notes it plays; every one unless given |
-| `--video-fx DSP` | an effect on each of its channels |
+| `--video-fx DSP` | an effect on the whole picture |
 
 mpv plays the `.y4m` as it is. To put the sound with it:
 
@@ -110,7 +110,7 @@ around 0.1 to 0.2.
 
 ## Feedback
 
-A delay inside a voice ends with the note. An effect on the channel sees
+A delay inside a voice ends with the note. An effect on the picture sees
 the whole picture and outlives every note, and a delay one frame long is
 the oldest video synth trick there is: the picture fed back into itself.
 `video/fx/feedback.dsp` does it with `delay::echo` set by `misc::scan`'s
