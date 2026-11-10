@@ -292,7 +292,9 @@ struct Compiler
                     return false;
                 }
                 if (to == io && (name == "note" || name == "velocity" ||
-                                 name == "trigger" || name.compare(0, 3, "aux") == 0))
+                                 name == "trigger" ||
+                                 (name.size() == 4 && !name.compare(0, 3, "aux") &&
+                                  name[3] >= '0' && name[3] < '0' + TH_NOTE_AUX)))
                 {
                     v = { name, true };
                     return true;

@@ -142,8 +142,8 @@ ran.
 - **Refused:** an `osc::noise`, since the engine's noise is the synth's
   stream, and an arg the engine glides because a knob feeds it.
 - **A value changed in place** (the node editor's live edit, a piece's
-  `reshape`) drops the tree's compiled graph, and voices made after it
-  run on their nodes.
+  `reshape`), or a probe armed on the channel, drops the tree's compiled
+  graph, and voices made after it run on their nodes.
 
 `scripts/compiledcheck` plays one script -- a chord, a release mid-frame,
 the pedal, a bend and an aux, the music's knobs moving, more notes than

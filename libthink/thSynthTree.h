@@ -259,12 +259,12 @@ public:
     void resetCompiled (void);
 
     /* GUI thread: a node's value was changed in place, which a compiled
-       graph, made from the graph as parsed, can't follow. The tree and the
-       voices copied from it after this run on their nodes. */
+       graph, made from the graph as parsed, can't follow, or a probe reads
+       one, which it doesn't write. The tree and the voices copied from it
+       after this run on their nodes. */
     void edited (void) { compiledDropped_ = true; }
 
-    /* Windows rendered so far by every tree in the program, compiled or on
-       the nodes. */
+    /* Windows rendered so far on this thread, compiled or on the nodes. */
     static unsigned long windowsRun (bool compiled);
 
     /* Every value written in `beats' scaled from the tempo it was at to

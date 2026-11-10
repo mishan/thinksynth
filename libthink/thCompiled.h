@@ -27,7 +27,9 @@
  * there each window, so a clone needs no binding of its own.
  *
  * Which graphs a program has compiled is up to the program: one that adds
- * none runs every graph on its nodes.
+ * none runs every graph on its nodes. A graph is compiled from the build's own
+ * plugins' kernels, so one run beside plugins from another build may not
+ * match them.
  */
 
 #ifndef TH_COMPILED_H

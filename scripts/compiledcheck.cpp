@@ -33,8 +33,8 @@
  * same bits both ways, and the second way runs no tree on its nodes.
  *
  * And which graphs fall back to their nodes: an edited one, one on a synth
- * with no raster, an effect narrower than it was compiled, and one changed
- * in place after it loaded.
+ * with no raster, an effect narrower than it was compiled, one changed in
+ * place after it loaded, and one a probe reads inside.
  */
 
 #include "config.h"
@@ -353,6 +353,21 @@ main (int argc, char **argv)
         tree->edited();
         report("rings.dsp changed in place runs on its nodes",
                !before ? "it didn't compile to begin with"
+               : tree->compiled() ? "it's still compiled" : "");
+    }
+    {
+        thSynth synth(plugins, 1000, 1152000, 3);
+        string why;
+
+        synth.setRaster(160, 120);
+        synth.loadTreeText("dsp", rings, 0, MIDIVALMAX);
+
+        thSynthTree *tree = synth.getChannel(0)->modnode();
+        const bool before = tree->compiled();
+
+        report("rings.dsp with a probe on it runs on its nodes",
+               !before ? "it didn't compile to begin with"
+               : synth.armProbe(0, "ring", "out", why) < 0 ? why
                : tree->compiled() ? "it's still compiled" : "");
     }
 

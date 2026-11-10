@@ -955,11 +955,11 @@ uint32_t thSynthTree::seedGeneration (void) const
     return synth_ ? synth_->seedGeneration() : 0;
 }
 
-static std::atomic<unsigned long> windowsCompiled(0), windowsInterpreted(0);
+static thread_local unsigned long windowsCompiled = 0, windowsInterpreted = 0;
 
 unsigned long thSynthTree::windowsRun (bool compiled)
 {
-    return (compiled ? windowsCompiled : windowsInterpreted).load();
+    return compiled ? windowsCompiled : windowsInterpreted;
 }
 
 /* See the header. */
@@ -992,10 +992,10 @@ void thSynthTree::process (unsigned int windowlen)
     if (compiled())
     {
         compiled_->render(*this, windowlen);
-        windowsCompiled.fetch_add(1, std::memory_order_relaxed);
+        windowsCompiled++;
         return;
     }
-    windowsInterpreted.fetch_add(1, std::memory_order_relaxed);
+    windowsInterpreted++;
 
     const thNodeList &children = ionode_->children();
 
