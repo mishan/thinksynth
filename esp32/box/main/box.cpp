@@ -47,6 +47,7 @@
 #include "thgMarbles.h"
 #include "thhMapper.h"
 #include "patches.h"
+#include "composer.h"
 #include "pool.h"
 
 #define GAIN 0.25f
@@ -76,8 +77,8 @@ static Patch *const patches[] = { PATCHES };
 static Patch *const percussion = new PERC_TYPE(PERCUSSION)("percussion", PERCUSSION_GAIN);
 
 /* What the screen is. */
-enum { ON_KEYS, ON_MARBLES, ON_LIFE, SCREENS };
-static const char *const SCREEN_NAME[SCREENS] = { "keys", "marbles", "life" };
+enum { ON_KEYS, ON_MARBLES, ON_LIFE, ON_COMPOSER, SCREENS };
+static const char *const SCREEN_NAME[SCREENS] = { "keys", "marbles", "life", "composer" };
 static volatile int screen = ON_KEYS;
 #define NPATCHES (int)(sizeof(patches) / sizeof(patches[0]))
 
@@ -111,6 +112,13 @@ static int shownGeneration = 0;
 static SemaphoreHandle_t go, done;
 static float oddMix[2][BLOCK];
 
+/* This block's pools: every patch's, the one playing and any switched
+   from, ringing out; the percussion's; and the composer's channels'. Set
+   by the audio task before the helper starts. */
+static Patch *pools[NPATCHES + 1 + COMPOSER_CHANNELS];
+static int poolCount = 0;
+volatile int boxNonFinite = 0;
+
 static void
 renderTimed (Patch *p, float mix[2][BLOCK], int half)
 {
@@ -127,9 +135,8 @@ helperTask (void *)
     {
         xSemaphoreTake(go, portMAX_DELAY);
         memset(oddMix, 0, sizeof(oddMix));
-        for (Patch *p : patches)
-            renderTimed(p, oddMix, 1);
-        renderTimed(percussion, oddMix, 1);
+        for (int i = 0; i < poolCount; i++)
+            renderTimed(pools[i], oddMix, 1);
         xSemaphoreGive(done);
     }
 }
@@ -149,15 +156,19 @@ audioTask (void *)
 
         const int64_t t = esp_timer_get_time();
 
-        /* Every patch: the one playing, and any switched from, ringing
-           out. */
+        composerApply(t);
+        poolCount = 0;
         for (Patch *p : patches)
-            p->glide();
-        percussion->glide();
+            pools[poolCount++] = p;
+        pools[poolCount++] = percussion;
+        for (Patch *p : composerChannel)
+            if (p)
+                pools[poolCount++] = p;
+        for (int i = 0; i < poolCount; i++)
+            pools[i]->glide();
         xSemaphoreGive(go);
-        for (Patch *p : patches)
-            renderTimed(p, mix, 0);
-        renderTimed(percussion, mix, 0);
+        for (int i = 0; i < poolCount; i++)
+            renderTimed(pools[i], mix, 0);
         xSemaphoreTake(done, portMAX_DELAY);
         for (int i = 0; i < BLOCK; i++)
         {
@@ -167,24 +178,23 @@ audioTask (void *)
         load = (esp_timer_get_time() - t) / (1e6f * BLOCK / BOX_RATE);
         loadAvg += 0.25f * (load - loadAvg);
         loadAdded = 0;
-        voicesNow = percussion->sounding();
-        for (Patch *p : patches)
+        voicesNow = 0;
+        for (int i = 0; i < poolCount; i++)
         {
-            p->account();
-            voicesNow += p->sounding();
+            pools[i]->account();
+            voicesNow += pools[i]->sounding();
         }
-        percussion->account();
-        /* Two blocks over shed one voice, whichever patch's goes first,
-           the percussion's too; the block it fades out over, still paying
-           for it, starts the count again from behind. */
+        /* Two blocks over shed one voice, whichever pool's goes first;
+           the block it fades out over, still paying for it, starts the
+           count again from behind. */
         over = load > SHED_AT ? over + 1 : 0;
         if (over >= 2)
         {
-            Patch *first = percussion;
+            Patch *first = pools[0];
 
-            for (Patch *p : patches)
-                if (p->oldest() < first->oldest())
-                    first = p;
+            for (int i = 1; i < poolCount; i++)
+                if (pools[i]->oldest() < first->oldest())
+                    first = pools[i];
             first->shed();
             over = -1;
         }
@@ -200,6 +210,8 @@ audioTask (void *)
                    silence. */
                 const float y = mix[c][i] * GAIN;
                 const float x = std::isfinite(y) ? fminf(1, fmaxf(-1, y)) : 0;
+
+                boxNonFinite += !std::isfinite(y);
 
                 frames[2 * i + c] = (int16_t)(x * 32000);
             }
@@ -531,6 +543,16 @@ displayTask (void *)
         const int on = screen;
         const bool paused = on == ON_LIFE && shownPaused;
 
+        /* The whole screen is its own, the patches' row too: drawn again
+           after. */
+        if (on == ON_COMPOSER)
+        {
+            composerDraw(again);
+            patchShown = -1;
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
         if (shown != patchShown || paused != pausedShown)
         {
             patchShown = shown;
@@ -586,6 +608,14 @@ static struct Finger
     thhMapper mapper;
 } finger[FINGERS];
 
+void
+boxPlay (Patch *p, const thhAction &a, int owner, float level)
+{
+    if (p->play(a, owner, esp_timer_get_time(),
+                loadAvg + loadAdded + p->perVoice / 2 <= SHED_AT, level))
+        loadAdded += p->perVoice / 2;
+}
+
 /* What a finger's actions do, under the lock: owner, which finger. */
 static void
 playAll (const std::vector<thhAction> &acts, int owner)
@@ -594,13 +624,7 @@ playAll (const std::vector<thhAction> &acts, int owner)
         return;
     xSemaphoreTake(lock, portMAX_DELAY);
     for (const thhAction &a : acts)
-    {
-        Patch *p = a.channel == 1 ? percussion : patches[playing];
-
-        if (p->play(a, owner, esp_timer_get_time(),
-                    loadAvg + loadAdded + p->perVoice / 2 <= SHED_AT, 1))
-            loadAdded += p->perVoice / 2;
-    }
+        boxPlay(a.channel == 1 ? percussion : patches[playing], a, owner, 1);
     xSemaphoreGive(lock);
 }
 
@@ -839,8 +863,9 @@ controlTask (void *)
         last = now;
 
         /* A press steps to the next patch, let go, the notes held let go
-           and left to ring out; held, it switches to the next screen: the
-           keys, the marbles, Life. */
+           and left to ring out, or on the composer's screen to the next
+           piece; held, it switches to the next screen: the keys, the
+           marbles, Life, the composer. */
         const bool reading = box_button_down(BOX_HAL_SIDE);
         static int64_t pressed = 0;
         static bool switched = false;
@@ -867,11 +892,14 @@ controlTask (void *)
                 playAll(acts, (int)(&f - finger));
             }
             screen = (screen + 1) % SCREENS;
+            composerShow(screen == ON_COMPOSER);
             lit = 0;
             redraw = true;
             configureAll();
         }
-        if (!down && wasDown && !switched)
+        if (!down && wasDown && !switched && screen == ON_COMPOSER)
+            composerNext();
+        else if (!down && wasDown && !switched)
         {
             for (Finger &f : finger)
             {
@@ -917,6 +945,11 @@ controlTask (void *)
             f->s.axis[THH_BOX_Y] = points[p].y / (float)(H - 1);
         }
 
+        if (screen == ON_COMPOSER)
+        {
+            vTaskDelay(pdMS_TO_TICKS(4));
+            continue;
+        }
         if (screen == ON_LIFE)
         {
             playLife(accel, dt, count, points[0], now);
@@ -1018,6 +1051,8 @@ status (char *line, size_t size)
 
         snprintf(line + n, size - n, "  generation %d%s", g, p ? ", paused" : "");
     }
+    if (on == ON_COMPOSER && n > 0 && n < (int)size)
+        composerStatus(line + n, size - n);
 }
 
 extern "C" void
@@ -1049,7 +1084,10 @@ app_main (void)
     configASSERT(lock && go && done);
     printf("thinkbox: %d patches, %d voices each at %d Hz\n", NPATCHES, VOICES, BOX_RATE);
     if (speaker)
+    {
         xTaskCreatePinnedToCore(audioTask, "audio", 8192, NULL, 20, NULL, 1);
+        composerStart();
+    }
     xTaskCreatePinnedToCore(helperTask, "helper", 8192, NULL, 19, NULL, 0);
     xTaskCreatePinnedToCore(controlTask, "control", 8192, NULL, 10, NULL, 0);
     if (box_hal_open(BOX_HAL_SCREEN, BOX_RATE, 70))
