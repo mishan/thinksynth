@@ -29,6 +29,7 @@
  */
 
 #include <cmath>
+#include <type_traits>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -52,6 +53,10 @@
 #include "thvPond.h"
 #include "thvRings.h"
 #include "thvWells.h"
+#include "thvFeedback.h"
+#include "thvPalette.h"
+#include "thvSoften.h"
+#include "thvFxdelays.h"
 
 #define WINDOW 128
 
@@ -231,6 +236,84 @@ checkRaster (const char *name, const std::string &file, const std::string &plugi
     }
 }
 
+/* Whether a compiled graph reads misc::scan, and so is on a raster. */
+template <class V, class = void> struct OnRaster : std::false_type {};
+template <class V>
+struct OnRaster<V, std::void_t<decltype(&V::raster)>> : std::true_type {};
+
+/* An effect on the whole picture, after a compiled patch, against the
+   engine's master effect after the engine's: a note of rings, so the
+   picture moves, through the effect at its defaults for a quarter of a
+   second, the master's output to the bit. */
+template <class F>
+static void
+checkEffect (const char *name, const std::string &patch, const std::string &fx,
+             const std::string &plugins, int w, int h)
+{
+    const int window = 1000, rate = w * h * 60, windows = 15 * w * h / window;
+    thSynth synth(plugins, window, rate, 3);
+    thvRings voice;
+    thvRings::Knobs vk;
+    F effect;
+    typename F::Knobs fk;
+    std::vector<float> mid(3 * window), out(3 * window);
+    float *mids[3] = { &mid[0], &mid[window], &mid[2 * window] };
+    float *outs[3] = { &out[0], &out[window], &out[2 * window] };
+    char why[200] = "";
+    float most = 0;
+
+    synth.setRaster(w, h);
+    synth.setLimiter(false);
+    synth.setMasterGain(1);
+    if (!synth.loadTree(patch, 0, MIDIVALMAX) || !synth.loadMasterEffect(fx))
+        snprintf(why, sizeof(why), "%s or %s didn't load", patch.c_str(), fx.c_str());
+    synth.setChanArg(0, new thArg(std::string("in_level"), 0.2f));
+    vk.set("in_level", 0.2f);
+    synth.addNote(0, 60, 100);
+    voice.bind(rate);
+    voice.raster(w, h);
+    voice.start(60, 100);
+    effect.bind(rate);
+    if constexpr (OnRaster<F>::value)
+        effect.raster(w, h);
+    for (int k = 0; k < windows && !why[0]; k++)
+    {
+        synth.process();
+        voice.render(vk, mids, window, synth.position());
+        bool on;
+
+        if constexpr (OnRaster<F>::value)
+            on = effect.render(fk, mids, outs, window, synth.position());
+        else
+            on = effect.render(fk, mids, outs, window);
+        /* An effect has no note to end. */
+        if (!on)
+            snprintf(why, sizeof(why), "window %d: done, as no effect is", k);
+
+        const float *live = synth.getOutput();
+
+        for (int c = 0; c < 3 && !why[0]; c++)
+            for (int i = 0; i < window && !why[0]; i++)
+            {
+                const float want = live[c * window + i], got = 0.0f + outs[c][i];
+
+                most = std::max(most, std::fabs(want));
+                if (memcmp(&want, &got, sizeof(float)) != 0)
+                    snprintf(why, sizeof(why), "window %d, sample %d, channel %d: "
+                             "%a, the engine %a", k, i, c, got, want);
+            }
+    }
+    if (!why[0] && most < 0.05f)
+        snprintf(why, sizeof(why), "dark: the brightest pixel is %g", most);
+    if (!why[0])
+        printf("ok    %s, %dx%d\n", name, w, h);
+    else
+    {
+        printf("FAIL  %s, %dx%d\n  %s\n", name, w, h, why);
+        failed++;
+    }
+}
+
 /* A noise's level, and the level of its steps over that, which is its
    slope: sqrt(2) for a white, less the more it leans to the low end. */
 static void
@@ -380,6 +463,16 @@ main (int argc, char **argv)
         checkRaster<thvPond>("video/pond.dsp", video + "pond.dsp", plugins, r.first, r.second);
         checkRaster<thvRings>("video/rings.dsp", video + "rings.dsp", plugins, r.first, r.second);
         checkRaster<thvWells>("video/wells.dsp", video + "wells.dsp", plugins, r.first, r.second);
+        checkEffect<thvFeedback>("video/fx/feedback.dsp after rings", video + "rings.dsp",
+                                 video + "fx/feedback.dsp", plugins, r.first, r.second);
+        checkEffect<thvPalette>("video/fx/palette.dsp after rings", video + "rings.dsp",
+                                video + "fx/palette.dsp", plugins, r.first, r.second);
+        checkEffect<thvSoften>("video/fx/soften.dsp after rings", video + "rings.dsp",
+                               video + "fx/soften.dsp", plugins, r.first, r.second);
+        checkEffect<thvFxdelays>("delays whose lengths follow the picture, after rings",
+                                 video + "rings.dsp",
+                                 dsp + "/../scripts/compiled/fxdelays.dsp", plugins,
+                                 r.first, r.second);
     }
 
     /* Each by its name, whatever that is in C++. */
