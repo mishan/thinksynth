@@ -440,9 +440,10 @@ struct Compiler
         }
         placing.erase(n);
         /* Once a call, a call on nothing but numbers would be the
-           compiler's to work out (thkHeld). */
-        const bool held = std::all_of(vs.begin(), vs.end(),
-                                      [](const Value &v) { return v.control; });
+           compiler's to work out (thkHeld). A kernel that keeps state
+           ticks every sample, and calls libm on that state. */
+        const bool held = k->pure && std::all_of(vs.begin(), vs.end(),
+                                                 [](const Value &v) { return v.control; });
 
         for (Value &v : cs)
             if (v.number && once)
