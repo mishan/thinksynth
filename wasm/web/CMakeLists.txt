@@ -238,6 +238,9 @@ if(EXISTS "${THINK_ENGINE}/thCompiledInstall.cpp")
   set(THINK_ENGINE_BUILT TRUE)
   file(STRINGS "${THINK_ENGINE}/thCompiledInstall.cpp" THINK_ENGINE_HEADERS
        REGEX "^#include \"thv")
+  if(NOT THINK_ENGINE_HEADERS)
+    set(THINK_ENGINE_BUILT FALSE)
+  endif()
   foreach(h IN LISTS THINK_ENGINE_HEADERS)
     string(REGEX REPLACE "^#include \"(.*)\"$" "\\1" h "${h}")
     if(NOT EXISTS "${THINK_ENGINE}/${h}")
@@ -247,7 +250,8 @@ if(EXISTS "${THINK_ENGINE}/thCompiledInstall.cpp")
 endif()
 if(NOT THINK_ENGINE_BUILT)
   message(STATUS "No compiled video graphs in ${THINK_ENGINE} (build the "
-          "native think_compiled): the video patches will run on their nodes")
+          "native think_compiled, without THINK_FAST_MATH): the video "
+          "patches will run on their nodes")
   set(THINK_ENGINE "${PROJECT_BINARY_DIR}/engine")
   file(CONFIGURE OUTPUT "${THINK_ENGINE}/thCompiledInstall.cpp" CONTENT
        "#include \"thCompiled.h\"\n\nvoid thCompiledInstall (void)\n{\n}\n")

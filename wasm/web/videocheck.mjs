@@ -231,14 +231,16 @@ for (const name of patches)
 
     nodes._tv_interpret();
 
+    let why;
     const play = (patch, fx) =>
     {
         open();
 
-        const why = follow(0, patch, fs.readFileSync(path.join(video, patch), 'utf8')) +
-                    (fx ? effect(fx, fs.readFileSync(path.join(video, fx), 'utf8')) : '');
+        const said = follow(0, patch, fs.readFileSync(path.join(video, patch), 'utf8')) +
+                     (fx ? effect(fx, fs.readFileSync(path.join(video, fx), 'utf8')) : '');
 
-        if (why !== '')
+        why += said && `${said}; `;
+        if (said !== '')
             return [];
         inputs(0.15, 0.3, 0.1, 0.3);
         notes([{ at: 0, kind: ON, note: 60, aux: [0.5, 0.25, 0, 1] },
@@ -254,6 +256,8 @@ for (const name of patches)
                                ...fxs.map((f) => ['rings.dsp', f])])
     {
         const name = fx ? `rings.dsp under ${fx}` : patch;
+        why = '';
+
         const before = [M._tv_windows(0), M._tv_windows(1)];
         const drawn = play(patch, fx);
         const interpreted = M._tv_windows(0) - before[0];
@@ -272,9 +276,10 @@ for (const name of patches)
                                            Buffer.compare(f.rgba, drawn[i].rgba) !== 0);
 
         check(`${name} runs compiled and draws what its nodes draw`,
-              interpreted === 0 && ran > 0 && reference === 0 && drawn.length === 60 &&
-              expected.length === 60 && differs < 0 && peak(drawn[30]) > 64,
-              `${ran} windows compiled, ${interpreted} on its nodes, ` +
+              why === '' && interpreted === 0 && ran > 0 && reference === 0 &&
+              drawn.length === 60 && expected.length === 60 && differs < 0 &&
+              peak(drawn[30]) > 64,
+              `${why}${ran} windows compiled, ${interpreted} on its nodes, ` +
               `${reference} compiled on the other; ${drawn.length} frames, ` +
               `peak ${drawn[30] ? peak(drawn[30]) : '-'}, ` +
               `${expected.length} on its nodes, frame ${differs} differs`);
