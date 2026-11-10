@@ -224,6 +224,24 @@ target_include_directories(thinkweb_parts PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkweb_parts PRIVATE think_objects think_loader sigc
                       cairo2d)
 
+# The shipped video patches and effects compiled (libthink/thCompiled.h),
+# which only a native dspcompile can write, so the native tree's, from
+# `cmake --build build --target think_compiled'. Without one the patches
+# run on their nodes, slower, and videocheck.mjs says so.
+set(THINK_NATIVE_BUILD "${THINK_TOP}/build" CACHE PATH
+    "The native build tree whose compiled video graphs the module links")
+set(THINK_ENGINE "${THINK_NATIVE_BUILD}/scripts/engine")
+if(NOT EXISTS "${THINK_ENGINE}/thCompiledInstall.cpp")
+  message(STATUS "No ${THINK_ENGINE}/thCompiledInstall.cpp: "
+          "the video patches will run on their nodes")
+  set(THINK_ENGINE "${PROJECT_BINARY_DIR}/engine")
+  file(CONFIGURE OUTPUT "${THINK_ENGINE}/thCompiledInstall.cpp" CONTENT
+       "#include \"thCompiled.h\"\n\nvoid thCompiledInstall (void)\n{\n}\n")
+endif()
+target_sources(thinkweb_parts PRIVATE "${THINK_ENGINE}/thCompiledInstall.cpp")
+set_source_files_properties("${THINK_ENGINE}/thCompiledInstall.cpp" PROPERTIES
+    INCLUDE_DIRECTORIES "${THINK_ENGINE};${THINK_TOP}/plugins")
+
 add_executable(thinkweb thinkweb.cpp)
 target_include_directories(thinkweb PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkweb PRIVATE thinkweb_parts think_objects

@@ -48,6 +48,7 @@
 #include <emscripten.h>
 
 #include "think.h"
+#include "thCompiled.h"
 #include "thVideoBridge.h"
 #include "thVideoSynth.h"
 
@@ -77,6 +78,7 @@ std::map<std::pair<int, int>, Note> held_;
 std::deque<std::pair<int64_t, std::vector<uint8_t> > > done_;
 std::string said_;
 std::vector<double> noteBuffer_;
+bool interpret_ = false;
 float inputBuffer_[4 + TH_MIDI_CHANNELS];
 
 uint8_t
@@ -201,6 +203,11 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE const char *
 tv_open (int width, int height, int fps, int lines, int audioRate)
 {
+    static bool installed = false;
+
+    if (!installed && !interpret_)
+        thCompiledInstall();
+    installed = true;
     video_.reset(new thVideoSynth);
     queue_.clear();
     held_.clear();
@@ -216,6 +223,21 @@ tv_open (int width, int height, int fps, int lines, int audioRate)
         video_.reset();
     }
     return said_.c_str();
+}
+
+/* Before the first tv_open: the patches run on their nodes, never
+   compiled. */
+EMSCRIPTEN_KEEPALIVE void
+tv_interpret (void)
+{
+    interpret_ = true;
+}
+
+/* Windows drawn so far, compiled or on the nodes. */
+EMSCRIPTEN_KEEPALIVE double
+tv_windows (int compiled)
+{
+    return thSynthTree::windowsRun(compiled != 0);
 }
 
 /* The patch, called `name', on `channel'. */

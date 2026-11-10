@@ -123,7 +123,9 @@ in place of its nodes (`libthink/thCompiled.h`). The build compiles the
 patches in `video/` and `video/fx/` into `think_compiled`, whose
 `thCompiledInstall()` a program calls to have them; `genwav` does, and
 `--interpret` keeps it from, and its summary says which way the picture
-ran.
+ran. The browser module's video worker does too, built from the native
+tree's `think_compiled` sources (`THINK_NATIVE_BUILD`, `build/` by
+default); without them its patches run on their nodes.
 
 - **Which graph.** A tree's fingerprint (`thSynthTree::fingerprint`) is
   its graph as parsed, as text: each node, its plugin, and its args, with

@@ -25,10 +25,12 @@
  * for a frame far ahead skips to it, drawing what is held there and
  * nothing that began and ended in between; a flush lets go; a note's aux
  * reaches the patch; every shipped patch draws a held note and goes dark
- * after.
+ * after; and every shipped patch and effect runs compiled, drawing what a
+ * module that interprets them draws.
  *
  * --bench renders the shipped patches as a busy piece would ask, and says
- * how many times faster than real time each goes.
+ * how many times faster than real time each goes; with --interpret, on
+ * their nodes.
  *
  * Exit status is the number of failures.
  */
@@ -38,15 +40,20 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const bench = process.argv[2] === '--bench';
-const build = path.resolve(process.argv[bench ? 3 : 2] ??
+const flags = process.argv.slice(2).filter((a) => a.startsWith('--'));
+const bench = flags.includes('--bench');
+const build = path.resolve(process.argv.slice(2).find((a) => !a.startsWith('--')) ??
                            path.join(here, '..', '..', 'build-web'));
 const video = path.join(here, '..', '..', 'video');
 
 const { default: createThinkWeb } =
     await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
-const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+/* `M' is the module the helpers below drive. */
+let M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+if (flags.includes('--interpret'))
+    M._tv_interpret();
 
 let failures = 0;
 
@@ -214,6 +221,59 @@ for (const name of patches)
     check(`${name} draws a held note and goes dark after`,
           why === '' && narrow === '' && peak(held) > 64 && peak(after) === 0,
           `${why}${narrow} held ${peak(held)}, after ${peak(after)}`);
+}
+
+/* Every shipped patch alone and every shipped effect over rings.dsp, held
+   and let go: compiled, and the same frames as on its nodes. */
+{
+    const compiled = M;
+    const nodes = await createThinkWeb({ print: () => {}, printErr: () => {} });
+
+    nodes._tv_interpret();
+
+    const play = (patch, fx) =>
+    {
+        open();
+        follow(0, patch, fs.readFileSync(path.join(video, patch), 'utf8'));
+        if (fx)
+            effect(fx, fs.readFileSync(path.join(video, fx), 'utf8'));
+        inputs(0.15, 0.3, 0.1, 0.3);
+        notes([{ at: 0, kind: ON, note: 60, aux: [0.5, 0.25, 0, 1] },
+               { at: 40 * PER_FRAME, kind: OFF, note: 60 }]);
+        M._tv_generated(60 * PER_FRAME);
+
+        return render();
+    };
+    const fxs = fs.readdirSync(path.join(video, 'fx')).filter((n) => n.endsWith('.dsp'))
+                  .sort().map((n) => `fx/${n}`);
+
+    for (const [patch, fx] of [...patches.map((p) => [p, '']),
+                               ...fxs.map((f) => ['rings.dsp', f])])
+    {
+        const name = fx ? `rings.dsp under ${fx}` : patch;
+        const before = M._tv_windows(0);
+        const drawn = play(patch, fx);
+        const interpreted = M._tv_windows(0) - before;
+
+        M = nodes;
+
+        const was = M._tv_windows(1);
+        const expected = play(patch, fx);
+        const reference = M._tv_windows(1) - was;
+
+        M = compiled;
+
+        const differs = expected.findIndex((f, i) => drawn[i] === undefined ||
+                                           f.frame !== drawn[i].frame ||
+                                           Buffer.compare(f.rgba, drawn[i].rgba) !== 0);
+
+        check(`${name} runs compiled and draws what its nodes draw`,
+              interpreted === 0 && reference === 0 && drawn.length === 60 &&
+              expected.length === 60 && differs < 0,
+              `${interpreted} windows on its nodes, ${reference} compiled on the other; ` +
+              `${drawn.length} frames, ` +
+              `${expected.length} on its nodes, frame ${differs} differs`);
+    }
 }
 
 /* A note struck half way through frame 10. */
