@@ -46,6 +46,12 @@
 #include "thvNoise.h"
 #include "thvGrab.h"
 #include "thvIndex.h"
+#include "thvAurora.h"
+#include "thvConstellation.h"
+#include "thvMoire.h"
+#include "thvPond.h"
+#include "thvRings.h"
+#include "thvWells.h"
 
 #define WINDOW 128
 
@@ -146,6 +152,81 @@ check (const char *name, const std::string &file, const std::string &plugins,
     else
     {
         printf("FAIL  %s\n  %s\n", name, why);
+        failed++;
+    }
+}
+
+/* A video patch on a raster `w' by `h' at 60 frames a second: compiled at
+   160x120's pixel rate, bound to this one's. Half a second of a
+   note, released a quarter of a second in, in windows that start partway
+   along a line, and the music's chanargs at levels that light it. Every
+   pixel of every channel as the engine's, and some of them lit. */
+template <class V>
+static void
+checkRaster (const char *name, const std::string &file, const std::string &plugins,
+             int w, int h)
+{
+    static const std::pair<const char *, float> MUSIC[] = {
+        { "in_level", 0.2f }, { "in_bass", 0.3f }, { "in_mid", 0.2f }, { "in_high", 0.1f },
+    };
+    const int window = 1000, rate = w * h * 60, windows = 30 * w * h / window;
+    thSynth synth(plugins, window, rate, 3);
+    V voice;
+    typename V::Knobs knobs;
+    std::vector<float> out(3 * window);
+    float *outs[3] = { &out[0], &out[window], &out[2 * window] };
+    char why[200] = "";
+    float most = 0;
+
+    synth.setRaster(w, h);
+    synth.setLimiter(false);
+    if (!synth.loadTree(file, 0, MIDIVALMAX))
+        snprintf(why, sizeof(why), "%s didn't load", file.c_str());
+    for (const auto &m : MUSIC)
+    {
+        synth.setChanArg(0, new thArg(std::string(m.first), m.second));
+        knobs.set(m.first, m.second);
+    }
+    synth.addNote(0, 60, 100);
+    voice.bind(rate);
+    voice.raster(w, h);
+    voice.start(60, 100);
+    for (int k = 0; k < windows && !why[0]; k++)
+    {
+        int channels = 0;
+
+        if (k == windows / 2)
+        {
+            synth.delNote(0, 60);
+            voice.release();
+        }
+        synth.process();
+        /* The window just rendered begins at the synth's position. */
+        voice.render(knobs, outs, window, synth.position());
+
+        const float *live = synth.getChannelOutput(0, &channels);
+
+        if (channels != 3)
+            snprintf(why, sizeof(why), "the engine's channel is %d wide, not 3", channels);
+        for (int i = 0; i < window && !why[0]; i++)
+            for (int c = 0; c < 3 && !why[0]; c++)
+            {
+                const float want = live ? live[i * channels + c] : 0;
+                const float got = 0.0f + outs[c][i];
+
+                most = std::max(most, std::fabs(want));
+                if (memcmp(&want, &got, sizeof(float)) != 0)
+                    snprintf(why, sizeof(why), "window %d, sample %d, channel %d: "
+                             "%a, the engine %a", k, i, c, got, want);
+            }
+    }
+    if (!why[0] && most < 0.05f)
+        snprintf(why, sizeof(why), "dark: the brightest pixel is %g", most);
+    if (!why[0])
+        printf("ok    %s, %dx%d\n", name, w, h);
+    else
+    {
+        printf("FAIL  %s, %dx%d\n  %s\n", name, w, h, why);
         failed++;
     }
 }
@@ -265,6 +346,41 @@ main (int argc, char **argv)
     check<thvNames>("knobs named for a word of C++'s and for set()'s own",
                     dsp + "/../scripts/compiled/names.dsp", plugins, 100, 200, true);
     checkNoise(dsp + "/../scripts/compiled/noise.dsp", plugins);
+
+    const std::string video = dsp + "/../video/";
+
+    /* A video voice given no raster renders nothing, rather than dividing
+       by its width. */
+    {
+        thvRings v;
+        thvRings::Knobs k;
+        float out[3][WINDOW];
+        float *outs[3] = { out[0], out[1], out[2] };
+        bool dark = true;
+
+        memset(out, 0x7f, sizeof(out));
+        v.start(60, 100);
+
+        const bool sounding = v.render(k, outs, WINDOW, 0);
+
+        for (int c = 0; c < 3; c++)
+            for (int i = 0; i < WINDOW; i++)
+                dark = dark && out[c][i] == 0;
+        printf("%s  a video voice with no raster renders nothing\n",
+               !sounding && dark ? "ok  " : "FAIL");
+        failed += sounding || !dark;
+    }
+
+    for (const auto &r : { std::make_pair(160, 120), std::make_pair(80, 60) })
+    {
+        checkRaster<thvAurora>("video/aurora.dsp", video + "aurora.dsp", plugins, r.first, r.second);
+        checkRaster<thvConstellation>("video/constellation.dsp", video + "constellation.dsp",
+                                      plugins, r.first, r.second);
+        checkRaster<thvMoire>("video/moire.dsp", video + "moire.dsp", plugins, r.first, r.second);
+        checkRaster<thvPond>("video/pond.dsp", video + "pond.dsp", plugins, r.first, r.second);
+        checkRaster<thvRings>("video/rings.dsp", video + "rings.dsp", plugins, r.first, r.second);
+        checkRaster<thvWells>("video/wells.dsp", video + "wells.dsp", plugins, r.first, r.second);
+    }
 
     /* Each by its name, whatever that is in C++. */
     {

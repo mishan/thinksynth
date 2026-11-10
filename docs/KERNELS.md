@@ -81,6 +81,18 @@ firmware passes each voice a seed of its own or every voice's noise is
 the same stream. A knob's member is its name after `k_` (`k_bright`),
 since a name may be one of C++'s.
 
+A patch that reads `misc::scan` is a video patch, on a raster: its voice
+has `raster(w, h)`, which it must be given before it renders, and its
+`render()` takes `at`, the raster's sample the call begins on, as scan
+reads the synth's position. Each value is worked out as seldom as what it
+reads changes: once a call; in a table a line wide, once a call for what
+reads only the column, once a frame for what reads the column and the
+frame (scan's `t`); once a line for what reads the row or the frame; and
+every pixel for the rest. Each value's statements are as they'd be every
+sample, never rearranged, so it is the same bits wherever it's worked
+out, and compilecheck holds every patch in `video/` to the engine's
+pixels at 160x120 and 80x60.
+
 Each knob comes with its range and a `set()` by name, for a controller
 profile to ride. With `-c DEVICE,...`, for each device named, the
 patch's `controller DEVICE` block over the device's own, checked against

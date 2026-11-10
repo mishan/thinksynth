@@ -61,6 +61,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
@@ -116,12 +117,23 @@ static const Kernel KERNELS[] = {
     { "math/mul", {}, NULL, false, { "in0", "in1" }, true, NULL },
     { "math/div", {}, NULL, false, { "in0", "in1" }, true, NULL },
     { "mixer/mul", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/sin", {}, NULL, false, { "index", "wavelength", "amp" }, true, NULL },
+    { "math/max", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/min", {}, NULL, false, { "in0", "in1" }, true, NULL },
+    { "math/abs", {}, NULL, false, { "in" }, true, NULL },
+    { "misc/latch", {}, NULL, false, { "in", "latch" }, false, "thkLatch" },
+    { "misc/scan", {}, NULL, false, {}, true, NULL },
 };
+
+/* What a value changes with, past the call: where on the raster it is
+   (its column, its row, its frame), or every sample. */
+enum { D_COL = 1, D_ROW = 2, D_FRAME = 4, D_SAMPLE = 8 };
 
 struct Value
 {
     string text;
     bool   control;             /* the same at every sample of a call */
+    int    deps = 0;            /* when it isn't: D_*, or none for every sample */
 };
 
 struct Compiler
@@ -134,6 +146,8 @@ struct Compiler
     std::map<string, float> knobs;
     std::map<string, std::pair<float, float> > ranges;     /* min, max */
     std::map<thNode *, bool> control;
+    std::map<thNode *, int> deps;
+    bool scanned = false;                   /* a misc::scan read: a raster's */
     std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
     std::map<thNode *, std::vector<Value> > ctls, ins;
     std::vector<thNodeFold> times;          /* each one bind() folds, t<i> */
@@ -266,13 +280,42 @@ struct Compiler
                     v = { name, true };
                     return true;
                 }
+                /* Where the sample lands, as misc::scan works it out, from
+                   the raster and the column and row render() steps. */
+                if (to != io && kernelFor(to) && string(kernelFor(to)->plugin) == "misc/scan")
+                {
+                    static const struct { const char *out, *text; int deps; } SCAN[] = {
+                        { "x", "((float)col / (float)W)", D_COL },
+                        { "y", "((float)row / (float)H)", D_ROW },
+                        { "hsync", "(col == 0 ? 1.0f : 0.0f)", D_COL },
+                        { "vsync", "(col == 0 && row == 0 ? 1.0f : 0.0f)", D_SAMPLE },
+                        { "frame", "((float)(pos / (W * H)))", D_FRAME },
+                        { "t", "((float)((double)(pos - pos % (W * H)) / (double)boundRate))",
+                          D_FRAME },
+                        { "width", "((float)W)", 0 },
+                        { "size", "((float)(W * H))", 0 },
+                    };
+
+                    scanned = true;
+                    for (const auto &o : SCAN)
+                        if (name == o.out)
+                        {
+                            v = { o.text, false, o.deps };
+                            if (!o.deps)
+                                v.control = true;
+                            return true;
+                        }
+                    error = n->name() + "." + a->name() + " reads scan's " + name +
+                            ", which it hasn't";
+                    return false;
+                }
                 if (to != io && to->plugin() &&
                     to->plugin()->getArgDir(to->getArg(name) ? to->getArg(name)->index() : -1) ==
                     thPlugin::ARG_OUT)
                 {
                     if (!place(to))
                         return false;
-                    v = { var(to, name), control[to] };
+                    v = { var(to, name), control[to], deps[to] };
                     return true;
                 }
                 a = to->getArg(name);
@@ -309,6 +352,10 @@ struct Compiler
         placing.insert(n);
 
         bool ctl = k->pure, once = true;
+        int d = 0;
+        const auto dep = [](const Value &v) {
+            return v.control ? 0 : v.deps ? v.deps : (int)D_SAMPLE;
+        };
         std::vector<Value> cs, vs;
 
         for (const string &in : k->ctl)
@@ -318,6 +365,7 @@ struct Compiler
             if (!value(n, n->getArg(in), v))
                 return false;
             once = once && v.control;
+            d |= dep(v);
             cs.push_back(v);
         }
         for (const string &in : k->ins)
@@ -327,12 +375,14 @@ struct Compiler
             if (!value(n, n->getArg(in), v))
                 return false;
             ctl = ctl && v.control;
+            d |= dep(v);
             vs.push_back(v);
         }
         placing.erase(n);
         ctls[n] = cs;
         ins[n] = vs;
         control[n] = ctl && once;
+        deps[n] = control[n] ? 0 : k->pure ? d : (int)D_SAMPLE;
         ctlOnce[n] = once;
         order[n] = (int)placed.size();
         placed.push_back(n);
@@ -400,7 +450,8 @@ struct Compiler
         else if (p == "env/ad" || p == "env/adsr")
             s << "        float " << var(n, "play") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
-              << ", " << args(0) << ", " << var(n, "play") << ");\n";
+              << ", " << args(0) << ", " << var(n, "play") << ");\n"
+              << "        (void)" << out << ";    /* an envelope read for play alone */\n";
         else if (p == "mixer/pan")
             s << "        const float " << var(n, "out0") << " = " << v[0].text << " * "
               << var(n, "ctl") << ".left;\n"
@@ -410,6 +461,16 @@ struct Compiler
             s << "        const float " << out << " = " << v[0].text << " < " << v[1].text
               << " ? " << v[1].text << " : " << v[0].text << " > " << v[2].text << " ? "
               << v[2].text << " : " << v[0].text << ";\n";
+        else if (p == "math/sin")
+            s << "        const float " << out << " = thkSin(" << args(0) << ");\n";
+        else if (p == "math/max" || p == "math/min")
+            s << "        const float " << out << " = (" << v[0].text
+              << (p == "math/max" ? " > " : " < ") << v[1].text << ") ? " << v[0].text
+              << " : " << v[1].text << ";\n";
+        else if (p == "math/abs")
+            s << "        const float " << out << " = fabsf(" << v[0].text << ");\n";
+        else if (p == "misc/latch")
+            s << "        const float " << out << " = " << self << ".tick(" << args(0) << ");\n";
         else if (p == "misc/midi2freq")
             s << "        const float " << out << " = thkMidi2freq(" << v[0].text << ", runRate);\n";
         else
@@ -605,8 +666,61 @@ main (int argc, char **argv)
     printf("/* %s as a compiled voice at %d Hz.\n   Written by dspcompile; do not edit. */\n\n#ifndef THV_%s_H\n#define THV_%s_H 1\n\n#include <math.h>\n#include <stdint.h>\n#include <string.h>\n\n#include \"thKernel.h\"\n",
            argv[at], rate, name.c_str(), name.c_str());
     for (const string &h : headers)
-        if (h.compare(0, 5, "math/") && h != "mixer/mul")
+        if ((h.compare(0, 5, "math/") || h == "math/sin") && h != "mixer/mul" &&
+            h != "misc/scan")
             printf("#include \"%s.h\"\n", h.c_str());
+    if (c.scanned)
+        printf("\n#include <vector>\n");
+
+    /* On a raster, each value by what it changes with: once a call, a table
+       a line wide made once a call or once a frame, once a line, or every
+       pixel. A node's statements are as they'd be every sample, so a value
+       is the same bits wherever it's worked out. */
+    string once, colTable, frameTable, lineDecl, line, tableLoads, pixel;
+    std::vector<string> tables;
+    const std::regex declared("const float (n[0-9]+_[a-z0-9_]+) = ");
+    const auto names = [&](const string &t) {
+        std::vector<string> v;
+
+        for (std::sregex_iterator m(t.begin(), t.end(), declared), e; m != e; ++m)
+            v.push_back((*m)[1]);
+        return v;
+    };
+    const auto indent = [](string t, int by) {
+        for (size_t i = 0; i < t.size(); i = t.find('\n', i) + 1)
+            t.insert(i, string(by, ' '));
+        return t;
+    };
+
+    for (thNode *n : c.placed)
+    {
+        const int d = c.deps[n];
+        const string e = c.emit(n);
+
+        if (Compiler::kernelFor(n)->ctlCall && c.ctlOnce[n])
+            once += c.emitCtl(n);
+        if (c.control[n])
+            once += e;
+        else if (d == D_COL || d == (D_COL | D_FRAME))
+        {
+            string &to = d == D_COL ? colTable : frameTable;
+
+            to += indent(e, 4);
+            for (const string &v : names(e))
+            {
+                tables.push_back(v);
+                to += "            tab_" + v + "[col] = " + v + ";\n";
+            }
+        }
+        else if (d && !(d & (D_COL | D_SAMPLE)))
+        {
+            for (const string &v : names(e))
+                lineDecl += "        float " + v + " = 0;\n";
+            line += indent(std::regex_replace(e, std::regex("const float "), ""), 8);
+        }
+        else
+            pixel += indent(e, 4);
+    }
 
     if (!profiles.empty())
         printf("#include \"thcHidBlock.h\"\n");
@@ -657,43 +771,108 @@ main (int argc, char **argv)
         printf("        t%zu = %s;\n", i, fold(c.times[i], "r").c_str());
     printf("    }\n");
 
+    if (c.scanned)
+    {
+        printf("\n    /* The raster, `w' by `h', which a voice must be given before it\n"
+               "       renders. Kept by start(). */\n"
+               "    int64_t W = 0, H = 0;\n");
+        for (const string &v : tables)
+            printf("    std::vector<float> tab_%s;\n", v.c_str());
+        printf("\n    void raster (int64_t w, int64_t h)\n    {\n"
+               "        W = w;\n        H = h;\n");
+        for (const string &v : tables)
+            printf("        tab_%s.assign((size_t)w, 0);\n", v.c_str());
+        printf("    }\n");
+    }
+
+    /* start() keeps the raster, and its tables' memory: a note-on that
+       allocates isn't one a firmware can take. render() fills them before
+       reading them. */
+    string keep, restore;
+
+    if (c.scanned)
+    {
+        keep = "        const int64_t w = W, h = H;\n";
+        restore = "        W = w;\n        H = h;\n";
+        for (const string &v : tables)
+        {
+            keep += "        std::vector<float> keep_" + v + " = std::move(tab_" + v + ");\n";
+            restore += "        tab_" + v + " = std::move(keep_" + v + ");\n";
+        }
+    }
+
     printf("\n    /* As the engine starts a voice: velocity 0..127 to 0..1; each noise\n"
            "       its own stream, from seed. Not the engine's streams, which come\n"
            "       from the synth's; and one stream for every voice given the same\n"
            "       seed, so a firmware gives each voice its own. */\n"
            "    void start (float n, float v, uint32_t seed = 0)\n    {\n"
-           "        const long r = boundRate;\n\n"
+           "        const long r = boundRate;\n%s\n"
            "        *this = thv%s();\n"
-           "        bind(r);\n"
+           "        bind(r);\n%s"
            "        note = n;\n        velocity = v * %s / %d;\n        trigger = 1;\n",
-           name.c_str(), Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
+           keep.c_str(), name.c_str(), restore.c_str(),
+           Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
     for (thNode *n : c.placed)
         if (Compiler::stateType(n) == "thkNoise")
             printf("        n%d.seed(seed * 2654435761u + %du);\n", c.order[n], c.order[n] + 1);
     printf("        (void)seed;\n    }\n\n"
-           "    void release () { trigger = 0; }\n\n"
-           "    bool render (const Knobs &k, float *const *out, int count)\n    {\n"
-           "        (void)k;\n        float sounding = 1;\n\n");
-
-    /* Once a call: what numbers, knobs and the note alone decide, and the
-       control structs of kernels whose control inputs are all that. */
-    for (thNode *n : c.placed)
+           "    void release () { trigger = 0; }\n\n");
+    if (c.scanned)
     {
-        if (Compiler::kernelFor(n)->ctlCall && c.ctlOnce[n])
-            printf("%s", c.emitCtl(n).c_str());
-        if (c.control[n])
-            printf("%s", c.emit(n).c_str());
-    }
-    printf("\n        for (int i = 0; i < count; i++)\n        {\n");
-    for (thNode *n : c.placed)
-        if (!c.control[n])
-        {
-            string s = c.emit(n);
+        /* `at' is the raster's sample the call begins on, as misc::scan
+           reads the synth's position. */
+        /* Each table loaded where what follows reads it. */
+        const auto reads = [](const string &text, const string &v) {
+            return std::regex_search(text, std::regex("\\b" + v + "\\b"));
+        };
+        string after;
 
-            for (size_t i = 0; i < s.size(); i = s.find('\n', i) + 1)
-                s.insert(i, "    ");
-            printf("%s", s.c_str());
+        for (const auto &o : outs)
+            after += o.second.text + "\n";
+        after += pixel + play.text;
+
+        string colLoads, frameLoads;
+
+        for (const string &v : tables)
+        {
+            const string load = "            const float " + v + " = tab_" + v + "[col];\n";
+            const bool col = colTable.find("tab_" + v + "[col] =") != string::npos;
+
+            if (reads(after, v))
+                (col ? colLoads : frameLoads) += load;
+            if (col && reads(frameTable, v))
+                tableLoads += load;
         }
+        printf("    bool render (const Knobs &k, float *const *out, int count, int64_t at)\n"
+               "    {\n        (void)k;\n        float sounding = 1;\n\n"
+               "        /* With no raster, nothing: misc::scan's zeros are no picture. */\n"
+               "        if (W <= 0 || H <= 0)\n        {\n"
+               "            for (int c = 0; c < channels; c++)\n"
+               "                memset(out[c], 0, count * sizeof(float));\n"
+               "            return false;\n        }\n%s\n"
+               "        for (int64_t col = 0; col < W; col++)\n        {\n%s        }\n%s"
+               "\n        int64_t col = at %% W, row = at / W %% H%s;\n\n"
+               "        for (int i = 0; i < count; i++)\n        {\n"
+               "            const int64_t pos = at + i;\n\n"
+               "            if (i > 0 && ++col == W)\n            {\n"
+               "                col = 0;\n                if (++row == H)\n"
+               "                    row = 0;\n            }\n"
+               "            if (i == 0 || col == 0)\n            {\n%s%s            }\n%s%s",
+               once.c_str(), indent(colTable, 0).c_str(), lineDecl.c_str(),
+               frameTable.empty() ? "" : ", frameOf = -1", line.c_str(),
+               frameTable.empty() ? ""
+               : ("                if (pos / (W * H) != frameOf)\n                {\n"
+                  "                    frameOf = pos / (W * H);\n"
+                  "                    for (int64_t col = 0; col < W; col++)\n"
+                  "                    {\n" + indent(tableLoads, 12) + indent(frameTable, 12) +
+                  "                    }\n                }\n").c_str(),
+               (colLoads + frameLoads).c_str(), pixel.c_str());
+    }
+    else
+        printf("    bool render (const Knobs &k, float *const *out, int count)\n    {\n"
+               "        (void)k;\n        float sounding = 1;\n\n%s"
+               "\n        for (int i = 0; i < count; i++)\n        {\n%s",
+               once.c_str(), pixel.c_str());
     for (size_t ch = 0; ch < outs.size(); ch++)
         printf("            out[%zu][i] = %s;\n", ch, outs[ch].second.text.c_str());
     printf("            sounding = %s;\n        }\n        return sounding > 0;\n    }\n",

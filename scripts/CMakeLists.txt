@@ -260,7 +260,13 @@ foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box,marbles,life"
               "Names;${CMAKE_CURRENT_SOURCE_DIR}/compiled/names.dsp"
               "Noise;${CMAKE_CURRENT_SOURCE_DIR}/compiled/noise.dsp"
               "Grab;${PROJECT_SOURCE_DIR}/dsp/grab.dsp"
-              "Index;${PROJECT_SOURCE_DIR}/dsp/index.dsp")
+              "Index;${PROJECT_SOURCE_DIR}/dsp/index.dsp"
+              "Aurora;${PROJECT_SOURCE_DIR}/video/aurora.dsp;-r;1152000"
+              "Constellation;${PROJECT_SOURCE_DIR}/video/constellation.dsp;-r;1152000"
+              "Moire;${PROJECT_SOURCE_DIR}/video/moire.dsp;-r;1152000"
+              "Pond;${PROJECT_SOURCE_DIR}/video/pond.dsp;-r;1152000"
+              "Rings;${PROJECT_SOURCE_DIR}/video/rings.dsp;-r;1152000"
+              "Wells;${PROJECT_SOURCE_DIR}/video/wells.dsp;-r;1152000")
   list(GET voice 0 vname)
   list(GET voice 1 vfile)
   set(vflags "")
