@@ -151,6 +151,11 @@ play (const string &plugins, const Run &run, std::vector<uint64_t> &frames,
         return why;
 
     thSynth *synth = video.synth();
+
+    /* The engine's polyphony, not a video channel's two: the script's
+       chord holds note 60 to bend it and keep it on the pedal. */
+    if (synth->getChannel(0) != NULL)
+        synth->getChannel(0)->setPolyMax(TH_DEFAULT_POLY);
     const int perFrame = run.h / LINES;
     const float aux[TH_NOTE_AUX] = { 0.3f, 0, 0, 0 };
     const auto at = [&](int frame, int window) { return frame * perFrame + window; };
