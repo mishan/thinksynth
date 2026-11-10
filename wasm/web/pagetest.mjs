@@ -2878,12 +2878,16 @@ try
             selected: window.solo.node().selected,
             current: document.querySelector(
                 '#nodelist button[aria-current="true"]')?.textContent,
-            focus: document.activeElement?.textContent }));
+            focus: document.activeElement?.textContent,
+            on: `${document.activeElement?.tagName}#${document.activeElement?.id}` }));
 
         check(listed > 0 && chosen >= 0 && picked.selected >= 0 &&
               picked.current === picked.focus,
               'the graph as a list: a node chosen from the keys is the ' +
-              `canvas's selection, and keeps the focus: ${picked.current}`);
+              `canvas's selection, and keeps the focus: ${picked.current}` +
+              (picked.current === picked.focus ? '' :
+               ` (row ${chosen} of ${listed}, selected ${picked.selected}, ` +
+               `the focus on ${picked.on}: ${(picked.focus ?? '').slice(0, 60)})`));
 
 
         /* The rest needs that node, and a list without one has said so
@@ -4855,15 +4859,19 @@ try
         const down = await width();
 
         /* Kept from drawing now and then at 80x60, as a machine is, though
-           the drawing itself takes little time. */
+           the drawing itself takes little time. The wait for the full size
+           counts from the last stall's start: the page counts from the
+           skip it sees partway through it. */
+        let t0;
+
         for (let i = 0; i < 4; i++)
         {
             await v.waitForTimeout(1500);
+            t0 = Date.now();
             await stall();
         }
 
         const held = await width();
-        const t0 = Date.now();
 
         while (await width() !== 160 && Date.now() - t0 < 10000)
             await v.waitForTimeout(100);

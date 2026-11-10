@@ -3338,7 +3338,11 @@ try
 
     await at(SECONDS * 1000);
     await A.page.evaluate(() => window.jam.stop());
-    await at(SECONDS * 1000 + 3000);
+
+    /* Counted from the stop and not from Play: a late joiner slow to get
+       in holds the run past SECONDS, and the tapes are read only once
+       every transport has reached the stop, half a second on. */
+    await new Promise((r) => setTimeout(r, 3000));
 
     /* What each delivered, and what each saw. */
     const results = [];
