@@ -59,6 +59,9 @@ A video patch is a `.dsp` like any other. What is different:
 - **Voices add like light.** Each note is a voice, every voice draws onto
   the same raster, and a chord is its notes' pictures summed. There is no
   limiter: what adds past white clips there.
+- **Two voices a channel**, unless the patch's io says `poly`: every
+  voice draws every pixel, and a dense piece's long releases would stack
+  up past what a browser draws at 60 fps. A third note fades the oldest.
 - **Where a sample lands** comes from `misc::scan`:
 
 | output | |

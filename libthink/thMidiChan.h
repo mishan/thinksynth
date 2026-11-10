@@ -240,6 +240,9 @@ public:
      * played three, where are they" is a question with a different answer per
      * graph. polyMax() of 0 is no limit. */
     int polyMax (void) const { return polymax_; }
+    /* On the thread that renders the channel: another limit than its io's
+       or the default. */
+    void setPolyMax (int n) { polymax_ = n; }
     bool mono (void) const { return mono_; }
     bool choke (void) const { return choke_; }
 

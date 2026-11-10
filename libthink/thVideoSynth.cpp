@@ -60,6 +60,22 @@ bool thVideoSynth::open (const std::string &pluginPath, int width, int height,
     return true;
 }
 
+/* Each voice draws every pixel, so a channel's voices are what a picture
+   costs: a dense piece's long releases stack up past what a page can draw
+   at its frame rate. Two a channel, where its io says no other, and the
+   oldest fades as a third starts. */
+static const int VOICES = 2;
+
+static void
+limitVoices (thSynth *synth, int channel)
+{
+    thMidiChan *chan = synth->getChannel(channel);
+
+    if (chan != NULL && chan->modnode() != NULL && chan->modnode()->IONode() != NULL &&
+        chan->modnode()->IONode()->getArg("poly") == NULL)
+        chan->setPolyMax(VOICES);
+}
+
 bool thVideoSynth::follow (int channel, const std::string &dsp, std::string &why)
 {
     if (synth_->loadTree(dsp.c_str(), channel, MIDIVALMAX) == NULL)
@@ -67,6 +83,7 @@ bool thVideoSynth::follow (int channel, const std::string &dsp, std::string &why
         why = "'" + dsp + "' did not load";
         return false;
     }
+    limitVoices(synth_.get(), channel);
     follow_.insert(channel);
     if (dsp_.empty())
         dsp_ = dsp;
@@ -81,6 +98,7 @@ bool thVideoSynth::followText (int channel, const std::string &name,
         why = "'" + name + "' did not load";
         return false;
     }
+    limitVoices(synth_.get(), channel);
     follow_.insert(channel);
     if (dsp_.empty())
         dsp_ = name;
