@@ -31,7 +31,10 @@
  * whose input a voice isn't given.
  *
  * The rate is the compiler's, as it is the engine's at load: times written
- * in ms are samples at that rate by the time the graph can be read.
+ * in ms are samples at that rate by the time the graph can be read. The
+ * engine keeps which node values were times (thSynthTree::nodeFolds), and
+ * those the voice folds again at the rate bind() gives it, as the engine
+ * would have at load; a knob's default and range stay at the compiler's.
  *
  * What comes out (thv<Name>, a voice):
  *
@@ -39,6 +42,7 @@
  *   void start (note, velocity, seed = 0);
  *                                  as the engine starts a voice; seed
  *                                  is its noises', one a voice
+ *   void bind (rate);              to run at another rate
  *   void release ();               the trigger falls
  *   bool render (k, out, n);       n samples into out[channel], and
  *                                  whether the voice still sounds
@@ -132,6 +136,7 @@ struct Compiler
     std::map<thNode *, bool> control;
     std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
     std::map<thNode *, std::vector<Value> > ctls, ins;
+    std::vector<thNodeFold> times;          /* each one bind() folds, t<i> */
     string error;
 
     /* By the plugin's path, less where it was found and its suffix. */
@@ -205,6 +210,31 @@ struct Compiler
                     error = n->name() + "." + a->name() + " is a list, which isn't compiled yet";
                     return false;
                 }
+                /* The last fold of an arg is what it holds: a time is the
+                   voice's to fold again, what no rate changes is as
+                   loaded. */
+                for (auto f = tree->nodeFolds().rbegin(); f != tree->nodeFolds().rend(); ++f)
+                    if (f->node == n->name() && f->arg == a->name())
+                    {
+                        if (f->units != "ms" && f->units != "s" && f->units != "beats")
+                            break;
+                        if (f->units == "beats")
+                        {
+                            error = n->name() + "." + a->name() + " is in beats, which "
+                                    "follow a tempo a compiled voice isn't given";
+                            return false;
+                        }
+                        /* One member an arg, however many reads reach it. */
+                        size_t t = 0;
+
+                        while (t < times.size() &&
+                               !(times[t].node == f->node && times[t].arg == f->arg))
+                            t++;
+                        if (t == times.size())
+                            times.push_back(*f);
+                        v = { "t" + std::to_string(t), true };
+                        return true;
+                    }
                 v = { literal(a->len() ? (*a)[0] : 0), true };
                 return true;
             case thArg::ARG_CHANNEL:
@@ -318,7 +348,7 @@ struct Compiler
         for (size_t i = 0; i < ctls[n].size(); i++)
             a += (i ? ", " : "") + ctls[n][i].text;
         if (k->ctlRate)
-            a += ", rate";
+            a += ", runRate";
         return "        const auto " + var(n, "ctl") + " = " + k->ctlCall + "(" + a + ");\n";
     }
 
@@ -381,7 +411,7 @@ struct Compiler
               << " ? " << v[1].text << " : " << v[0].text << " > " << v[2].text << " ? "
               << v[2].text << " : " << v[0].text << ";\n";
         else if (p == "misc/midi2freq")
-            s << "        const float " << out << " = thkMidi2freq(" << v[0].text << ", rate);\n";
+            s << "        const float " << out << " = thkMidi2freq(" << v[0].text << ", runRate);\n";
         else
             s << "        const float " << out << " = " << v[0].text
               << (p == "math/add" ? " + " : p == "math/sub" ? " - " : p == "math/div" ? " / " : " * ")
@@ -606,12 +636,35 @@ main (int argc, char **argv)
             printf("    %s n%d;    /* %s */\n", Compiler::stateType(n).c_str(), c.order[n],
                    n->name().c_str());
 
+    /* A time is folded as the engine folds it at load (thFoldUnit). */
+    const auto fold = [&](const thNodeFold &f, const char *r) {
+        return "(float)((double)" + Compiler::literal(f.literal) + " * (double)" + r +
+               (f.units == "ms" ? " / 1000.0)" : ")");
+    };
+
+    printf("\n    /* The rate the voice runs at, rate unless bind() says otherwise,\n"
+           "       and each time the patch wrote, in samples at it. */\n"
+           "    long boundRate = (long)rate;\n    float runRate = rate;\n");
+    for (size_t i = 0; i < c.times.size(); i++)
+        printf("    float t%zu = %s;    /* %s.%s, %g %s */\n", i,
+               fold(c.times[i], "(long)rate").c_str(), c.times[i].node.c_str(),
+               c.times[i].arg.c_str(), c.times[i].literal, c.times[i].units.c_str());
+    printf("\n    /* To run at `r' samples a second, the knobs' defaults and ranges\n"
+           "       still at rate's. Kept by start(). */\n"
+           "    void bind (long r)\n    {\n"
+           "        boundRate = r;\n        runRate = (float)r;\n");
+    for (size_t i = 0; i < c.times.size(); i++)
+        printf("        t%zu = %s;\n", i, fold(c.times[i], "r").c_str());
+    printf("    }\n");
+
     printf("\n    /* As the engine starts a voice: velocity 0..127 to 0..1; each noise\n"
            "       its own stream, from seed. Not the engine's streams, which come\n"
            "       from the synth's; and one stream for every voice given the same\n"
            "       seed, so a firmware gives each voice its own. */\n"
            "    void start (float n, float v, uint32_t seed = 0)\n    {\n"
+           "        const long r = boundRate;\n\n"
            "        *this = thv%s();\n"
+           "        bind(r);\n"
            "        note = n;\n        velocity = v * %s / %d;\n        trigger = 1;\n",
            name.c_str(), Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
     for (thNode *n : c.placed)

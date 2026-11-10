@@ -69,7 +69,10 @@ as `struct thvName`: one voice, the state of each of its nodes' kernels,
 and a `render()` that runs them in the graph's order a sample at a time,
 with what depends only on numbers, knobs and the note worked out once a
 call, as the engine works it out once a window. Times are samples at the
-rate it is given, as the engine folds them at load. A patch using a
+rate it is given, as the engine folds them at load, and `bind(rate)`
+folds a node's times again for a voice to run at another rate, as the
+engine at that rate would; a knob's default and range stay at the
+compiled rate. A patch using a
 plugin with no kernel, or a loop, is refused with the node named, and so
 is an effect, whose input a voice isn't given. `start()` makes the voice
 new again, so a firmware can keep a pool of them, and seeds its noises:
