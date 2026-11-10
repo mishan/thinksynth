@@ -335,8 +335,38 @@ add_custom_command(
             > "${THINK_ENGINE}/thvExpression.h"
     DEPENDS dspcompile plugins "${CMAKE_CURRENT_SOURCE_DIR}/compiled/expression.dsp"
     VERBATIM)
-think_harness(compiledcheck EXTRA "${THINK_ENGINE}/thvExpression.h")
-target_include_directories(compiledcheck PRIVATE "${THINK_ENGINE}"
+# And random graphs (dsprandom.cpp), each compiled: the mixes of what a
+# value depends on that no shipped patch has. More seeds find more.
+set(THINK_RANDOM_GRAPHS 48 CACHE STRING
+    "How many random graphs compiledcheck holds compiled against their nodes")
+set(THINK_RANDOM "${CMAKE_CURRENT_BINARY_DIR}/random")
+add_executable(dsprandom dsprandom.cpp)
+set(THINK_RANDOM_HEADERS "")
+set(THINK_RANDOM_INCLUDES "")
+set(THINK_RANDOM_ADDS "")
+foreach(seed RANGE 1 ${THINK_RANDOM_GRAPHS})
+  add_custom_command(
+      OUTPUT "${THINK_RANDOM}/random${seed}.dsp" "${THINK_RANDOM}/thvRandom${seed}.h"
+      COMMAND ${CMAKE_COMMAND} -E make_directory "${THINK_RANDOM}"
+      COMMAND dsprandom ${seed} > "${THINK_RANDOM}/random${seed}.dsp"
+      COMMAND dspcompile --engine -p "${PROJECT_BINARY_DIR}/plugins/" -r 1152000
+              "${THINK_RANDOM}/random${seed}.dsp" Random${seed}
+              > "${THINK_RANDOM}/thvRandom${seed}.h"
+      DEPENDS dsprandom dspcompile plugins
+      VERBATIM)
+  list(APPEND THINK_RANDOM_HEADERS "${THINK_RANDOM}/thvRandom${seed}.h")
+  string(APPEND THINK_RANDOM_INCLUDES "#include \"thvRandom${seed}.h\"\n")
+  string(APPEND THINK_RANDOM_ADDS
+         "    thCompiledAdd(thvRandom${seed}Engine::fingerprint(), thvRandom${seed}Engine::make);\n")
+endforeach()
+file(CONFIGURE OUTPUT "${THINK_RANDOM}/thRandomInstall.cpp" CONTENT
+     "/* The random graphs, each added by its fingerprint. */\n\n\
+${THINK_RANDOM_INCLUDES}\n#include \"thCompiled.h\"\n\n\
+extern const int thRandomGraphs = ${THINK_RANDOM_GRAPHS};\n\n\
+void thRandomInstall (void)\n{\n${THINK_RANDOM_ADDS}}\n")
+think_harness(compiledcheck EXTRA "${THINK_ENGINE}/thvExpression.h"
+              "${THINK_RANDOM}/thRandomInstall.cpp" ${THINK_RANDOM_HEADERS})
+target_include_directories(compiledcheck PRIVATE "${THINK_ENGINE}" "${THINK_RANDOM}"
                            "${PROJECT_SOURCE_DIR}/plugins")
 target_link_libraries(compiledcheck PRIVATE think_compiled)
 
@@ -1297,7 +1327,8 @@ add_test(NAME videosynthcheck
 if(NOT THINK_FAST_MATH)
   add_test(NAME compiledcheck
            COMMAND compiledcheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                   -v "${PROJECT_SOURCE_DIR}/video/" -c "${CMAKE_CURRENT_SOURCE_DIR}/compiled/")
+                   -v "${PROJECT_SOURCE_DIR}/video/" -c "${CMAKE_CURRENT_SOURCE_DIR}/compiled/"
+                   -g "${THINK_RANDOM}/")
 endif()
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")

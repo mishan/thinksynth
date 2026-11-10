@@ -32,6 +32,8 @@
  * plays past the voice pool, stops, and plays again. Every frame is the
  * same bits both ways, and the second way runs no tree on its nodes.
  *
+ * The same for random graphs (dsprandom.cpp), at 80x60.
+ *
  * And which graphs fall back to their nodes: an edited one, one on a synth
  * with no raster, an effect narrower than it was compiled, one changed in
  * place after it loaded, and one a probe reads inside.
@@ -58,6 +60,11 @@
 #include "thVideoSynth.h"
 
 #include "thvExpression.h"
+
+/* thRandomInstall.cpp, which the build writes: how many random graphs
+   there are, and them added. */
+extern const int thRandomGraphs;
+void thRandomInstall (void);
 
 using std::string;
 
@@ -234,7 +241,8 @@ expect (const string &name, const string &want, const string &got)
 int
 main (int argc, char **argv)
 {
-    string plugins = "plugins/", video = "video/", compiled = "scripts/compiled/";
+    string plugins = "plugins/", video = "video/", compiled = "scripts/compiled/",
+           random = "scripts/random/";
 
     for (int i = 1; i + 1 < argc; i += 2)
         if (string(argv[i]) == "-p")
@@ -243,6 +251,8 @@ main (int argc, char **argv)
             video = argv[i + 1];
         else if (string(argv[i]) == "-c")
             compiled = argv[i + 1];
+        else if (string(argv[i]) == "-g")
+            random = argv[i + 1];
 
     const string rings = slurp(video + "rings.dsp"), palette = slurp(video + "fx/palette.dsp");
     const int R = 1152000;
@@ -296,6 +306,12 @@ main (int argc, char **argv)
         runs.push_back({ "expression.dsp", slurp(compiled + "expression.dsp"), "", r.first,
                          r.second, {} });
     }
+    for (int seed = 1; seed <= thRandomGraphs; seed++)
+    {
+        const string name = "random" + std::to_string(seed) + ".dsp";
+
+        runs.push_back({ name, slurp(random + name), "", 80, 60, {} });
+    }
 
     /* Nothing compiled yet: every frame on the nodes. */
     expect("rings.dsp runs on its nodes before anything is installed", "on its nodes",
@@ -311,6 +327,7 @@ main (int argc, char **argv)
 
     thCompiledInstall();
     thCompiledAdd(thvExpressionEngine::fingerprint(), thvExpressionEngine::make);
+    thRandomInstall();
 
     for (Run &r : runs)
     {
