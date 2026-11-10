@@ -37,6 +37,7 @@
 #include <cmath>
 
 #include "think.h"
+#include "echo.h"
 
 static const char desc[] = "Echo (echo echo echo)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
@@ -50,18 +51,6 @@ enum { IN_ARG,IN_SIZE,IN_DELAY,IN_FEEDBACK,IN_DRY,INOUT_BUFFER,INOUT_BUFPOS,OUT_
 
 std::atomic<int> args[INOUT_LOOP + 1];
 
-/* How far `boost' may take the loop: 1.5 times what it would be, which
-   `drive' has to be up to hold. */
-#define ECHO_BOOST_MAX 0.5f
-
-static unsigned int ringOf (float size, unsigned int samples)
-{
-    const float maxSize = 60.0f * samples;
-
-    return !(size > 0) ? 0
-         : size > maxSize ? (unsigned int)maxSize
-         : (unsigned int)size;
-}
 
 /* A voice about to start: its ring, sized here and not in its first
    window. Only a `size' that is a number or a control has a value yet; one
@@ -75,7 +64,7 @@ void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
     if (voice && raw != NULL && raw->type() != thArg::ARG_POINTER &&
         in_size != NULL)
         mod->getArg(node, args[INOUT_BUFFER])->reserve(
-            ringOf((*in_size)[0], samples));
+            thkEchoRing((*in_size)[0], (float)samples));
 }
 
 int module_init (thPlugin *plugin)
@@ -160,9 +149,6 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_arg, *in_size, *in_delay, *in_feedback, *in_dry;
     thArg *out_arg;
     thArg *inout_buffer, *inout_bufpos;
-    unsigned int i;
-    int index;
-    float delay, feedback, dry, in;
 
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_size = mod->getArg(node, args[IN_SIZE]);
@@ -183,118 +169,39 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_drive = mod->getArg(node, args[IN_DRIVE]);
     thArg *in_boost = mod->getArg(node, args[IN_BOOST]);
     thArg *inout_loop = mod->getArg(node, args[INOUT_LOOP]);
-    float lp = (*inout_loop)[0], hpIn = (*inout_loop)[1];
-    float hpOut = (*inout_loop)[2];
+    thkEcho k;
+
+    k.lp = (*inout_loop)[0];
+    k.hpIn = (*inout_loop)[1];
+    k.hpOut = (*inout_loop)[2];
+
     float *loop = inout_loop->allocate(3);
 
     buffer = inout_buffer->values();
 
-    for(i = 0; i < windowlen; i++) {
-        unsigned int mySize = ringOf((*in_size)[i], samples);
-        unsigned int myBufpos = (int)*bufpos;
+    k.pos = *bufpos;
+    for (unsigned int i = 0; i < windowlen; i++)
+    {
+        const unsigned int size = thkEchoRing((*in_size)[i],
+                                              (float)samples);
 
         /* A changed size starts a fresh, zeroed ring. */
-        if (mySize != inout_buffer->len())
+        if (size != inout_buffer->len())
         {
-            buffer = inout_buffer->resize(mySize,
-                                          ringOf(INFINITY, samples));
-            memset(buffer, 0, mySize * sizeof(float));
+            buffer = inout_buffer->resize(
+                size, thkEchoRing(INFINITY, (float)samples));
+            memset(buffer, 0, size * sizeof(float));
         }
-
-        in = (*in_arg)[i];
-        feedback = (*in_feedback)[i];
-        dry = (*in_dry)[i];
-
-        unsigned int inOutLen = inout_buffer->len();
-
-        if(inOutLen == 0) {
-            out[i] = in;
-            continue;
-        }
-
-        /* was `>' -- valid indices run 0..len-1, so a bufpos equal to len fell
-           through and indexed one past the end. */
-        if(myBufpos >= inOutLen) {
-            myBufpos = 0;
-        }
-        /* Whole rings off a delay of two or more, keeping its sign and so
-           the way the cast below rounds it, so the wrap is a step or two
-           and not one per ring of a huge delay; a NaN reads the newest. */
-        float behind = (*in_delay)[i];
-        const float ring = (float)inOutLen;
-
-        if(!std::isfinite(behind))
-            behind = 0;
-        else if(fabsf(behind) >= 2 * ring)
-            behind -= ring * (truncf(behind / ring) - (behind > 0 ? 1 : -1));
-
-        index = (int)(myBufpos - behind);
-
-        /* A negative delay walks index forward instead of back, so clamp both
-           ends rather than only wrapping negatives. */
-        while(index < 0) {
-            index += inOutLen;
-        }
-        index %= (int)inOutLen;
-
-        delay = buffer[index];
-
-        /* What goes back in, changed on the way. Each stage only where
-           its arg asks for it, so a ring with none of them is the ring it
-           always was, to the bit. */
-        float back = delay;
-        const float tone = (*in_tone)[i];
-        const float low = (*in_low)[i];
-        const float drive = thClampArg((*in_drive)[i], 0, 4);
-        const float boost = thClampArg((*in_boost)[i], 0, ECHO_BOOST_MAX);
-
-        if (tone > 0 && thIsFinite(tone))
-        {
-            const float k = 1 - expf(-2 * (float)M_PI *
-                                     fminf(tone, samples * 0.45f) / samples);
-
-            lp += k * (back - lp);
-            back = lp;
-        }
-
-        if (low > 0 && thIsFinite(low))
-        {
-            const float r = expf(-2 * (float)M_PI *
-                                 fminf(low, samples * 0.45f) / samples);
-
-            hpOut = r * (hpOut + back - hpIn);
-            hpIn = back;
-            back = hpOut;
-        }
-
-        if (boost > 0)
-            back *= 1 + boost;
-
-        /* tanh scaled so a small signal passes at unity: the drive is how
-           early the curve bends, not a gain. Its ceiling is full scale
-           over the drive, so a boosted loop bends at 1 at least and is
-           held at full scale or under. */
-        const float bend = boost > 0 ? fmaxf(drive, 1) : drive;
-
-        if (bend > 0)
-            back = TH_MAX * tanhf(bend * back / TH_MAX) / bend;
-
-        if (!thIsFinite(back))
-        {
-            back = 0;
-            lp = hpIn = hpOut = 0;
-        }
-
-        buffer[myBufpos] = (feedback * back) + ((1-feedback) * in);
-
-        out[i] = ((1 - dry) * delay) + (dry * in);
-        ++myBufpos;
-        *bufpos = (float)myBufpos;
+        out[i] = k.tick(buffer, inout_buffer->len(), (*in_arg)[i],
+                        (*in_delay)[i], (*in_feedback)[i], (*in_dry)[i],
+                        (*in_tone)[i], (*in_low)[i], (*in_drive)[i],
+                        (*in_boost)[i], (float)samples);
     }
+    *bufpos = k.pos;
 
-    loop[0] = lp;
-    loop[1] = hpIn;
-    loop[2] = hpOut;
+    loop[0] = k.lp;
+    loop[1] = k.hpIn;
+    loop[2] = k.hpOut;
 
     return 0;
 }

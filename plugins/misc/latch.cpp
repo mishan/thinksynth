@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "think.h"
+#include "latch.h"
 
 static const char desc[] = "Sample and hold";
 thPlugin::State    mystate = thPlugin::PASSIVE;
@@ -56,31 +57,19 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    float *out, *out_last;
-    thArg *in_arg, *in_latch, *inout_last;
-    thArg *out_arg;
-    unsigned int i;
-    float sample;
+    thArg *inout_last = mod->getArg(node, args[INOUT_LAST]);
+    thkLatch k;
 
-    inout_last = mod->getArg(node, args[INOUT_LAST]);
-    sample = (*inout_last)[0];
-    out_last = inout_last->allocate(1);
+    k.held = (*inout_last)[0];
 
-    in_arg = mod->getArg(node, args[IN_ARG]);
-    in_latch = mod->getArg(node, args[IN_LATCH]);
+    float *out_last = inout_last->allocate(1);
+    thArg *in_arg = mod->getArg(node, args[IN_ARG]);
+    thArg *in_latch = mod->getArg(node, args[IN_LATCH]);
+    float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
 
-    out_arg = mod->getArg(node, args[OUT_ARG]);
-    out = out_arg->allocate(windowlen);
-
-    for(i = 0; i < windowlen; i++)
-    {
-        if((*in_latch)[i] > 0) {
-            sample = (*in_arg)[i];
-        }
-        out[i] = sample;
-    }
-
-    out_last[0] = sample;
+    for (unsigned int i = 0; i < windowlen; i++)
+        out[i] = k.tick((*in_arg)[i], (*in_latch)[i]);
+    out_last[0] = k.held;
 
     return 0;
 }
