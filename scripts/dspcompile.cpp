@@ -224,8 +224,15 @@ struct Compiler
                                     "follow a tempo a compiled voice isn't given";
                             return false;
                         }
-                        v = { "t" + std::to_string(times.size()), true };
-                        times.push_back(*f);
+                        /* One member an arg, however many reads reach it. */
+                        size_t t = 0;
+
+                        while (t < times.size() &&
+                               !(times[t].node == f->node && times[t].arg == f->arg))
+                            t++;
+                        if (t == times.size())
+                            times.push_back(*f);
+                        v = { "t" + std::to_string(t), true };
                         return true;
                     }
                 v = { literal(a->len() ? (*a)[0] : 0), true };
