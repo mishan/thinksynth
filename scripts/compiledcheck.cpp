@@ -207,22 +207,28 @@ play (const string &plugins, const Run &run, std::vector<uint64_t> &frames,
     return most < 0.05f ? "dark: the brightest pixel is " + std::to_string(most) : "";
 }
 
-/* Whether `dsp' on a fresh thSynth of `w' x `h' (0 x 0, none) got a
-   compiled graph, or `fx' as its effect did. */
-static bool
-compiledOn (const string &plugins, const string &dsp, int w, int h, const string &fx = "")
+/* How `dsp' on a fresh thSynth of `w' x `h' (0 x 0, none) runs, or `fx'
+   as its effect does: "compiled", "on its nodes" or "not at all", so that a
+   check of a fallback fails when what it edits stops loading. */
+static string
+ranAs (const string &plugins, const string &dsp, int w, int h, const string &fx = "")
 {
     thSynth synth(plugins, 1000, 1152000, 3);
 
     synth.setRaster(w, h);
     if (synth.loadTreeText("dsp", dsp, 0, MIDIVALMAX) == NULL)
-        return false;
-    if (fx.empty())
-        return synth.getChannel(0)->modnode()->compiled();
+        return "not at all";
 
-    thSynthTree *t = synth.loadEffectText("fx", fx, 0);
+    thSynthTree *t = fx.empty() ? synth.getChannel(0)->modnode()
+                                : synth.loadEffectText("fx", fx, 0);
 
-    return t != NULL && t->compiled();
+    return t == NULL ? "not at all" : t->compiled() ? "compiled" : "on its nodes";
+}
+
+static void
+expect (const string &name, const string &want, const string &got)
+{
+    report(name, got == want ? "" : "it ran " + got);
 }
 
 int
@@ -292,8 +298,8 @@ main (int argc, char **argv)
     }
 
     /* Nothing compiled yet: every frame on the nodes. */
-    report("rings.dsp runs on its nodes before anything is installed",
-           compiledOn(plugins, rings, 160, 120) ? "it compiled" : "");
+    expect("rings.dsp runs on its nodes before anything is installed", "on its nodes",
+           ranAs(plugins, rings, 160, 120));
     for (Run &r : runs)
     {
         unsigned long restarts = 0;
@@ -330,17 +336,15 @@ main (int argc, char **argv)
     }
 
     /* What falls back. */
-    report("rings.dsp compiles on a raster", compiledOn(plugins, rings, 160, 120) ? ""
-                                              : "it didn't");
-    report("rings.dsp with one number changed runs on its nodes",
-           compiledOn(plugins, edit(rings, "in1 = 0.5", "in1 = 0.6"), 160, 120)
-           ? "it compiled" : "");
-    report("rings.dsp runs on its nodes with no raster",
-           compiledOn(plugins, rings, 0, 0) ? "it compiled" : "");
-    report("palette.dsp compiles on a 3-channel instrument",
-           compiledOn(plugins, rings, 160, 120, palette) ? "" : "it didn't");
-    report("palette.dsp on a 1-channel instrument runs on its nodes",
-           compiledOn(plugins, edit(rings, "channels = 3;", "channels = 1;"), 160, 120, palette) ? "it compiled" : "");
+    expect("rings.dsp compiles on a raster", "compiled", ranAs(plugins, rings, 160, 120));
+    expect("rings.dsp with one number changed runs on its nodes", "on its nodes",
+           ranAs(plugins, edit(rings, "in1 = 0.5", "in1 = 0.6"), 160, 120));
+    expect("rings.dsp runs on its nodes with no raster", "on its nodes",
+           ranAs(plugins, rings, 0, 0));
+    expect("palette.dsp compiles on a 3-channel instrument", "compiled",
+           ranAs(plugins, rings, 160, 120, palette));
+    expect("palette.dsp on a 1-channel instrument runs on its nodes", "on its nodes",
+           ranAs(plugins, edit(rings, "channels = 3;", "channels = 1;"), 160, 120, palette));
     {
         thSynth synth(plugins, 1000, 1152000, 3);
 
