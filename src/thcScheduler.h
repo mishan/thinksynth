@@ -1671,6 +1671,16 @@ public:
        on from. Not a chain writing it, which is part of the piece. */
     void knobMoved (const thArg *knob, bool passing = true);
 
+    /* A hand has `knob': until it lets go, neither a section's `@k = v',
+       a chain's knob sink nor a seek's rewind moves it, so the piece
+       doesn't pull it from under the hand. Let go, it takes the value the
+       piece last asked for while it was held, as the piece's own write
+       would; asked for nothing, it stays where the hand left it. An edit
+       that changes the knob's declaration still sets it: that is a hand
+       on the text. */
+    void holdKnob (thArg *knob);
+    void letGoKnob (thArg *knob);
+
     /* A gesture on a stage's picture, into its instance now. */
     static void input (thcStage *s, const thcInputEvent &ev);
 
@@ -1819,6 +1829,13 @@ private:
     void applySectionKnobs (void);
     double knobSpanStart_ = -1;
     int    knobSpanSection_ = -1;
+
+    /* The knobs a hand holds, each with what the piece last asked of it
+       while held: NaN for nothing yet. */
+    std::map<thArg *, float> heldKnobs_;
+
+    /* False, keeping `v' for letGoKnob, where a hand holds `knob'. */
+    bool pieceSets (thArg *knob, float v);
 
     /* What the section covering `at' does to this chain: 1 where there
        are no sections, or where none of them names it. */

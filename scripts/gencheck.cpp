@@ -11236,6 +11236,176 @@ checkCompiledHost (const std::map<std::string, thcPlugin *> &plugins,
         fail("compiled host: a mix effect was refused without naming it: " + why);
 }
 
+/* A hand holding a knob: neither a section's `@k = v' nor a chain's knob
+ * sink moves it while it is held, and let go, it takes what the piece last
+ * asked for -- where the knob stands in the same piece played unheld. Let
+ * go before the piece asked for anything, it stays where the hand left
+ * it. */
+static void
+checkHeldKnobs (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth)
+{
+    const std::string head = "tempo 120;\n@s = 0.2;\n";
+    const std::string rest =
+        "section one 1 bars { @s = 0.3; };\n"
+        "section two 1 bars { @s = 0.9; };\n"
+        "section three 1 bars { @s = 0.6; };\n";
+    const std::string chain =
+        "chain w {\n"
+        "    stage s gen::steps { values = \"0 1\"; period = 1 beats;\n"
+        "        min = 0.1; max = 0.8; };\n"
+        "    sink { knob = @c; };\n"
+        "};\n";
+    const std::string piece = head + "@c = 0.2;\n" + rest + chain;
+    const float hand = 0.55f;
+    const int steps = 280;
+
+    /* The knob at each step, held from `from' to `to' (none for -1), and
+       sought back to the top at step 150 if `seek'. */
+    const auto play = [&](const char *name, int from, int to, bool seek,
+                          std::string &why)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::vector<float> at;
+
+        clearChannels(synth);
+        sched.setAuditionSynchronous(true);
+        if (!loader.loadText(piece, "held.gen", &sched))
+        {
+            why = "the piece did not load: " +
+                  (loader.errors().empty() ? "" : loader.errors()[0]);
+            return at;
+        }
+
+        thArg *k = sched.knob(name);
+
+        sched.start();
+        for (int step = 1; step <= steps; step++)
+        {
+            if (step == from)
+            {
+                sched.holdKnob(k);
+                k->setValue(hand);
+                sched.knobMoved(k, false);
+            }
+            if (step == to)
+                sched.letGoKnob(k);
+            if (seek && step == 150)
+                sched.seek(0);
+            sched.stepTransportAt(0.02, 1000000000 + (int64_t)step * 20000);
+            at.push_back((*k)[0]);
+        }
+        sched.stop();
+        return at;
+    };
+
+    static const struct { const char *knob, *writer; } KNOBS[] = {
+        { "s", "a section" }, { "c", "a chain's sink" },
+    };
+
+    for (const auto &t : KNOBS)
+    for (const bool seek : { false, true })
+    {
+        std::string why;
+        const std::vector<float> free = play(t.knob, -1, -1, seek, why);
+        const std::vector<float> held = play(t.knob, 50, 262, seek, why);
+        const std::vector<float> early = play(t.knob, 55, 58, false, why);
+        const std::string writer = std::string(t.writer) +
+                                   (seek ? ", sought back to the top," : "");
+
+        if (!why.empty())
+        {
+            fail("held knobs: " + why);
+            return;
+        }
+
+        int moved = -1;
+
+        for (int i = 49; i < 261 && moved < 0; i++)
+            if (held[i] != hand)
+                moved = i + 1;
+        if (moved >= 0)
+            fail("held knobs: " + writer + " moved @" + t.knob +
+                 " while a hand held it, at step " + std::to_string(moved) +
+                 ", to " + std::to_string(held[moved - 1]));
+        else if (std::count(free.begin() + 49, free.begin() + 261, free[49]) == 212)
+            fail("held knobs: " + writer + " never wrote @" + t.knob +
+                 ", so holding it proves nothing");
+        else if (held[261] != free[261])
+            fail(std::string("held knobs: let go, @") + t.knob + " is " +
+                 std::to_string(held[261]) + ", not " + std::to_string(free[261]) +
+                 ", what " + writer + " last asked for");
+        else if (early[57] != hand)
+            fail(std::string("held knobs: let go before ") + t.writer +
+                 " asked for anything, @" + t.knob + " is " +
+                 std::to_string(early[57]) + ", not where the hand left it");
+    }
+
+    /* An edit while the sink's knob is held, at step 100 once the sink has
+       asked for something: a changed declaration sets the knob, and a
+       knob the edit retires is held no longer, so letting go of it then
+       applies nothing. */
+    static const struct { const char *what; bool retire; } EDITS[] = {
+        { "an edit of @c's declaration", false },
+        { "an edit retiring @c", true },
+    };
+
+    for (const auto &e : EDITS)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::string why;
+
+        clearChannels(synth);
+        sched.setAuditionSynchronous(true);
+        if (!loader.loadText(piece, "held.gen", &sched))
+        {
+            fail("held knobs: the piece did not load");
+            return;
+        }
+
+        thArg *k = sched.knob("c");
+        float now = NAN;
+
+        sched.start();
+        for (int step = 1; step <= 100; step++)
+        {
+            if (step == 50)
+            {
+                sched.holdKnob(k);
+                k->setValue(hand);
+                sched.knobMoved(k, false);
+            }
+            sched.stepTransportAt(0.02, 1000000000 + (int64_t)step * 20000);
+        }
+
+        thcScheduler next(synth);
+        thcGenLoader edit(plugins);
+
+        sched.prepareEdit(next, {});
+        if (!edit.loadText(e.retire ? head + rest : head + "@c = 0.4;\n" +
+                                                    rest + chain,
+                           "held.gen", &next) ||
+            !sched.adopt(next, thcScheduler::EditPlan(), why))
+            fail(std::string("held knobs: ") + e.what + " did not apply " + why);
+        else
+        {
+            if (e.retire)
+                sched.letGoKnob(k);
+            now = (*k)[0];
+        }
+        sched.stop();
+
+        if (e.retire && now != hand)
+            fail(std::string("held knobs: let go after ") + e.what + ", it is " +
+                 std::to_string(now) + ", not where the hand left it");
+        else if (!e.retire && now != 0.4f)
+            fail(std::string("held knobs: ") + e.what + " left it at " +
+                 std::to_string(now) + ", not the text's 0.4");
+    }
+}
+
 /* setNoteTap: the tap hears each note the piece sounds and each end,
  * whichever way the note ended -- its duration up, its key let go, a stop
  * with the note still held, its instrument swapped out from under it --
@@ -16938,6 +17108,7 @@ main (int argc, char *argv[])
         checkMidiOut(plugins, &synth);
         checkNoteTap(plugins, &synth);
         checkCompiledHost(plugins, &synth);
+        checkHeldKnobs(plugins, &synth);
         checkRetriggerAudio(plugins, &synth);
         checkSeedReachesNoise(plugins, &synth);
         checkFloor(plugins, &synth);
