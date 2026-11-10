@@ -7,8 +7,9 @@ patch compiled to a program inlines it. What plays live and what a
 compiled patch plays are then the same arithmetic.
 
 `osc::fmop`, `osc::simple`, `osc::blep`, `osc::noise`, `env::ad`,
-`env::adsr`, `filt::svf`, `dist::saturate`, `mixer::pan`, `math::sin`
-and `misc::midi2freq` have kernels, and the pattern is theirs:
+`env::adsr`, `filt::svf`, `dist::saturate`, `mixer::pan`, `math::sin`,
+`misc::midi2freq`, `misc::latch`, `delay::allpass` and `delay::echo`
+have kernels, and the pattern is theirs:
 
 - **`plugins/<category>/<name>.h`** holds the kernel, `struct thk<Name>`.
   It includes `libthink/thKernel.h` and nothing else of the engine's: no
@@ -27,6 +28,10 @@ and `misc::midi2freq` have kernels, and the pattern is theirs:
 - **A kernel that keeps nothing is a function**, `thk<Name>(...)`, as
   `thkMidi2freq` is. A plugin with two modes has a kernel for each, as
   `env::adsr` has `thkAdsrFree` and `thkAdsrGated`.
+- **A delay's line is the caller's**: `thkAllpass` and `thkEcho` keep
+  only their position and filters, and take the line and its length,
+  zeroed by the caller when the length changes. A firmware's memory is
+  its own to find, and the plugin keeps resizing its state arg.
 - **Float throughout.** The FPUs of the small chips a compiled patch is
   for are single precision; a `double` there is a call into software,
   ten to twenty times slower. A plugin that kept a sum in float on

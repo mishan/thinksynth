@@ -30,9 +30,12 @@
 #include <string>
 
 #include "thKernel.h"
+#include "../plugins/delay/allpass.h"
+#include "../plugins/delay/echo.h"
 #include "../plugins/env/ad.h"
 #include "../plugins/env/adsr.h"
 #include "../plugins/math/sin.h"
+#include "../plugins/misc/latch.h"
 #include "../plugins/misc/midi2freq.h"
 #include "../plugins/mixer/pan.h"
 #include "../plugins/dice.h"
@@ -635,6 +638,96 @@ main ()
         report(sh.name, why[0] ? 1 : 0, 0);
         if (why[0])
             printf("  %s\n", why);
+    }
+
+    /* An impulse through the allpass: -g at once, then (1 - g^2) g^(k-1)
+       at each k delays; a gain past the bound is the bound's. */
+    {
+        static const float GAIN[] = { 0, 0.5f, -0.7f, 0.999f, 2 };
+        const unsigned int D = 7;
+
+        worst = 0;
+        for (float gain : GAIN)
+        {
+            const double g = std::min(std::max((double)gain, -0.999), 0.999);
+            float line[D] = {};
+            thkAllpass ap;
+
+            for (unsigned int n = 0; n < 40 * D; n++)
+            {
+                const double want = n == 0 ? -g : n % D ? 0
+                                  : (1 - g * g) * std::pow(g, n / D - 1);
+
+                worst = std::max(worst, std::fabs(ap.tick(line, D, n == 0, gain) - want));
+            }
+        }
+        report("delay::allpass's impulse response", worst, 1e-6);
+    }
+
+    /* The echo's ring, its repeats filtered and driven, against the same
+       loop in double: an impulse, then noise. */
+    {
+        struct Loop { float feedback, dry, tone, low, drive, boost; };
+        static const Loop LOOPS[] = {
+            { 0.6f, 0, 0, 0, 0, 0 }, { 0.6f, 0.3f, 0, 0, 0, 0 },
+            { 0.8f, 0, 3000, 200, 0, 0 }, { 0.9f, 0.5f, 5000, 0, 2, 0.4f },
+        };
+        const unsigned int S = 37;
+        const double rate = 44100, pi = 3.14159265358979323846;
+        uint32_t seed = 1;
+
+        worst = 0;
+        for (const Loop &l : LOOPS)
+        {
+            float ring[S] = {};
+            double ref[S] = {}, lp = 0, hpIn = 0, hpOut = 0;
+            thkEcho e;
+
+            for (unsigned int n = 0; n < 50 * S; n++)
+            {
+                seed = seed * 1664525u + 1013904223u;
+
+                const float in = n == 0 ? 1 : n < 10 * S ? 0 : (float)(seed >> 8) / 16777216 - 0.5f;
+                const unsigned int at = n % S;
+                const double delay = ref[at];
+                double back = delay;
+
+                if (l.tone > 0)
+                    back = lp += (1 - std::exp(-2 * pi * l.tone / rate)) * (back - lp);
+                if (l.low > 0)
+                {
+                    hpOut = std::exp(-2 * pi * l.low / rate) * (hpOut + back - hpIn);
+                    hpIn = back;
+                    back = hpOut;
+                }
+                if (l.boost > 0)
+                    back *= 1 + l.boost;
+
+                const double bend = l.boost > 0 ? std::max((double)l.drive, 1.0) : l.drive;
+
+                if (bend > 0)
+                    back = std::tanh(bend * back) / bend;
+                ref[at] = l.feedback * back + (1 - l.feedback) * in;
+
+                const double want = (1 - l.dry) * delay + l.dry * in;
+                const float got = e.tick(ring, S, in, (float)S, l.feedback, l.dry, l.tone,
+                                         l.low, l.drive, l.boost, (float)rate);
+
+                worst = std::max(worst, std::fabs(got - want));
+            }
+        }
+        report("delay::echo's ring, filtered and driven", worst, 1e-5);
+    }
+
+    /* misc::latch: what came in while the latch was up, held after. */
+    {
+        static const float WANT[] = { 0, 0, 0, 3, 4, 4, 4, 4, 4, 4, 10, 10 };
+        thkLatch l;
+        int wrong = 0;
+
+        for (int n = 0; n < 12; n++)
+            wrong += l.tick((float)n, n == 3 || n == 4 || n == 10 ? 1 : 0) != WANT[n];
+        report("misc::latch takes while its latch is up, and holds", wrong, 0);
     }
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");

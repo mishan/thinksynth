@@ -64,6 +64,7 @@
 #include <string.h>
 
 #include "think.h"
+#include "allpass.h"
 
 enum {IN_ARG, IN_DELAY, IN_GAIN, OUT_ARG, INOUT_BUFFER, INOUT_BUFPOS};
 std::atomic<int> args[INOUT_BUFPOS + 1];
@@ -75,7 +76,6 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
    and a ceiling on the line itself: `delay' sizes an allocation, so a
    number nobody meant is a gigabyte rather than a long echo. A second of
    it is a hundred times the longest allpass a reverb ever wants. */
-#define ALLPASS_GAIN_MAX 0.999f
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -123,72 +123,30 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
-    float *out;
-    float *buffer, *bufpos;
-    thArg *in_arg, *in_delay, *in_gain;
-    thArg *out_arg;
-    thArg *inout_buffer, *inout_bufpos;
-    unsigned int i;
+    thArg *in_arg = mod->getArg(node, args[IN_ARG]);
+    thArg *in_delay = mod->getArg(node, args[IN_DELAY]);
+    thArg *in_gain = mod->getArg(node, args[IN_GAIN]);
+    thArg *inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+    thArg *inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
+    float *bufpos = inout_bufpos->allocate(1);
+    float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
+    float *buffer = inout_buffer->values();
+    thkAllpass k;
 
-    in_arg = mod->getArg(node, args[IN_ARG]);
-    in_delay = mod->getArg(node, args[IN_DELAY]);
-    in_gain = mod->getArg(node, args[IN_GAIN]);
-
-    inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-    inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
-    bufpos = inout_bufpos->allocate(1);
-
-    out_arg = mod->getArg(node, args[OUT_ARG]);
-    out = out_arg->allocate(windowlen);
-    buffer = inout_buffer->values();
-
-    for (i = 0; i < windowlen; i++)
+    k.pos = *bufpos;
+    for (unsigned int i = 0; i < windowlen; i++)
     {
-        /* A line of no samples is not a delay, and one longer than a
-           second is a number nobody wrote on purpose. Both land on the
-           nearest thing that is: no line at all, and the input. */
-        const float want = thClampArg((*in_delay)[i], 0, (float)samples);
-        const unsigned int len = (unsigned int)want;
-        const float in = (*in_arg)[i];
-        const float gain = thClampMag((*in_gain)[i], ALLPASS_GAIN_MAX);
-        unsigned int at;
-        float delayed, v;
-
-        if (len == 0)
-        {
-            out[i] = in;
-            continue;
-        }
+        const unsigned int len = thkAllpassLen((*in_delay)[i], (float)samples);
 
         /* A changed length starts a fresh, zeroed line. */
-        if (len != inout_buffer->len())
+        if (len != 0 && len != inout_buffer->len())
         {
             buffer = inout_buffer->resize(len, samples);
             memset(buffer, 0, len * sizeof(float));
         }
-
-        at = (unsigned int)*bufpos;
-
-        /* The length can have changed under it -- `delay' is an arg like
-           any other -- so the position is bounded here rather than trusted
-           from the last window. */
-        if (at >= len)
-            at = 0;
-
-        delayed = buffer[at];
-        v = in + gain * delayed;
-
-        /* One non-finite sample would otherwise be fed back for ever:
-           the line is the state, so what goes into it has to be a number
-           that can come out again. */
-        if (!thIsFinite(v))
-            v = 0;
-
-        buffer[at] = v;
-        out[i] = delayed - gain * v;
-
-        *bufpos = (float)((at + 1) % len);
+        out[i] = k.tick(buffer, len, (*in_arg)[i], (*in_gain)[i]);
     }
+    *bufpos = k.pos;
 
     return 0;
 }
