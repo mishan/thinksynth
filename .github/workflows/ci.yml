@@ -250,11 +250,13 @@ jobs:
     steps:
       # The container's image fetches from archive.ubuntu.com, which times
       # out on GitHub's runners now and then; their own mirror, which the
-      # runner's host uses, answers. apt retries a failed fetch too.
+      # runner's host uses, answers. Security updates stay on
+      # security.ubuntu.com: some of the mirror's servers list a new one
+      # before they hold its files. apt retries a failed fetch too.
       - name: Install dependencies
         timeout-minutes: 10
         run: |
-          sed -Ei 's#http://(archive|security)\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
+          sed -Ei 's#http://archive\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
             /etc/apt/sources.list.d/ubuntu.sources
           echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80retries
           apt-get update
