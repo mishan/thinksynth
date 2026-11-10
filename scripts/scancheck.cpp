@@ -24,8 +24,9 @@
  * raster of some size, in windows of some size, and checks every sample
  * against the sample's own index n counted from the synth's start: x is
  * (n mod w) / w, y is (n / w mod h) / h, hsync and vsync mark a line's and
- * a frame's first pixel, frame is n / (w h), t is n / rate, and width and
- * size are w and w h, what a frame-long delay is set by. A note
+ * a frame's first pixel, frame is n / (w h), t is the frame's first
+ * pixel's n / rate, so a frame is one moment, and width and size are w and
+ * w h, what a frame-long delay is set by. A note
  * struck late reads where the synth is, not where the note began, and a
  * synth skipped ahead carries on from where the skip put it.
  */
@@ -127,7 +128,7 @@ main (int argc, char *argv[])
                     raster && n % r.w == 0 ? 1.0 : 0.0,
                     raster && n % (r.w * r.h) == 0 ? 1.0 : 0.0,
                     raster ? (double)(n / (r.w * r.h)) : 0,
-                    raster ? (double)n / RATE : 0,
+                    raster ? (double)(n - n % (r.w * r.h)) / RATE : 0,
                     (double)r.w,
                     (double)r.w * r.h,
                 };

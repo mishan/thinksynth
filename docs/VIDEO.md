@@ -65,7 +65,7 @@ A video patch is a `.dsp` like any other. What is different:
 | `x`, `y` | 0 to 1, across from the left and down from the top |
 | `hsync`, `vsync` | 1 on a line's and a frame's first pixel |
 | `frame` | which frame, from 0 |
-| `t` | seconds since the start |
+| `t` | seconds since the start, at the frame's first pixel: one moment a frame |
 | `width`, `size` | a line's pixels and a frame's: what a delay a frame long is set by |
 
 Two dimensions are an expression away: a ring is a `math::sin` of
@@ -88,8 +88,8 @@ Fast full-screen stripes are hard to watch; rings and moire are kinder.
   `ms` or `s`, which are converted at the synth's own rate;
 - the slowest frequency a node can hold is the rate / 2^24, 0.07 Hz at
   160x120@60 and 0.27 Hz at 320x240@60;
-- `misc::scan`'s `t` is a float and coarsens as it grows: steps of
-  1/4096 s from about half an hour in.
+- `misc::scan`'s `t` moves a frame at a time, and as a float it rounds
+  no coarser than a 60th of a second until about 36 hours in.
 
 ## What the music says
 
