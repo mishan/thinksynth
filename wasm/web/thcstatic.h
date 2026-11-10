@@ -69,6 +69,8 @@
    included at file scope for the same reason as everything above it: a header
    first seen inside the plugin's namespace would declare cairo's functions
    inside it. */
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #endif /* TH_WEB_STATIC_COMPOSER_H */

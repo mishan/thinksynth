@@ -42,6 +42,15 @@ to be committed. The BOX, an esp32s3, is the default target. With ESP-IDF 6
     cd esp32/box
     idf.py -p /dev/ttyACM0 flash monitor
 
+The firmware carries the `.gen` composer too (`main/composer.cmake`):
+libthink, the scheduler, the composer plugins and `math/`'s, compiled in
+as the browser's build has them, with sigc++ 3.6.0 fetched and the lexer
+written by flex as it configures, which the first time fetches from
+GitHub. With it linked the app is past the default 1 MB partition, so
+`partitions.csv` gives it 6 MB, and libthink needs C++ exceptions: an
+`sdkconfig` written without either keeps the defaults, and is to be
+deleted.
+
 `generate.sh` runs again whenever a patch changes, and lists the
 patches. The monitor's lines say how much of a block the patch playing
 takes, and each patch's most and how many blocks ran late. A finger counts as
