@@ -15,8 +15,8 @@
  * Public License along with this program; if not, write to the
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-#ifndef TH_KERNEL_ECHO_H
-#define TH_KERNEL_ECHO_H 1
+#ifndef TH_KERNEL_DELAY_ECHO_H
+#define TH_KERNEL_DELAY_ECHO_H 1
 
 /* delay::echo's kernel (libthink/thKernel.h). The ring is the caller's,
  * as its memory is a firmware's to find: thkEchoRing() long, and zeroed
@@ -46,8 +46,9 @@ struct thkEcho
     float pos = 0;
     float lp = 0, hpIn = 0, hpOut = 0;
 
-    float tick (float *ring, unsigned int len, float in, float behind, float feedback,
-                float dry, float tone, float low, float drive, float boost, float rate)
+    float tick (float *ring, unsigned int len, float in, float behind,
+                float feedback, float dry, float tone, float low, float drive,
+                float boost, float rate)
     {
         if (len == 0)
             return in;
@@ -86,7 +87,8 @@ struct thkEcho
 
         if (tone > 0 && thkFinite(tone))
         {
-            const float k = 1 - expf(-2 * (float)M_PI * fminf(tone, rate * 0.45f) / rate);
+            const float k = 1 - expf(-2 * (float)M_PI *
+                                     fminf(tone, rate * 0.45f) / rate);
 
             lp += k * (back - lp);
             back = lp;
@@ -94,7 +96,8 @@ struct thkEcho
 
         if (low > 0 && thkFinite(low))
         {
-            const float r = expf(-2 * (float)M_PI * fminf(low, rate * 0.45f) / rate);
+            const float r = expf(-2 * (float)M_PI *
+                                 fminf(low, rate * 0.45f) / rate);
 
             hpOut = r * (hpOut + back - hpIn);
             hpIn = back;
@@ -125,4 +128,4 @@ struct thkEcho
     }
 };
 
-#endif /* TH_KERNEL_ECHO_H */
+#endif /* TH_KERNEL_DELAY_ECHO_H */

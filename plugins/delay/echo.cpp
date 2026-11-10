@@ -51,10 +51,6 @@ enum { IN_ARG,IN_SIZE,IN_DELAY,IN_FEEDBACK,IN_DRY,INOUT_BUFFER,INOUT_BUFPOS,OUT_
 
 std::atomic<int> args[INOUT_LOOP + 1];
 
-static unsigned int ringOf (float size, unsigned int samples)
-{
-    return thkEchoRing(size, (float)samples);
-}
 
 /* A voice about to start: its ring, sized here and not in its first
    window. Only a `size' that is a number or a control has a value yet; one
@@ -68,7 +64,7 @@ void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
     if (voice && raw != NULL && raw->type() != thArg::ARG_POINTER &&
         in_size != NULL)
         mod->getArg(node, args[INOUT_BUFFER])->reserve(
-            ringOf((*in_size)[0], samples));
+            thkEchoRing((*in_size)[0], (float)samples));
 }
 
 int module_init (thPlugin *plugin)
@@ -173,40 +169,39 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_drive = mod->getArg(node, args[IN_DRIVE]);
     thArg *in_boost = mod->getArg(node, args[IN_BOOST]);
     thArg *inout_loop = mod->getArg(node, args[INOUT_LOOP]);
-    float lp = (*inout_loop)[0], hpIn = (*inout_loop)[1];
-    float hpOut = (*inout_loop)[2];
+    thkEcho k;
+
+    k.lp = (*inout_loop)[0];
+    k.hpIn = (*inout_loop)[1];
+    k.hpOut = (*inout_loop)[2];
+
     float *loop = inout_loop->allocate(3);
 
     buffer = inout_buffer->values();
 
-    thkEcho k;
-
     k.pos = *bufpos;
-    k.lp = lp;
-    k.hpIn = hpIn;
-    k.hpOut = hpOut;
     for (unsigned int i = 0; i < windowlen; i++)
     {
-        const unsigned int size = ringOf((*in_size)[i], samples);
+        const unsigned int size = thkEchoRing((*in_size)[i],
+                                              (float)samples);
 
         /* A changed size starts a fresh, zeroed ring. */
         if (size != inout_buffer->len())
         {
-            buffer = inout_buffer->resize(size, ringOf(INFINITY, samples));
+            buffer = inout_buffer->resize(
+                size, thkEchoRing(INFINITY, (float)samples));
             memset(buffer, 0, size * sizeof(float));
         }
-        out[i] = k.tick(buffer, inout_buffer->len(), (*in_arg)[i], (*in_delay)[i],
-                        (*in_feedback)[i], (*in_dry)[i], (*in_tone)[i], (*in_low)[i],
-                        (*in_drive)[i], (*in_boost)[i], (float)samples);
+        out[i] = k.tick(buffer, inout_buffer->len(), (*in_arg)[i],
+                        (*in_delay)[i], (*in_feedback)[i], (*in_dry)[i],
+                        (*in_tone)[i], (*in_low)[i], (*in_drive)[i],
+                        (*in_boost)[i], (float)samples);
     }
     *bufpos = k.pos;
-    lp = k.lp;
-    hpIn = k.hpIn;
-    hpOut = k.hpOut;
 
-    loop[0] = lp;
-    loop[1] = hpIn;
-    loop[2] = hpOut;
+    loop[0] = k.lp;
+    loop[1] = k.hpIn;
+    loop[2] = k.hpOut;
 
     return 0;
 }

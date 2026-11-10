@@ -719,6 +719,57 @@ main ()
         report("delay::echo's ring, filtered and driven", worst, 1e-5);
     }
 
+    /* Where the echo reads: a whole delay whole rings longer or shorter
+       reads where it does, and a NaN as none; no ring passes the input
+       through. And how long a ring it asks for. */
+    {
+        const unsigned int S = 37;
+        static const float BEHIND[][2] = {
+            { 5, 5 + 1000 * 37 }, { -3, -3 - 1000 * 37 }, { 0, NAN },
+        };
+        int wrong = 0;
+
+        for (const auto &b : BEHIND)
+        {
+            float ra[S] = {}, rb[S] = {};
+            thkEcho ea, eb;
+            uint32_t seed = 7;
+
+            for (unsigned int n = 0; n < 10 * S; n++)
+            {
+                seed = seed * 1664525u + 1013904223u;
+
+                const float in = (float)(seed >> 8) / 16777216 - 0.5f;
+
+                wrong += ea.tick(ra, S, in, b[0], 0.5f, 0, 0, 0, 0, 0, 44100) !=
+                         eb.tick(rb, S, in, b[1], 0.5f, 0, 0, 0, 0, 0, 44100);
+            }
+        }
+
+        thkEcho none;
+
+        wrong += none.tick(NULL, 0, 0.25f, 3, 0.5f, 0, 0, 0, 0, 0, 44100) !=
+                 0.25f;
+        wrong += thkEchoRing(0, 100) != 0 || thkEchoRing(-5, 100) != 0 ||
+                 thkEchoRing(NAN, 100) != 0 || thkEchoRing(10.7f, 100) != 10 ||
+                 thkEchoRing(1e12f, 100) != 6000;
+        report("delay::echo reads whole rings on alike, a NaN as none",
+               wrong, 0);
+    }
+
+    /* A line shorter than where the allpass was is read from its start. */
+    {
+        float line[3] = { 1, 2, 3 };
+        thkAllpass ap;
+
+        ap.pos = 5;
+
+        const float got = ap.tick(line, 3, 0, 0);
+
+        report("delay::allpass starts a shortened line from its start",
+               got != 1 || ap.pos != 1, 0);
+    }
+
     /* misc::latch: what came in while the latch was up, held after. */
     {
         static const float WANT[] = { 0, 0, 0, 3, 4, 4, 4, 4, 4, 4, 10, 10 };

@@ -72,11 +72,6 @@ std::atomic<int> args[INOUT_BUFPOS + 1];
 static const char desc[] = "Allpass delay (Schroeder)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-/* Just inside the unit circle, which is where an allpass stays stable,
-   and a ceiling on the line itself: `delay' sizes an allocation, so a
-   number nobody meant is a gigabyte rather than a long echo. A second of
-   it is a hundred times the longest allpass a reverb ever wants. */
-
 void module_cleanup (thPlugin *plugin)
 {
 }

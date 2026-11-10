@@ -15,8 +15,8 @@
  * Public License along with this program; if not, write to the
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-#ifndef TH_KERNEL_LATCH_H
-#define TH_KERNEL_LATCH_H 1
+#ifndef TH_KERNEL_MISC_LATCH_H
+#define TH_KERNEL_MISC_LATCH_H 1
 
 /* misc::latch's kernel (libthink/thKernel.h): sample and hold. */
 
@@ -35,4 +35,4 @@ struct thkLatch
     }
 };
 
-#endif /* TH_KERNEL_LATCH_H */
+#endif /* TH_KERNEL_MISC_LATCH_H */
