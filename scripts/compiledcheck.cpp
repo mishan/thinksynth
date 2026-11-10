@@ -34,9 +34,10 @@
  *
  * The same for random graphs (dsprandom.cpp), at 80x60.
  *
- * The instruments in dsp/ that compile, each a chord, a release and more
- * notes than its polyphony on an audio synth at 48 kHz: the same samples
- * compiled as on the nodes, and no window after on the nodes.
+ * The instruments in dsp/ that compile, each a chord, a release, a bend,
+ * an aux, the pedal and a run of notes on an audio synth at 48 kHz: the
+ * same samples compiled as on the nodes, no window after on the nodes,
+ * and none of them silent.
  *
  * And which graphs fall back to their nodes: an edited one, one on a synth
  * with no raster, an effect narrower than it was compiled, one changed in
@@ -45,6 +46,7 @@
 
 #include "config.h"
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -226,7 +228,7 @@ play (const string &plugins, const Run &run, std::vector<uint64_t> &frames,
 static const int AUDIO_WINDOW = 256, AUDIO_WINDOWS = 400;
 
 /* `file' played on an audio synth, each window's hash into `windows', or a
-   sentence. */
+   sentence: one if it never sounded. */
 static string
 playAudio (const string &plugins, const string &file, std::vector<uint64_t> &windows)
 {
@@ -234,25 +236,42 @@ playAudio (const string &plugins, const string &file, std::vector<uint64_t> &win
 
     if (synth.loadTree(file.c_str(), 0, MIDIVALMAX) == NULL)
         return file + " didn't load";
+    float most = 0;
+
     windows.clear();
     for (int w = 0; w < AUDIO_WINDOWS; w++)
     {
         if (w == 0)
             for (float note : { 60, 64, 67 })
                 synth.addNote(0, note, 100);
+        if (w == 20)
+        {
+            synth.bendNote(0, 60, 2);
+            synth.setNoteAux(0, 67, 0, 0.8f);
+        }
+        if (w == 30)
+            synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 127);
         if (w == 40)
             synth.delNote(0, 64);
+        if (w == 60)
+            synth.handleMidiController(0, TH_MIDI_CC_SUSTAIN, 0);
+        /* A note every ten windows, each let go five on, below the chord. */
         if (w >= 80 && w < 280 && w % 10 == 0)
-            synth.addNote(0, 48 + w / 10 % 24, 90);
-        if (w >= 90 && w < 290 && w % 10 == 5)
-            synth.delNote(0, 48 + (w - 15) / 10 % 24);
+            synth.addNote(0, 36 + w / 10 % 12, 90);
+        if (w >= 80 && w < 280 && w % 10 == 5)
+            synth.delNote(0, 36 + w / 10 % 12);
         if (w == 300)
             for (float note : { 60, 67 })
                 synth.delNote(0, note);
         synth.process();
-        windows.push_back(frameHash(synth.getOutput(), thOutputSamples(2, AUDIO_WINDOW)));
+
+        const float *out = synth.getOutput();
+
+        for (size_t i = 0; i < thOutputSamples(2, AUDIO_WINDOW); i++)
+            most = std::max(most, fabsf(out[i]));
+        windows.push_back(frameHash(out, thOutputSamples(2, AUDIO_WINDOW)));
     }
-    return "";
+    return most < 1e-3f ? "silent: the loudest sample is " + std::to_string(most) : "";
 }
 
 /* How `dsp' on a fresh thSynth of `w' x `h' (0 x 0, none) runs, or `fx'
@@ -387,11 +406,14 @@ main (int argc, char **argv)
     {
         std::vector<uint64_t> windows;
         const unsigned long nodes = thSynthTree::windowsRun(false);
+        const unsigned long compiled = thSynthTree::windowsRun(true);
         string why = playAudio(plugins, dsp + INSTRUMENTS[i] + ".dsp", windows);
 
         if (why.empty() && thSynthTree::windowsRun(false) != nodes)
             why = std::to_string(thSynthTree::windowsRun(false) - nodes) +
                   " windows ran on the nodes";
+        if (why.empty() && thSynthTree::windowsRun(true) == compiled)
+            why = "no window ran compiled";
         for (size_t w = 0; why.empty() && w < windows.size(); w++)
             if (w >= sounded[i].size() || windows[w] != sounded[i][w])
                 why = "window " + std::to_string(w) + " differs";
