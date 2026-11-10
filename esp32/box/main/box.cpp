@@ -47,15 +47,13 @@
 #include "thgMarbles.h"
 #include "thhMapper.h"
 #include "patches.h"
+#include "pool.h"
 
-#define VOICES 8
-#define BLOCK 128
 #define GAIN 0.25f
 /* Two blocks in a row over this much of their time shed a voice, and a
    new note where the blocks run near it takes a sounding voice rather
    than a free one. */
 #define SHED_AT 0.75f
-#define BOX_RATE 32000
 /* How long the screen must read no finger for one to have lifted. */
 #define TOUCH_LIFTED_US 40000
 /* How long the side button must read the same to have moved: it
@@ -69,224 +67,6 @@
 static volatile float load = 0, loadAvg = 0, loadAdded = 0;
 static volatile int playing = 0;
 static volatile int voicesNow = 0;
-
-/* A patch, whichever compiled voice it is: its voices, its knobs, and
-   what a mapper's actions do to them. */
-struct Patch
-{
-    const char *name;
-    float gain;                 /* to peak as loud as the others */
-    /* What a voice of it costs of a block, as last seen: a voice starting
-       takes its cost on one of the two cores, so half of it on the block.
-       Its most of a block while playing, and the blocks it ran late. */
-    float perVoice = 0, peak = 0;
-    int late = 0;
-    /* Each half's time rendering the last block, and its voices. */
-    int64_t spent[2] = { 0, 0 };
-    int rendered[2] = { 0, 0 };
-
-    virtual ~Patch () {}
-    virtual thcHidBlock profile () const = 0;
-    virtual thcHidBlock marbles () const = 0;
-    virtual thcHidBlock life () const = 0;
-    /* owner: whose the note is, a finger's, a ball's or Life's, so a
-       NOTE_OFF or a bend reaches only the voice its own NOTE_ON started. */
-    virtual void play (const thhAction &a, int owner) = 0;
-    /* Every sounding voice of one half, even or odd, into l and r, added:
-       the two halves on the two cores at once. */
-    virtual void render (float *l, float *r, int half) = 0;
-    /* The voice shed would take, as a rank, lower first; INT64_MAX for
-       none. */
-    virtual int64_t oldest () const = 0;
-    /* A voice faded out over the next block and freed, when the blocks
-       run late: a released one before a held one, the oldest first. */
-    virtual void shed () = 0;
-    virtual int sounding () const = 0;
-
-    void account ()
-    {
-        const int n = rendered[0] + rendered[1];
-
-        if (n > 0)
-            perVoice += 0.1f * ((spent[0] + spent[1]) / (1e6f * BLOCK / BOX_RATE) / n -
-                                perVoice);
-    }
-};
-
-template <class V>
-struct PatchOf : Patch
-{
-    V voice[VOICES];
-    typename V::Knobs knobs;
-    struct
-    {
-        int     note = -1, owner = -1;  /* as played, and whose */
-        bool    held = false, sounding = false, fading = false;
-        /* Taken over: the note to start as the last fades out. */
-        bool    next = false;
-        int     vel = 0;
-        int64_t since = 0;          /* when it started, to steal the oldest */
-    } slot[VOICES];
-
-    PatchOf (const char *n, float g) { name = n; gain = g; }
-
-    thcHidBlock profile () const override { return V::profile_box(); }
-    thcHidBlock marbles () const override { return V::profile_marbles(); }
-    thcHidBlock life () const override { return V::profile_life(); }
-
-    /* Released before held, the oldest first. */
-    int64_t rank (int i) const
-    {
-        return slot[i].since + (slot[i].held ? (int64_t)1 << 62 : 0);
-    }
-
-    int pick () const
-    {
-        int v = -1;
-
-        for (int i = 0; i < VOICES; i++)
-            if (slot[i].sounding && !slot[i].fading && (v < 0 || rank(i) < rank(v)))
-                v = i;
-        return v;
-    }
-
-    void start (int v)
-    {
-        voice[v] = V();
-        voice[v].start(slot[v].note, slot[v].vel, (uint32_t)esp_timer_get_time());
-        slot[v].sounding = true;
-        slot[v].fading = slot[v].next = false;
-    }
-
-    void play (const thhAction &a, int owner) override
-    {
-        int v = -1;
-
-        switch (a.kind)
-        {
-        case thhAction::NOTE_ON:
-            /* A free voice, on the core with fewer sounding -- unless one
-               more voice would take the blocks near their time. */
-            if (loadAvg + loadAdded + perVoice / 2 <= SHED_AT)
-            {
-                int busy[2] = { 0, 0 };
-
-                for (int i = 0; i < VOICES; i++)
-                    busy[i % 2] += slot[i].sounding;
-                for (int i = 0; i < VOICES && v < 0; i++)
-                    if (!slot[i].sounding && i % 2 == (busy[1] < busy[0]))
-                        v = i;
-                for (int i = 0; i < VOICES && v < 0; i++)
-                    if (!slot[i].sounding)
-                        v = i;
-            }
-            /* Else a sounding one, faded out as a shed one is and the
-               note started after it: one fading already, or the one shed
-               would take. */
-            for (int i = 0; i < VOICES && v < 0; i++)
-                if (slot[i].sounding && slot[i].fading && !slot[i].next)
-                    v = i;
-            if (v < 0)
-                v = pick();
-            if (v < 0)
-                v = 0;              /* each taken over already */
-            slot[v].note = a.note;
-            slot[v].owner = owner;
-            slot[v].vel = a.vel;
-            slot[v].held = true;
-            slot[v].since = esp_timer_get_time();
-            if (slot[v].sounding)
-                slot[v].fading = slot[v].next = true;
-            else
-            {
-                loadAdded += perVoice / 2;
-                start(v);
-            }
-            break;
-        case thhAction::NOTE_OFF:
-            for (int i = 0; i < VOICES; i++)
-                if (slot[i].held && slot[i].note == a.note && slot[i].owner == owner)
-                {
-                    /* Not yet started, it never is. */
-                    if (slot[i].next)
-                        slot[i].next = false;
-                    else
-                        voice[i].release();
-                    slot[i].held = false;
-                }
-            break;
-        case thhAction::NOTE_BEND:
-            for (int i = 0; i < VOICES; i++)
-                if (slot[i].held && slot[i].note == a.note && slot[i].owner == owner)
-                    voice[i].note = a.note + (float)a.t;
-            break;
-        case thhAction::VALUE:
-        {
-            float lo = 0, hi = 1;
-
-            if (V::Knobs::range(a.arg.c_str(), lo, hi))
-                knobs.set(a.arg.c_str(), (float)thhActionValue(a, lo, hi));
-            break;
-        }
-        default:
-            break;
-        }
-    }
-
-    void render (float *l, float *r, int half) override
-    {
-        float vl[BLOCK], vr[BLOCK];
-        float *outs[2] = { vl, vr };
-        const int64_t t = esp_timer_get_time();
-
-        rendered[half] = 0;
-        for (int v = half; v < VOICES; v += 2)
-            if (slot[v].sounding)
-            {
-                memset(vr, 0, sizeof(vr));
-                slot[v].sounding = voice[v].render(knobs, outs, BLOCK);
-                rendered[half]++;
-                for (int i = 0; i < BLOCK; i++)
-                {
-                    /* A shed voice down to nothing over the block. */
-                    const float g = gain * (slot[v].fading ? 1 - (i + 1) / (float)BLOCK : 1);
-
-                    l[i] += g * vl[i];
-                    /* A mono patch is both sides. */
-                    r[i] += g * (V::channels > 1 ? vr[i] : vl[i]);
-                }
-                if (slot[v].fading && slot[v].next)
-                    start(v);
-                else if (slot[v].fading)
-                    slot[v].sounding = slot[v].held = slot[v].fading = false;
-            }
-        spent[half] = esp_timer_get_time() - t;
-    }
-
-    int sounding () const override
-    {
-        int n = 0;
-
-        for (int i = 0; i < VOICES; i++)
-            n += slot[i].sounding;
-        return n;
-    }
-
-    int64_t oldest () const override
-    {
-        const int v = pick();
-
-        return v < 0 ? INT64_MAX : rank(v);
-    }
-
-    void shed () override
-    {
-        const int v = pick();
-
-        if (v >= 0)
-            slot[v].fading = true;
-    }
-};
 
 #define PATCH(type, name, gain) new PatchOf<thv##type>(name, gain),
 static Patch *const patches[] = { PATCHES };
@@ -332,6 +112,15 @@ static SemaphoreHandle_t go, done;
 static float oddMix[2][BLOCK];
 
 static void
+renderTimed (Patch *p, float mix[2][BLOCK], int half)
+{
+    const int64_t t = esp_timer_get_time();
+
+    p->render(mix[0], mix[1], half);
+    p->spent[half] = esp_timer_get_time() - t;
+}
+
+static void
 helperTask (void *)
 {
     for (;;)
@@ -339,8 +128,8 @@ helperTask (void *)
         xSemaphoreTake(go, portMAX_DELAY);
         memset(oddMix, 0, sizeof(oddMix));
         for (Patch *p : patches)
-            p->render(oddMix[0], oddMix[1], 1);
-        percussion->render(oddMix[0], oddMix[1], 1);
+            renderTimed(p, oddMix, 1);
+        renderTimed(percussion, oddMix, 1);
         xSemaphoreGive(done);
     }
 }
@@ -362,10 +151,13 @@ audioTask (void *)
 
         /* Every patch: the one playing, and any switched from, ringing
            out. */
+        for (Patch *p : patches)
+            p->glide();
+        percussion->glide();
         xSemaphoreGive(go);
         for (Patch *p : patches)
-            p->render(mix[0], mix[1], 0);
-        percussion->render(mix[0], mix[1], 0);
+            renderTimed(p, mix, 0);
+        renderTimed(percussion, mix, 0);
         xSemaphoreTake(done, portMAX_DELAY);
         for (int i = 0; i < BLOCK; i++)
         {
@@ -802,7 +594,13 @@ playAll (const std::vector<thhAction> &acts, int owner)
         return;
     xSemaphoreTake(lock, portMAX_DELAY);
     for (const thhAction &a : acts)
-        (a.channel == 1 ? percussion : patches[playing])->play(a, owner);
+    {
+        Patch *p = a.channel == 1 ? percussion : patches[playing];
+
+        if (p->play(a, owner, esp_timer_get_time(),
+                    loadAvg + loadAdded + p->perVoice / 2 <= SHED_AT, 1))
+            loadAdded += p->perVoice / 2;
+    }
     xSemaphoreGive(lock);
 }
 

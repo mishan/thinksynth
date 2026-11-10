@@ -57,6 +57,7 @@
 #include "thvPalette.h"
 #include "thvSoften.h"
 #include "thvFxdelays.h"
+#include "../esp32/box/main/pool.h"
 
 #define WINDOW 128
 
@@ -150,6 +151,84 @@ check (const char *name, const std::string &file, const std::string &plugins,
                 snprintf(why, sizeof(why), "started again, window %d isn't a new "
                          "voice's", w);
         }
+    }
+
+    if (!why[0])
+        printf("ok    %s\n", name);
+    else
+    {
+        printf("FAIL  %s\n  %s\n", name, why);
+        failed++;
+    }
+}
+
+/* thinkbox's pool of a patch's voices mixes them as the engine's channel
+   does: each note at its own level, the channel's amp over them all, and
+   a step in amp glided as the engine glides it. Two notes, at `levels',
+   the second struck as the amp steps from `amp' to `ampTo', then both
+   let go. To a float's rounding, since the two sum in either order. */
+template <class V>
+static void
+checkPool (const char *name, const std::string &file, const std::string &plugins,
+           const float levels[2], float amp, float ampTo)
+{
+    thSynth synth(plugins, BLOCK, BOX_RATE);
+    PatchOf<V> pool("pool", 1);
+    char why[200] = "";
+    const int notes[2] = { 60, 67 };
+
+    if (!synth.loadTree(file, 0, MIDIVALMAX))
+    {
+        printf("FAIL  %s\n  %s didn't load\n", name, file.c_str());
+        failed++;
+        return;
+    }
+    synth.setChanArg(0, new thArg("amp", amp));
+    pool.amp = amp;
+
+    for (int w = 0; w < 400 && !why[0]; w++)
+    {
+        float l[BLOCK] = { 0 }, r[BLOCK] = { 0 };
+        int channels = 0;
+        thhAction a;
+
+        a.note = notes[w == 100];
+        a.vel = 100;
+        if (w == 0 || w == 100)
+        {
+            if (w == 100)
+            {
+                synth.setChanArg(0, new thArg("amp", ampTo));
+                pool.amp = ampTo;
+            }
+            synth.addNote(0, a.note, 100, levels[w == 100]);
+            a.kind = thhAction::NOTE_ON;
+            pool.play(a, 0, w, true, levels[w == 100]);
+        }
+        for (int n = 0; n < 2 && w == 250; n++)
+        {
+            a.note = notes[n];
+            synth.delNote(0, a.note);
+            a.kind = thhAction::NOTE_OFF;
+            pool.play(a, 0, w, true, 1);
+        }
+        synth.process();
+        pool.glide();
+        pool.render(l, r, 0);
+        pool.render(l, r, 1);
+
+        const float *live = synth.getChannelOutput(0, &channels);
+
+        for (int i = 0; i < BLOCK && !why[0]; i++)
+            for (int c = 0; c < channels && c < 2; c++)
+            {
+                const float want = live ? live[i * channels + c] : 0;
+                const float got = c ? r[i] : l[i];
+
+                if (!(fabsf(got - want) <= 1e-6f * fmaxf(1, fabsf(want))))
+                    snprintf(why, sizeof(why), "window %d, sample %d, channel %d: "
+                             "%g, the engine %g", w, i, c, got, want);
+            }
     }
 
     if (!why[0])
@@ -478,6 +557,19 @@ main (int argc, char **argv)
     check<thvNames>("knobs named for a word of C++'s and for set()'s own",
                     dsp + "/../scripts/compiled/names.dsp", plugins, 100, 200, true);
     checkNoise(dsp + "/../scripts/compiled/noise.dsp", plugins);
+
+    static const struct { const char *name; float levels[2], amp, ampTo; } POOLS[] = {
+        { "thinkbox's pool: notes at full level, the channel's amp full",
+          { 1, 1 }, 127, 127 },
+        { "thinkbox's pool: notes at their own levels, the channel's amp half",
+          { 0.3f, 0.8f }, 64, 64 },
+        { "thinkbox's pool: the channel's amp stepped down, glided",
+          { 1, 0.6f }, 127, 30 },
+    };
+
+    for (const auto &t : POOLS)
+        checkPool<thvDxbell>(t.name, dsp + "/dxbell.dsp", plugins, t.levels, t.amp,
+                             t.ampTo);
     checkDeclared<thvDxbell>("dxbell's knobs, declared as the patch has them",
                              dsp + "/dxbell.dsp", plugins);
     checkDeclared<thvGrab>("grab's knobs, declared as the patch has them",
