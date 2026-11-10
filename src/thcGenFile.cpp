@@ -384,16 +384,21 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
     /* Binary for the same reason thcGenEdit reads binary: the tokens
        carry byte offsets into the file as it sits on disk, and text
        mode on Windows would shift every offset by one per line. */
-    std::ifstream in(path.c_str(), std::ios::binary);
-
-    if (!in)
+    if (text_ != NULL)
+        source_ = *text_;
+    else
     {
-        error(0, "cannot open file");
-        return false;
-    }
+        std::ifstream in(path.c_str(), std::ios::binary);
 
-    source_.assign(std::istreambuf_iterator<char>(in),
-                   std::istreambuf_iterator<char>());
+        if (!in)
+        {
+            error(0, "cannot open file");
+            return false;
+        }
+
+        source_.assign(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+    }
 
     const std::string &text = source_;
 
@@ -511,6 +516,17 @@ thcGenLoader::skipStatement (void)
 }
 
 /* ---- the grammar ------------------------------------------------------ */
+
+bool
+thcGenLoader::loadText (const std::string &text, const std::string &path,
+                        thcScheduler *sched)
+{
+    text_ = &text;
+    const bool ok = load(path, sched);
+    text_ = NULL;
+
+    return ok;
+}
 
 bool
 thcGenLoader::load (const std::string &path, thcScheduler *sched)

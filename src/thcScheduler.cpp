@@ -1579,6 +1579,8 @@ thcScheduler::instrument (size_t index)
 thArg *
 thcScheduler::findChanArg (int channel, const std::string &name)
 {
+    if (chanArgs_)
+        return chanArgs_(channel, name);
     if (synth_ == NULL)
         return NULL;
 
@@ -2083,6 +2085,15 @@ thcScheduler::applyMasterEffect (std::string &why)
         }
 
         return true;
+    }
+
+    /* A host that answers for the chanargs has the voices too, and no
+       graph on the synth for a mix effect to run on. */
+    if (chanArgs_)
+    {
+        why = "'" + master_.effect + "' is a mix effect, and this host "
+              "plays no mix effect";
+        return false;
     }
 
     const std::string path =
@@ -5392,6 +5403,11 @@ thcScheduler::deliver (const thcEvent &ev)
                 midiOut_->noteOn(ev.channel, ev.u.note.note,
                                  ev.u.note.velocity, ev.u.note.level,
                                  stampAt(ev.at));
+            else if (notesOut_ != NULL)
+                notesOut_->voiceOn(ev.channel, ev.u.note.note,
+                                   ev.u.note.velocity, ev.u.note.level,
+                                   ev.u.note.aux, ev.u.note.say,
+                                   stampAt(ev.at));
             else
                 sounded = synth_->addNote(ev.channel, ev.u.note.note,
                                           ev.u.note.velocity,
@@ -5466,7 +5482,7 @@ thcScheduler::deliver (const thcEvent &ev)
             /* The route the sliders use: a single-float setValue is safe
                from the GUI thread, and a chanarg the patch does not
                declare simply is not there to set. */
-            thArg *arg = synth_->getChanArg(ev.channel, ev.u.chanarg.name);
+            thArg *arg = findChanArg(ev.channel, ev.u.chanarg.name);
 
             if (arg != NULL)
                 arg->setValue(ev.u.chanarg.value);
@@ -5593,6 +5609,8 @@ thcScheduler::endNote (int channel, int note, double at)
 {
     if (playsOverMidi(channel))
         midiOut_->noteOff(channel, note, stampAt(at));
+    else if (notesOut_ != NULL)
+        notesOut_->noteOff(channel, note, stampAt(at));
     else
         synth_->delNote(channel, note);
     if (noteTap_ != NULL)
@@ -5830,10 +5848,9 @@ thcScheduler::stop (void)
     /* The offs above were stamped now; this also drops whatever was
        queued ahead of them for later, so a pause is silent on the device
        at once. */
-    if (midiOut_ != NULL)
-        for (int ch = 0; ch < 16; ch++)
-            if (overMidi_[ch])
-                midiOut_->flush(ch);
+    for (int ch = 0; ch < 16; ch++)
+        if (overMidi_[ch] ? midiOut_ != NULL : notesOut_ != NULL)
+            (overMidi_[ch] ? midiOut_ : notesOut_)->flush(ch);
 }
 
 void
@@ -6462,6 +6479,8 @@ thcScheduler::injectMidiEvent (const thcEvent &ev)
 bool
 thcScheduler::chanArgExists (int channel, const std::string &name) const
 {
+    if (chanArgs_)
+        return chanArgs_(channel, name) != NULL;
     return synth_ != NULL && synth_->getChanArg(channel, name) != NULL;
 }
 
@@ -6469,7 +6488,8 @@ bool
 thcScheduler::chanArgRange (int channel, const char *name,
                             float &lo, float &hi) const
 {
-    thArg *arg = synth_->getChanArg(channel, name != NULL ? name : "");
+    const std::string n = name != NULL ? name : "";
+    thArg *arg = chanArgs_ ? chanArgs_(channel, n) : synth_->getChanArg(channel, n);
 
     if (arg == NULL || arg->max() <= arg->min())
         return false;

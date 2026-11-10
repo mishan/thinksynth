@@ -159,6 +159,7 @@ struct Compiler
     std::map<string, float> knobs;
     std::map<string, std::pair<float, float> > ranges;     /* min, max */
     std::map<string, std::pair<string, string> > knobAt;    /* a node.arg it feeds */
+    std::map<string, string> units;                         /* as declared */
     std::map<thNode *, bool> control;
     std::map<thNode *, int> deps;
     bool scanned = false;                   /* a misc::scan read: a raster's */
@@ -221,6 +222,17 @@ struct Compiler
         return b;
     }
 
+    /* A unit is whatever the patch quoted, a backslash among it. The lexer
+       ends a string at a quote or a newline, so only these two need it. */
+    static string literal (const string &s)
+    {
+        string q = "\"";
+
+        for (char ch : s)
+            q += ch == '\\' || ch == '"' ? string("\\") + ch : string(1, ch);
+        return q + "\"";
+    }
+
     string var (thNode *n, const string &out)
     {
         return "n" + std::to_string(order[n]) + "_" + out;
@@ -275,6 +287,7 @@ struct Compiler
                 knobAt.emplace(a->argPtrName(), std::make_pair(n->name(), a->name()));
                 ranges[a->argPtrName()] = knob ? std::make_pair(knob->min(), knob->max())
                                                : std::make_pair(0.0f, 1.0f);
+                units[a->argPtrName()] = knob ? knob->units() : string();
                 v = { "k." + knobField(a->argPtrName()), true };
                 return true;
             }
@@ -886,7 +899,7 @@ main (int argc, char **argv)
         headers.insert(string(Compiler::kernelFor(n)->plugin));
 
     /* The kernels' headers are named for their plugins. */
-    printf("/* %s as a compiled voice at %d Hz.\n   Written by dspcompile; do not edit. */\n\n#ifndef THV_%s_H\n#define THV_%s_H 1\n\n#include <math.h>\n#include <stdint.h>\n#include <string.h>\n\n#include \"thKernel.h\"\n",
+    printf("/* %s as a compiled voice at %d Hz.\n   Written by dspcompile; do not edit. */\n\n#ifndef THV_%s_H\n#define THV_%s_H 1\n\n#include <array>\n#include <math.h>\n#include <stdint.h>\n#include <string.h>\n\n#include \"thKernel.h\"\n",
            argv[at], rate, name.c_str(), name.c_str());
     for (const string &h : headers)
         if ((h.compare(0, 5, "math/") || h == "math/sin") && h != "mixer/mul" &&
@@ -967,7 +980,20 @@ main (int argc, char **argv)
         printf("            if (!strcmp(name, \"%s\")) { min = %s; max = %s; return true; }\n",
                r.first.c_str(), Compiler::literal(r.second.first).c_str(),
                Compiler::literal(r.second.second).c_str());
-    printf("            return false;\n        }\n    };\n\n"
+    printf("            return false;\n        }\n\n"
+           "        /* Every knob as the patch declares it, folded value, range and\n"
+           "           unit: what a host checks a piece's chanargs against without\n"
+           "           loading the graph. */\n"
+           "        struct Declared { const char *name; float value, min, max; const char *units; };\n"
+           "        static constexpr std::array<Declared, %zu> declared = { {\n",
+           c.knobs.size());
+    for (const auto &k : c.knobs)
+        printf("            { \"%s\", %s, %s, %s, %s },\n", k.first.c_str(),
+               Compiler::literal(k.second).c_str(),
+               Compiler::literal(c.ranges[k.first].first).c_str(),
+               Compiler::literal(c.ranges[k.first].second).c_str(),
+               Compiler::literal(c.units[k.first]).c_str());
+    printf("        } };\n    };\n\n"
            "    float note = 0, velocity = 0, trigger = 0;\n"
            "    float aux0 = 0, aux1 = 0, aux2 = 0, aux3 = 0;\n");
     for (thNode *n : c.placed)
