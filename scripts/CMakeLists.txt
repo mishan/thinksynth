@@ -269,7 +269,8 @@ foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box,marbles,life"
               "Wells;${PROJECT_SOURCE_DIR}/video/wells.dsp;-r;1152000"
               "Feedback;${PROJECT_SOURCE_DIR}/video/fx/feedback.dsp;-r;1152000"
               "Palette;${PROJECT_SOURCE_DIR}/video/fx/palette.dsp;-r;1152000"
-              "Soften;${PROJECT_SOURCE_DIR}/video/fx/soften.dsp;-r;1152000")
+              "Soften;${PROJECT_SOURCE_DIR}/video/fx/soften.dsp;-r;1152000"
+              "Fxdelays;${CMAKE_CURRENT_SOURCE_DIR}/compiled/fxdelays.dsp;-r;1152000")
   list(GET voice 0 vname)
   list(GET voice 1 vfile)
   set(vflags "")
@@ -293,6 +294,12 @@ add_test(NAME dspcompile.beats
                  "${CMAKE_CURRENT_SOURCE_DIR}/compiled/beats.dsp" Beats)
 set_tests_properties(dspcompile.beats PROPERTIES
                      PASS_REGULAR_EXPRESSION "env.d is in beats")
+# And an effect's input past its outputs, which the engine never writes.
+add_test(NAME dspcompile.inpast
+         COMMAND dspcompile -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${CMAKE_CURRENT_SOURCE_DIR}/compiled/inpast.dsp" Inpast)
+set_tests_properties(dspcompile.inpast PROPERTIES
+                     PASS_REGULAR_EXPRESSION "m.in0 reads in1, past the effect's 1 output")
 think_harness(compilecheck COMPOSERHOST HID EXTRA ${THINK_COMPILED_VOICES})
 target_include_directories(compilecheck PRIVATE "${THINK_COMPILED}"
                            "${PROJECT_SOURCE_DIR}/plugins")

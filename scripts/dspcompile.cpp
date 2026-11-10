@@ -155,6 +155,7 @@ struct Compiler
     std::map<thNode *, int> deps;
     bool scanned = false;                   /* a misc::scan read: a raster's */
     bool effect = false;                    /* its io's in<N>: a signal in */
+    int ioOuts = 0;                         /* the io's out<N> */
     std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
     std::map<thNode *, std::vector<Value> > ctls, ins;
     std::vector<thNodeFold> times;          /* each one bind() folds, t<i> */
@@ -288,14 +289,27 @@ struct Compiler
                     return true;
                 }
                 /* An effect's signal in, given to render() a sample at a
-                   time; what else the engine hands an effect isn't. */
-                if (to == io && effect && name.size() > 2 && name.compare(0, 2, "in") == 0 &&
-                    name.find_first_not_of("0123456789", 2) == string::npos)
+                   time: in<N>, one digit, as the engine writes a channel's
+                   (thChanEffect), and no more than the effect's outputs. */
+                const bool digit = name.size() > 2 && isdigit((unsigned char)name.back());
+
+                if (to == io && effect && name.size() == 3 && !name.compare(0, 2, "in") &&
+                    digit)
                 {
+                    if (name[2] - '0' >= ioOuts)
+                    {
+                        error = n->name() + "." + a->name() + " reads " + name +
+                                ", past the effect's " + std::to_string(ioOuts) + " output" +
+                                (ioOuts == 1 ? "" : "s");
+                        return false;
+                    }
                     v = { "in[" + name.substr(2) + "][i]", false, D_SAMPLE };
                     return true;
                 }
-                if (to == io && effect)
+                /* What else the engine hands an effect. */
+                if (to == io && effect && (name == "pedal" ||
+                    (digit && (!name.compare(0, 4, "side") || !name.compare(0, 4, "live") ||
+                               !name.compare(0, 4, "send")))))
                 {
                     error = n->name() + "." + a->name() + " reads the effect's " + name +
                             ", which isn't compiled yet";
@@ -630,6 +644,8 @@ main (int argc, char **argv)
     Compiler c = { tree, tree->IONode() };
 
     c.effect = tree->takesInput();
+    while (c.io->getArg("out" + std::to_string(c.ioOuts)))
+        c.ioOuts++;
     std::vector<std::pair<string, Value> > outs;    /* io arg, its value */
 
     for (int ch = 0;; ch++)
@@ -649,7 +665,8 @@ main (int argc, char **argv)
 
     Value play = { "1", true };
 
-    if (c.io->getArg("play") && !c.value(c.io, c.io->getArg("play"), play))
+    /* An effect has no note to end, whatever its io's play holds. */
+    if (!c.effect && c.io->getArg("play") && !c.value(c.io, c.io->getArg("play"), play))
     {
         fprintf(stderr, "%s: %s\n", argv[at], c.error.c_str());
         return 1;
@@ -701,7 +718,7 @@ main (int argc, char **argv)
             h != "misc/scan")
             printf("#include \"%s.h\"\n", h.c_str());
     if (c.scanned || headers.count("delay/allpass") || headers.count("delay/echo"))
-        printf("\n#include <vector>\n");
+        printf("\n#include <algorithm>\n#include <vector>\n");
 
     /* On a raster, each value by what it changes with: once a call, a table
        a line wide made once a call or once a frame, once a line, or every
@@ -822,20 +839,29 @@ main (int argc, char **argv)
         printf("    }\n");
     }
 
-    /* start() keeps the raster, and its tables' memory: a note-on that
-       allocates isn't one a firmware can take. render() fills them before
-       reading them. */
+    /* start() keeps the raster, and the memory of its tables and its
+       delays' lines: a note-on that allocates isn't one a firmware can
+       take. render() fills a table before reading it, and a line is
+       zeroed here as a new voice's is. */
     string keep, restore;
+    std::vector<string> kept;
 
     if (c.scanned)
     {
         keep = "        const int64_t w = W, h = H;\n";
         restore = "        W = w;\n        H = h;\n";
         for (const string &v : tables)
-        {
-            keep += "        std::vector<float> keep_" + v + " = std::move(tab_" + v + ");\n";
-            restore += "        tab_" + v + " = std::move(keep_" + v + ");\n";
-        }
+            kept.push_back("tab_" + v);
+    }
+    for (thNode *n : c.placed)
+        if (!strncmp(Compiler::kernelFor(n)->plugin, "delay/", 6))
+            kept.push_back("n" + std::to_string(c.order[n]) + "_line");
+    for (const string &v : kept)
+    {
+        keep += "        std::vector<float> keep_" + v + " = std::move(" + v + ");\n";
+        restore += "        " + v + " = std::move(keep_" + v + ");\n";
+        if (v.compare(0, 4, "tab_"))
+            restore += "        std::fill(" + v + ".begin(), " + v + ".end(), 0.0f);\n";
     }
 
     printf("\n    /* As the engine starts a voice: velocity 0..127 to 0..1; each noise\n"

@@ -56,6 +56,7 @@
 #include "thvFeedback.h"
 #include "thvPalette.h"
 #include "thvSoften.h"
+#include "thvFxdelays.h"
 
 #define WINDOW 128
 
@@ -279,10 +280,15 @@ checkEffect (const char *name, const std::string &patch, const std::string &fx,
     {
         synth.process();
         voice.render(vk, mids, window, synth.position());
+        bool on;
+
         if constexpr (OnRaster<F>::value)
-            effect.render(fk, mids, outs, window, synth.position());
+            on = effect.render(fk, mids, outs, window, synth.position());
         else
-            effect.render(fk, mids, outs, window);
+            on = effect.render(fk, mids, outs, window);
+        /* An effect has no note to end. */
+        if (!on)
+            snprintf(why, sizeof(why), "window %d: done, as no effect is", k);
 
         const float *live = synth.getOutput();
 
@@ -463,6 +469,10 @@ main (int argc, char **argv)
                                 video + "fx/palette.dsp", plugins, r.first, r.second);
         checkEffect<thvSoften>("video/fx/soften.dsp after rings", video + "rings.dsp",
                                video + "fx/soften.dsp", plugins, r.first, r.second);
+        checkEffect<thvFxdelays>("delays whose lengths follow the picture, after rings",
+                                 video + "rings.dsp",
+                                 dsp + "/../scripts/compiled/fxdelays.dsp", plugins,
+                                 r.first, r.second);
     }
 
     /* Each by its name, whatever that is in C++. */
