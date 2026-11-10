@@ -67,6 +67,17 @@ struct thBeatFold
     thUnitFold::Field  field;
 };
 
+/* A node's value written in `ms' or `s', kept after the fold: a patch
+ * compiled at one rate folds it again at the rate it runs at
+ * (scripts/dspcompile). By name, for thBeatFold's reason. */
+struct thTimeFold
+{
+    string node;
+    string arg;
+    float  literal;
+    string units;
+};
+
 /* An arithmetic expression over signals, parked until it can become nodes.
  *
  * Parked against the thNode rather than its name because the grammar reads a
@@ -219,8 +230,10 @@ public:
        works in, at `sampleRate' samples per second, and forgets them --
        so calling it twice cannot fold twice. Run once, from
        thSynth::finishParse, before anything reads a value. `beats' fold
-       at `bpm' and are remembered for retempo(). */
+       at `bpm' and are remembered for retempo(), and node values in
+       `ms' and `s' for timeFolds(). */
     void foldUnits (long sampleRate, double bpm);
+    const std::vector<thTimeFold> &timeFolds (void) const { return timeFolds_; }
 
     /* Every value written in `beats' scaled from the tempo it was at to
        `bpm', so a knob moved since the load keeps its place in beats.
@@ -374,6 +387,7 @@ private:
     /* Not copied either: a voice takes its values from the prototype at
        its start, and only the prototype follows the tempo. */
     std::vector<thBeatFold> beatFolds_;   /* GUI thread */
+    std::vector<thTimeFold> timeFolds_;
     double                  beatsAt_;
 
     /* See feedback(). A loop's nodes, what it reads from outside it and

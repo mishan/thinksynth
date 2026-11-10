@@ -53,13 +53,15 @@ static int failed = 0;
 typedef std::vector<std::pair<const char *, float>> Turned;
 
 /* The knobs in turned are set alike on the engine and the voice before the
-   note, so nothing glides. */
+   note, so nothing glides. A rate other than the compiled one is bound;
+   a knob in time keeps its compiled default, so it is turned too. */
 template <class V>
 static void
 check (const char *name, const std::string &file, const std::string &plugins,
-       int releaseAt, int windows, bool ends = false, const Turned &turned = {})
+       int releaseAt, int windows, bool ends = false, const Turned &turned = {},
+       long rate = (long)V::rate)
 {
-    thSynth synth(plugins, WINDOW, (int)V::rate);
+    thSynth synth(plugins, WINDOW, (int)rate);
     V voice;
     typename V::Knobs knobs;
     float out[2][WINDOW];
@@ -79,6 +81,7 @@ check (const char *name, const std::string &file, const std::string &plugins,
             snprintf(why, sizeof(why), "no knob %s", t.first);
     }
     synth.addNote(0, 60, 100);
+    voice.bind(rate);
     voice.start(60, 100);
 
     int done = -1;              /* the window render said it was over */
@@ -125,6 +128,7 @@ check (const char *name, const std::string &file, const std::string &plugins,
         float *agains[2] = { again[0], again[1] };
 
         voice.start(64, 100);
+        fresh.bind(rate);
         fresh.start(64, 100);
         for (int w = 0; w < 50 && !why[0]; w++)
         {
@@ -248,6 +252,12 @@ main (int argc, char **argv)
                       { "pan", -0.4f }, { "r", 5000 } });
     check<thvGate>("a gated envelope through its release, done as the engine is",
                    dsp + "/../scripts/compiled/gate.dsp", plugins, 100, 200, true);
+    check<thvGate>("compiled at 32 kHz and bound to 48, as the engine at 48",
+                   dsp + "/../scripts/compiled/gate.dsp", plugins, 100, 200, true,
+                   { { "a", 240 }, { "r", 2400 } }, 48000);
+    check<thvDxbell>("dsp/dxbell.dsp bound to 44.1 kHz, to its end", dsp + "/dxbell.dsp",
+                     plugins, 300, 1800, true,
+                     { { "id", 61740 }, { "ia", 44.1f }, { "d", 198450 } }, 44100);
     check<thvNames>("knobs named for a word of C++'s and for set()'s own",
                     dsp + "/../scripts/compiled/names.dsp", plugins, 100, 200, true);
     checkNoise(dsp + "/../scripts/compiled/noise.dsp", plugins);

@@ -345,6 +345,8 @@ void thSynthTree::foldUnits (long sampleRate, double bpm)
             b.field = f.field;
             beatFolds_.push_back(b);
         }
+        if (f.node && f.field == thUnitFold::VALUE && (f.units == "ms" || f.units == "s"))
+            timeFolds_.push_back({ f.node->name(), f.arg->name(), f.literal, f.units });
 
         switch (f.field)
         {
