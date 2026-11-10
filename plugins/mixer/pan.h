@@ -37,12 +37,14 @@ struct thkPan
     /* pan held to -1..1, a non-finite one the middle. sinf and cosf, not
        the table: the sides' powers must sum to the input's, and the
        table's rounding on each is more than that law allows; once a
-       window, or a compiled voice's call, the cost doesn't show. */
+       window, or a compiled voice's call, the cost doesn't show. The sine
+       takes theta held (thkHeld), or clang makes the pair one sincos call
+       where it sees both, and Apple's sincos is an ulp from its sinf. */
     static Ctl ctl (float pan)
     {
         const float theta = (thkClampMag(pan, 1) + 1) * 0.785398163397448310f;
 
-        return { cosf(theta), sinf(theta) };
+        return { cosf(theta), sinf(thkHeld(theta)) };
     }
 };
 
