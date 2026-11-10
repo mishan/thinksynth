@@ -248,9 +248,15 @@ jobs:
     container: ubuntu:24.04
 
     steps:
+      # The container's image fetches from archive.ubuntu.com, which times
+      # out on GitHub's runners now and then; their own mirror, which the
+      # runner's host uses, answers. apt retries a failed fetch too.
       - name: Install dependencies
         timeout-minutes: 10
         run: |
+          sed -Ei 's#http://(archive|security)\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
+            /etc/apt/sources.list.d/ubuntu.sources
+          echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80retries
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
