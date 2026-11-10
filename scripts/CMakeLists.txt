@@ -344,7 +344,10 @@ add_executable(dsprandom dsprandom.cpp)
 set(THINK_RANDOM_HEADERS "")
 set(THINK_RANDOM_INCLUDES "")
 set(THINK_RANDOM_ADDS "")
-foreach(seed RANGE 1 ${THINK_RANDOM_GRAPHS})
+if(THINK_RANDOM_GRAPHS GREATER 0)
+  set(THINK_RANDOM_SEEDS RANGE 1 ${THINK_RANDOM_GRAPHS})
+endif()
+foreach(seed ${THINK_RANDOM_SEEDS})
   add_custom_command(
       OUTPUT "${THINK_RANDOM}/random${seed}.dsp" "${THINK_RANDOM}/thvRandom${seed}.h"
       COMMAND ${CMAKE_COMMAND} -E make_directory "${THINK_RANDOM}"

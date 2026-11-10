@@ -28,8 +28,8 @@
  * through nodes wired to what came before them and to expressions of all
  * of it, so that what a value depends on -- a column, a row, a frame, every
  * pixel, or nothing past the call -- is a mix no hand-written patch has.
- * Blue is the envelope alone, so a patch is never dark however its red and
- * green come out.
+ * Red and green between them draw every node. Blue is the envelope alone,
+ * so a patch is never dark however its red and green come out.
  */
 
 #include <stdint.h>
@@ -72,13 +72,17 @@ number (int lo, int hi)
 }
 
 static std::vector<string> sources = {
-    "s->x", "s->y", "s->t", "s->hsync", "s->vsync", "s->frame", "f->out * 0.01",
-    "env->out", "ionode->velocity", "ionode->aux0", "ionode->note * 0.02", "@k0", "@k1",
+    "s->x", "s->y", "s->t", "s->hsync", "s->vsync", "s->frame", "s->width", "s->size",
+    "f->out * 0.01", "env->out", "ionode->velocity", "ionode->aux0", "ionode->note * 0.02",
+    "@k0", "@k1",
     "@in_level", "@in_bass",
 };
 
 /* The first of `sources' no knob reaches. */
-static const int UNKNOBBED = 11;
+static const int UNKNOBBED = 13;
+
+/* Of those, the ones held to 0..1. */
+static const char *const UNIT[] = { "s->x", "s->y", "s->hsync", "s->vsync", "env->out" };
 
 static string
 term (bool knobs)
@@ -113,11 +117,13 @@ struct Kind
     std::vector<const char *> outs;
 };
 
-/* A voice that goes non-finite is retired, so a divisor, a power and an
-   exponent are numbers that keep it finite.
+/* A voice that goes non-finite is retired, so a divisor and a base are
+   numbers, and a power and an exponent no more than a number times
+   something held to 0..1.
 
    "" is an expression; "~" one no knob reaches, for an arg the engine
-   glides when one does, which dspcompile refuses; "ms" a time; anything
+   glides when one does, which dspcompile refuses; "u" a number times
+   something held to 0..1; "ms" a time; anything
    else a range lo:hi of numbers, or a list a|b|c to choose one from. */
 static const Kind KINDS[] = {
     { "math::add", { { "in0", "" }, { "in1", "" } }, { "out" } },
@@ -127,8 +133,8 @@ static const Kind KINDS[] = {
     { "math::max", { { "in0", "" }, { "in1", "" } }, { "out" } },
     { "math::min", { { "in0", "" }, { "in1", "" } }, { "out" } },
     { "math::abs", { { "in", "" } }, { "out" } },
-    { "math::exp2", { { "in", "-4:4" } }, { "out" } },
-    { "math::pow", { { "base", "1:4" }, { "exp", "-3:3" } }, { "out" } },
+    { "math::exp2", { { "in", "u" } }, { "out" } },
+    { "math::pow", { { "base", "1:4" }, { "exp", "u" } }, { "out" } },
     { "math::clamp", { { "in", "" }, { "lo", "-1:0" }, { "hi", "0:1" } }, { "out" } },
     { "math::sin", { { "index", "" }, { "wavelength", "" }, { "amp", "" } }, { "out" } },
     { "dist::saturate", { { "in", "" }, { "factor", "" } }, { "out" } },
@@ -138,7 +144,8 @@ static const Kind KINDS[] = {
     { "delay::allpass", { { "in", "" }, { "delay", "1|7|40" }, { "gain", "-1:1" } },
       { "out" } },
     { "delay::echo", { { "in", "" }, { "size", "64|300" }, { "delay", "1|20|60" },
-                       { "feedback", "0:1" }, { "dry", "0:1" } }, { "out" } },
+                       { "feedback", "0:1" }, { "dry", "0:1" }, { "tone", "0:1" },
+                       { "low", "0:1" }, { "drive", "0:4" }, { "boost", "0:1" } }, { "out" } },
     { "env::ad", { { "a", "ms" }, { "d", "ms" }, { "p", "0:2" }, { "reset", "" } },
       { "out", "play" } },
     { "osc::simple", { { "freq", "" }, { "amp", "" }, { "waveform", "0|1|2|3" },
@@ -148,6 +155,7 @@ static const Kind KINDS[] = {
     { "osc::fmop", { { "freq", "" }, { "ratio", "0:4" }, { "mod", "" }, { "index", "" },
                      { "feedback", "0:1" } }, { "out" } },
     { "mixer::pan", { { "in", "" }, { "pan", "~" } }, { "out0", "out1" } },
+    { "mixer::mul", { { "in0", "~" }, { "in1", "~" } }, { "out" } },
 };
 
 static string
@@ -159,6 +167,12 @@ given (const char *how)
         return expr(2);
     if (h == "~")
         return expr(2, false);
+    if (h == "u")
+    {
+        const string by = number(-4, 4);
+
+        return by + " * " + UNIT[pick((int)(sizeof UNIT / sizeof UNIT[0]))];
+    }
     if (h == "ms")
         return std::to_string(1 + pick(200)) + " ms";
 
@@ -186,7 +200,7 @@ main (int argc, char **argv)
     }
     state = strtoull(argv[1], NULL, 10);
 
-    string body;
+    string body, firsts, rest;
     const int count = 4 + pick(9);
 
     for (int i = 0; i < count; i++)
@@ -205,15 +219,20 @@ main (int argc, char **argv)
                 body += string(" ") + in.first + " = " + value + ";";
             }
         body += " };\n";
-        for (const char *out : k.outs)
-            sources.push_back(name + "->" + out);
+        for (size_t o = 0; o < k.outs.size(); o++)
+        {
+            const string out = name + "->" + k.outs[o];
+
+            sources.push_back(out);
+            (o == 0 ? firsts : rest) += " + " + out;
+        }
     }
 
-    /* Red and green from what the patch made last, and anything. Each
-       draw its own statement, as above. */
-    const string red = sources.back();
-    const string green = sources[sources.size() - 1 - pick(count)];
+    /* Red every node's first output, so that every node is drawn; green
+       the rest and anything. Each draw its own statement, as above. */
+    const string red = firsts.substr(3);
     const string more = expr(1);
+    const string green = more + rest;
     const string k0 = number(-2, 2);
     const string k1 = number(0, 4);
     const int a = 1 + pick(20);
@@ -223,14 +242,14 @@ main (int argc, char **argv)
 
     printf("name \"Random %s\";\n\n"
            "@k0 = %s;\n@k1 = %s;\n@in_level = 0;\n@in_bass = 0;\n\n"
-           "node ionode { channels = 3; out0 = env->out * %s; out1 = env->out * (%s + %s);\n"
+           "node ionode { channels = 3; out0 = env->out * (%s); out1 = env->out * (%s);\n"
            "              out2 = env->out; play = env->play; };\n"
            "node s misc::scan { };\n"
            "node f misc::midi2freq { note = ionode->note; };\n"
            "node env env::adsr { a = %d ms; d = %d ms; s = %s; r = %d ms; p = 1;\n"
            "                     trigger = ionode->trigger; };\n"
            "%s\nio ionode;\n",
-           argv[1], k0.c_str(), k1.c_str(), red.c_str(), green.c_str(), more.c_str(), a, d,
+           argv[1], k0.c_str(), k1.c_str(), red.c_str(), green.c_str(), a, d,
            sustain.c_str(), r, body.c_str());
     return 0;
 }
