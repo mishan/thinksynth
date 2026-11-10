@@ -2878,12 +2878,16 @@ try
             selected: window.solo.node().selected,
             current: document.querySelector(
                 '#nodelist button[aria-current="true"]')?.textContent,
-            focus: document.activeElement?.textContent }));
+            focus: document.activeElement?.textContent,
+            on: `${document.activeElement?.tagName}#${document.activeElement?.id}` }));
 
         check(listed > 0 && chosen >= 0 && picked.selected >= 0 &&
               picked.current === picked.focus,
               'the graph as a list: a node chosen from the keys is the ' +
-              `canvas's selection, and keeps the focus: ${picked.current}`);
+              `canvas's selection, and keeps the focus: ${picked.current}` +
+              (picked.current === picked.focus ? '' :
+               ` (row ${chosen} of ${listed}, selected ${picked.selected}, ` +
+               `the focus on ${picked.on}: ${(picked.focus ?? '').slice(0, 60)})`));
 
 
         /* The rest needs that node, and a list without one has said so
