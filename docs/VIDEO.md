@@ -27,7 +27,7 @@ build/scripts/genwav -p build/plugins/ -s 60 -o ebb.wav \
 | `--raster WxH@FPS` | the picture: 160x120@60 unless given |
 | `--video-follow A,B` | the instruments whose notes it plays; every one unless given |
 | `--video-fx DSP` | an effect on the whole picture |
-| `--interpret` | its graphs on their nodes, not compiled (docs/KERNELS.md) |
+| `--interpret` | every graph on its nodes, not compiled (docs/KERNELS.md) |
 
 mpv plays the `.y4m` as it is. To put the sound with it:
 

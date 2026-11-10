@@ -180,7 +180,7 @@ static void usage (const char *argv0)
            "      --raster WxH@FPS    its picture (default 160x120@60)\n"
            "      --video-follow A,B  the instruments it plays the notes of "
            "(default all)\n"
-           "      --interpret         run its graphs on their nodes, not "
+           "      --interpret         run every graph on its nodes, not "
            "compiled\n"
            "  -q, --quiet             no summary\n",
            argv0);
@@ -823,6 +823,10 @@ int main (int argc, char **argv)
 
     /* Built with the plugin path, because a piece's instruments are .dsp
        graphs and their nodes have to come from somewhere. */
+    /* Before the piece loads: a channel takes its compiled graph as its
+       tree is built. */
+    if (!interpret)
+        thCompiledInstall();
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thcScheduler sched(&synth);
 
@@ -978,8 +982,6 @@ int main (int argc, char **argv)
                     argv[0], genFile.c_str());
             return 2;
         }
-        if (!interpret)
-            thCompiledInstall();
         if (!video.open(pluginPath, videoDsp, videoFx, raster, follow,
                         videoFile, why))
         {

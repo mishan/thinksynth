@@ -34,6 +34,10 @@
  *
  * The same for random graphs (dsprandom.cpp), at 80x60.
  *
+ * The instruments in dsp/ that compile, each a chord, a release and more
+ * notes than its polyphony on an audio synth at 48 kHz: the same samples
+ * compiled as on the nodes, and no window after on the nodes.
+ *
  * And which graphs fall back to their nodes: an edited one, one on a synth
  * with no raster, an effect narrower than it was compiled, one changed in
  * place after it loaded, and one a probe reads inside.
@@ -219,6 +223,38 @@ play (const string &plugins, const Run &run, std::vector<uint64_t> &frames,
     return most < 0.05f ? "dark: the brightest pixel is " + std::to_string(most) : "";
 }
 
+static const int AUDIO_WINDOW = 256, AUDIO_WINDOWS = 400;
+
+/* `file' played on an audio synth, each window's hash into `windows', or a
+   sentence. */
+static string
+playAudio (const string &plugins, const string &file, std::vector<uint64_t> &windows)
+{
+    thSynth synth(plugins, AUDIO_WINDOW, 48000);
+
+    if (synth.loadTree(file.c_str(), 0, MIDIVALMAX) == NULL)
+        return file + " didn't load";
+    windows.clear();
+    for (int w = 0; w < AUDIO_WINDOWS; w++)
+    {
+        if (w == 0)
+            for (float note : { 60, 64, 67 })
+                synth.addNote(0, note, 100);
+        if (w == 40)
+            synth.delNote(0, 64);
+        if (w >= 80 && w < 280 && w % 10 == 0)
+            synth.addNote(0, 48 + w / 10 % 24, 90);
+        if (w >= 90 && w < 290 && w % 10 == 5)
+            synth.delNote(0, 48 + (w - 15) / 10 % 24);
+        if (w == 300)
+            for (float note : { 60, 67 })
+                synth.delNote(0, note);
+        synth.process();
+        windows.push_back(frameHash(synth.getOutput(), thOutputSamples(2, AUDIO_WINDOW)));
+    }
+    return "";
+}
+
 /* How `dsp' on a fresh thSynth of `w' x `h' (0 x 0, none) runs, or `fx'
    as its effect does: "compiled", "on its nodes" or "not at all", so that a
    check of a fallback fails when what it edits stops loading. */
@@ -246,7 +282,7 @@ expect (const string &name, const string &want, const string &got)
 int
 main (int argc, char **argv)
 {
-    string plugins = "plugins/", video = "video/", compiled = "scripts/compiled/",
+    string plugins = "plugins/", video = "video/", dsp = "dsp/", compiled = "scripts/compiled/",
            random = "scripts/random/";
 
     for (int i = 1; i + 1 < argc; i += 2)
@@ -256,6 +292,8 @@ main (int argc, char **argv)
             video = argv[i + 1];
         else if (string(argv[i]) == "-c")
             compiled = argv[i + 1];
+        else if (string(argv[i]) == "-d")
+            dsp = argv[i + 1];
         else if (string(argv[i]) == "-g")
             random = argv[i + 1];
 
@@ -318,6 +356,17 @@ main (int argc, char **argv)
         runs.push_back({ name, slurp(random + name), "", 80, 60, {} });
     }
 
+    static const char *const INSTRUMENTS[] = { "dxbell", "glass", "rhodes" };
+    std::vector<std::vector<uint64_t> > sounded(sizeof INSTRUMENTS / sizeof INSTRUMENTS[0]);
+
+    for (size_t i = 0; i < sounded.size(); i++)
+    {
+        const string why = playAudio(plugins, dsp + INSTRUMENTS[i] + ".dsp", sounded[i]);
+
+        if (!why.empty())
+            report(string(INSTRUMENTS[i]) + ".dsp plays", why);
+    }
+
     /* Nothing compiled yet: every frame on the nodes. */
     expect("rings.dsp runs on its nodes before anything is installed", "on its nodes",
            ranAs(plugins, rings, 160, 120));
@@ -333,6 +382,21 @@ main (int argc, char **argv)
     thCompiledInstall();
     thCompiledAdd(thvExpressionEngine::fingerprint(), thvExpressionEngine::make);
     thRandomInstall();
+
+    for (size_t i = 0; i < sounded.size(); i++)
+    {
+        std::vector<uint64_t> windows;
+        const unsigned long nodes = thSynthTree::windowsRun(false);
+        string why = playAudio(plugins, dsp + INSTRUMENTS[i] + ".dsp", windows);
+
+        if (why.empty() && thSynthTree::windowsRun(false) != nodes)
+            why = std::to_string(thSynthTree::windowsRun(false) - nodes) +
+                  " windows ran on the nodes";
+        for (size_t w = 0; why.empty() && w < windows.size(); w++)
+            if (w >= sounded[i].size() || windows[w] != sounded[i][w])
+                why = "window " + std::to_string(w) + " differs";
+        report(string(INSTRUMENTS[i]) + ".dsp sounds the same compiled", why);
+    }
 
     for (Run &r : runs)
     {

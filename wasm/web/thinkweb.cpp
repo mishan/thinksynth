@@ -80,6 +80,7 @@
 #include <emscripten.h>
 
 #include "think.h"
+#include "thCompiled.h"
 
 #include "gthSynthSource.h"
 
@@ -2958,6 +2959,7 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
                                     int maxFrames)
 {
+    thCompiledInstall();
     synth_ = new thSynth("", windowlen, sampleRate);
     source_ = new gthSynthSource(synth_);
     rate_ = sampleRate;
