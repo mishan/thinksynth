@@ -249,9 +249,9 @@ if(EXISTS "${THINK_ENGINE}/thCompiledInstall.cpp")
   endforeach()
 endif()
 if(NOT THINK_ENGINE_BUILT)
-  message(STATUS "No compiled video graphs in ${THINK_ENGINE} (build the "
-          "native think_compiled, without THINK_FAST_MATH): the video "
-          "patches will run on their nodes")
+  message(STATUS "No compiled video graphs in ${THINK_ENGINE}: the video "
+          "patches will run on their nodes. Build the native think_compiled, "
+          "without THINK_FAST_MATH, then configure this tree again")
   set(THINK_ENGINE "${PROJECT_BINARY_DIR}/engine")
   file(CONFIGURE OUTPUT "${THINK_ENGINE}/thCompiledInstall.cpp" CONTENT
        "#include \"thCompiled.h\"\n\nvoid thCompiledInstall (void)\n{\n}\n")
