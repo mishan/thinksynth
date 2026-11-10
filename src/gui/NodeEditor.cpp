@@ -628,6 +628,7 @@ const char *NodeEditor::applyValueLive (const string &node, const string &arg,
         return "  (not on the live channel)";
 
     a->setValue((float)value);
+    tree->edited();
 
     return "  (next note)";
 }

@@ -1142,6 +1142,9 @@ int thSynth::armProbe (int channum, const string &node, const string &arg,
         return -1;
     }
 
+    /* A compiled graph writes none of the args a probe reads. */
+    tree->edited();
+
     thProbe *probe = new thProbe(channum, chan->serial(), n->id(), argIndex,
                                  node, arg, (unsigned int)windowlen_,
                                  (unsigned int)windowlen_ *
@@ -1395,6 +1398,7 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
     tree->typeChanArgs();
 
     tree->buildSynthTree();
+    tree->takeFingerprint();
     tree->prepare();
 
     if (registerTree)

@@ -21,6 +21,7 @@ set(THINK_SOURCES
     thMidiNote.cpp
     thMotion.cpp
     thSynthTree.cpp
+    thCompiled.cpp
     thNode.cpp
     thProbe.cpp
     thPlugin.cpp

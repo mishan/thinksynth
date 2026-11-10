@@ -191,6 +191,8 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
     }
 
     indexIOArgs();
+    if (modnode_)
+        modnode_->takeCompiled(0);
 
     argSustain_ = new thArg(string("SusPedal"), 0);
     argSustain_->setWidgetType(thArg::CHANARG);

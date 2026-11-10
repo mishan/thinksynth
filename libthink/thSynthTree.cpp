@@ -28,6 +28,7 @@
 #include <algorithm>
 
 #include "think.h"
+#include "thCompiled.h"
 #include "thUnits.h"
 
 thSynthTree::thSynthTree (const string &name, thSynth *synth)
@@ -39,6 +40,8 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
     made_ = NULL;
     beatsAt_ = 120;
     inLoop_ = false;
+    compiled_ = NULL;
+    compiledDropped_ = false;
 
     synth_ = synth;
 }
@@ -51,6 +54,8 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
     made_ = NULL;
     beatsAt_ = 120;
     inLoop_ = false;
+    compiled_ = oldtree.compiled() ? oldtree.compiled_->clone() : NULL;
+    compiledDropped_ = false;
     name_ = oldtree.name();
     desc_ = oldtree.desc();
     synth_ = oldtree.synth();
@@ -77,6 +82,8 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
 
 thSynthTree::~thSynthTree ()
 {
+    delete compiled_;
+
     delete [] nodeindex_;   /* delete[] on NULL is a no-op */
     nodeindex_ = NULL;
 
@@ -948,6 +955,32 @@ uint32_t thSynthTree::seedGeneration (void) const
     return synth_ ? synth_->seedGeneration() : 0;
 }
 
+static thread_local unsigned long windowsCompiled = 0, windowsInterpreted = 0;
+
+unsigned long thSynthTree::windowsRun (bool compiled)
+{
+    return compiled ? windowsCompiled : windowsInterpreted;
+}
+
+/* See the header. */
+void thSynthTree::takeCompiled (int channels)
+{
+    if (compiled_ != NULL || compiledDropped_)
+        return;
+    compiled_ = thCompiledFor(fingerprint_);
+    if (compiled_ != NULL && !compiled_->bind(*this, channels))
+    {
+        delete compiled_;
+        compiled_ = NULL;
+    }
+}
+
+void thSynthTree::resetCompiled (void)
+{
+    if (compiled_ != NULL)
+        compiled_->reset();
+}
+
 void thSynthTree::process (unsigned int windowlen)
 {
     thPlugin *plug = NULL;
@@ -955,6 +988,14 @@ void thSynthTree::process (unsigned int windowlen)
     if (ionode_ == NULL) {
         return;
     }
+
+    if (compiled())
+    {
+        compiled_->render(*this, windowlen);
+        windowsCompiled++;
+        return;
+    }
+    windowsInterpreted++;
 
     const thNodeList &children = ionode_->children();
 
@@ -1660,6 +1701,91 @@ void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
     }
 }
 
+/* See the header. */
+void thSynthTree::takeFingerprint (void)
+{
+    string &out = fingerprint_;
+    char num[32];
+
+    out.clear();
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+    {
+        const thNode *node = i->second;
+
+        if (node == NULL)
+            continue;
+
+        /* The plugin as its category and name: where it loaded from is the
+           host's business, not the graph's. */
+        string plugin = node->plugin() ? node->plugin()->path() : "";
+        const size_t last = plugin.rfind('/');
+        const size_t cat = last != string::npos && last > 0 ? plugin.rfind('/', last - 1)
+                                                            : string::npos;
+
+        if (cat != string::npos)
+            plugin.erase(0, cat + 1);
+        if (plugin.rfind('.') != string::npos)
+            plugin.erase(plugin.rfind('.'));
+        out += "node " + i->first + " " + plugin + "\n";
+
+        for (const thArgMap::value_type &e : node->args())
+        {
+            thArg *a = e.second;
+            const string &name = e.first;
+
+            if (a == NULL)
+                continue;
+            if (node == ionode_ &&
+                (name == "note" || name == "velocity" || name == "trigger" ||
+                 name == SAYARG ||
+                 (!name.compare(0, strlen(AUXPREFIX), AUXPREFIX) &&
+                  name.size() > strlen(AUXPREFIX)) ||
+                 (!name.compare(0, strlen(INPUTPREFIX), INPUTPREFIX) &&
+                  name.size() > strlen(INPUTPREFIX) &&
+                  isdigit((unsigned char)name[strlen(INPUTPREFIX)]))))
+                continue;
+            out += "  " + name + " = ";
+            switch (a->type())
+            {
+            case thArg::ARG_VALUE:
+            {
+                /* A time as written, so the text holds at every rate. */
+                const thNodeFold *fold = NULL;
+
+                for (const thNodeFold &f : nodeFolds_)
+                    if (f.node == i->first && f.arg == name)
+                        fold = &f;
+                if (fold)
+                {
+                    snprintf(num, sizeof(num), "%a ", fold->literal);
+                    out += num + fold->units;
+                }
+                else
+                    for (unsigned int k = 0; k < a->len(); k++)
+                    {
+                        snprintf(num, sizeof(num), "%a ", (*a)[k]);
+                        out += num;
+                    }
+                break;
+            }
+            case thArg::ARG_POINTER:
+                out += "->" + a->nodePtrName() + "." + a->argPtrName();
+                break;
+            case thArg::ARG_CHANNEL:
+                out += "@" + a->argPtrName();
+                break;
+            case thArg::ARG_NOTE:
+                out += "note";
+                break;
+            case thArg::ARG_TEXT:
+                out += "\"" + a->text() + "\"";
+                break;
+            }
+            out += "\n";
+        }
+    }
+}
+
 /* See the header. A copy holds the nodes reachable from the io node, under
    the prototype's ids; the prototype may hold more. */
 bool thSynthTree::restore (const thSynthTree &proto)
@@ -1683,6 +1809,10 @@ bool thSynthTree::restore (const thSynthTree &proto)
         node->setRecalc(true);
     }
 
+    /* A prototype changed in place since this voice was copied. */
+    if (!proto.compiled())
+        compiledDropped_ = true;
+    resetCompiled();
     return true;
 }
 

@@ -51,7 +51,8 @@ include(TestBigEndian)
 # reads, and a channel count in both constructors.
 #
 # 10: thSynthTree keeps the units its node values were written in, before
-# members its inline accessors read.
+# members its inline accessors read, and its fingerprint and compiled
+# graph.
 # ---------------------------------------------------------------------------
 
 set(THINK_LIB_MAJOR 10)

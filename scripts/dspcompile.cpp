@@ -20,7 +20,7 @@
  * dspcompile -- a .dsp as a C++ struct: one voice of it, every node's
  * kernel (docs/KERNELS.md) run in the graph's order a sample at a time.
  *
- *   dspcompile [-p plugins/] [-r rate] [-c device,...] file.dsp Name > thvName.h
+ *   dspcompile [--engine] [-p plugins/] [-r rate] [-c device,...] file.dsp Name > thvName.h
  *
  * The patch is loaded as the engine loads it -- units folded, defaults
  * filled in -- and read off the graph: each input a number, a knob, the
@@ -46,8 +46,10 @@
  *                                  is its noises', one a voice
  *   void bind (rate);              to run at another rate
  *   void release ();               the trigger falls
- *   bool render (k, out, n);       n samples into out[channel], and
- *                                  whether the voice still sounds
+ *   bool render (k, out, n[, play]);
+ *                                  n samples into out[channel], and
+ *                                  whether the voice still sounds; each
+ *                                  sample of that into play, if given
  *
  * With each knob's range, set() turns a knob by name, for what a
  * controller's profile rides. With -c, the patch's controller block for
@@ -57,6 +59,10 @@
  *
  * It renders what the engine renders, to the bit, for a voice whose knobs
  * hold still: scripts/compilecheck holds it to that.
+ *
+ * With --engine, thvName comes with thvNameEngine, what a tree runs in
+ * its nodes' place (libthink/thCompiled.h), and a graph it couldn't run
+ * as the engine does -- a knob's glide, the synth's noise -- is refused.
  */
 
 #include <algorithm>
@@ -152,6 +158,7 @@ struct Compiler
     std::set<thNode *> placing;
     std::map<string, float> knobs;
     std::map<string, std::pair<float, float> > ranges;     /* min, max */
+    std::map<string, std::pair<string, string> > knobAt;    /* a node.arg it feeds */
     std::map<thNode *, bool> control;
     std::map<thNode *, int> deps;
     bool scanned = false;                   /* a misc::scan read: a raster's */
@@ -265,6 +272,7 @@ struct Compiler
                 thArg *knob = a->argPtr();
 
                 knobs[a->argPtrName()] = knob && knob->len() ? (*knob)[0] : 0;
+                knobAt.emplace(a->argPtrName(), std::make_pair(n->name(), a->name()));
                 ranges[a->argPtrName()] = knob ? std::make_pair(knob->min(), knob->max())
                                                : std::make_pair(0.0f, 1.0f);
                 v = { "k." + knobField(a->argPtrName()), true };
@@ -284,7 +292,9 @@ struct Compiler
                     return false;
                 }
                 if (to == io && (name == "note" || name == "velocity" ||
-                                 name == "trigger" || name.compare(0, 3, "aux") == 0))
+                                 name == "trigger" ||
+                                 (name.size() == 4 && !name.compare(0, 3, "aux") &&
+                                  name[3] >= '0' && name[3] < '0' + TH_NOTE_AUX)))
                 {
                     v = { name, true };
                     return true;
@@ -613,14 +623,154 @@ profileCode (const thcHidBlock &p)
     return s.str();
 }
 
+/* What the engine runs in a tree's place (thCompiled.h), around the voice:
+   its context, knobs and outputs found in the tree it is handed, and its
+   delays' lines reserved, as the plugins reserve theirs, while the knobs
+   that size them are still. Ends the voice's struct. */
+static string
+engineCode (Compiler &c, const string &name, const string &once, size_t outs,
+            const string &fingerprint)
+{
+    const string self = "thv" + name;
+    const size_t knobs = std::max<size_t>(c.knobs.size(), 1);
+    std::ostringstream s, prime, lines;
+
+    for (thNode *n : c.placed)
+    {
+        const string p = Compiler::kernelFor(n)->plugin;
+
+        if (p != "delay/echo" && p != "delay/allpass")
+            continue;
+
+        const string line = "n" + std::to_string(c.order[n]) + "_line";
+        const Value &size = c.ins[n][1];
+
+        lines << "        e->v." << line << ".reserve(v." << line << ".capacity());\n";
+        if (size.control)
+            prime << "        " << line << ".reserve("
+                  << (p == "delay/echo" ? "thkEchoRing(" : "thkAllpassLen(") << size.text
+                  << ", runRate));\n";
+    }
+    s << "\n    /* Its lines' room, before the first window. */\n"
+      << "    void prime (const Knobs &k)\n    {\n        (void)k;\n"
+      << (prime.str().empty() ? "" : once) << prime.str();
+    /* What once works out and the sizes don't read. */
+    const std::regex declared("\\n *[A-Za-z_:]+(?: [A-Za-z_:]+)? (n[0-9]+_[a-z0-9_]+)(?: =|;)");
+
+    for (std::sregex_iterator m(once.begin(), once.end(), declared), e;
+         !prime.str().empty() && m != e; ++m)
+        s << "        (void)" << (*m)[1] << ";\n";
+    s << "    }\n};\n\n"
+      << "struct " << self << "Engine : thCompiled\n{\n"
+      << "    static const char *fingerprint (void)\n    {\n"
+      << "        return R\"thfp(" << fingerprint << ")thfp\";\n    }\n\n"
+      << "    static thCompiled *make (void) { return new " << self << "Engine; }\n\n"
+      << "    " << self << " v;\n    " << self << "::Knobs k;\n"
+      << "    int knobNode[" << knobs << "] = {}, knobArg[" << knobs << "] = {};\n"
+      << "    int note = -1, velocity = -1, trigger = -1, aux[4] = { -1, -1, -1, -1 };\n"
+      << "    int outs[" << outs << "] = {};\n    bool writes[" << outs << "] = {};\n"
+      << "    int play = -1;\n";
+    if (c.effect)
+        s << "    int ins[" << c.width << "] = {};\n";
+    s << "    std::vector<float> scratch;     /* what an out nobody reads is written to */\n\n"
+      << "    thCompiled *clone (void) const override\n    {\n"
+      << "        " << self << "Engine *e = new " << self << "Engine(*this);\n\n"
+      << lines.str() << "        return e;\n    }\n\n"
+      << "    bool bind (thSynthTree &tree, int channels) override\n    {\n"
+      << "        thSynth *s = tree.synth();\n        thNode *io = tree.IONode();\n\n"
+      << "        if (s == NULL || io == NULL || s->rasterWidth() <= 0 ||\n"
+      << "            s->rasterHeight() <= 0 || channels != " << (c.effect ? c.width : 0)
+      << ")\n            return false;\n"
+      << "        v.bind(s->getSampleRate());\n";
+    if (c.scanned)
+        s << "        v.raster(s->rasterWidth(), s->rasterHeight());\n";
+    s << "        note = io->getArg(\"note\")->index();\n"
+      << "        velocity = io->getArg(\"velocity\")->index();\n"
+      << "        trigger = io->getArg(\"trigger\")->index();\n"
+      << "        for (int i = 0; i < 4; i++)\n        {\n"
+      << "            thArg *a = io->getArg(\"aux\" + std::to_string(i));\n\n"
+      << "            aux[i] = a ? a->index() : -1;\n        }\n"
+      << "        for (int c = 0; c < " << outs << "; c++)\n        {\n"
+      << "            const std::string out = \"out\" + std::to_string(c);\n\n"
+      << "            if (io->getArg(out) == NULL)\n                return false;\n"
+      << "            outs[c] = io->getArg(out)->index();\n"
+      << "            writes[c] = thCompiledWrites(tree, out);\n        }\n";
+    if (c.effect)
+        s << "        for (int c = 0; c < " << c.width << "; c++)\n        {\n"
+          << "            thArg *in = io->getArg(\"in\" + std::to_string(c));\n\n"
+          << "            if (in == NULL)\n                return false;\n"
+          << "            ins[c] = in->index();\n        }\n";
+    else
+        s << "        if (thCompiledWrites(tree, \"play\"))\n"
+          << "            play = io->getArg(\"play\")->index();\n";
+    int i = 0;
+
+    for (const auto &k : c.knobs)
+    {
+        const auto &at = c.knobAt[k.first];
+
+        s << "        {\n            thNode *n = tree.findNode(\"" << at.first << "\");\n"
+          << "            thArg *a = n ? n->getArg(\"" << at.second << "\") : NULL;\n\n"
+          << "            if (a == NULL)\n                return false;\n"
+          << "            knobNode[" << i << "] = n->id();\n"
+          << "            knobArg[" << i << "] = a->index();\n        }\n";
+        i++;
+    }
+    s << "        scratch.assign((size_t)s->getWindowlen() * " << outs << ", 0);\n"
+      << "        knobsOf(tree);\n        v.prime(k);\n        return true;\n    }\n\n"
+      << "    void reset (void) override { v.start(0, 0); }\n\n"
+      << "    void knobsOf (thSynthTree &tree)\n    {\n";
+    i = 0;
+    for (const auto &k : c.knobs)
+    {
+        s << "        {\n            thArg *a = tree.getArg(tree.nodeAt(knobNode[" << i
+          << "]), knobArg[" << i << "]);\n\n"
+          << "            k." << Compiler::knobField(k.first)
+          << " = a && a->len() ? (*a)[0] : 0;\n        }\n";
+        i++;
+    }
+    s << "        (void)tree;\n    }\n\n"
+      << "    void render (thSynthTree &tree, unsigned int n) override\n    {\n"
+      << "        thNode *io = tree.IONode();\n"
+      << "        float *out[" << outs << "];\n\n"
+      << "        v.note = (*io->getArg(note))[0];\n"
+      << "        v.velocity = (*io->getArg(velocity))[0];\n"
+      << "        v.trigger = (*io->getArg(trigger))[0];\n"
+      << "        v.aux0 = aux[0] >= 0 ? (*io->getArg(aux[0]))[0] : 0;\n"
+      << "        v.aux1 = aux[1] >= 0 ? (*io->getArg(aux[1]))[0] : 0;\n"
+      << "        v.aux2 = aux[2] >= 0 ? (*io->getArg(aux[2]))[0] : 0;\n"
+      << "        v.aux3 = aux[3] >= 0 ? (*io->getArg(aux[3]))[0] : 0;\n"
+      << "        knobsOf(tree);\n"
+      << "        for (int c = 0; c < " << outs << "; c++)\n"
+      << "            out[c] = writes[c] ? tree.resolveIOArg(outs[c])->allocate(n)\n"
+      << "                               : &scratch[(size_t)c * scratch.size() / " << outs
+      << "];\n";
+    if (c.effect)
+    {
+        s << "        const float *in[" << c.width << "];\n\n"
+          << "        for (int c = 0; c < " << c.width << "; c++)\n"
+          << "            in[c] = tree.resolveIOArg(ins[c])->values();\n";
+    }
+    s << "        v.render(k, " << (c.effect ? "in, " : "") << "out, (int)n, "
+      << (c.scanned ? "tree.synth()->position(), " : "")
+      << "play >= 0 ? tree.resolveIOArg(play)->allocate(n) : NULL);\n    }\n";
+    return s.str();
+}
+
 int
 main (int argc, char **argv)
 {
     string plugins = "plugins/", devices;
     int rate = TH_DEFAULT_SAMPLES, at = 1;
+    bool engine = false;
 
     for (; at + 1 < argc && argv[at][0] == '-'; at += 2)
-        if (!strcmp(argv[at], "-p"))
+        if (!strcmp(argv[at], "--engine"))
+        {
+            engine = true;
+            at--;
+        }
+        else if (!strcmp(argv[at], "-p"))
             plugins = argv[at + 1];
         else if (!strcmp(argv[at], "-r"))
             rate = atoi(argv[at + 1]);
@@ -628,7 +778,8 @@ main (int argc, char **argv)
             devices = argv[at + 1];
     if (argc - at != 2 || rate <= 0)
     {
-        fprintf(stderr, "usage: %s [-p plugins/] [-r rate] [-c device,...] file.dsp Name\n",
+        fprintf(stderr, "usage: %s [--engine] [-p plugins/] [-r rate] [-c device,...] "
+                "file.dsp Name\n",
                 argv[0]);
         return 2;
     }
@@ -676,6 +827,25 @@ main (int argc, char **argv)
         fprintf(stderr, "%s: %s\n", argv[at], c.error.c_str());
         return 1;
     }
+
+    /* What the engine does that a graph compiled for it can't: draw from
+       the synth's noise, and glide an arg a knob moves. */
+    for (thNode *n : c.placed)
+        if (engine && !strcmp(Compiler::kernelFor(n)->plugin, "osc/noise"))
+        {
+            fprintf(stderr, "%s: %s is an osc::noise, which a compiled graph can't draw from "
+                    "the synth's stream\n", argv[at], n->name().c_str());
+            return 1;
+        }
+        else
+            for (const thNode::Smooth &sm : n->smoothing())
+                if (engine && sm.control)
+                {
+                    fprintf(stderr, "%s: %s.%s glides when its knob moves, which a compiled "
+                            "graph doesn't\n", argv[at], n->name().c_str(),
+                            n->getArg(sm.index)->name().c_str());
+                    return 1;
+                }
 
     /* Each controller block, checked as the app checks one. */
     std::vector<thcHidBlock> profiles;
@@ -777,6 +947,8 @@ main (int argc, char **argv)
 
     if (!profiles.empty())
         printf("#include \"thcHidBlock.h\"\n");
+    if (engine)
+        printf("#include \"think.h\"\n#include \"thCompiled.h\"\n");
     printf("\nstruct thv%s\n{\n    static constexpr float rate = %d;\n"
            "    static constexpr int channels = %zu;\n\n"
            "    struct Knobs\n    {\n", name.c_str(), rate, outs.size());
@@ -914,12 +1086,14 @@ main (int argc, char **argv)
             if (col && reads(frameTable, v))
                 tableLoads += load;
         }
-        printf("    bool render (const Knobs &k, %sfloat *const *out, int count, int64_t at)\n"
+        printf("    bool render (const Knobs &k, %sfloat *const *out, int count, int64_t at,\n"
+               "                 float *play = NULL)\n"
                "    {\n        (void)k;\n        float sounding = 1;\n\n"
                "        /* With no raster, nothing: misc::scan's zeros are no picture. */\n"
                "        if (W <= 0 || H <= 0)\n        {\n"
                "            for (int c = 0; c < channels; c++)\n"
                "                memset(out[c], 0, count * sizeof(float));\n"
+               "            if (play)\n                memset(play, 0, count * sizeof(float));\n"
                "            return false;\n        }\n%s\n"
                "        for (int64_t col = 0; col < W; col++)\n        {\n%s        }\n%s"
                "\n        int64_t col = at %% W, row = at / W %% H%s;\n\n"
@@ -941,16 +1115,20 @@ main (int argc, char **argv)
                (colLoads + frameLoads).c_str(), pixel.c_str());
     }
     else
-        printf("    bool render (const Knobs &k, %sfloat *const *out, int count)\n    {\n"
+        printf("    bool render (const Knobs &k, %sfloat *const *out, int count,\n"
+               "                 float *play = NULL)\n    {\n"
                "        (void)k;\n        float sounding = 1;\n\n%s"
                "\n        for (int i = 0; i < count; i++)\n        {\n%s",
                inArg, once.c_str(), pixel.c_str());
     for (size_t ch = 0; ch < outs.size(); ch++)
         printf("            out[%zu][i] = %s;\n", ch, outs[ch].second.text.c_str());
-    printf("            sounding = %s;\n        }\n        return sounding > 0;\n    }\n",
+    printf("            sounding = %s;\n            if (play)\n                play[i] = sounding;\n"
+           "        }\n        return sounding > 0;\n    }\n",
            play.text.c_str());
     for (const thcHidBlock &p : profiles)
         printf("%s", profileCode(p).c_str());
+    if (engine)
+        printf("%s", engineCode(c, name, once, outs.size(), tree->fingerprint()).c_str());
     printf("};\n\n#endif\n");
     return 0;
 }

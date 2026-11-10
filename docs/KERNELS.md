@@ -115,3 +115,40 @@ synth's: `index` is held to the bit with its Air, all of its noise, at
 0, and `scripts/compiled/noise.dsp`'s compiled noise to the engine's by
 each color's level and slope. It also plays `dxbell`'s compiled block
 for the BOX through a mapper.
+
+### In the engine
+
+With `--engine`, a voice comes with `thv<Name>Engine`, which a tree runs
+in place of its nodes (`libthink/thCompiled.h`). The build compiles the
+patches in `video/` and `video/fx/` into `think_compiled`, whose
+`thCompiledInstall()` a program calls to have them; `genwav` does, and
+`--interpret` keeps it from, and its summary says which way the picture
+ran.
+
+- **Which graph.** A tree's fingerprint (`thSynthTree::fingerprint`) is
+  its graph as parsed, as text: each node, its plugin, and its args, with
+  times as written and without the io args the engine writes as it
+  plays. A compiled graph is added by its own, so a patch edited by one
+  number, or loaded from another file that says something else, finds
+  none and runs on its nodes.
+- **When.** A channel or an effect takes one once its tree is built, if
+  it binds: the synth has a raster, and an effect is as wide as it was
+  compiled. A voice clones its channel's, and a recycled voice's is reset.
+  A stop resets an effect's, as it clears the effect's state.
+- **Each window** it reads the io's note, velocity, trigger and aux, and
+  each knob, as the plugins read them, and writes the io's outputs and
+  `play`, so everything above the tree -- mixing, a voice's end, a
+  stolen voice's fade, the effect chain -- is as it was.
+- **Refused:** an `osc::noise`, since the engine's noise is the synth's
+  stream, and an arg the engine glides because a knob feeds it.
+- **A value changed in place** (the node editor's live edit, a piece's
+  `reshape`), or a probe armed on the channel, drops the tree's compiled
+  graph, and voices made after it run on their nodes.
+
+`scripts/compiledcheck` plays one script -- a chord, a release mid-frame,
+the pedal, a bend and an aux, the music's knobs moving, more notes than
+the voice pool, a stop -- through every patch in `video/`, rings under
+each effect in `video/fx/`, and `scripts/compiled/expression.dsp` for what
+none of those read, at 160x120 and 80x60, before anything is installed
+and after. Every frame is the same bits, and no window after runs on the
+nodes. It also checks the fingerprint and each way a graph falls back.
