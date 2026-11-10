@@ -17,7 +17,8 @@ idf_component_register(
     INCLUDE_DIRS "." "${T}/hid" "${T}/game" "${T}/src" "${T}/libthink" "${T}/plugins"
                  ${composerinc}
     WHOLE_ARCHIVE
-    EMBED_TXTFILES "../pieces/bells.gen"
+    EMBED_TXTFILES "../pieces/harbor.gen" "../pieces/garden.gen" "../pieces/discreet.gen"
+                   "../pieces/lantern.gen" "../pieces/bells.gen"
     REQUIRES boxsim esp_timer heap freertos)
 # The mapper and the touch driver both leave members to their defaults.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-missing-field-initializers

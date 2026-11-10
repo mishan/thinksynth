@@ -51,6 +51,9 @@
 #include "pool.h"
 
 #define GAIN 0.25f
+/* How far ahead of the wall clock the blocks may be rendered: the I2S's
+   six 7.5 ms DMA buffers, the simulator's 50 ms, and a block. */
+#define AHEAD_US 60000
 /* Two blocks in a row over this much of their time shed a voice, and a
    new note where the blocks run near it takes a sounding voice rather
    than a free one. */
@@ -155,8 +158,20 @@ audioTask (void *)
         xSemaphoreTake(lock, portMAX_DELAY);
 
         const int64_t t = esp_timer_get_time();
+        /* The block's own time: a block on from the last, the I2S taking
+           samples at exactly the rate. Its DMA buffers are 7.5 ms, so the
+           task wakes to render two blocks at once, and the wall clock
+           would put an event in whichever of them it woke for. Behind the
+           wall clock, the audio ran dry, and the blocks' time starts
+           again from now; past the buffers' 45 ms ahead of it, the audio
+           isn't waiting on a speaker (none, or the simulator's, on a
+           clock of its own), and it holds there. */
+        static int64_t blockAt = 0;
 
-        composerApply(t);
+        blockAt = blockAt + BLOCK_US > t ? blockAt + BLOCK_US : t;
+        if (blockAt > t + AHEAD_US)
+            blockAt = t + AHEAD_US;
+        composerApply(blockAt);
         poolCount = 0;
         for (Patch *p : patches)
             pools[poolCount++] = p;

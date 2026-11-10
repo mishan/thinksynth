@@ -1,0 +1,79 @@
+# discreet.gen for the BOX -- gen/discreet.gen's two phrases without its tape.
+#
+# The two melodies on the one electric piano, ten steps of 1.3 seconds and
+# twelve of 1.55, drifting against each other, and the cloud of copies
+# thickening the second in the middle. The BOX plays no effect graphs, so
+# the tape loop and the room are gone, and what is left is the phrases
+# themselves; the sections are a fifth as long, and it goes round.
+#
+# The piano's decay is shorter than the desktop's, 2.5 s, so the cloud's
+# copies and the two phrases fit the BOX's voices.
+
+name "Discreet";
+author "Misha Nasledov";
+description "Two phrases of different lengths drifting apart, on a compiled electric piano.";
+category "Pieces";
+
+seed 1975;
+
+scale fmaj "F3 G3 A3 C4 D4 F4 G4 A4 C5 D5 F5";
+
+instrument ep {
+    dsp "rhodes.dsp";
+    amp = 100;
+    decay = 2500 ms;
+    r = 1200 ms;
+    spread = 0.6;
+};
+
+section one    20 s { upper = 0; thick = 0; };
+section both   70 s { thick = 0; };
+section cloud  60 s { upper = 0; };
+section plain  60 s { thick = 0; };
+section loop both;
+
+chain lower {
+    stage src gen::lsystem {
+        axiom = "F_ ++F r +++F__ --F r r";
+        rules = "";
+        depth = 0;
+        notes = "F3 G3 A3 C4 D4 F4 G4 A4";
+        step = 1.3 s;  hold = 1.2 s;  vel = 72;
+    };
+    sink { instrument = ep; };
+};
+
+chain upper {
+    stage src gen::lsystem {
+        axiom = "r +++F -F r --F_ r ++++F r r r r";
+        rules = "";
+        depth = 0;
+        notes = "C4 D4 F4 G4 A4 C5 D5";
+        step = 1.55 s;  hold = 1.4 s;  vel = 64;
+    };
+    sink { instrument = ep; };
+};
+
+chain thick {
+    stage src gen::lsystem {
+        axiom = "r +++F -F r --F_ r ++++F r r r r";
+        rules = "";
+        depth = 0;
+        notes = "C4 D4 F4 G4 A4 C5 D5";
+        step = 1.55 s;  hold = 1.4 s;  vel = 64;
+    };
+    stage c xform::cloud {
+        count = 3;  time = 4 s;  pitch = 12;  scale = fmaj;
+        taper = 0.6;  spread = 0.8;  pass = 1;
+    };
+    sink { instrument = ep; };
+};
+
+# How far the piano pans side to side, on a slow walk, where the desktop's walked
+# the room.
+chain shimmer {
+    stage src gen::walk {
+        min = 0.2; max = 0.8; step = 0.1; period = 20 s;
+    };
+    sink { instrument = ep; chanarg = "depth"; };
+};

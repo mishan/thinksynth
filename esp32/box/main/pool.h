@@ -31,6 +31,7 @@
 #define VOICES 8
 #define BLOCK 128
 #define BOX_RATE 32000
+#define BLOCK_US (1000000LL * BLOCK / BOX_RATE)
 /* The top of a channel's amp, the engine's MIDIVALMAX. */
 #define BOX_AMP_MAX 127
 

@@ -1,0 +1,126 @@
+# lantern.gen for the BOX -- gen/lantern.gen on the patches it compiles.
+#
+# The same energy knob and form, the arpeggio on pluck.dsp, the glass, the
+# kick and clap as they were; the bass on clav.dsp and the hats on hat.dsp,
+# which have kernels where bass.dsp and hat808.dsp have not. The pad and
+# the room and echo effects are left out: the BOX plays no effect graphs,
+# and a pad of held chords is more voices than its two cores have. Each
+# part is three times as loud as on the desktop, whose mix is a limiter's
+# to keep; the BOX's is a fixed gain.
+#
+name "Lantern";
+author "Misha Nasledov";
+description "One energy knob, set by each section, thinning and filling an arpeggio, a groove and a pad.";
+category "Pieces";
+
+tempo 104;
+seed 1104;
+meter 4;
+
+@energy = 0.2;
+@energy.widget = 1;
+@energy.min = 0;
+@energy.max = 1;
+@energy.label = "Energy";
+
+section dusk    8 bars { @energy = 0.1;  kick = 0;  hats = 0;  clap = 0;  bass = 0; };
+section kindle  8 bars { @energy = 0.4;  kick = 0;  clap = 0; };
+section glow   16 bars { @energy = 0.75; };
+section gutter  8 bars { @energy = 0.3;  kick = 0; };
+section blaze  16 bars { @energy = 1; };
+section loop kindle;
+
+scale ddor  "D3 E3 F3 G3 A3 B3 C4";
+scale roots "D3 G3 D3 C3";
+
+instrument arp {
+    dsp  "pluck.dsp";
+    amp  = 54;
+};
+
+instrument glass {
+    dsp  "glass.dsp";
+    amp  = 24;
+    id   = 1500 ms;
+    r    = 1200 ms;
+};
+
+instrument bass {
+    dsp  "clav.dsp";
+    amp  = 48;
+    tone = 700;
+    res  = 0.6;
+};
+
+instrument kick {
+    dsp  "kick909.dsp";
+    amp  = 72;
+};
+
+instrument clap {
+    dsp  "clap.dsp";
+    amp  = 120;
+};
+
+instrument hats {
+    dsp  "hat.dsp";
+    amp  = 110;
+};
+
+# The pool is the progression: fourteen chord tones under each two bars.
+chain arp {
+    stage src gen::euclid {
+        steps = 16;  fills = 7;  rotate = 0;
+        notes = "D5 F5 A5 C6 A5 F5 E5  D5 F5 A5 C6 A5 F5 E5  D5 G5 B5 D6 B5 G5 A5  D5 G5 B5 D6 B5 G5 A5  D5 F5 A5 C6 A5 F5 E5  D5 F5 A5 C6 A5 F5 E5  C5 E5 G5 C6 G5 E5 D5  C5 E5 G5 C6 G5 E5 D5";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 80;
+    };
+    stage c xform::chance { prob = 0.15 + 0.85 * @energy; };
+    sink { instrument = arp; };
+};
+
+# Silent below an energy of 0.4, every note by 0.65.
+chain glass {
+    stage src gen::euclid {
+        steps = 8;  fills = 3;  rotate = 1;  notes = "A5 D6 E6 C6 G5";
+        period = 0.5 beats;  hold = 0.3 beats;  vel = 60;
+    };
+    stage c xform::chance { prob = clamp((@energy - 0.4) * 4, 0, 1); };
+    sink { instrument = glass; };
+};
+
+chain bass {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "D2 D2 D3 D2 A2 D2 C3 D2 D2 D2 D3 D2 A2 D2 F2 A2 G1 G1 G2 G1 D2 G1 F2 G1 G1 G1 G2 G1 D2 G1 B1 D2 D2 D2 D3 D2 A2 D2 C3 D2 D2 D2 D3 D2 A2 D2 F2 A2 C2 C2 C3 C2 G2 C2 E2 G2 C2 C2 C3 C2 G2 C2 B1 C2";
+        period = 0.5 beats;  hold = 0.4 beats;  vel = 90;
+    };
+    stage c xform::chance { prob = 0.5 + @energy; };
+    sink { instrument = bass; };
+};
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;  notes = "C2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 80 + 30 * @energy;
+    };
+    sink { instrument = kick; };
+};
+
+# Twos and fours from an energy of 0.6.
+chain clap {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;  notes = "D2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 100;
+    };
+    stage c xform::chance { prob = clamp((@energy - 0.6) * 4, 0, 1); };
+    sink { instrument = clap; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;  notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 60;
+    };
+    stage c xform::chance { prob = 0.2 + 0.8 * @energy; };
+    sink { instrument = hats; };
+};
