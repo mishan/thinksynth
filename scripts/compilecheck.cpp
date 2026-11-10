@@ -314,6 +314,55 @@ checkEffect (const char *name, const std::string &patch, const std::string &fx,
     }
 }
 
+/* Knobs::declared, what a host checks a piece's chanargs against with no
+   graph loaded: every knob the voice has, as the loaded patch has it --
+   its value, range and unit -- and nothing it doesn't have. */
+template <class V>
+static void
+checkDeclared (const char *name, const std::string &file, const std::string &plugins)
+{
+    thSynth synth(plugins, WINDOW, (int)V::rate);
+    typename V::Knobs knobs;
+    std::string why;
+    size_t settable = 0;
+
+    if (!synth.loadTree(file, 0, MIDIVALMAX))
+        why = file + " didn't load";
+
+    const thArgMap args = synth.getChanArgs(0);
+
+    for (const auto &kv : args)
+        settable += knobs.set(kv.first.c_str(), (*kv.second)[0]);
+    for (const auto &d : V::Knobs::declared)
+    {
+        const auto at = args.find(d.name);
+        const thArg *a = at == args.end() ? NULL : at->second;
+
+        if (!why.empty())
+            break;
+        if (a == NULL)
+            why = std::string(d.name) + " is declared and the patch has no such chanarg";
+        else if ((*a)[0] != d.value || a->min() != d.min || a->max() != d.max ||
+                 a->units() != d.units)
+            why = std::string(d.name) + " is declared " + std::to_string(d.value) + " in " +
+                  std::to_string(d.min) + ".." + std::to_string(d.max) + " " + d.units +
+                  "; the patch has " + std::to_string((*a)[0]) + " in " +
+                  std::to_string(a->min()) + ".." + std::to_string(a->max()) + " " +
+                  a->units();
+    }
+    if (why.empty() && settable != V::Knobs::declared.size())
+        why = std::to_string(settable) + " of the patch's chanargs are the voice's knobs, " +
+              std::to_string(V::Knobs::declared.size()) +
+              " declared";
+
+    printf("%s  %s\n", why.empty() ? "ok  " : "FAIL", name);
+    if (!why.empty())
+    {
+        printf("  %s\n", why.c_str());
+        failed++;
+    }
+}
+
 /* A noise's level, and the level of its steps over that, which is its
    slope: sqrt(2) for a white, less the more it leans to the low end. */
 static void
@@ -429,6 +478,12 @@ main (int argc, char **argv)
     check<thvNames>("knobs named for a word of C++'s and for set()'s own",
                     dsp + "/../scripts/compiled/names.dsp", plugins, 100, 200, true);
     checkNoise(dsp + "/../scripts/compiled/noise.dsp", plugins);
+    checkDeclared<thvDxbell>("dxbell's knobs, declared as the patch has them",
+                             dsp + "/dxbell.dsp", plugins);
+    checkDeclared<thvGrab>("grab's knobs, declared as the patch has them",
+                           dsp + "/grab.dsp", plugins);
+    checkDeclared<thvIndex>("index's knobs, declared as the patch has them",
+                            dsp + "/index.dsp", plugins);
 
     const std::string video = dsp + "/../video/";
 
