@@ -65,7 +65,7 @@ A video patch is a `.dsp` like any other. What is different:
 | `x`, `y` | 0 to 1, across from the left and down from the top |
 | `hsync`, `vsync` | 1 on a line's and a frame's first pixel |
 | `frame` | which frame, from 0 |
-| `t` | seconds since the start |
+| `t` | seconds since the start, at the frame's first pixel: one moment a frame |
 | `width`, `size` | a line's pixels and a frame's: what a delay a frame long is set by |
 
 Two dimensions are an expression away: a ring is a `math::sin` of
