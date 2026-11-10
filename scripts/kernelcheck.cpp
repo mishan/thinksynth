@@ -707,9 +707,9 @@ main ()
 
                 if (bend > 0)
                     back = std::tanh(bend * back) / bend;
-                ref[at] = l.feedback * back + (1 - l.feedback) * in;
+                ref[at] = l.feedback * back + (1 - (double)l.feedback) * in;
 
-                const double want = (1 - l.dry) * delay + l.dry * in;
+                const double want = (1 - (double)l.dry) * delay + (double)l.dry * in;
                 const float got = e.tick(ring, S, in, (float)S, l.feedback, l.dry, l.tone,
                                          l.low, l.drive, l.boost, (float)rate);
 
