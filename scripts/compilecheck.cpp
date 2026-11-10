@@ -256,7 +256,7 @@ main (int argc, char **argv)
     check<thvGate>("compiled at 32 kHz and bound to 48, as the engine at 48",
                    dsp + "/../scripts/compiled/gate.dsp", plugins, 100, 200, true,
                    { { "a", 240 }, { "r", 2400 } }, 48000);
-    check<thvTwice>("a time written twice, as the second, bound to 48 kHz",
+    check<thvTwice>("values written twice, each as its second, bound to 48 kHz",
                     dsp + "/../scripts/compiled/twice.dsp", plugins, 100, 200, true, {},
                     48000);
     check<thvDxbell>("dsp/dxbell.dsp bound to 44.1 kHz, to its end", dsp + "/dxbell.dsp",

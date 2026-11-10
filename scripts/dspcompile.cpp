@@ -32,7 +32,7 @@
  *
  * The rate is the compiler's, as it is the engine's at load: times written
  * in ms are samples at that rate by the time the graph can be read. The
- * engine keeps which node values were times (thSynthTree::timeFolds), and
+ * engine keeps which node values were times (thSynthTree::nodeFolds), and
  * those the voice folds again at the rate bind() gives it, as the engine
  * would have at load; a knob's default and range stay at the compiler's.
  *
@@ -136,7 +136,7 @@ struct Compiler
     std::map<thNode *, bool> control;
     std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
     std::map<thNode *, std::vector<Value> > ctls, ins;
-    std::vector<thTimeFold> times;          /* each one bind() folds, t<i> */
+    std::vector<thNodeFold> times;          /* each one bind() folds, t<i> */
     string error;
 
     /* By the plugin's path, less where it was found and its suffix. */
@@ -210,10 +210,14 @@ struct Compiler
                     error = n->name() + "." + a->name() + " is a list, which isn't compiled yet";
                     return false;
                 }
-                /* The last fold of an arg is what it holds. */
-                for (auto f = tree->timeFolds().rbegin(); f != tree->timeFolds().rend(); ++f)
+                /* The last fold of an arg is what it holds: a time is the
+                   voice's to fold again, what no rate changes is as
+                   loaded. */
+                for (auto f = tree->nodeFolds().rbegin(); f != tree->nodeFolds().rend(); ++f)
                     if (f->node == n->name() && f->arg == a->name())
                     {
+                        if (f->units != "ms" && f->units != "s" && f->units != "beats")
+                            break;
                         if (f->units == "beats")
                         {
                             error = n->name() + "." + a->name() + " is in beats, which "
@@ -626,7 +630,7 @@ main (int argc, char **argv)
                    n->name().c_str());
 
     /* A time is folded as the engine folds it at load (thFoldUnit). */
-    const auto fold = [&](const thTimeFold &f, const char *r) {
+    const auto fold = [&](const thNodeFold &f, const char *r) {
         return "(float)((double)" + Compiler::literal(f.literal) + " * (double)" + r +
                (f.units == "ms" ? " / 1000.0)" : ")");
     };

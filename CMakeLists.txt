@@ -49,9 +49,12 @@ include(TestBigEndian)
 # blocks, before members its inline accessors read; thSynth gained a limiter
 # switch, a sample count and a raster, before the tempo its inline tempo()
 # reads, and a channel count in both constructors.
+#
+# 10: thSynthTree keeps the units its node values were written in, before
+# members its inline accessors read.
 # ---------------------------------------------------------------------------
 
-set(THINK_LIB_MAJOR 9)
+set(THINK_LIB_MAJOR 10)
 set(THINK_LIB_MINOR 0)
 
 # ---------------------------------------------------------------------------
