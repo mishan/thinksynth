@@ -51,6 +51,16 @@ static inline bool thkFinite (float x)
     return (bits & 0x7f800000u) != 0x7f800000u;
 }
 
+/* x, which the compiler can't see: a compiled graph's numbers, where a
+   kernel's libm call would otherwise be worked out at build time, which
+   can be an ulp from the library's answer at run time, the plugin's. */
+static inline float thkHeld (float x)
+{
+    volatile float held = x;
+
+    return held;
+}
+
 /* thClampArg's: a non-finite x answers lo. */
 static inline float thkClamp (float x, float lo, float hi)
 {

@@ -25,6 +25,9 @@ have kernels, and the pattern is theirs:
 - **What runs once in a `Ctl` may afford libm**, where the accuracy is
   worth more than the cycles: `thkPan::ctl` uses `sinf` and `cosf`, since
   the table's rounding on each side is more than constant power allows.
+  A compiled voice hands such a call its numbers through `thkHeld`, or
+  the C++ compiler would work it out at build time, correctly rounded,
+  where the library's answer at run time can be an ulp away.
 - **A kernel that keeps nothing is a function**, `thk<Name>(...)`, as
   `thkMidi2freq` is. A plugin with two modes has a kernel for each, as
   `env::adsr` has `thkAdsrFree` and `thkAdsrGated`.
@@ -154,3 +157,7 @@ each effect in `video/fx/`, and `scripts/compiled/expression.dsp` for what
 none of those read, at 160x120 and 80x60, before anything is installed
 and after. Every frame is the same bits, and no window after runs on the
 nodes. It also checks the fingerprint and each way a graph falls back.
+The same goes for random graphs from `scripts/dsprandom`, at 80x60:
+every kernel above wired to the raster, the note and the knobs and to
+each other, so that what a value depends on is mixed in ways no shipped
+patch is. `THINK_RANDOM_GRAPHS` (48) says how many.

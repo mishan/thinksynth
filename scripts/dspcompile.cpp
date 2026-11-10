@@ -147,6 +147,7 @@ struct Value
     string text;
     bool   control;             /* the same at every sample of a call */
     int    deps = 0;            /* when it isn't: D_*, or none for every sample */
+    bool   number = false;      /* a number the patch wrote */
 };
 
 struct Compiler
@@ -277,7 +278,7 @@ struct Compiler
                         v = { "t" + std::to_string(t), true };
                         return true;
                     }
-                v = { literal(a->len() ? (*a)[0] : 0), true };
+                v = { literal(a->len() ? (*a)[0] : 0), true, 0, true };
                 return true;
             case thArg::ARG_CHANNEL:
             {
@@ -438,6 +439,18 @@ struct Compiler
             vs.push_back(v);
         }
         placing.erase(n);
+        /* Once a call, a call on nothing but numbers would be the
+           compiler's to work out (thkHeld). A kernel that keeps state
+           ticks every sample, and calls libm on that state. */
+        const bool held = k->pure && std::all_of(vs.begin(), vs.end(),
+                                                 [](const Value &v) { return v.control; });
+
+        for (Value &v : cs)
+            if (v.number && once)
+                v.text = "thkHeld(" + v.text + ")";
+        for (Value &v : vs)
+            if (v.number && held)
+                v.text = "thkHeld(" + v.text + ")";
         ctls[n] = cs;
         ins[n] = vs;
         control[n] = ctl && once;
@@ -670,7 +683,9 @@ engineCode (Compiler &c, const string &name, const string &once, size_t outs,
     /* What once works out and the sizes don't read. */
     const std::regex declared("\\n *[A-Za-z_:]+(?: [A-Za-z_:]+)? (n[0-9]+_[a-z0-9_]+)(?: =|;)");
 
-    for (std::sregex_iterator m(once.begin(), once.end(), declared), e;
+    const string onceLines = "\n" + once;      /* its first line too */
+
+    for (std::sregex_iterator m(onceLines.begin(), onceLines.end(), declared), e;
          !prime.str().empty() && m != e; ++m)
         s << "        (void)" << (*m)[1] << ";\n";
     s << "    }\n};\n\n"
@@ -951,7 +966,7 @@ main (int argc, char **argv)
         else if (d && !(d & (D_COL | D_SAMPLE)))
         {
             for (const string &v : names(e))
-                lineDecl += "        float " + v + " = 0;\n";
+                lineDecl += "        [[maybe_unused]] float " + v + " = 0;\n";
             line += indent(std::regex_replace(e, std::regex("const float "), ""), 8);
         }
         else
