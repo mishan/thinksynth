@@ -733,6 +733,7 @@ thcScheduler::clearChains (void)
             delete i->second;
     }
     knobs_.clear();
+    heldKnobs_.clear();
 
     for (size_t i = 0; i < retired_.size(); i++)
         delete retired_[i];
@@ -3324,7 +3325,10 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
     for (std::map<std::string, thArg *>::iterator k = knobs_.begin();
          k != knobs_.end(); ++k)
         if (still.find(k->second) == still.end())
+        {
             retired_.push_back(k->second);
+            heldKnobs_.erase(k->second);
+        }
 
     knobs_ = next.knobs_;
     next.knobs_.clear();
@@ -3806,7 +3810,8 @@ thcScheduler::applySectionKnobs (void)
     {
         thArg *a = knob(k.first);
 
-        if (a == NULL || (*a)[0] == (float)k.second)
+        if (a == NULL || !pieceSets(a, (float)k.second) ||
+            (*a)[0] == (float)k.second)
             continue;
 
         knobWriteAt_ = at;
@@ -5309,8 +5314,8 @@ thcScheduler::deliverDue (double now)
 
 /* As written: a knob's .min and .max are its slider's travel, not a bound
  * on the piece. A seek sets it too: where a knob stands is where the piece
- * is. Nothing holds a hand off, so a drag stays until the chain's next
- * value, as a chanarg under gen::pump does. */
+ * is. Unless a hand holds the knob (holdKnob), a drag stays only until
+ * the chain's next value, as a chanarg under gen::pump does. */
 void
 thcScheduler::setKnobFrom (thArg *knob, const thcEvent &ev, int chain)
 {
@@ -5319,7 +5324,7 @@ thcScheduler::setKnobFrom (thArg *knob, const thcEvent &ev, int chain)
     if (!seeking_ && chain >= 0 && (size_t)chain < chains_.size())
         chains_[chain].lastHeard[1] = transportNow_;
 
-    if ((*knob)[0] != v)
+    if (pieceSets(knob, v) && (*knob)[0] != v)
     {
         knobWriteAt_ = ev.at;
         knob->setValue(v);
@@ -6037,7 +6042,7 @@ thcScheduler::reset (void)
                 knobHome_.emplace(a, (*knobMeta(k.first))[0]);
 
     for (const auto &h : knobHome_)
-        if ((*h.first)[0] != h.second)
+        if (pieceSets(h.first, h.second) && (*h.first)[0] != h.second)
             h.first->setValue(h.second);
 
     /* And the first section's, which is what the top of the piece is. */
@@ -6261,6 +6266,38 @@ thcScheduler::knobMoved (const thArg *knob, bool passing)
         if (reads)
             recompose(j, passing);
     }
+}
+
+void
+thcScheduler::holdKnob (thArg *knob)
+{
+    heldKnobs_.emplace(knob, NAN);
+}
+
+void
+thcScheduler::letGoKnob (thArg *knob)
+{
+    const auto h = heldKnobs_.find(knob);
+
+    if (h == heldKnobs_.end())
+        return;
+
+    const float v = h->second;
+
+    heldKnobs_.erase(h);
+    if (!std::isnan(v) && (*knob)[0] != v)
+        knob->setValue(v);
+}
+
+bool
+thcScheduler::pieceSets (thArg *knob, float v)
+{
+    const auto h = heldKnobs_.find(knob);
+
+    if (h == heldKnobs_.end())
+        return true;
+    h->second = v;
+    return false;
 }
 
 void
