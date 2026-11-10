@@ -59,6 +59,7 @@
  * hold still: scripts/compilecheck holds it to that.
  */
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -155,7 +156,7 @@ struct Compiler
     std::map<thNode *, int> deps;
     bool scanned = false;                   /* a misc::scan read: a raster's */
     bool effect = false;                    /* its io's in<N>: a signal in */
-    int ioOuts = 0;                         /* the io's out<N> */
+    int width = 0;                          /* an effect's channels, at most */
     std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
     std::map<thNode *, std::vector<Value> > ctls, ins;
     std::vector<thNodeFold> times;          /* each one bind() folds, t<i> */
@@ -290,17 +291,17 @@ struct Compiler
                 }
                 /* An effect's signal in, given to render() a sample at a
                    time: in<N>, one digit, as the engine writes a channel's
-                   (thChanEffect), and no more than the effect's outputs. */
+                   (thChanEffect), and no more than the effect's channels. */
                 const bool digit = name.size() > 2 && isdigit((unsigned char)name.back());
 
                 if (to == io && effect && name.size() == 3 && !name.compare(0, 2, "in") &&
                     digit)
                 {
-                    if (name[2] - '0' >= ioOuts)
+                    if (name[2] - '0' >= width)
                     {
                         error = n->name() + "." + a->name() + " reads " + name +
-                                ", past the effect's " + std::to_string(ioOuts) + " output" +
-                                (ioOuts == 1 ? "" : "s");
+                                ", past the effect's " + std::to_string(width) + " channel" +
+                                (width == 1 ? "" : "s");
                         return false;
                     }
                     v = { "in[" + name.substr(2) + "][i]", false, D_SAMPLE };
@@ -644,8 +645,12 @@ main (int argc, char **argv)
     Compiler c = { tree, tree->IONode() };
 
     c.effect = tree->takesInput();
-    while (c.io->getArg("out" + std::to_string(c.ioOuts)))
-        c.ioOuts++;
+    /* The engine runs an effect on the fewer of its declared channels and
+       its channel's; its outputs, here, stand in for the channel's. */
+    while (c.io->getArg("out" + std::to_string(c.width)))
+        c.width++;
+    if (c.io->getArg("channels") && c.io->getArg("channels")->len())
+        c.width = std::min(c.width, (int)(*c.io->getArg("channels"))[0]);
     std::vector<std::pair<string, Value> > outs;    /* io arg, its value */
 
     for (int ch = 0;; ch++)
