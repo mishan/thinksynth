@@ -30,6 +30,9 @@
  * The skip: a video synth drawing misc::scan's x, y and frame, a frame and
  * a half in, skipped to frame 5. The next frame it hands over is frame 5,
  * whole, from its first pixel.
+ *
+ * The voices: five notes held on a patch that draws 1 a voice. It draws
+ * two, a video channel's limit, and five where its io says poly = 5.
  */
 
 #include "config.h"
@@ -208,6 +211,47 @@ checkSkip (const string &plugins)
            : "before the skip, frame " + std::to_string(seen) + " was the last, not 0");
 }
 
+static void
+checkVoices (const string &plugins)
+{
+    const struct
+    {
+        const char *poly;
+        float voices;
+    } CASES[] = { { "", 2 }, { " poly = 5;", 5 } };
+
+    for (const auto &c : CASES)
+    {
+        const string name = string("five notes held") + (c.poly[0] ? " under poly = 5" : "") +
+                            " draw " + std::to_string((int)c.voices) + " voices";
+        thVideoSynth video;
+        string why;
+
+        if (!video.open(plugins, 8, 4, 10, 1, why) ||
+            !video.followText(0, "voices", string("node ionode { channels = 3;") + c.poly +
+                              " play = 1; out0 = 1; out1 = 1; out2 = 1; }; io ionode;",
+                              why))
+        {
+            report(name, why);
+            continue;
+        }
+        for (int note = 60; note < 65; note++)
+            video.noteOn(0, note, MIDIVALMAX, 1, NULL);
+
+        float drawn = -1;
+        const auto keep = [&](int64_t frame, const float *r, const float *, const float *)
+        {
+            if (frame == 1)
+                drawn = r[0];
+            return true;
+        };
+
+        for (int k = 0; k < 4 * 2; k++)
+            video.render(keep);
+        report(name, drawn == c.voices ? "" : "it drew " + std::to_string(drawn));
+    }
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -220,6 +264,7 @@ main (int argc, char *argv[])
 
     checkBridge(plugins);
     checkSkip(plugins);
+    checkVoices(plugins);
 
     return failed ? 1 : 0;
 }
