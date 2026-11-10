@@ -67,9 +67,10 @@ struct thBeatFold
     thUnitFold::Field  field;
 };
 
-/* A node's value written in `ms' or `s', kept after the fold: a patch
- * compiled at one rate folds it again at the rate it runs at
- * (scripts/dspcompile). By name, for thBeatFold's reason. */
+/* A node's value written in `ms', `s' or `beats', kept after the fold: a
+ * patch compiled at one rate folds it again at the rate it runs at
+ * (scripts/dspcompile). By name, for thBeatFold's reason; in the order
+ * folded, so of an arg written twice the last is what it holds. */
 struct thTimeFold
 {
     string node;
@@ -231,7 +232,7 @@ public:
        so calling it twice cannot fold twice. Run once, from
        thSynth::finishParse, before anything reads a value. `beats' fold
        at `bpm' and are remembered for retempo(), and node values in
-       `ms' and `s' for timeFolds(). */
+       time for timeFolds(). */
     void foldUnits (long sampleRate, double bpm);
     const std::vector<thTimeFold> &timeFolds (void) const { return timeFolds_; }
 

@@ -210,11 +210,18 @@ struct Compiler
                     error = n->name() + "." + a->name() + " is a list, which isn't compiled yet";
                     return false;
                 }
-                for (const thTimeFold &f : tree->timeFolds())
-                    if (f.node == n->name() && f.arg == a->name())
+                /* The last fold of an arg is what it holds. */
+                for (auto f = tree->timeFolds().rbegin(); f != tree->timeFolds().rend(); ++f)
+                    if (f->node == n->name() && f->arg == a->name())
                     {
+                        if (f->units == "beats")
+                        {
+                            error = n->name() + "." + a->name() + " is in beats, which "
+                                    "follow a tempo a compiled voice isn't given";
+                            return false;
+                        }
                         v = { "t" + std::to_string(times.size()), true };
-                        times.push_back(f);
+                        times.push_back(*f);
                         return true;
                     }
                 v = { literal(a->len() ? (*a)[0] : 0), true };

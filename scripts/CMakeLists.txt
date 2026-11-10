@@ -256,6 +256,7 @@ target_include_directories(dspcompile PRIVATE "${PROJECT_SOURCE_DIR}/game")
 set(THINK_COMPILED "${CMAKE_CURRENT_BINARY_DIR}/compiled")
 foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box,marbles,life"
               "Gate;${CMAKE_CURRENT_SOURCE_DIR}/compiled/gate.dsp"
+              "Twice;${CMAKE_CURRENT_SOURCE_DIR}/compiled/twice.dsp"
               "Names;${CMAKE_CURRENT_SOURCE_DIR}/compiled/names.dsp"
               "Noise;${CMAKE_CURRENT_SOURCE_DIR}/compiled/noise.dsp"
               "Grab;${PROJECT_SOURCE_DIR}/dsp/grab.dsp"
@@ -276,6 +277,13 @@ foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box,marbles,life"
       VERBATIM)
   list(APPEND THINK_COMPILED_VOICES "${THINK_COMPILED}/thv${vname}.h")
 endforeach()
+# A time in beats is refused, by name: it follows the tempo, which a
+# compiled voice is not given.
+add_test(NAME dspcompile.beats
+         COMMAND dspcompile -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${CMAKE_CURRENT_SOURCE_DIR}/compiled/beats.dsp" Beats)
+set_tests_properties(dspcompile.beats PROPERTIES
+                     PASS_REGULAR_EXPRESSION "env.d is in beats")
 think_harness(compilecheck COMPOSERHOST HID EXTRA ${THINK_COMPILED_VOICES})
 target_include_directories(compilecheck PRIVATE "${THINK_COMPILED}"
                            "${PROJECT_SOURCE_DIR}/plugins")
