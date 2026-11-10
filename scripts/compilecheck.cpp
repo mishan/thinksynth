@@ -157,10 +157,10 @@ check (const char *name, const std::string &file, const std::string &plugins,
 }
 
 /* A video patch on a raster `w' by `h' at 60 frames a second: compiled at
-   160x120's pixel rate, bound to this one's. Half a second of a note,
-   released a quarter of a second in, in windows that start partway along a line, and
-   the music's chanargs at levels that light it. Every pixel of every
-   channel as the engine's, and some of them lit. */
+   160x120's pixel rate, bound to this one's. Half a second of a
+   note, released a quarter of a second in, in windows that start partway
+   along a line, and the music's chanargs at levels that light it. Every
+   pixel of every channel as the engine's, and some of them lit. */
 template <class V>
 static void
 checkRaster (const char *name, const std::string &file, const std::string &plugins,
@@ -206,8 +206,10 @@ checkRaster (const char *name, const std::string &file, const std::string &plugi
 
         const float *live = synth.getChannelOutput(0, &channels);
 
+        if (channels != 3)
+            snprintf(why, sizeof(why), "the engine's channel is %d wide, not 3", channels);
         for (int i = 0; i < window && !why[0]; i++)
-            for (int c = 0; c < channels && c < 3 && !why[0]; c++)
+            for (int c = 0; c < 3 && !why[0]; c++)
             {
                 const float want = live ? live[i * channels + c] : 0;
                 const float got = 0.0f + outs[c][i];
@@ -346,6 +348,28 @@ main (int argc, char **argv)
     checkNoise(dsp + "/../scripts/compiled/noise.dsp", plugins);
 
     const std::string video = dsp + "/../video/";
+
+    /* A video voice given no raster renders nothing, rather than dividing
+       by its width. */
+    {
+        thvRings v;
+        thvRings::Knobs k;
+        float out[3][WINDOW];
+        float *outs[3] = { out[0], out[1], out[2] };
+        bool dark = true;
+
+        memset(out, 0x7f, sizeof(out));
+        v.start(60, 100);
+
+        const bool sounding = v.render(k, outs, WINDOW, 0);
+
+        for (int c = 0; c < 3; c++)
+            for (int i = 0; i < WINDOW; i++)
+                dark = dark && out[c][i] == 0;
+        printf("%s  a video voice with no raster renders nothing\n",
+               !sounding && dark ? "ok  " : "FAIL");
+        failed += sounding || !dark;
+    }
 
     for (const auto &r : { std::make_pair(160, 120), std::make_pair(80, 60) })
     {

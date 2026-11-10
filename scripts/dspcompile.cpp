@@ -450,7 +450,8 @@ struct Compiler
         else if (p == "env/ad" || p == "env/adsr")
             s << "        float " << var(n, "play") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
-              << ", " << args(0) << ", " << var(n, "play") << ");\n";
+              << ", " << args(0) << ", " << var(n, "play") << ");\n"
+              << "        (void)" << out << ";    /* an envelope read for play alone */\n";
         else if (p == "mixer/pan")
             s << "        const float " << var(n, "out0") << " = " << v[0].text << " * "
               << var(n, "ctl") << ".left;\n"
@@ -675,7 +676,7 @@ main (int argc, char **argv)
        a line wide made once a call or once a frame, once a line, or every
        pixel. A node's statements are as they'd be every sample, so a value
        is the same bits wherever it's worked out. */
-    string once, colTable, frameTable, lineDecl, line, colLoads, frameLoads, pixel;
+    string once, colTable, frameTable, lineDecl, line, tableLoads, pixel;
     std::vector<string> tables;
     const std::regex declared("const float (n[0-9]+_[a-z0-9_]+) = ");
     const auto names = [&](const string &t) {
@@ -709,8 +710,6 @@ main (int argc, char **argv)
             {
                 tables.push_back(v);
                 to += "            tab_" + v + "[col] = " + v + ";\n";
-                (d == D_COL ? colLoads : frameLoads) +=
-                    "            const float " + v + " = tab_" + v + "[col];\n";
             }
         }
         else if (d && !(d & (D_COL | D_SAMPLE)))
@@ -786,6 +785,22 @@ main (int argc, char **argv)
         printf("    }\n");
     }
 
+    /* start() keeps the raster, and its tables' memory: a note-on that
+       allocates isn't one a firmware can take. render() fills them before
+       reading them. */
+    string keep, restore;
+
+    if (c.scanned)
+    {
+        keep = "        const int64_t w = W, h = H;\n";
+        restore = "        W = w;\n        H = h;\n";
+        for (const string &v : tables)
+        {
+            keep += "        std::vector<float> keep_" + v + " = std::move(tab_" + v + ");\n";
+            restore += "        tab_" + v + " = std::move(keep_" + v + ");\n";
+        }
+    }
+
     printf("\n    /* As the engine starts a voice: velocity 0..127 to 0..1; each noise\n"
            "       its own stream, from seed. Not the engine's streams, which come\n"
            "       from the synth's; and one stream for every voice given the same\n"
@@ -795,8 +810,7 @@ main (int argc, char **argv)
            "        *this = thv%s();\n"
            "        bind(r);\n%s"
            "        note = n;\n        velocity = v * %s / %d;\n        trigger = 1;\n",
-           c.scanned ? "        const int64_t w = W, h = H;\n" : "", name.c_str(),
-           c.scanned ? "        raster(w, h);\n" : "",
+           keep.c_str(), name.c_str(), restore.c_str(),
            Compiler::literal(TH_MAX).c_str(), MIDIVALMAX);
     for (thNode *n : c.placed)
         if (Compiler::stateType(n) == "thkNoise")
@@ -807,23 +821,51 @@ main (int argc, char **argv)
     {
         /* `at' is the raster's sample the call begins on, as misc::scan
            reads the synth's position. */
+        /* Each table loaded where what follows reads it. */
+        const auto reads = [](const string &text, const string &v) {
+            return std::regex_search(text, std::regex("\\b" + v + "\\b"));
+        };
+        string after;
+
+        for (const auto &o : outs)
+            after += o.second.text + "\n";
+        after += pixel + play.text;
+
+        string colLoads, frameLoads;
+
+        for (const string &v : tables)
+        {
+            const string load = "            const float " + v + " = tab_" + v + "[col];\n";
+            const bool col = colTable.find("tab_" + v + "[col] =") != string::npos;
+
+            if (reads(after, v))
+                (col ? colLoads : frameLoads) += load;
+            if (col && reads(frameTable, v))
+                tableLoads += load;
+        }
         printf("    bool render (const Knobs &k, float *const *out, int count, int64_t at)\n"
-               "    {\n        (void)k;\n        float sounding = 1;\n\n%s\n"
+               "    {\n        (void)k;\n        float sounding = 1;\n\n"
+               "        /* With no raster, nothing: misc::scan's zeros are no picture. */\n"
+               "        if (W <= 0 || H <= 0)\n        {\n"
+               "            for (int c = 0; c < channels; c++)\n"
+               "                memset(out[c], 0, count * sizeof(float));\n"
+               "            return false;\n        }\n%s\n"
                "        for (int64_t col = 0; col < W; col++)\n        {\n%s        }\n%s"
-               "\n        int64_t col = at %% W, row = at / W %% H, frameOf = -1;\n\n"
+               "\n        int64_t col = at %% W, row = at / W %% H%s;\n\n"
                "        for (int i = 0; i < count; i++)\n        {\n"
                "            const int64_t pos = at + i;\n\n"
                "            if (i > 0 && ++col == W)\n            {\n"
                "                col = 0;\n                if (++row == H)\n"
                "                    row = 0;\n            }\n"
-               "            if (i == 0 || col == 0)\n            {\n%s"
-               "                if (pos / (W * H) != frameOf)\n                {\n"
-               "                    frameOf = pos / (W * H);\n"
-               "                    for (int64_t col = 0; col < W; col++)\n"
-               "                    {\n%s%s                    }\n"
-               "                }\n            }\n%s%s",
-               once.c_str(), indent(colTable, 0).c_str(), lineDecl.c_str(), line.c_str(),
-               indent(colLoads, 12).c_str(), indent(frameTable, 12).c_str(),
+               "            if (i == 0 || col == 0)\n            {\n%s%s            }\n%s%s",
+               once.c_str(), indent(colTable, 0).c_str(), lineDecl.c_str(),
+               frameTable.empty() ? "" : ", frameOf = -1", line.c_str(),
+               frameTable.empty() ? ""
+               : ("                if (pos / (W * H) != frameOf)\n                {\n"
+                  "                    frameOf = pos / (W * H);\n"
+                  "                    for (int64_t col = 0; col < W; col++)\n"
+                  "                    {\n" + indent(tableLoads, 12) + indent(frameTable, 12) +
+                  "                    }\n                }\n").c_str(),
                (colLoads + frameLoads).c_str(), pixel.c_str());
     }
     else
