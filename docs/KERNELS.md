@@ -7,8 +7,8 @@ patch compiled to a program inlines it. What plays live and what a
 compiled patch plays are then the same arithmetic.
 
 `osc::fmop`, `osc::simple`, `osc::blep`, `osc::noise`, `env::ad`,
-`env::adsr`, `filt::svf`, `dist::saturate`, `mixer::pan` and
-`misc::midi2freq` have kernels, and the pattern is theirs:
+`env::adsr`, `filt::svf`, `dist::saturate`, `mixer::pan`, `math::sin`
+and `misc::midi2freq` have kernels, and the pattern is theirs:
 
 - **`plugins/<category>/<name>.h`** holds the kernel, `struct thk<Name>`.
   It includes `libthink/thKernel.h` and nothing else of the engine's: no
