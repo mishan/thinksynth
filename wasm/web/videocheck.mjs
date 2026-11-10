@@ -52,7 +52,7 @@ const { default: createThinkWeb } =
 /* `M' is the module the helpers below drive. */
 let M = await createThinkWeb({ print: () => {}, printErr: () => {} });
 
-if (flags.includes('--interpret'))
+if (bench && flags.includes('--interpret'))
     M._tv_interpret();
 
 let failures = 0;
@@ -234,9 +234,12 @@ for (const name of patches)
     const play = (patch, fx) =>
     {
         open();
-        follow(0, patch, fs.readFileSync(path.join(video, patch), 'utf8'));
-        if (fx)
-            effect(fx, fs.readFileSync(path.join(video, fx), 'utf8'));
+
+        const why = follow(0, patch, fs.readFileSync(path.join(video, patch), 'utf8')) +
+                    (fx ? effect(fx, fs.readFileSync(path.join(video, fx), 'utf8')) : '');
+
+        if (why !== '')
+            return [];
         inputs(0.15, 0.3, 0.1, 0.3);
         notes([{ at: 0, kind: ON, note: 60, aux: [0.5, 0.25, 0, 1] },
                { at: 40 * PER_FRAME, kind: OFF, note: 60 }]);
@@ -251,9 +254,10 @@ for (const name of patches)
                                ...fxs.map((f) => ['rings.dsp', f])])
     {
         const name = fx ? `rings.dsp under ${fx}` : patch;
-        const before = M._tv_windows(0);
+        const before = [M._tv_windows(0), M._tv_windows(1)];
         const drawn = play(patch, fx);
-        const interpreted = M._tv_windows(0) - before;
+        const interpreted = M._tv_windows(0) - before[0];
+        const ran = M._tv_windows(1) - before[1];
 
         M = nodes;
 
@@ -268,10 +272,11 @@ for (const name of patches)
                                            Buffer.compare(f.rgba, drawn[i].rgba) !== 0);
 
         check(`${name} runs compiled and draws what its nodes draw`,
-              interpreted === 0 && reference === 0 && drawn.length === 60 &&
-              expected.length === 60 && differs < 0,
-              `${interpreted} windows on its nodes, ${reference} compiled on the other; ` +
-              `${drawn.length} frames, ` +
+              interpreted === 0 && ran > 0 && reference === 0 && drawn.length === 60 &&
+              expected.length === 60 && differs < 0 && peak(drawn[30]) > 64,
+              `${ran} windows compiled, ${interpreted} on its nodes, ` +
+              `${reference} compiled on the other; ${drawn.length} frames, ` +
+              `peak ${drawn[30] ? peak(drawn[30]) : '-'}, ` +
               `${expected.length} on its nodes, frame ${differs} differs`);
     }
 }

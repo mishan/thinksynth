@@ -203,11 +203,8 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE const char *
 tv_open (int width, int height, int fps, int lines, int audioRate)
 {
-    static bool installed = false;
-
-    if (!installed && !interpret_)
+    if (!interpret_)
         thCompiledInstall();
-    installed = true;
     video_.reset(new thVideoSynth);
     queue_.clear();
     held_.clear();
