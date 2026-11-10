@@ -187,10 +187,6 @@ think_harness(widthcheck)
 think_harness(scancheck)
 think_harness(videosynthcheck)
 
-# The engine running compiled units: which graphs get one, and that a
-# video synth draws the same frames with them as without.
-think_harness(unitcheck)
-
 if(TARGET think_camera)
   think_harness(cameracheck)
   target_link_libraries(cameracheck PRIVATE think_camera)
@@ -291,6 +287,59 @@ foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box,marbles,life"
       VERBATIM)
   list(APPEND THINK_COMPILED_VOICES "${THINK_COMPILED}/thv${vname}.h")
 endforeach()
+# The shipped video patches and effects, compiled for the engine to run in
+# their trees' place (libthink/thCompiled.h): think_compiled, whose
+# thCompiledInstall() a program calls to have them. Under -ffast-math the
+# plugins' bits are the compiler's to choose, so there are none.
+set(THINK_ENGINE "${CMAKE_CURRENT_BINARY_DIR}/engine")
+set(THINK_ENGINE_HEADERS "")
+set(THINK_ENGINE_INCLUDES "")
+set(THINK_ENGINE_ADDS "")
+if(NOT THINK_FAST_MATH)
+  foreach(unit "Aurora;video/aurora.dsp" "Constellation;video/constellation.dsp"
+               "Moire;video/moire.dsp" "Pond;video/pond.dsp" "Rings;video/rings.dsp"
+               "Wells;video/wells.dsp" "Feedback;video/fx/feedback.dsp"
+               "Palette;video/fx/palette.dsp" "Soften;video/fx/soften.dsp")
+    list(GET unit 0 uname)
+    list(GET unit 1 ufile)
+    add_custom_command(
+        OUTPUT "${THINK_ENGINE}/thv${uname}.h"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${THINK_ENGINE}"
+        COMMAND dspcompile --engine -p "${PROJECT_BINARY_DIR}/plugins/" -r 1152000
+                "${PROJECT_SOURCE_DIR}/${ufile}" ${uname} > "${THINK_ENGINE}/thv${uname}.h"
+        DEPENDS dspcompile plugins "${PROJECT_SOURCE_DIR}/${ufile}"
+        VERBATIM)
+    list(APPEND THINK_ENGINE_HEADERS "${THINK_ENGINE}/thv${uname}.h")
+    string(APPEND THINK_ENGINE_INCLUDES "#include \"thv${uname}.h\"\n")
+    string(APPEND THINK_ENGINE_ADDS
+           "    thCompiledAdd(thv${uname}Engine::fingerprint(), thv${uname}Engine::make);\n")
+  endforeach()
+endif()
+file(CONFIGURE OUTPUT "${THINK_ENGINE}/thCompiledInstall.cpp" CONTENT
+     "/* The build's compiled graphs, each added by its fingerprint. */\n\n\
+${THINK_ENGINE_INCLUDES}\n#include \"thCompiled.h\"\n\n\
+void thCompiledInstall (void)\n{\n${THINK_ENGINE_ADDS}}\n")
+add_library(think_compiled STATIC "${THINK_ENGINE}/thCompiledInstall.cpp"
+            ${THINK_ENGINE_HEADERS})
+target_include_directories(think_compiled PRIVATE "${THINK_ENGINE}"
+                           "${PROJECT_SOURCE_DIR}/plugins")
+target_link_libraries(think_compiled PRIVATE think)
+
+# The engine running compiled graphs: which graphs get one, and that a
+# video synth draws the same frames with them as without.
+add_custom_command(
+    OUTPUT "${THINK_ENGINE}/thvExpression.h"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${THINK_ENGINE}"
+    COMMAND dspcompile --engine -p "${PROJECT_BINARY_DIR}/plugins/" -r 1152000
+            "${CMAKE_CURRENT_SOURCE_DIR}/compiled/expression.dsp" Expression
+            > "${THINK_ENGINE}/thvExpression.h"
+    DEPENDS dspcompile plugins "${CMAKE_CURRENT_SOURCE_DIR}/compiled/expression.dsp"
+    VERBATIM)
+think_harness(compiledcheck EXTRA "${THINK_ENGINE}/thvExpression.h")
+target_include_directories(compiledcheck PRIVATE "${THINK_ENGINE}"
+                           "${PROJECT_SOURCE_DIR}/plugins")
+target_link_libraries(compiledcheck PRIVATE think_compiled)
+
 # A time in beats is refused, by name: it follows the tempo, which a
 # compiled voice is not given.
 add_test(NAME dspcompile.beats
@@ -304,18 +353,18 @@ add_test(NAME dspcompile.inpast
                  "${CMAKE_CURRENT_SOURCE_DIR}/compiled/inpast.dsp" Inpast)
 set_tests_properties(dspcompile.inpast PROPERTIES
                      PASS_REGULAR_EXPRESSION "m.in0 reads in1, past the effect's 1 channel")
-# A unit is refused what the engine does and it can't: a knob's glide, and
-# the synth's noise.
+# What the engine does that a graph compiled for it can't: a knob's glide,
+# and the synth's noise.
 add_test(NAME dspcompile.glide
-         COMMAND dspcompile --unit -p "${PROJECT_BINARY_DIR}/plugins/"
+         COMMAND dspcompile --engine -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${CMAKE_CURRENT_SOURCE_DIR}/compiled/glide.dsp" Glide)
 set_tests_properties(dspcompile.glide PROPERTIES
                      PASS_REGULAR_EXPRESSION "vca.in1 glides when its knob moves")
 add_test(NAME dspcompile.noise
-         COMMAND dspcompile --unit -p "${PROJECT_BINARY_DIR}/plugins/"
+         COMMAND dspcompile --engine -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${CMAKE_CURRENT_SOURCE_DIR}/compiled/noise.dsp" Noise)
 set_tests_properties(dspcompile.noise PROPERTIES
-                     PASS_REGULAR_EXPRESSION "noise is an osc::noise, which a unit can't")
+                     PASS_REGULAR_EXPRESSION "noise is an osc::noise, which a compiled graph can't")
 think_harness(compilecheck COMPOSERHOST HID EXTRA ${THINK_COMPILED_VOICES})
 target_include_directories(compilecheck PRIVATE "${THINK_COMPILED}"
                            "${PROJECT_SOURCE_DIR}/plugins")
@@ -705,6 +754,7 @@ think_harness(editcheck COMPOSERHOST)
 # the delivered events as a tape. For hearing a .gen without the window and
 # for reading a level off a new instrument block. Not a test.
 think_harness(genwav COMPOSERHOST NODEMODEL)
+target_link_libraries(genwav PRIVATE think_compiled)
 
 # scripts/Loudness.h, which genwav --levels reports with, against what
 # BS.1770 says a known signal measures.
@@ -1244,9 +1294,11 @@ add_test(NAME scancheck
 add_test(NAME videofilecheck COMMAND videofilecheck)
 add_test(NAME videosynthcheck
          COMMAND videosynthcheck -p "${PROJECT_BINARY_DIR}/plugins/")
-add_test(NAME unitcheck
-         COMMAND unitcheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                 -v "${PROJECT_SOURCE_DIR}/video/")
+if(NOT THINK_FAST_MATH)
+  add_test(NAME compiledcheck
+           COMMAND compiledcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                   -v "${PROJECT_SOURCE_DIR}/video/" -c "${CMAKE_CURRENT_SOURCE_DIR}/compiled/")
+endif()
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME mpecheck

@@ -135,6 +135,7 @@
 #include "JsonOut.h"
 #include "Loudness.h"
 #include "VideoRender.h"
+#include "thCompiled.h"
 
 /* Enough silence to call a tail finished, and the longest we will wait
    for one. amb01's release tops out at five seconds; anything longer than
@@ -179,6 +180,8 @@ static void usage (const char *argv0)
            "      --raster WxH@FPS    its picture (default 160x120@60)\n"
            "      --video-follow A,B  the instruments it plays the notes of "
            "(default all)\n"
+           "      --interpret         run its graphs on their nodes, not "
+           "compiled\n"
            "  -q, --quiet             no summary\n",
            argv0);
 }
@@ -601,6 +604,8 @@ int main (int argc, char **argv)
     bool levelsText = false, sectionsText = false;
     std::string jsonFile, stemsDir;
     std::string videoDsp, videoFx, videoFile, raster = "160x120@60", videoFollow;
+    std::string videoRan;           /* how, for the summary */
+    bool interpret = false;
 
     struct KnobMove { double at; std::string name; float value; };
     std::vector<KnobMove> moves;
@@ -740,6 +745,8 @@ int main (int argc, char **argv)
         }
         else if (!strcmp(argv[i], "--stages"))
             listStages = true;
+        else if (!strcmp(argv[i], "--interpret"))
+            interpret = true;
         else if (!strcmp(argv[i], "--levels"))
             levels = levelsText = true;
         else if (!strcmp(argv[i], "--sections"))
@@ -971,12 +978,24 @@ int main (int argc, char **argv)
                     argv[0], genFile.c_str());
             return 2;
         }
+        if (!interpret)
+            thCompiledInstall();
         if (!video.open(pluginPath, videoDsp, videoFx, raster, follow,
                         videoFile, why))
         {
             fprintf(stderr, "%s: %s\n", argv[0], why.c_str());
             return 2;
         }
+
+        bool compiled = true;
+        thChanEffect *fx = video.synth()->getMasterEffect();
+
+        for (int ch : follow)
+            compiled = compiled && video.synth()->getChannel(ch) &&
+                       video.synth()->getChannel(ch)->modnode()->compiled();
+        if (fx && fx->tree())
+            compiled = compiled && fx->tree()->compiled();
+        videoRan = compiled ? "compiled" : "on its nodes";
         sched.setNoteTap(&video);
 
         /* Whole frames, so the audio starts and ends where the video does. */
@@ -1459,6 +1478,8 @@ int main (int argc, char **argv)
         if (badVoices > 0)
             fprintf(stderr, "%s: non-finite voices: %lu\n", genFile.c_str(),
                     badVoices);
+        if (!videoRan.empty())
+            fprintf(stderr, "%s: video %s\n", genFile.c_str(), videoRan.c_str());
     }
 
     /* Both numbers, because this one command prints both: `channel' is
