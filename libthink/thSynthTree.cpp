@@ -28,6 +28,7 @@
 #include <algorithm>
 
 #include "think.h"
+#include "thCompiled.h"
 #include "thUnits.h"
 
 thSynthTree::thSynthTree (const string &name, thSynth *synth)
@@ -39,6 +40,8 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
     made_ = NULL;
     beatsAt_ = 120;
     inLoop_ = false;
+    compiled_ = NULL;
+    compiledDropped_ = false;
 
     synth_ = synth;
 }
@@ -51,6 +54,8 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
     made_ = NULL;
     beatsAt_ = 120;
     inLoop_ = false;
+    compiled_ = oldtree.compiled() ? oldtree.compiled_->clone() : NULL;
+    compiledDropped_ = false;
     name_ = oldtree.name();
     desc_ = oldtree.desc();
     synth_ = oldtree.synth();
@@ -77,6 +82,8 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
 
 thSynthTree::~thSynthTree ()
 {
+    delete compiled_;
+
     delete [] nodeindex_;   /* delete[] on NULL is a no-op */
     nodeindex_ = NULL;
 
@@ -948,6 +955,32 @@ uint32_t thSynthTree::seedGeneration (void) const
     return synth_ ? synth_->seedGeneration() : 0;
 }
 
+static std::atomic<unsigned long> windowsCompiled(0), windowsInterpreted(0);
+
+unsigned long thSynthTree::windowsRun (bool compiled)
+{
+    return (compiled ? windowsCompiled : windowsInterpreted).load();
+}
+
+/* See the header. */
+void thSynthTree::takeCompiled (int channels)
+{
+    if (compiled_ != NULL || compiledDropped_)
+        return;
+    compiled_ = thCompiledFor(fingerprint_);
+    if (compiled_ != NULL && !compiled_->bind(*this, channels))
+    {
+        delete compiled_;
+        compiled_ = NULL;
+    }
+}
+
+void thSynthTree::resetCompiled (void)
+{
+    if (compiled_ != NULL)
+        compiled_->reset();
+}
+
 void thSynthTree::process (unsigned int windowlen)
 {
     thPlugin *plug = NULL;
@@ -955,6 +988,14 @@ void thSynthTree::process (unsigned int windowlen)
     if (ionode_ == NULL) {
         return;
     }
+
+    if (compiled())
+    {
+        compiled_->render(*this, windowlen);
+        windowsCompiled.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    windowsInterpreted.fetch_add(1, std::memory_order_relaxed);
 
     const thNodeList &children = ionode_->children();
 
@@ -1768,6 +1809,10 @@ bool thSynthTree::restore (const thSynthTree &proto)
         node->setRecalc(true);
     }
 
+    /* A prototype changed in place since this voice was copied. */
+    if (!proto.compiled())
+        compiledDropped_ = true;
+    resetCompiled();
     return true;
 }
 

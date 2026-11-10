@@ -19,6 +19,7 @@
 #ifndef TH_SYNTH_TREE_H
 #define TH_SYNTH_TREE_H 1
 
+#include <atomic>
 #include <vector>
 
 #include "thExport.h"
@@ -241,9 +242,30 @@ public:
        with times as the file wrote them and less the io args the engine
        writes as it plays. Taken by thSynth::finishParse before a channel or
        an effect adds io args of its own, so a file gives the same text
-       however it is loaded and at any rate. What picks a compiled unit. */
+       however it is loaded and at any rate. What picks a compiled graph
+       (thCompiled.h). */
     void takeFingerprint (void);
     const string &fingerprint (void) const { return fingerprint_; }
+
+    /* GUI thread, on a tree its channel or effect has finished: the
+       compiled graph for its fingerprint, where one was added and binds,
+       `channels' wide for an effect and 0 for an instrument. A voice's copy
+       clones its prototype's. */
+    void takeCompiled (int channels);
+    bool compiled (void) const { return compiled_ != NULL && !compiledDropped_; }
+
+    /* Its compiled graph, if it has one, as a new voice's; see
+       thCompiled::reset. */
+    void resetCompiled (void);
+
+    /* GUI thread: a node's value was changed in place, which a compiled
+       graph, made from the graph as parsed, can't follow. The tree and the
+       voices copied from it after this run on their nodes. */
+    void edited (void) { compiledDropped_ = true; }
+
+    /* Windows rendered so far by every tree in the program, compiled or on
+       the nodes. */
+    static unsigned long windowsRun (bool compiled);
 
     /* Every value written in `beats' scaled from the tempo it was at to
        `bpm', so a knob moved since the load keeps its place in beats.
@@ -398,7 +420,6 @@ private:
        its start, and only the prototype follows the tempo. */
     std::vector<thBeatFold> beatFolds_;   /* GUI thread */
     std::vector<thNodeFold> nodeFolds_;
-    string fingerprint_;
     double                  beatsAt_;
 
     /* See feedback(). A loop's nodes, what it reads from outside it and
@@ -438,6 +459,10 @@ private:
     int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 
                             id for the node index */
     thNode **nodeindex_; /* index of all the nodes */
+
+    string fingerprint_;
+    class thCompiled *compiled_;
+    std::atomic<bool> compiledDropped_;
 };
 
 #endif /* TH_SYNTH_TREE_H */

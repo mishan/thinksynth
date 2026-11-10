@@ -2986,6 +2986,7 @@ thcScheduler::setNodeArg (int channel, const std::string &node,
        four-field non-atomic rewrite is the wrong thing to be doing
        beside that even when the arithmetic happens to work out. */
     existing->setValue(value);
+    tree->edited();
 
     /* Remembered so a swap on this channel can forget it, and so a
        reset knows there is something to put back. */

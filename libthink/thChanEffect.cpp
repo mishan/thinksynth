@@ -303,6 +303,8 @@ void thChanEffect::indexIOArgs (int windowlen)
             pedalindex_ = arg->index();
         }
     }
+
+    tree_->takeCompiled(channels_);
 }
 
 /* Audio thread. */
@@ -575,6 +577,7 @@ void thChanEffect::clearState (void)
 {
     if (tree_ == NULL)
         return;
+    tree_->resetCompiled();
 
     const thSynthTree::NodeMap &nodes = tree_->nodes();
 
