@@ -73,8 +73,11 @@ rate it is given, as the engine folds them at load, and `bind(rate)`
 folds a node's times again for a voice to run at another rate, as the
 engine at that rate would; a knob's default and range stay at the
 compiled rate. A patch using a
-plugin with no kernel, or a loop, is refused with the node named, and so
-is an effect, whose input a voice isn't given. `start()` makes the voice
+plugin with no kernel, or a loop, is refused with the node named. An
+effect compiles too: its `render()` takes `in[channel]`, the io's `in<N>`,
+and one that reads anything else the engine hands an effect is refused.
+A delay's line is the voice's, sized and zeroed as the plugin's state is
+when its length changes. `start()` makes the voice
 new again, so a firmware can keep a pool of them, and seeds its noises:
 `start(note, velocity, seed)`, the seed 0 if none is given, so a
 firmware passes each voice a seed of its own or every voice's noise is

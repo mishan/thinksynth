@@ -27,8 +27,10 @@
  * note's, or another node's output. What depends on nothing but numbers,
  * knobs and the note is worked out once a call, as the engine works it out
  * once a window; the rest runs every sample. A plugin with no kernel here
- * is refused, by name, as is a loop in the graph and an effect graph,
- * whose input a voice isn't given.
+ * is refused, by name, as is a loop in the graph. An effect's render()
+ * takes its signal in, in[channel], as its io's in<N>; an effect reading
+ * anything else the engine hands one (a sidechain, the pedal) is
+ * refused.
  *
  * The rate is the compiler's, as it is the engine's at load: times written
  * in ms are samples at that rate by the time the graph can be read. The
@@ -123,6 +125,10 @@ static const Kernel KERNELS[] = {
     { "math/abs", {}, NULL, false, { "in" }, true, NULL },
     { "misc/latch", {}, NULL, false, { "in", "latch" }, false, "thkLatch" },
     { "misc/scan", {}, NULL, false, {}, true, NULL },
+    { "delay/allpass", {}, NULL, false, { "in", "delay", "gain" }, false, "thkAllpass" },
+    { "delay/echo", {}, NULL, false,
+      { "in", "size", "delay", "feedback", "dry", "tone", "low", "drive", "boost" }, false,
+      "thkEcho" },
 };
 
 /* What a value changes with, past the call: where on the raster it is
@@ -148,6 +154,7 @@ struct Compiler
     std::map<thNode *, bool> control;
     std::map<thNode *, int> deps;
     bool scanned = false;                   /* a misc::scan read: a raster's */
+    bool effect = false;                    /* its io's in<N>: a signal in */
     std::map<thNode *, bool> ctlOnce;       /* its control struct, once a call */
     std::map<thNode *, std::vector<Value> > ctls, ins;
     std::vector<thNodeFold> times;          /* each one bind() folds, t<i> */
@@ -279,6 +286,20 @@ struct Compiler
                 {
                     v = { name, true };
                     return true;
+                }
+                /* An effect's signal in, given to render() a sample at a
+                   time; what else the engine hands an effect isn't. */
+                if (to == io && effect && name.size() > 2 && name.compare(0, 2, "in") == 0 &&
+                    name.find_first_not_of("0123456789", 2) == string::npos)
+                {
+                    v = { "in[" + name.substr(2) + "][i]", false, D_SAMPLE };
+                    return true;
+                }
+                if (to == io && effect)
+                {
+                    error = n->name() + "." + a->name() + " reads the effect's " + name +
+                            ", which isn't compiled yet";
+                    return false;
                 }
                 /* Where the sample lands, as misc::scan works it out, from
                    the raster and the column and row render() steps. */
@@ -469,6 +490,23 @@ struct Compiler
               << " : " << v[1].text << ";\n";
         else if (p == "math/abs")
             s << "        const float " << out << " = fabsf(" << v[0].text << ");\n";
+        else if (p == "delay/allpass")
+            s << "        const unsigned int " << var(n, "len") << " = thkAllpassLen("
+              << v[1].text << ", runRate);\n"
+              << "        if (" << var(n, "len") << " != 0 && " << var(n, "len") << " != "
+              << self << "_line.size())\n"
+              << "            " << self << "_line.assign(" << var(n, "len") << ", 0);\n"
+              << "        const float " << out << " = " << self << ".tick(" << self
+              << "_line.data(), " << var(n, "len") << ", " << v[0].text << ", " << v[2].text
+              << ");\n";
+        else if (p == "delay/echo")
+            s << "        const unsigned int " << var(n, "size") << " = thkEchoRing("
+              << v[1].text << ", runRate);\n"
+              << "        if (" << var(n, "size") << " != " << self << "_line.size())\n"
+              << "            " << self << "_line.assign(" << var(n, "size") << ", 0);\n"
+              << "        const float " << out << " = " << self << ".tick(" << self
+              << "_line.data(), " << var(n, "size") << ", " << v[0].text << ", " << args(2)
+              << ", runRate);\n";
         else if (p == "misc/latch")
             s << "        const float " << out << " = " << self << ".tick(" << args(0) << ");\n";
         else if (p == "misc/midi2freq")
@@ -589,16 +627,9 @@ main (int argc, char **argv)
         fprintf(stderr, "%s: didn't load\n", argv[at]);
         return 1;
     }
-    /* A compiled voice is given a note, not a signal: an effect's input
-       would read as the 0 it was declared with. */
-    if (tree->takesInput())
-    {
-        fprintf(stderr, "%s: an effect, which takes input a compiled voice "
-                "isn't given\n", argv[at]);
-        return 1;
-    }
-
     Compiler c = { tree, tree->IONode() };
+
+    c.effect = tree->takesInput();
     std::vector<std::pair<string, Value> > outs;    /* io arg, its value */
 
     for (int ch = 0;; ch++)
@@ -669,7 +700,7 @@ main (int argc, char **argv)
         if ((h.compare(0, 5, "math/") || h == "math/sin") && h != "mixer/mul" &&
             h != "misc/scan")
             printf("#include \"%s.h\"\n", h.c_str());
-    if (c.scanned)
+    if (c.scanned || headers.count("delay/allpass") || headers.count("delay/echo"))
         printf("\n#include <vector>\n");
 
     /* On a raster, each value by what it changes with: once a call, a table
@@ -747,8 +778,14 @@ main (int argc, char **argv)
            "    float aux0 = 0, aux1 = 0, aux2 = 0, aux3 = 0;\n");
     for (thNode *n : c.placed)
         if (!Compiler::stateType(n).empty())
+        {
             printf("    %s n%d;    /* %s */\n", Compiler::stateType(n).c_str(), c.order[n],
                    n->name().c_str());
+            /* A delay's line, which the voice keeps as the plugin keeps its
+               state arg: sized, and zeroed, when its length changes. */
+            if (!strncmp(Compiler::kernelFor(n)->plugin, "delay/", 6))
+                printf("    std::vector<float> n%d_line;\n", c.order[n]);
+        }
 
     /* A time is folded as the engine folds it at load (thFoldUnit). */
     const auto fold = [&](const thNodeFold &f, const char *r) {
@@ -817,6 +854,9 @@ main (int argc, char **argv)
             printf("        n%d.seed(seed * 2654435761u + %du);\n", c.order[n], c.order[n] + 1);
     printf("        (void)seed;\n    }\n\n"
            "    void release () { trigger = 0; }\n\n");
+    /* An effect's signal in, a buffer a channel, read as out is written. */
+    const char *inArg = c.effect ? "const float *const *in, " : "";
+
     if (c.scanned)
     {
         /* `at' is the raster's sample the call begins on, as misc::scan
@@ -843,7 +883,7 @@ main (int argc, char **argv)
             if (col && reads(frameTable, v))
                 tableLoads += load;
         }
-        printf("    bool render (const Knobs &k, float *const *out, int count, int64_t at)\n"
+        printf("    bool render (const Knobs &k, %sfloat *const *out, int count, int64_t at)\n"
                "    {\n        (void)k;\n        float sounding = 1;\n\n"
                "        /* With no raster, nothing: misc::scan's zeros are no picture. */\n"
                "        if (W <= 0 || H <= 0)\n        {\n"
@@ -854,11 +894,12 @@ main (int argc, char **argv)
                "\n        int64_t col = at %% W, row = at / W %% H%s;\n\n"
                "        for (int i = 0; i < count; i++)\n        {\n"
                "            const int64_t pos = at + i;\n\n"
+               "            (void)pos;\n"
                "            if (i > 0 && ++col == W)\n            {\n"
                "                col = 0;\n                if (++row == H)\n"
                "                    row = 0;\n            }\n"
                "            if (i == 0 || col == 0)\n            {\n%s%s            }\n%s%s",
-               once.c_str(), indent(colTable, 0).c_str(), lineDecl.c_str(),
+               inArg, once.c_str(), indent(colTable, 0).c_str(), lineDecl.c_str(),
                frameTable.empty() ? "" : ", frameOf = -1", line.c_str(),
                frameTable.empty() ? ""
                : ("                if (pos / (W * H) != frameOf)\n                {\n"
@@ -869,10 +910,10 @@ main (int argc, char **argv)
                (colLoads + frameLoads).c_str(), pixel.c_str());
     }
     else
-        printf("    bool render (const Knobs &k, float *const *out, int count)\n    {\n"
+        printf("    bool render (const Knobs &k, %sfloat *const *out, int count)\n    {\n"
                "        (void)k;\n        float sounding = 1;\n\n%s"
                "\n        for (int i = 0; i < count; i++)\n        {\n%s",
-               once.c_str(), pixel.c_str());
+               inArg, once.c_str(), pixel.c_str());
     for (size_t ch = 0; ch < outs.size(); ch++)
         printf("            out[%zu][i] = %s;\n", ch, outs[ch].second.text.c_str());
     printf("            sounding = %s;\n        }\n        return sounding > 0;\n    }\n",

@@ -266,7 +266,10 @@ foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box,marbles,life"
               "Moire;${PROJECT_SOURCE_DIR}/video/moire.dsp;-r;1152000"
               "Pond;${PROJECT_SOURCE_DIR}/video/pond.dsp;-r;1152000"
               "Rings;${PROJECT_SOURCE_DIR}/video/rings.dsp;-r;1152000"
-              "Wells;${PROJECT_SOURCE_DIR}/video/wells.dsp;-r;1152000")
+              "Wells;${PROJECT_SOURCE_DIR}/video/wells.dsp;-r;1152000"
+              "Feedback;${PROJECT_SOURCE_DIR}/video/fx/feedback.dsp;-r;1152000"
+              "Palette;${PROJECT_SOURCE_DIR}/video/fx/palette.dsp;-r;1152000"
+              "Soften;${PROJECT_SOURCE_DIR}/video/fx/soften.dsp;-r;1152000")
   list(GET voice 0 vname)
   list(GET voice 1 vfile)
   set(vflags "")
