@@ -24,7 +24,7 @@
  * sounded on; nothing is drawn past the audio generated; a picture asked
  * for a frame far ahead skips to it, drawing what is held there and
  * nothing that began and ended in between; a flush lets go; the sound's
- * level lands at its time, however early its batch; a note's aux
+ * level and a knob land at their time, however early their batch; a note's aux
  * reaches the patch; every shipped patch draws a held note and goes dark
  * after; and every shipped patch and effect runs compiled, drawing what a
  * module that interprets them draws.
@@ -288,20 +288,24 @@ for (const name of patches)
     }
 }
 
-/* The sound's level turned up at frame 20: the same frames whether its
-   batch arrives after the picture has drawn that far or before it has
-   drawn anything. */
+/* The sound's level, and a knob, turned up at frame 20: the same frames
+   whether its batch arrives after the picture has drawn that far or before
+   it has drawn anything. */
+for (const [what, read, turn] of [
+    ['the sound\'s level', '@in_level', (v, at) => inputs(v, 0, 0, 0, at)],
+    ['a knob', '@knob_x', (v, at) => call('tv_set_at', null, ['string', 'number', 'number'],
+                                         ['knob_x', v, at])]])
 {
-    const level = `@in_level = 0;
-                   node ionode { channels = 3; out0 = @in_level; out1 = @in_level;
-                                 out2 = @in_level; play = 1; };
+    const patch = `${read} = 0;
+                   node ionode { channels = 3; out0 = ${read}; out1 = ${read};
+                                 out2 = ${read}; play = 1; };
                    io ionode;`;
     const run = (early) =>
     {
         open();
-        follow(0, 'level', level);
+        follow(0, 'level', patch);
         notes([{ at: 0, kind: ON }]);
-        inputs(0.2);
+        turn(0.2, 0);
 
         const frames = [];
 
@@ -310,7 +314,7 @@ for (const name of patches)
             M._tv_generated(20 * PER_FRAME);
             frames.push(...render());
         }
-        inputs(0.8, 0, 0, 0, 20 * PER_FRAME);
+        turn(0.8, 20 * PER_FRAME);
         M._tv_generated(40 * PER_FRAME);
         frames.push(...render());
 
@@ -320,7 +324,7 @@ for (const name of patches)
     const differs = early.findIndex((f, i) => late[i] === undefined || f.frame !== late[i].frame ||
                                     Buffer.compare(f.rgba, late[i].rgba) !== 0);
 
-    check('the sound\'s level lands at its time, however early its batch arrives',
+    check(`${what} lands at its time, however early its batch arrives`,
           early.length === 40 && late.length === 40 && differs < 0 &&
           pixel(early[19], 0, 0, 0) === 51 && pixel(early[21], 0, 0, 0) === 204,
           `${early.length} and ${late.length} frames; frame ${differs} differs; ` +

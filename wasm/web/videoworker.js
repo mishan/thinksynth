@@ -193,7 +193,8 @@ function batch ({ frame, notes, inputs, knobs: values })
     knobNames.forEach((name, k) =>
     {
         if (values[k] !== knobs[k])
-            M.ccall('tv_set', null, ['string', 'number'], [`knob_${name}`, values[k]]);
+            M.ccall('tv_set_at', null, ['string', 'number', 'number'],
+                    [`knob_${name}`, values[k], frame - origin]);
     });
     knobs = [...values];
 
