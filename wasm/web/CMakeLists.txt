@@ -224,6 +224,42 @@ target_include_directories(thinkweb_parts PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkweb_parts PRIVATE think_objects think_loader sigc
                       cairo2d)
 
+# The shipped video patches and effects compiled (libthink/thCompiled.h),
+# which only a native dspcompile can write, so the native tree's, from
+# `cmake --build build --target think_compiled'. Until it is built the patches
+# run on their nodes, slower, and videocheck.mjs says so.
+set(THINK_NATIVE_BUILD "${THINK_TOP}/build" CACHE PATH
+    "The native build tree whose compiled video graphs the module links")
+set(THINK_ENGINE "${THINK_NATIVE_BUILD}/scripts/engine")
+# The native configure writes thCompiledInstall.cpp; its headers are there
+# only once think_compiled is built.
+set(THINK_ENGINE_BUILT FALSE)
+if(EXISTS "${THINK_ENGINE}/thCompiledInstall.cpp")
+  set(THINK_ENGINE_BUILT TRUE)
+  file(STRINGS "${THINK_ENGINE}/thCompiledInstall.cpp" THINK_ENGINE_HEADERS
+       REGEX "^#include \"thv")
+  if(NOT THINK_ENGINE_HEADERS)
+    set(THINK_ENGINE_BUILT FALSE)
+  endif()
+  foreach(h IN LISTS THINK_ENGINE_HEADERS)
+    string(REGEX REPLACE "^#include \"(.*)\"$" "\\1" h "${h}")
+    if(NOT EXISTS "${THINK_ENGINE}/${h}")
+      set(THINK_ENGINE_BUILT FALSE)
+    endif()
+  endforeach()
+endif()
+if(NOT THINK_ENGINE_BUILT)
+  message(STATUS "No compiled video graphs in ${THINK_ENGINE}: the video "
+          "patches will run on their nodes. Build the native think_compiled, "
+          "without THINK_FAST_MATH, then configure this tree again")
+  set(THINK_ENGINE "${PROJECT_BINARY_DIR}/engine")
+  file(CONFIGURE OUTPUT "${THINK_ENGINE}/thCompiledInstall.cpp" CONTENT
+       "#include \"thCompiled.h\"\n\nvoid thCompiledInstall (void)\n{\n}\n")
+endif()
+target_sources(thinkweb_parts PRIVATE "${THINK_ENGINE}/thCompiledInstall.cpp")
+set_source_files_properties("${THINK_ENGINE}/thCompiledInstall.cpp" PROPERTIES
+    INCLUDE_DIRECTORIES "${THINK_ENGINE};${THINK_TOP}/plugins")
+
 add_executable(thinkweb thinkweb.cpp)
 target_include_directories(thinkweb PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkweb PRIVATE thinkweb_parts think_objects
