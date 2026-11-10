@@ -4855,15 +4855,19 @@ try
         const down = await width();
 
         /* Kept from drawing now and then at 80x60, as a machine is, though
-           the drawing itself takes little time. */
+           the drawing itself takes little time. The wait for the full size
+           counts from the last stall's start: the page counts from the
+           skip it sees partway through it. */
+        let t0;
+
         for (let i = 0; i < 4; i++)
         {
             await v.waitForTimeout(1500);
+            t0 = Date.now();
             await stall();
         }
 
         const held = await width();
-        const t0 = Date.now();
 
         while (await width() !== 160 && Date.now() - t0 < 10000)
             await v.waitForTimeout(100);
