@@ -1660,6 +1660,91 @@ void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
     }
 }
 
+/* See the header. */
+void thSynthTree::takeFingerprint (void)
+{
+    string &out = fingerprint_;
+    char num[32];
+
+    out.clear();
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+    {
+        const thNode *node = i->second;
+
+        if (node == NULL)
+            continue;
+
+        /* The plugin as its category and name: where it loaded from is the
+           host's business, not the graph's. */
+        string plugin = node->plugin() ? node->plugin()->path() : "";
+        const size_t last = plugin.rfind('/');
+        const size_t cat = last != string::npos && last > 0 ? plugin.rfind('/', last - 1)
+                                                            : string::npos;
+
+        if (cat != string::npos)
+            plugin.erase(0, cat + 1);
+        if (plugin.rfind('.') != string::npos)
+            plugin.erase(plugin.rfind('.'));
+        out += "node " + i->first + " " + plugin + "\n";
+
+        for (const thArgMap::value_type &e : node->args())
+        {
+            thArg *a = e.second;
+            const string &name = e.first;
+
+            if (a == NULL)
+                continue;
+            if (node == ionode_ &&
+                (name == "note" || name == "velocity" || name == "trigger" ||
+                 name == SAYARG ||
+                 (!name.compare(0, strlen(AUXPREFIX), AUXPREFIX) &&
+                  name.size() > strlen(AUXPREFIX)) ||
+                 (!name.compare(0, strlen(INPUTPREFIX), INPUTPREFIX) &&
+                  name.size() > strlen(INPUTPREFIX) &&
+                  isdigit((unsigned char)name[strlen(INPUTPREFIX)]))))
+                continue;
+            out += "  " + name + " = ";
+            switch (a->type())
+            {
+            case thArg::ARG_VALUE:
+            {
+                /* A time as written, so the text holds at every rate. */
+                const thNodeFold *fold = NULL;
+
+                for (const thNodeFold &f : nodeFolds_)
+                    if (f.node == i->first && f.arg == name)
+                        fold = &f;
+                if (fold)
+                {
+                    snprintf(num, sizeof(num), "%a ", fold->literal);
+                    out += num + fold->units;
+                }
+                else
+                    for (unsigned int k = 0; k < a->len(); k++)
+                    {
+                        snprintf(num, sizeof(num), "%a ", (*a)[k]);
+                        out += num;
+                    }
+                break;
+            }
+            case thArg::ARG_POINTER:
+                out += "->" + a->nodePtrName() + "." + a->argPtrName();
+                break;
+            case thArg::ARG_CHANNEL:
+                out += "@" + a->argPtrName();
+                break;
+            case thArg::ARG_NOTE:
+                out += "note";
+                break;
+            case thArg::ARG_TEXT:
+                out += "\"" + a->text() + "\"";
+                break;
+            }
+            out += "\n";
+        }
+    }
+}
+
 /* See the header. A copy holds the nodes reachable from the io node, under
    the prototype's ids; the prototype may hold more. */
 bool thSynthTree::restore (const thSynthTree &proto)

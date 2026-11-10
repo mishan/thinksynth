@@ -618,9 +618,15 @@ main (int argc, char **argv)
 {
     string plugins = "plugins/", devices;
     int rate = TH_DEFAULT_SAMPLES, at = 1;
+    bool unit = false;
 
     for (; at + 1 < argc && argv[at][0] == '-'; at += 2)
-        if (!strcmp(argv[at], "-p"))
+        if (!strcmp(argv[at], "--unit"))
+        {
+            unit = true;
+            at--;
+        }
+        else if (!strcmp(argv[at], "-p"))
             plugins = argv[at + 1];
         else if (!strcmp(argv[at], "-r"))
             rate = atoi(argv[at + 1]);
@@ -628,7 +634,8 @@ main (int argc, char **argv)
             devices = argv[at + 1];
     if (argc - at != 2 || rate <= 0)
     {
-        fprintf(stderr, "usage: %s [-p plugins/] [-r rate] [-c device,...] file.dsp Name\n",
+        fprintf(stderr, "usage: %s [--unit] [-p plugins/] [-r rate] [-c device,...] "
+                "file.dsp Name\n",
                 argv[0]);
         return 2;
     }
@@ -676,6 +683,25 @@ main (int argc, char **argv)
         fprintf(stderr, "%s: %s\n", argv[at], c.error.c_str());
         return 1;
     }
+
+    /* What the engine does that a unit can't: draw from the synth's noise,
+       and glide an arg a knob moves. */
+    for (thNode *n : c.placed)
+        if (unit && !strcmp(Compiler::kernelFor(n)->plugin, "osc/noise"))
+        {
+            fprintf(stderr, "%s: %s is an osc::noise, which a unit can't draw from the synth's "
+                    "stream\n", argv[at], n->name().c_str());
+            return 1;
+        }
+        else
+            for (const thNode::Smooth &sm : n->smoothing())
+                if (unit && sm.control)
+                {
+                    fprintf(stderr, "%s: %s.%s glides when its knob moves, which a unit "
+                            "doesn't\n", argv[at], n->name().c_str(),
+                            n->getArg(sm.index)->name().c_str());
+                    return 1;
+                }
 
     /* Each controller block, checked as the app checks one. */
     std::vector<thcHidBlock> profiles;

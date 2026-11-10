@@ -237,6 +237,14 @@ public:
     void foldUnits (long sampleRate, double bpm);
     const std::vector<thNodeFold> &nodeFolds (void) const { return nodeFolds_; }
 
+    /* The graph as parsed, as text: each node, its plugin and its args,
+       with times as the file wrote them and less the io args the engine
+       writes as it plays. Taken by thSynth::finishParse before a channel or
+       an effect adds io args of its own, so a file gives the same text
+       however it is loaded and at any rate. What picks a compiled unit. */
+    void takeFingerprint (void);
+    const string &fingerprint (void) const { return fingerprint_; }
+
     /* Every value written in `beats' scaled from the tempo it was at to
        `bpm', so a knob moved since the load keeps its place in beats.
        Chanargs are looked up in `chanargs', the copy the channel or effect
@@ -390,6 +398,7 @@ private:
        its start, and only the prototype follows the tempo. */
     std::vector<thBeatFold> beatFolds_;   /* GUI thread */
     std::vector<thNodeFold> nodeFolds_;
+    string fingerprint_;
     double                  beatsAt_;
 
     /* See feedback(). A loop's nodes, what it reads from outside it and

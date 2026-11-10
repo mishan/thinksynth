@@ -1395,6 +1395,7 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
     tree->typeChanArgs();
 
     tree->buildSynthTree();
+    tree->takeFingerprint();
     tree->prepare();
 
     if (registerTree)

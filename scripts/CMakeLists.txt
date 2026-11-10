@@ -187,6 +187,10 @@ think_harness(widthcheck)
 think_harness(scancheck)
 think_harness(videosynthcheck)
 
+# The engine running compiled units: which graphs get one, and that a
+# video synth draws the same frames with them as without.
+think_harness(unitcheck)
+
 if(TARGET think_camera)
   think_harness(cameracheck)
   target_link_libraries(cameracheck PRIVATE think_camera)
@@ -300,6 +304,18 @@ add_test(NAME dspcompile.inpast
                  "${CMAKE_CURRENT_SOURCE_DIR}/compiled/inpast.dsp" Inpast)
 set_tests_properties(dspcompile.inpast PROPERTIES
                      PASS_REGULAR_EXPRESSION "m.in0 reads in1, past the effect's 1 channel")
+# A unit is refused what the engine does and it can't: a knob's glide, and
+# the synth's noise.
+add_test(NAME dspcompile.glide
+         COMMAND dspcompile --unit -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${CMAKE_CURRENT_SOURCE_DIR}/compiled/glide.dsp" Glide)
+set_tests_properties(dspcompile.glide PROPERTIES
+                     PASS_REGULAR_EXPRESSION "vca.in1 glides when its knob moves")
+add_test(NAME dspcompile.noise
+         COMMAND dspcompile --unit -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${CMAKE_CURRENT_SOURCE_DIR}/compiled/noise.dsp" Noise)
+set_tests_properties(dspcompile.noise PROPERTIES
+                     PASS_REGULAR_EXPRESSION "noise is an osc::noise, which a unit can't")
 think_harness(compilecheck COMPOSERHOST HID EXTRA ${THINK_COMPILED_VOICES})
 target_include_directories(compilecheck PRIVATE "${THINK_COMPILED}"
                            "${PROJECT_SOURCE_DIR}/plugins")
@@ -1228,6 +1244,9 @@ add_test(NAME scancheck
 add_test(NAME videofilecheck COMMAND videofilecheck)
 add_test(NAME videosynthcheck
          COMMAND videosynthcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME unitcheck
+         COMMAND unitcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 -v "${PROJECT_SOURCE_DIR}/video/")
 add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME mpecheck
