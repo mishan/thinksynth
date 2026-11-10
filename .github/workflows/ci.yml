@@ -166,10 +166,19 @@ jobs:
       # a drum; ebass and waveguide, whose tails run down into the
       # subnormals the validators refuse; and the fixture outside dsp/,
       # named by a path, with a sample in a folder and one in capitals.
+      #
+      # Tried three times: configuring downloads the validators from GitHub's
+      # releases, and CMake retries a download whose connection failed but
+      # not one GitHub answered with a 5xx, such as a 504 from its CDN.
       - name: Configure
         run: |
-          cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON \
-            "-DTHINK_PLUGIN_DSPS=juno;linn;cloud;kit_hat;ebass;waveguide;plugin/testdata/nested.dsp"
+          for try in 1 2 3; do
+            cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON \
+              "-DTHINK_PLUGIN_DSPS=juno;linn;cloud;kit_hat;ebass;waveguide;plugin/testdata/nested.dsp" &&
+              break
+            [ "$try" -lt 3 ] || exit 1
+            sleep 30
+          done
 
       - name: Build
         run: cmake --build build
