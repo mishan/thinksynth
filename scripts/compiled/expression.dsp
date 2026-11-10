@@ -1,6 +1,8 @@
 # compiledcheck's: what no shipped video patch reads -- the velocity, the
 # first aux and a choke -- in a picture compiled for the engine, with an
 # envelope short enough that voices finish and come back from the pool.
+# And a pan on a number whose sinf GCC rounds at build time unlike glibc
+# at run time.
 name "Expression";
 category "Experiments";
 
@@ -22,7 +24,8 @@ node env env::adsr { a = 5 ms; d = 30 ms; s = 0.7; r = 40 ms; p = 1;
 node wave math::sin { index = s->x * f->out * 0.05 - s->t; wavelength = 1; };
 
 node r math::mul { in0 = wave->out * ionode->velocity; in1 = env->out; };
-node g math::mul { in0 = s->y * ionode->aux0; in1 = env->out; };
+node side mixer::pan { in = s->y * ionode->aux0; pan = -0.79999995; };
+node g math::mul { in0 = side->out1; in1 = env->out; };
 node b math::mul { in0 = wave->out * @in_level; in1 = env->out; };
 
 io ionode;
