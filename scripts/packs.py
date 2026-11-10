@@ -45,6 +45,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -326,12 +327,24 @@ def extract(t, outdir):
     t.extractall(outdir)
 
 
+def get(url):
+    """url's body. Tried three times: GitHub's release downloads answer
+    a 5xx now and then (a 504 from its CDN) and the next try works."""
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == 2:
+                raise
+        time.sleep(10)
+
+
 def fetch(outdir, missing_ok=False, names=()):
     """RELEASE's packs into outdir -- those named, or all of them; the
     index, or None if there is none."""
     try:
-        with urllib.request.urlopen(asset("index.json")) as r:
-            index = json.load(r)
+        index = json.loads(get(asset("index.json")))
     except urllib.error.HTTPError as e:
         if e.code != 404:
             raise
@@ -343,9 +356,8 @@ def fetch(outdir, missing_ok=False, names=()):
     index = [p for p in index if not names or p["id"] in names]
     os.makedirs(outdir, exist_ok=True)
     for p in index:
-        with urllib.request.urlopen(asset(p["id"] + ".tar")) as r, \
-                tempfile.TemporaryFile() as tmp:
-            tmp.write(r.read())
+        with tempfile.TemporaryFile() as tmp:
+            tmp.write(get(asset(p["id"] + ".tar")))
             tmp.seek(0)
             with tarfile.open(fileobj=tmp) as t:
                 extract(t, outdir)

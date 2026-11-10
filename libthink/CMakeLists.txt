@@ -3,9 +3,11 @@
 
 # The lexer produces thLexToken (thLexer.h) for both .dsp and .gen, into the
 # build tree so the source tree stays clean; thDspParser.cpp maps its tokens
-# onto .dsp's own vocabulary.
+# onto .dsp's own vocabulary. The input path is absolute because flex
+# writes it into the #line directives, which gcov and debuggers resolve
+# against the build tree, not this directory.
 flex_target(ThinkLexer
-            thinklex.ll
+            "${CMAKE_CURRENT_SOURCE_DIR}/thinklex.ll"
             "${CMAKE_CURRENT_BINARY_DIR}/thinklex.cpp"
             DEFINES_FILE "${CMAKE_CURRENT_BINARY_DIR}/thinklex.h")
 

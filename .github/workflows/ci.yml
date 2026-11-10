@@ -166,10 +166,19 @@ jobs:
       # a drum; ebass and waveguide, whose tails run down into the
       # subnormals the validators refuse; and the fixture outside dsp/,
       # named by a path, with a sample in a folder and one in capitals.
+      #
+      # Tried three times: configuring downloads the validators from GitHub's
+      # releases, and CMake retries a download whose connection failed but
+      # not one GitHub answered with a 5xx, such as a 504 from its CDN.
       - name: Configure
         run: |
-          cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON \
-            "-DTHINK_PLUGIN_DSPS=juno;linn;cloud;kit_hat;ebass;waveguide;plugin/testdata/nested.dsp"
+          for try in 1 2 3; do
+            cmake -S . -B build -G Ninja -DTHINK_BUILD_PLUGIN=ON \
+              "-DTHINK_PLUGIN_DSPS=juno;linn;cloud;kit_hat;ebass;waveguide;plugin/testdata/nested.dsp" &&
+              break
+            [ "$try" -lt 3 ] || exit 1
+            sleep 30
+          done
 
       - name: Build
         run: cmake --build build
@@ -239,9 +248,15 @@ jobs:
     container: ubuntu:24.04
 
     steps:
+      # The container's image fetches from archive.ubuntu.com, which times
+      # out on GitHub's runners now and then; their own mirror, which the
+      # runner's host uses, answers. apt retries a failed fetch too.
       - name: Install dependencies
         timeout-minutes: 10
         run: |
+          sed -Ei 's#http://(archive|security)\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
+            /etc/apt/sources.list.d/ubuntu.sources
+          echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80retries
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
