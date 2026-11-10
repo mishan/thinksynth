@@ -147,6 +147,7 @@ struct Value
     string text;
     bool   control;             /* the same at every sample of a call */
     int    deps = 0;            /* when it isn't: D_*, or none for every sample */
+    bool   number = false;      /* a number the patch wrote */
 };
 
 struct Compiler
@@ -277,7 +278,7 @@ struct Compiler
                         v = { "t" + std::to_string(t), true };
                         return true;
                     }
-                v = { literal(a->len() ? (*a)[0] : 0), true };
+                v = { literal(a->len() ? (*a)[0] : 0), true, 0, true };
                 return true;
             case thArg::ARG_CHANNEL:
             {
@@ -438,6 +439,17 @@ struct Compiler
             vs.push_back(v);
         }
         placing.erase(n);
+        /* Once a call, a call on nothing but numbers would be the
+           compiler's to work out (thkHeld). */
+        const bool held = std::all_of(vs.begin(), vs.end(),
+                                      [](const Value &v) { return v.control; });
+
+        for (Value &v : cs)
+            if (v.number && once)
+                v.text = "thkHeld(" + v.text + ")";
+        for (Value &v : vs)
+            if (v.number && held)
+                v.text = "thkHeld(" + v.text + ")";
         ctls[n] = cs;
         ins[n] = vs;
         control[n] = ctl && once;
