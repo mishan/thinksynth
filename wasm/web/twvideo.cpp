@@ -74,6 +74,8 @@ const size_t DONE_MOST = 8;
 std::unique_ptr<thVideoSynth> video_;
 int64_t audioRate_ = 0, generated_ = 0, skips_ = 0, serial_ = 0;
 std::deque<Note> queue_;
+/* What the sound says, each from the audio frame it is as of. */
+std::deque<std::pair<double, thVideoInputs> > inputs_;
 std::map<std::pair<int, int>, Note> held_;
 std::deque<std::pair<int64_t, std::vector<uint8_t> > > done_;
 std::string said_;
@@ -191,6 +193,13 @@ skipTo (int64_t frame)
                            t.second.level, t.second.aux);
     }
     held_ = then;
+    while (inputs_.size() > 1 && inputs_[1].first < startOf(frame))
+        inputs_.pop_front();
+    if (!inputs_.empty() && inputs_.front().first < startOf(frame))
+    {
+        video_->setInputs(inputs_.front().second);
+        inputs_.pop_front();
+    }
     video_->skipTo(frame);
     skips_++;
 }
@@ -207,6 +216,7 @@ tv_open (int width, int height, int fps, int lines, int audioRate)
         thCompiledInstall();
     video_.reset(new thVideoSynth);
     queue_.clear();
+    inputs_.clear();
     held_.clear();
     serial_ = 0;
     done_.clear();
@@ -303,10 +313,11 @@ tv_input_buffer (void)
     return inputBuffer_;
 }
 
-/* What the sound says, as of the newest batch, with `channels' channels'
-   levels. */
+/* What the sound says, with `channels' channels' levels, as of audio
+   frame `at': it reaches the picture there, as a note does, so where it
+   lands doesn't hang on how far the picture had drawn when it came. */
 EMSCRIPTEN_KEEPALIVE void
-tv_inputs (int channels)
+tv_inputs (int channels, double at)
 {
     const float *in = inputBuffer_;
     thVideoInputs v;
@@ -319,7 +330,7 @@ tv_inputs (int channels)
     for (int c = 0; c < v.channels; c++)
         v.levels[c] = in[4 + c];
     if (video_ != NULL)
-        video_->setInputs(v);
+        inputs_.push_back(std::make_pair(at, v));
 }
 
 EMSCRIPTEN_KEEPALIVE void
@@ -363,6 +374,11 @@ tv_render (double due, int windows)
         {
             play(queue_.front());
             queue_.pop_front();
+        }
+        while (!inputs_.empty() && inputs_.front().first * rate <= (double)start * audioRate_)
+        {
+            video_->setInputs(inputs_.front().second);
+            inputs_.pop_front();
         }
         video_->render(keep);
     }

@@ -188,7 +188,7 @@ function batch ({ frame, notes, inputs, knobs: values })
     }
 
     M.HEAPF32.set(inputs, M._tv_input_buffer() / 4);
-    M._tv_inputs(inputs.length - 4);
+    M._tv_inputs(inputs.length - 4, frame - origin);
 
     knobNames.forEach((name, k) =>
     {

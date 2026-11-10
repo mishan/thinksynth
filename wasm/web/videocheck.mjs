@@ -23,7 +23,8 @@
  * as the worklet writes them: a note lights the picture from the line it
  * sounded on; nothing is drawn past the audio generated; a picture asked
  * for a frame far ahead skips to it, drawing what is held there and
- * nothing that began and ended in between; a flush lets go; a note's aux
+ * nothing that began and ended in between; a flush lets go; the sound's
+ * level lands at its time, however early its batch; a note's aux
  * reaches the patch; every shipped patch draws a held note and goes dark
  * after; and every shipped patch and effect runs compiled, drawing what a
  * module that interprets them draws.
@@ -101,10 +102,11 @@ function notes (list)
     M._tv_notes(list.length);
 }
 
-function inputs (level, bass = 0, mid = 0, high = 0)
+/* What the sound says, as of audio frame `at'. */
+function inputs (level, bass = 0, mid = 0, high = 0, at = 0)
 {
     M.HEAPF32.set([level, bass, mid, high], M._tv_input_buffer() / 4);
-    M._tv_inputs(0);
+    M._tv_inputs(0, at);
 }
 
 /* Every frame finished, as { frame, rgba }, rendering all it can a frame's
@@ -284,6 +286,46 @@ for (const name of patches)
               `peak ${drawn[30] ? peak(drawn[30]) : '-'}, ` +
               `${expected.length} on its nodes, frame ${differs} differs`);
     }
+}
+
+/* The sound's level turned up at frame 20: the same frames whether its
+   batch arrives after the picture has drawn that far or before it has
+   drawn anything. */
+{
+    const level = `@in_level = 0;
+                   node ionode { channels = 3; out0 = @in_level; out1 = @in_level;
+                                 out2 = @in_level; play = 1; };
+                   io ionode;`;
+    const run = (early) =>
+    {
+        open();
+        follow(0, 'level', level);
+        notes([{ at: 0, kind: ON }]);
+        inputs(0.2);
+
+        const frames = [];
+
+        if (!early)
+        {
+            M._tv_generated(20 * PER_FRAME);
+            frames.push(...render());
+        }
+        inputs(0.8, 0, 0, 0, 20 * PER_FRAME);
+        M._tv_generated(40 * PER_FRAME);
+        frames.push(...render());
+
+        return frames;
+    };
+    const late = run(false), early = run(true);
+    const differs = early.findIndex((f, i) => late[i] === undefined || f.frame !== late[i].frame ||
+                                    Buffer.compare(f.rgba, late[i].rgba) !== 0);
+
+    check('the sound\'s level lands at its time, however early its batch arrives',
+          early.length === 40 && late.length === 40 && differs < 0 &&
+          pixel(early[19], 0, 0, 0) === 51 && pixel(early[21], 0, 0, 0) === 204,
+          `${early.length} and ${late.length} frames; frame ${differs} differs; ` +
+          `frames 19 and 21 at ${early[19] && pixel(early[19], 0, 0, 0)}, ` +
+          `${early[21] && pixel(early[21], 0, 0, 0)}`);
 }
 
 /* A note struck half way through frame 10. */
