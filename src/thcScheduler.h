@@ -440,6 +440,17 @@ public:
                          int64_t when) = 0;
     virtual void noteOff (int channel, int note, int64_t when) = 0;
 
+    /* A note with what a graph reads of it beside: thcEvent's aux and
+       say. A device has no room for them; a host playing its own voices,
+       setNotesOut's, does. */
+    virtual void voiceOn (int channel, int note, int velocity, float level,
+                          const float *aux, const unsigned char *say, int64_t when)
+    {
+        (void)aux;
+        (void)say;
+        noteOn(channel, note, velocity, level, when);
+    }
+
     /* A chanarg. One the instrument maps with no `cc' is dropped. */
     virtual void control (int channel, const std::string &name,
                           double value, int64_t when) = 0;
@@ -1205,6 +1216,27 @@ public:
 
     /* What else hears the notes, or NULL; see thcNoteTap. */
     void setNoteTap (thcNoteTap *tap) { noteTap_ = tap; }
+    /* Where every other channel's notes go instead of the synth, or NULL:
+       the voices are somebody else's -- a board whose sound is compiled,
+       with setChanArgSource below and an instrument loader that loads no
+       graph; a note comes to voiceOn. The synth is still needed, empty:
+       its sample rate and tempo fold a piece's values, and its seed starts
+       the chains. A value
+       written in beats is folded at the tempo it is written at; with no
+       graph to follow the tempo, it doesn't follow a later change. A stop
+       flushes each of its channels, as it does a MIDI port's. */
+    void setNotesOut (thcMidiOut *out) { notesOut_ = out; }
+
+    /* Where a channel's chanargs are found instead of on the synth's
+       channels, or unset: a board whose voices are compiled declares each
+       instrument's (dspcompile's Knobs::declared, and the channel's amp,
+       which every channel has and no patch declares) and loads no graph,
+       and the scheduler checks, folds and writes a piece's values there.
+       A piece with a mix effect is refused: there is no graph for it. */
+    typedef std::function<thArg *(int channel, const std::string &name)>
+        ChanArgSource;
+
+    void setChanArgSource (const ChanArgSource &fn) { chanArgs_ = fn; }
 
     /* The clock thcMidiOut's stamps are on, where it is not the monotonic
        one: `at' turns a transport time into a stamp, `now' says what the
@@ -2103,6 +2135,8 @@ private:
 
     thcMidiOut                *midiOut_ = NULL;
     thcNoteTap                *noteTap_ = NULL;
+    ChanArgSource              chanArgs_;
+    thcMidiOut                *notesOut_ = NULL;
     bool                       overMidi_[16] = {};
     std::string                midiWhy_[16];
 

@@ -10969,6 +10969,273 @@ struct RecordingTap : public thcNoteTap
     }
 };
 
+/* ---- a host whose voices are compiled -------------------------------- */
+
+/* The BOX's way of playing a piece (esp32/box): no graph is loaded and an
+ * empty synth stands in for one; the notes go to the host (setNotesOut),
+ * and each instrument's chanargs are the host's (setChanArgSource), made
+ * as dspcompile's Knobs::declared makes them. Played that way, a piece
+ * must make the same notes at the same steps, and write the same values
+ * into the same chanargs, as on the desktop's synth: a section's knob, an
+ * instrument arg bound to it, one written in beats, and a chain's sink.
+ * A stop ends the note it holds and flushes the host, and a piece with a
+ * mix effect, which the host has no graph for, is refused. */
+struct StepLog
+{
+    int step = 0;
+    std::vector<std::string> lines;
+
+    void add (const std::string &what, int channel, int note, int velocity,
+              const float *aux = NULL)
+    {
+        std::string line = std::to_string(step) + " " + what + " " +
+                           std::to_string(channel) + ":" + std::to_string(note) +
+                           " " + std::to_string(velocity);
+
+        for (int i = 0; aux != NULL && i < 4; i++)
+            line += " " + std::to_string(aux[i]);
+        lines.push_back(line);
+    }
+};
+
+struct StepTap : public thcNoteTap
+{
+    StepLog *log;
+
+    void noteOn (int channel, int note, int velocity, float, const float *aux)
+        override { log->add("on", channel, note, velocity, aux); }
+    void noteOff (int channel, int note) override
+    { log->add("off", channel, note, 0); }
+    void flush (int) override {}
+};
+
+struct StepOut : public FakeMidiOut
+{
+    StepLog *log;
+    std::vector<std::string> said;
+
+    void voiceOn (int channel, int note, int velocity, float, const float *aux,
+                  const unsigned char *say, int64_t) override
+    {
+        char spelled[200];
+
+        thPhonemeSpell(say, THC_NOTE_SAY, spelled, sizeof(spelled));
+        said.push_back(spelled);
+        log->add("on", channel, note, velocity, aux);
+    }
+    void noteOff (int channel, int note, int64_t) override
+    { log->add("off", channel, note, 0); }
+};
+
+static void
+checkCompiledHost (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const std::string piece =
+        "tempo 120;\n"
+        "seed 7;\n"
+        "@k = 0.2;\n"
+        "@k.min = 0;\n"
+        "@k.max = 1;\n"
+        "instrument lead { dsp \"ladder.dsp\"; sub = @k; glide = 0.25 beats; };\n"
+        "section one 2 bars { @k = 0.3; };\n"
+        "section two 2 bars { @k = 0.9; };\n"
+        "chain notes {\n"
+        "    stage g gen::grid { notes = \"C4\"; steps = 1; rows = 1;\n"
+        "        cells = \"x\"; period = 1 beats; hold = 0.5 beats; };\n"
+        "    stage v xform::vary { pan = 0.5; tone = 0.5; attack = 0.5; };\n"
+        "    stage w xform::say { words = \"[L AA]\"; };\n"
+        "    sink { instrument = lead; };\n"
+        "};\n"
+        "chain sweep {\n"
+        "    stage s gen::steps { values = \"0 1\"; period = 1 beats;\n"
+        "        min = 0.1; max = 0.8; };\n"
+        "    sink { instrument = lead; chanarg = \"res\"; };\n"
+        "};\n";
+    const int steps = 455;      /* both sections, and into a note the stop ends */
+
+    /* What the patch declares, before any piece sets it: the surface a
+       compiled voice's Knobs::declared gives the BOX. */
+    struct Declared { float value, min, max; std::string units; };
+    std::map<std::string, Declared> declared;
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        clearChannels(synth);
+        if (!loader.loadText("instrument lead { dsp \"ladder.dsp\"; };\n"
+                             "chain c { input midi; sink { instrument = lead; }; };\n",
+                             "declared.gen", &sched))
+        {
+            fail("compiled host: ladder.dsp did not load: " +
+                 (loader.errors().empty() ? "" : loader.errors()[0]));
+            return;
+        }
+        for (const auto &kv : synth->getChanArgs(sched.instruments()[0].channel))
+            declared[kv.first] = { (*kv.second)[0], kv.second->min(),
+                                   kv.second->max(), kv.second->units() };
+    }
+
+    /* The desktop's run: graphs on the synth, notes heard by a tap. */
+    StepLog desk;
+    std::vector<std::string> deskArgs;
+    {
+        StepTap tap;
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        tap.log = &desk;
+        clearChannels(synth);
+        sched.setNoteTap(&tap);
+        sched.setAuditionSynchronous(true);
+        if (!loader.loadText(piece, "compiled.gen", &sched))
+        {
+            fail("compiled host: the piece did not load on the desktop: " +
+                 (loader.errors().empty() ? "" : loader.errors()[0]));
+            return;
+        }
+
+        const int ch = sched.instruments()[0].channel;
+
+        sched.start();
+        for (desk.step = 1; desk.step <= steps; desk.step++)
+        {
+            sched.stepTransportAt(0.02, 1000000000 + (int64_t)desk.step * 20000);
+            for (const auto &kv : declared)
+                if (thArg *a = synth->getChanArg(ch, kv.first))
+                    deskArgs.push_back(std::to_string(desk.step) + " " + kv.first +
+                                       " " + std::to_string((*a)[0]));
+        }
+        sched.stop();
+        drainSynth();
+    }
+
+    /* The BOX's: an empty synth, the notes to the host, the chanargs its
+       own. */
+    StepLog box;
+    std::vector<std::string> boxArgs;
+    size_t flushed = 0;
+    std::vector<std::string> said;
+    std::map<int, std::map<std::string, std::unique_ptr<thArg> > > surface;
+    const auto boxRun = [&](const std::string &text, std::string &why) -> bool
+    {
+        thSynth empty("", TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        StepOut out;
+        thcScheduler sched(&empty);
+        thcGenLoader loader(plugins);
+
+        out.log = &box;
+        surface.clear();
+        sched.setNotesOut(&out);
+        sched.setAuditionSynchronous(true);
+        sched.setChanArgSource([&](int c, const std::string &n) -> thArg *
+        {
+            const auto a = surface[c].find(n);
+
+            return a == surface[c].end() ? NULL : a->second.get();
+        });
+        sched.setInstrumentLoader([&](const thcInstrument &inst, std::string &)
+        {
+            for (const auto &d : declared)
+            {
+                thArg *a = new thArg(d.first, d.second.value);
+
+                a->setMin(d.second.min);
+                a->setMax(d.second.max);
+                a->setUnits(d.second.units);
+                surface[inst.channel][d.first].reset(a);
+            }
+            return true;
+        });
+        sched.setInstrumentUnloader([](const thcInstrument &) { return true; });
+        sched.setEffectLoader([](int, const std::string &, int, std::string &)
+                              { return true; });
+        if (!loader.loadText(text, "compiled.gen", &sched))
+        {
+            why = loader.errors().empty() ? "" : loader.errors()[0];
+            return false;
+        }
+
+        const int ch = sched.instruments()[0].channel;
+
+        sched.start();
+        for (box.step = 1; box.step <= steps; box.step++)
+        {
+            sched.stepTransportAt(0.02, 1000000000 + (int64_t)box.step * 20000);
+            for (const auto &kv : surface[ch])
+                boxArgs.push_back(std::to_string(box.step) + " " + kv.first + " " +
+                                  std::to_string((*kv.second)[0]));
+        }
+        sched.stop();
+        flushed = out.count("flush");
+        said = out.said;
+        return true;
+    };
+
+    std::string why;
+
+    if (!boxRun(piece, why))
+    {
+        fail("compiled host: the piece did not load the BOX's way: " + why);
+        return;
+    }
+
+    const auto firstDiff = [](const std::vector<std::string> &a,
+                              const std::vector<std::string> &b)
+    {
+        for (size_t i = 0; i < std::max(a.size(), b.size()); i++)
+            if (i >= a.size() || i >= b.size() || a[i] != b[i])
+                return "the desktop has '" + (i < a.size() ? a[i] : "nothing") +
+                       "', the BOX '" + (i < b.size() ? b[i] : "nothing") + "'";
+        return std::string();
+    };
+
+    std::set<std::string> down;
+
+    for (const std::string &l : box.lines)
+    {
+        std::istringstream in(l);
+        std::string step, what, key;
+
+        in >> step >> what >> key;
+        if (what == "on")
+            down.insert(key);
+        else
+            down.erase(key);
+    }
+
+    if (desk.lines.empty() || boxArgs.empty())
+        fail("compiled host: the piece played nothing to compare");
+    else if (!firstDiff(desk.lines, box.lines).empty())
+        fail("compiled host: the notes differ: " + firstDiff(desk.lines, box.lines));
+    else if (!firstDiff(deskArgs, boxArgs).empty())
+        fail("compiled host: the chanargs differ: " + firstDiff(deskArgs, boxArgs));
+    else if (!down.empty() || box.lines.back().rfind(std::to_string(steps + 1) + " off", 0))
+        fail("compiled host: a stop did not end the note it held");
+    else if (flushed == 0)
+        fail("compiled host: a stop did not flush the host's queue");
+    else if (std::count(said.begin(), said.end(), "L.AA") != (long)said.size())
+        fail("compiled host: a note did not say what the piece put on it: '" +
+             said[0] + "'");
+
+    /* A piece from memory is named in its errors by the name it was given. */
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (loader.loadText("chain c { };\n", "named.gen", &sched) ||
+            loader.errors().empty() || loader.errors()[0].rfind("named.gen:1:", 0) != 0)
+            fail("compiled host: a piece from memory's error does not name it: " +
+                 (loader.errors().empty() ? "" : loader.errors()[0]));
+    }
+
+    /* A mix effect has no voice on such a host to carry it. */
+    if (boxRun("effect \"fx/limiter.dsp\";\n" + piece, why))
+        fail("compiled host: a piece with a mix effect was played without it");
+    else if (why.find("fx/limiter.dsp") == std::string::npos)
+        fail("compiled host: a mix effect was refused without naming it: " + why);
+}
+
 /* setNoteTap: the tap hears each note the piece sounds and each end,
  * whichever way the note ended -- its duration up, its key let go, a stop
  * with the note still held, its instrument swapped out from under it --
@@ -16670,6 +16937,7 @@ main (int argc, char *argv[])
         checkHeldNotes(plugins, &synth);
         checkMidiOut(plugins, &synth);
         checkNoteTap(plugins, &synth);
+        checkCompiledHost(plugins, &synth);
         checkRetriggerAudio(plugins, &synth);
         checkSeedReachesNoise(plugins, &synth);
         checkFloor(plugins, &synth);

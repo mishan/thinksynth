@@ -95,6 +95,11 @@ public:
        False on any error; errors() says what and where. */
     bool load (const std::string &path, thcScheduler *sched);
 
+    /* The same, from text already in memory: a board with no file system
+       holds its pieces in flash. `path' names it in errors. */
+    bool loadText (const std::string &text, const std::string &path,
+                   thcScheduler *sched);
+
     const std::vector<std::string> &errors (void) const { return errors_; }
     const std::vector<std::string> &warnings (void) const
     { return warnings_; }
@@ -300,6 +305,7 @@ private:
     size_t             pos_;
     std::string        path_;
     std::string        source_;     /* the file's bytes, which tokens span */
+    const std::string *text_ = NULL; /* loadText's, read instead of path */
 
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
