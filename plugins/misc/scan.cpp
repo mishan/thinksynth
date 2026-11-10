@@ -31,8 +31,8 @@
  *
  * x, y, the syncs and the frame are worked out from the count in 64-bit
  * integers, so they are as steady after an hour as in the first frame.
- * `t' is a float, so it coarsens as it grows: steps of 1/4096 s after an
- * hour. On a synth with no raster every output is 0.
+ * `t' moves a frame at a time; as a float it rounds no coarser than a
+ * 60th of a second until about 36 hours in. On a synth with no raster every output is 0.
  */
 
 #include <stdio.h>
