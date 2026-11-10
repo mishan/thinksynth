@@ -123,12 +123,21 @@ for the BOX through a mapper.
 
 With `--engine`, a voice comes with `thv<Name>Engine`, which a tree runs
 in place of its nodes (`libthink/thCompiled.h`). The build compiles the
-patches in `video/` and `video/fx/` into `think_compiled`, whose
-`thCompiledInstall()` a program calls to have them; `genwav` does, and
-`--interpret` keeps it from, and its summary says which way the picture
-ran. The browser module's video worker does too, built from the native
-tree's `think_compiled` sources (`THINK_NATIVE_BUILD`, `build/` by
-default); without them its patches run on their nodes.
+patches in `video/` and `video/fx/`, and `dxbell`, `glass` and `rhodes`
+from `dsp/`, into `think_compiled`, whose `thCompiledInstall()` a
+program calls to have them; `genwav` does, and `--interpret` keeps it
+from, and its summary says which way the picture ran. The browser
+module's worklet and video worker do too, built from the native tree's
+`think_compiled` sources (`THINK_NATIVE_BUILD`, `build/` by default);
+without them their graphs run on their nodes.
+
+An instrument compiled gains far less than a picture: a window of audio
+repeats nothing across a raster for the compiler to work out once, and
+the nodes already run a window at a time. `rhodes` alone renders 7%
+faster in `genwav`, and on the page a chord held over it takes a third
+less a quantum; it adds 14 KB to the module. The other instruments wait
+on kernels (`mixer::fade`, `env::map`, ...) and on `osc::noise` and a
+knob's glide, which `dspcompile` refuses.
 
 - **Which graph.** A tree's fingerprint (`thSynthTree::fingerprint`) is
   its graph as parsed, as text: each node, its plugin, and its args, with

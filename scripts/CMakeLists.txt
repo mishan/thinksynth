@@ -287,10 +287,11 @@ foreach(voice "Dxbell;${PROJECT_SOURCE_DIR}/dsp/dxbell.dsp;-c;box,marbles,life"
       VERBATIM)
   list(APPEND THINK_COMPILED_VOICES "${THINK_COMPILED}/thv${vname}.h")
 endforeach()
-# The shipped video patches and effects, compiled for the engine to run in
-# their trees' place (libthink/thCompiled.h): think_compiled, whose
-# thCompiledInstall() a program calls to have them. Under -ffast-math the
-# plugins' bits are the compiler's to choose, so there are none.
+# The shipped video patches and effects, and the instruments that compile,
+# compiled for the engine to run in their trees' place (libthink/thCompiled.h):
+# think_compiled, whose thCompiledInstall() a program calls to have them.
+# Under -ffast-math the plugins' bits are the compiler's to choose, so there
+# are none.
 set(THINK_ENGINE "${CMAKE_CURRENT_BINARY_DIR}/engine")
 set(THINK_ENGINE_HEADERS "")
 set(THINK_ENGINE_INCLUDES "")
@@ -299,7 +300,8 @@ if(NOT THINK_FAST_MATH)
   foreach(unit "Aurora;video/aurora.dsp" "Constellation;video/constellation.dsp"
                "Moire;video/moire.dsp" "Pond;video/pond.dsp" "Rings;video/rings.dsp"
                "Wells;video/wells.dsp" "Feedback;video/fx/feedback.dsp"
-               "Palette;video/fx/palette.dsp" "Soften;video/fx/soften.dsp")
+               "Palette;video/fx/palette.dsp" "Soften;video/fx/soften.dsp"
+               "Dxbell;dsp/dxbell.dsp" "Glass;dsp/glass.dsp" "Rhodes;dsp/rhodes.dsp")
     list(GET unit 0 uname)
     list(GET unit 1 ufile)
     add_custom_command(
@@ -1329,7 +1331,8 @@ add_test(NAME videosynthcheck
 if(NOT THINK_FAST_MATH)
   add_test(NAME compiledcheck
            COMMAND compiledcheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                   -v "${PROJECT_SOURCE_DIR}/video/" -c "${CMAKE_CURRENT_SOURCE_DIR}/compiled/"
+                   -v "${PROJECT_SOURCE_DIR}/video/" -d "${PROJECT_SOURCE_DIR}/dsp/"
+                   -c "${CMAKE_CURRENT_SOURCE_DIR}/compiled/"
                    -g "${THINK_RANDOM}/")
 endif()
 add_test(NAME notebendcheck

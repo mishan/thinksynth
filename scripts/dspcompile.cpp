@@ -706,8 +706,9 @@ engineCode (Compiler &c, const string &name, const string &once, size_t outs,
       << lines.str() << "        return e;\n    }\n\n"
       << "    bool bind (thSynthTree &tree, int channels) override\n    {\n"
       << "        thSynth *s = tree.synth();\n        thNode *io = tree.IONode();\n\n"
-      << "        if (s == NULL || io == NULL || s->rasterWidth() <= 0 ||\n"
-      << "            s->rasterHeight() <= 0 || channels != " << (c.effect ? c.width : 0)
+      << "        if (s == NULL || io == NULL || "
+      << (c.scanned ? "s->rasterWidth() <= 0 ||\n            s->rasterHeight() <= 0 || " : "")
+      << "channels != " << (c.effect ? c.width : 0)
       << ")\n            return false;\n"
       << "        v.bind(s->getSampleRate());\n";
     if (c.scanned)
