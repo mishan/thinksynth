@@ -3445,7 +3445,11 @@ async function memoryShedQueued ()
             await new Promise((r) => setImmediate(r));
         }
 
-        const { heapUsed, external } = (gc(), usage());
+        /* Twice: the Buffers one collection frees are still in
+           `external' until their sweep finishes, which the next one
+           waits for. Counted here, they leave the relay under 0.8 once
+           swept, and under SHED_HIGH it sheds nothing. */
+        const { heapUsed, external } = (gc(), gc(), usage());
         const offset = 0.8 * memoryMaxBytes - heapUsed - external;
 
         process.stderr.write = (line) =>
