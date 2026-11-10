@@ -35,6 +35,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <string>
 #include <vector>
@@ -193,12 +194,14 @@ given (const char *how)
 int
 main (int argc, char **argv)
 {
-    if (argc != 2)
+    if (argc != 2 || !*argv[1] || strspn(argv[1], "0123456789") != strlen(argv[1]))
     {
         fprintf(stderr, "usage: dsprandom SEED > patch.dsp\n");
         return 2;
     }
-    state = strtoull(argv[1], NULL, 10);
+    const unsigned long long seed = strtoull(argv[1], NULL, 10);
+
+    state = seed;
 
     string body, firsts, rest;
     const int count = 4 + pick(9);
@@ -240,7 +243,7 @@ main (int argc, char **argv)
     const string sustain = number(0, 1);
     const int r = 1 + pick(300);
 
-    printf("name \"Random %s\";\n\n"
+    printf("name \"Random %llu\";\n\n"
            "@k0 = %s;\n@k1 = %s;\n@in_level = 0;\n@in_bass = 0;\n\n"
            "node ionode { channels = 3; out0 = env->out * (%s); out1 = env->out * (%s);\n"
            "              out2 = env->out; play = env->play; };\n"
@@ -249,7 +252,7 @@ main (int argc, char **argv)
            "node env env::adsr { a = %d ms; d = %d ms; s = %s; r = %d ms; p = 1;\n"
            "                     trigger = ionode->trigger; };\n"
            "%s\nio ionode;\n",
-           argv[1], k0.c_str(), k1.c_str(), red.c_str(), green.c_str(), a, d,
+           seed, k0.c_str(), k1.c_str(), red.c_str(), green.c_str(), a, d,
            sustain.c_str(), r, body.c_str());
     return 0;
 }

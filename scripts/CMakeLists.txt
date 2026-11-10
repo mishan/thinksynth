@@ -345,23 +345,22 @@ set(THINK_RANDOM_HEADERS "")
 set(THINK_RANDOM_INCLUDES "")
 set(THINK_RANDOM_ADDS "")
 if(THINK_RANDOM_GRAPHS GREATER 0)
-  set(THINK_RANDOM_SEEDS RANGE 1 ${THINK_RANDOM_GRAPHS})
+  foreach(seed RANGE 1 ${THINK_RANDOM_GRAPHS})
+    add_custom_command(
+        OUTPUT "${THINK_RANDOM}/random${seed}.dsp" "${THINK_RANDOM}/thvRandom${seed}.h"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${THINK_RANDOM}"
+        COMMAND dsprandom ${seed} > "${THINK_RANDOM}/random${seed}.dsp"
+        COMMAND dspcompile --engine -p "${PROJECT_BINARY_DIR}/plugins/" -r 1152000
+                "${THINK_RANDOM}/random${seed}.dsp" Random${seed}
+                > "${THINK_RANDOM}/thvRandom${seed}.h"
+        DEPENDS dsprandom dspcompile plugins
+        VERBATIM)
+    list(APPEND THINK_RANDOM_HEADERS "${THINK_RANDOM}/thvRandom${seed}.h")
+    string(APPEND THINK_RANDOM_INCLUDES "#include \"thvRandom${seed}.h\"\n")
+    string(APPEND THINK_RANDOM_ADDS
+           "    thCompiledAdd(thvRandom${seed}Engine::fingerprint(), thvRandom${seed}Engine::make);\n")
+  endforeach()
 endif()
-foreach(seed ${THINK_RANDOM_SEEDS})
-  add_custom_command(
-      OUTPUT "${THINK_RANDOM}/random${seed}.dsp" "${THINK_RANDOM}/thvRandom${seed}.h"
-      COMMAND ${CMAKE_COMMAND} -E make_directory "${THINK_RANDOM}"
-      COMMAND dsprandom ${seed} > "${THINK_RANDOM}/random${seed}.dsp"
-      COMMAND dspcompile --engine -p "${PROJECT_BINARY_DIR}/plugins/" -r 1152000
-              "${THINK_RANDOM}/random${seed}.dsp" Random${seed}
-              > "${THINK_RANDOM}/thvRandom${seed}.h"
-      DEPENDS dsprandom dspcompile plugins
-      VERBATIM)
-  list(APPEND THINK_RANDOM_HEADERS "${THINK_RANDOM}/thvRandom${seed}.h")
-  string(APPEND THINK_RANDOM_INCLUDES "#include \"thvRandom${seed}.h\"\n")
-  string(APPEND THINK_RANDOM_ADDS
-         "    thCompiledAdd(thvRandom${seed}Engine::fingerprint(), thvRandom${seed}Engine::make);\n")
-endforeach()
 file(CONFIGURE OUTPUT "${THINK_RANDOM}/thRandomInstall.cpp" CONTENT
      "/* The random graphs, each added by its fingerprint. */\n\n\
 ${THINK_RANDOM_INCLUDES}\n#include \"thCompiled.h\"\n\n\
