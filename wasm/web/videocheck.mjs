@@ -578,6 +578,54 @@ for (const [what, read, turn] of [
                  `${lit(parts[1], 25)}`);
 }
 
+/* A module taking a channel at frame 15 hears the other's notes struck
+   before; once they end, its own two voices draw as a module that never
+   heard them does, whether it played those notes or skipped past their
+   end. */
+for (const [name, skips] of [['played', false], ['skipped past', true]])
+{
+    const fresh = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const whole = M;
+    const end = (skips ? 14 : 5) * PER_FRAME;
+    const play = (taker) =>
+    {
+        open();
+        follow(0, 'white', flat([0.3, 0.6, 1]));
+        if (taker)
+        {
+            M._tv_window(0, 15 * PER_FRAME, 1e300);
+            notes([{ at: 0, kind: ON, note: 60 }, { at: end, kind: OFF, note: 60 }]);
+        }
+        notes([{ at: 20 * PER_FRAME, kind: ON, note: 64 },
+               { at: 22 * PER_FRAME, kind: ON, note: 67 },
+               { at: 40 * PER_FRAME, kind: OFF, note: 64 },
+               { at: 40 * PER_FRAME, kind: OFF, note: 67 }]);
+        M._tv_generated(10 * PER_FRAME);
+
+        const early = render();
+
+        M._tv_generated(45 * PER_FRAME);
+        return [...early, ...render(skips ? 35 : -1)];
+    };
+
+    const taken = play(true);
+
+    M = fresh;
+
+    const alone = play(false);
+
+    M = whole;
+
+    const differ = alone.filter((f, k) => taken[k]?.frame !== f.frame ||
+                                           taken[k].rgba.some((v, i) => v !== f.rgba[i]));
+
+    check(`a channel taken over keeps its voices after the other's notes end, ${name}`,
+          taken.length === alone.length && differ.length === 0 &&
+          alone.some((f) => f.frame > 30 && peak(f) > 0),
+          `${taken.length} frames against ${alone.length}; ${differ.length} differ, ` +
+          `from ${differ[0]?.frame}`);
+}
+
 /* A note struck half way through frame 10. */
 {
     open();
