@@ -252,6 +252,7 @@ checkRaster (const char *name, const std::string &file, const std::string &plugi
 {
     static const std::pair<const char *, float> MUSIC[] = {
         { "in_level", 0.2f }, { "in_bass", 0.3f }, { "in_mid", 0.2f }, { "in_high", 0.1f },
+        { "in_level_slow", 0.15f }, { "in_bass_slow", 0.25f }, { "in_high_slow", 0.08f },
     };
     const int window = 1000, rate = w * h * 60, windows = 30 * w * h / window;
     thSynth synth(plugins, window, rate, 3);

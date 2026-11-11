@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include <limits.h>
+#include <math.h>
 
 #include <algorithm>
 
@@ -145,8 +146,24 @@ void thVideoSynth::set (const std::string &chanarg, float value)
         master->setValue(value);
 }
 
+/* The slow inputs, in thVideoInputs' order, and how fast they follow:
+   two one-pole lowpasses in a row, critically damped, so a step swells
+   and never overshoots. */
+static const char *const SLOW[] = { "in_level_slow", "in_bass_slow", "in_mid_slow",
+                                    "in_high_slow" };
+static const double SLOW_HZ = 4;
+
 void thVideoSynth::setInputs (const thVideoInputs &in)
 {
+    const float to[] = { in.level, in.bass, in.mid, in.high };
+
+    std::copy(to, to + 4, slowTo_);
+    /* A synth opened mid-piece, as a helper is, takes up the sound where
+       it is rather than swelling up from silence. */
+    if (!heard_)
+        for (int i = 0; i < 4; i++)
+            slow_[i][0] = slow_[i][1] = to[i];
+    heard_ = true;
     set("in_level", in.level);
     for (int ch = 0; ch < in.channels; ch++)
         set("in_level" + std::to_string(ch), in.levels[ch]);
@@ -162,6 +179,15 @@ bool thVideoSynth::render (const Frame &frame)
 
 bool thVideoSynth::render (const Frame &frame, const float *add)
 {
+    const double turn = 2 * 3.14159265358979323846;
+    const float a = (float)(1 - exp(-turn * SLOW_HZ * window_ / rate_));
+
+    for (int i = 0; i < 4; i++)
+    {
+        slow_[i][0] += a * (slowTo_[i] - slow_[i][0]);
+        slow_[i][1] += a * (slow_[i][0] - slow_[i][1]);
+        set(SLOW[i], slow_[i][1]);
+    }
     synth_->process(add);
     rendered_ += window_;
     processed_ = true;
@@ -209,6 +235,8 @@ void thVideoSynth::skipTo (int64_t frame)
     if (to <= rendered_)
         return;
     synth_->skip(to - rendered_);
+    for (int i = 0; i < 4; i++)
+        slow_[i][0] = slow_[i][1] = slowTo_[i];
     rendered_ = to;
     frames_ = frame;
     filled_ = 0;

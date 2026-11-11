@@ -29,7 +29,10 @@
  *
  * What the audio says (thVideoBridge) reaches it as chanargs on every
  * channel it follows, where its .dsp uses them: @in_level, @in_level<N>,
- * @in_bass, @in_mid, @in_high, and whatever else set() names.
+ * @in_bass, @in_mid, @in_high, and whatever else set() names. Each of
+ * the four is also smoothed, a window at a time, into @in_level_slow,
+ * @in_bass_slow, @in_mid_slow and @in_high_slow, which swell where the
+ * sound steps: a patch's own filter would run once a pixel.
  *
  * It renders in windows of whole lines, and advance() renders only those
  * that end at or before the audio's time, in integer arithmetic, so it
@@ -87,7 +90,8 @@ public:
     void unfollow (int channel);
 
     /* Onto every followed channel's patch and the effect, where they
-       declare it. */
+       declare it: the plain inputs at once, the slow ones a step a window
+       from the next on, and the first ever heard at once. */
     void setInputs (const thVideoInputs &in);
     void set (const std::string &chanarg, float value);
 
@@ -107,7 +111,8 @@ public:
     bool finish (int64_t audio, int64_t audioRate, const Frame &frame);
 
     /* Straight to the start of frame `frame', a later one, rendering
-       nothing between: a picture that fell behind its sound catching up. */
+       nothing between: a picture that fell behind its sound catching up.
+       The slow inputs jump to the sound. */
     void skipTo (int64_t frame);
 
     void noteOn (int channel, int note, int velocity, float level,
@@ -141,6 +146,9 @@ private:
     std::vector<float> frame_;
     size_t filled_ = 0;
     bool processed_ = false, narrowSaid_ = false;
+    /* The slow inputs: where each is headed, and its two poles. */
+    float slowTo_[4] = {}, slow_[4][2] = {};
+    bool heard_ = false;
 };
 
 #endif /* TH_VIDEO_SYNTH_H */

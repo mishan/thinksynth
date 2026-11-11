@@ -10,7 +10,7 @@ see [DSP_FORMAT.md](DSP_FORMAT.md); for the output stage and gain staging see
 
 | Layer | Path | Role |
 |---|---|---|
-| Core engine | `libthink/` | Synth graph, arg system, MIDI, DSP-language parser. Builds `libthink.so.8.0`. |
+| Core engine | `libthink/` | Synth graph, arg system, MIDI, DSP-language parser. Builds `libthink.so.11.0`. |
 | Plugins | `plugins/` | One `.cpp` per plugin → one module each, `dlopen`ed at parse time. Categories: `osc filt env math mixer delay impulse logic misc analysis dist input fft test visual`. |
 | App / IO | `src/` | `main.cpp`, RtAudio + RtMidi, patch file and prefs IO, the node-editor model. |
 | GUI | `src/gui/` | gtkmm-4: main window, keyboard, arg sliders, patch selector, MIDI map, node canvas. |
@@ -621,7 +621,7 @@ holds that down, because it is invisible until the day it matters.
 
 ## If you have thinksynth installed in /usr/local
 
-The soname is at 6. This matters more than it sounds: before the last bump, a
+The soname is at 11. This matters more than it sounds: before the last bump, a
 binary built against new headers still resolved the older `libthink.so` from
 `/usr/local/lib` at run time, linked without complaint, and then read every
 header-inlined accessor at the wrong offset — `thSynth::getChannel` returning

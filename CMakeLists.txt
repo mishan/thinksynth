@@ -55,7 +55,8 @@ include(TestBigEndian)
 # graph.
 #
 # 11: thMidiChan keeps each voice's node levels, and thSynth a switch for
-# them (setNodeLevels), so both are a different size.
+# them (setNodeLevels), so both are a different size; thVideoSynth keeps
+# the slow inputs' filters, so it is too.
 # ---------------------------------------------------------------------------
 
 set(THINK_LIB_MAJOR 11)

@@ -5,7 +5,7 @@
 # A star is a soft core and a cross of faint spikes, warm for a low note
 # and blue-white for a high one, twinkling slowly. `Size' is how big the
 # core is; `Twinkle' how deep the flicker goes, deeper as the music's
-# highs are louder. `@in_level', the music's loudness, brightens the
+# highs are louder. `@in_level_slow', the music's loudness, brightens the
 # stars, scaled by `Response'.
 
 name "Constellation";
@@ -13,8 +13,8 @@ author "Misha Nasledov";
 description "A star per note, placed by its pitch, lingering into a constellation.";
 category "Video";
 
-    @in_level = 0;
-    @in_high = 0;
+    @in_level_slow = 0;
+    @in_high_slow = 0;
 
     @size = 1;
     @size.widget = 1;
@@ -69,18 +69,17 @@ node arms math::abs { in = dx->out * dy->out; };
 node cross math::div { in0 = k->out * 0.15; in1 = k->out * 0.15 + arms->out; };
 node fade math::div { in0 = 1; in1 = 1 + d2->out * 80; };
 
-# What the music says changes once an audio window, partway down a frame;
-# smoothed over a few frames, a star does not step across its middle.
-node loud filt::svf { in = @in_level * @response; cutoff = 4; res = 0; };
-node highs filt::svf { in = @in_high; cutoff = 4; res = 0; };
+# The slow inputs, so a star does not step across its middle where the
+# music changes partway down a frame.
+node loud math::clamp { in = @in_level_slow * @response; lo = 0; hi = 1; };
 
 # How deep the flicker goes, at most all the way out and never past it
 # into negative light.
-node depth math::min { in0 = @twinkle * (0.5 + highs->out_low * 4); in1 = 1; };
+node depth math::min { in0 = @twinkle * (0.5 + @in_high_slow * 4); in1 = 1; };
 node tw math::sin { index = s->t * (0.4 + ionode->note * 0.011); amp = 0.5; };
 node lit math::mul {
     in0 = (glow->out * glow->out + 0.5 * cross->out * fade->out) * env->out;
-    in1 = (1 - depth->out * (0.5 + tw->out)) * (1 + loud->out_low);
+    in1 = (1 - depth->out * (0.5 + tw->out)) * (1 + loud->out);
 };
 
 # 0 for a low note, 1 for a high one: the star's color between.

@@ -4,8 +4,8 @@
 # curtain hangs low, a high note's high and redder, as an aurora is
 # higher up, and a chord stacks them.
 #
-# `@in_level', the music's loudness, brightens every curtain, scaled by
-# `Response'; `@in_bass' makes them taller. `Drift' is how fast they
+# `@in_level_slow', the music's loudness, brightens every curtain, scaled
+# by `Response'; `@in_bass_slow' makes them taller. `Drift' is how fast they
 # ripple.
 
 name "Aurora";
@@ -13,8 +13,8 @@ author "Misha Nasledov";
 description "A rippling curtain of light per note: pink fringe, green, then red and violet above.";
 category "Video";
 
-    @in_level = 0;
-    @in_bass = 0;
+    @in_level_slow = 0;
+    @in_bass_slow = 0;
 
     @drift = 1;
     @drift.widget = 1;
@@ -51,16 +51,16 @@ node w1 math::sin { index = s->x * (0.6 + 1.2 * s->x) + s->t * 0.05 * @drift +
                     amp = 0.08; };
 node edge math::add { in0 = 0.85 - 0.5 * high->out; in1 = w1->out; };
 
-# What the music says changes once an audio window, partway down a frame:
-# a step there would cut the curtain straight across. Smoothed over a few
-# frames, it swells instead.
-node bass filt::svf { in = @in_bass; cutoff = 4; res = 0; };
-node loud filt::svf { in = @in_level * @response; cutoff = 4; res = 0; };
+# The slow inputs, so the curtain swells where the music changes partway
+# down a frame rather than being cut straight across there.
+node loud math::clamp { in = @in_level_slow * @response; lo = 0; hi = 1; };
 
 # How far above the edge, as a share of the curtain's height: 0 at the
 # edge, 1 at the top. Under the edge it falls off within a line or two.
-node height math::add { in0 = 0.3; in1 = bass->out_low; };
-node up math::div { in0 = edge->out - s->y; in1 = height->out; };
+# Over a height that holds still for a window, so its reciprocal is
+# worked out once a window rather than divided by each pixel.
+node tall math::div { in0 = 1; in1 = 0.3 + @in_bass_slow; };
+node up math::mul { in0 = edge->out - s->y; in1 = tall->out; };
 node near math::clamp { in = 1 - up->out; lo = 0; hi = 1; };
 node bottom math::clamp { in = 1 + up->out * 25; lo = 0; hi = 1; };
 
@@ -70,7 +70,7 @@ node ray math::sin { index = s->x * 23 + w1->out * 30 + up->out * 1.5 +
 
 node lit math::mul {
     in0 = near->out * (0.4 + 0.6 * near->out) * bottom->out * (0.55 + 0.45 * ray->out) * env->out;
-    in1 = 0.45 + loud->out_low;
+    in1 = 0.45 + loud->out;
 };
 
 # 0 green, 1 red-violet: higher up the curtain, and higher for a high
