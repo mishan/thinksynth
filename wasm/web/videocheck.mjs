@@ -136,6 +136,41 @@ function render (due = -1)
     return frames;
 }
 
+/* The same, from a module drawing float planes (tv_planes): each frame's
+   R, G and B, unclamped, as one Float32Array. */
+function renderPlanes ()
+{
+    const frames = [];
+
+    for (let calls = 0; calls < 1000; calls++)
+    {
+        const count = M._tv_render(-1, H / LINES);
+
+        for (let i = 0; i < count; i++)
+        {
+            const at = M._tv_done_rgba(i);
+
+            frames.push({ frame: M._tv_done_frame(i),
+                          planes: new Float32Array(M.HEAPU8.slice(at, at + 12 * W * H).buffer) });
+        }
+        M._tv_done_clear();
+        if (count === 0)
+            break;
+    }
+
+    return frames;
+}
+
+/* `planes' as tv_rgba makes them RGBA. */
+function rgba (planes)
+{
+    M.HEAPF32.set(planes, M._tv_plane_buffer() / 4);
+
+    const at = M._tv_rgba();
+
+    return M.HEAPU8.slice(at, at + 4 * W * H);
+}
+
 /* A patch that is one color while its note sounds: `rgb' a channel each,
    `release' how long it takes to go dark after. `voiced' lights it as long
    as the voice lives, release and all, at full strength whatever the
@@ -326,10 +361,81 @@ for (const [what, read, turn] of [
 
     check(`${what} lands at its time, however early its batch arrives`,
           early.length === 40 && late.length === 40 && differs < 0 &&
-          pixel(early[19], 0, 0, 0) === 51 && pixel(early[21], 0, 0, 0) === 204,
+          pixel(early[19], 0, 0, 0) === 51 && pixel(early[20], 0, 0, 0) === 204,
           `${early.length} and ${late.length} frames; frame ${differs} differs; ` +
-          `frames 19 and 21 at ${early[19] && pixel(early[19], 0, 0, 0)}, ` +
-          `${early[21] && pixel(early[21], 0, 0, 0)}`);
+          `frames 19 and 20 at ${early[19] && pixel(early[19], 0, 0, 0)}, ` +
+          `${early[20] && pixel(early[20], 0, 0, 0)}`);
+}
+
+/* Every shipped patch on four channels, drawn whole by one module and in
+   two parts, channels 0 and 2 and channels 1 and 3, by two drawing planes:
+   each part is what a module following only its channels draws, byte for
+   byte, and the parts summed are the whole within a step. */
+{
+    const whole = M;
+    const parts = [await createThinkWeb({ print: () => {}, printErr: () => {} }),
+                   await createThinkWeb({ print: () => {}, printErr: () => {} })];
+    const shares = [[0, 2], [1, 3]];
+    const play = (patch, channels) =>
+    {
+        open();
+        for (const ch of channels)
+            follow(ch, patch, fs.readFileSync(path.join(video, patch), 'utf8'));
+        inputs(0.15, 0.3, 0.1, 0.3);
+        notes([0, 1, 2, 3].flatMap((ch) => [
+            { at: ch * PER_FRAME, kind: ON, channel: ch, note: 48 + 7 * ch },
+            { at: (ch + 3) * PER_FRAME, kind: ON, channel: ch, note: 55 + 7 * ch },
+            { at: 30 * PER_FRAME, kind: OFF, channel: ch, note: 48 + 7 * ch }]));
+        M._tv_generated(45 * PER_FRAME);
+    };
+
+    for (const patch of patches)
+    {
+        M = whole;
+        play(patch, [0, 1, 2, 3]);
+
+        const drawn = render();
+        const each = shares.map((share, k) =>
+        {
+            M = whole;
+            play(patch, share);
+
+            const alone = render();
+
+            M = parts[k];
+            M._tv_planes(1);
+            play(patch, share);
+
+            return { alone, planes: renderPlanes() };
+        });
+
+        M = whole;
+
+        let why = '';
+        const exact = each.every(({ alone, planes }) =>
+            alone.length === planes.length &&
+            planes.every((p, i) => Buffer.compare(rgba(p.planes), alone[i].rgba) === 0));
+
+        if (!exact)
+            why = 'a part is not what a module following its channels draws';
+        for (let f = 0; f < drawn.length && !why; f++)
+        {
+            const sum = new Float32Array(3 * W * H);
+
+            for (const { planes } of each)
+                for (let i = 0; i < sum.length; i++)
+                    sum[i] += planes[f].planes[i];
+
+            const composed = rgba(sum);
+
+            for (let i = 0; i < composed.length && !why; i++)
+                if (Math.abs(composed[i] - drawn[f].rgba[i]) > 1)
+                    why = `frame ${f}, byte ${i}: ${composed[i]} composed, ${drawn[f].rgba[i]} whole`;
+        }
+        check(`${patch} drawn in two parts sums to the whole`,
+              why === '' && drawn.length === 45 && peak(drawn[20]) > 64,
+              why || `${drawn.length} frames, peak ${drawn[20] && peak(drawn[20])}`);
+    }
 }
 
 /* A note struck half way through frame 10. */

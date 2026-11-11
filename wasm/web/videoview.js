@@ -46,6 +46,16 @@ const DROPPING_MS = 1000;
 /* How many paints the lateness is kept for. */
 const KEEP = 600;
 
+/* How many workers draw the picture: the page's ?helpers=N, or the video
+   worker's choice from the cores (videoworker.js). */
+const HELPERS = (() =>
+{
+    const query = new URLSearchParams(globalThis.location?.search ?? '');
+    const n = Number(query.get('helpers'));
+
+    return query.has('helpers') && Number.isInteger(n) && n >= 0 ? n : null;
+})();
+
 /* Frames in the pool beyond those that wait out the output's latency. */
 const SPARE = 4;
 
@@ -119,6 +129,10 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             status.textContent = text;
     };
 
+    /* What the picture is drawn at, and by how many workers. */
+    let drawnBy = '';
+    const sayNarrow = () => say([narrow, drawnBy].filter((t) => t !== '').join('; '));
+
     const text = async (name) =>
     {
         if (!texts.has(name))
@@ -177,12 +191,13 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         }
         narrow = r.scale > 1 ? `drawn at ${canvas.width}x${canvas.height}: this machine ` +
                                `cannot draw ${WIDTH}x${HEIGHT} in time` : '';
-        say(narrow);
+        sayNarrow();
         r.worker.postMessage({ type: 'open', width: canvas.width, height: canvas.height,
                                fps: FPS, lines: LINES, rate: ctx.sampleRate,
                                pool: Math.ceil(latency * FPS) + SPARE,
                                patch: { name, text: dsp },
-                               fx: effect ? { name: effect, text: fxText } : null });
+                               fx: effect ? { name: effect, text: fxText } : null,
+                               helpers: HELPERS });
 
         const set = new Map(keep ? [...knobs.querySelectorAll('input')]
                                        .map((i) => [i.dataset.knob, i.value]) : []);
@@ -270,7 +285,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         if (r.dropping > 0 && now - r.dropping > DROPPING_MS)
         {
             r.dropping = 0;
-            say(narrow);
+            sayNarrow();
         }
     };
 
@@ -286,8 +301,16 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         }
         else if (m.type === 'failed')
             fail(m.text);
+        else if (m.type === 'workers')
+        {
+            drawnBy = m.count > 1 ? `drawn by ${m.count} workers` : '';
+            sayNarrow();
+        }
         else if (m.type === 'narrow')
-            say(narrow = [narrow, m.text].filter((t) => t !== '').join('; '));
+        {
+            narrow = [narrow, m.text].filter((t) => t !== '').join('; ');
+            sayNarrow();
+        }
         /* Behind twice in a second is a machine too slow for the size,
            not a hiccup. */
         else if (m.type === 'dropping' && r.scale === 1 && r.dropping > 0)
@@ -303,7 +326,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             r.dropping = performance.now();
             /* A stall outside drawing is not in the busy fraction. */
             r.roomy = 0;
-            say('dropping frames: this machine cannot draw it in time');
+            say(['dropping frames: this machine cannot draw it in time', drawnBy]
+                .filter((t) => t !== '').join('; '));
         }
         else if (m.type === 'busy' && r.scale > 1)
         {

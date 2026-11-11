@@ -65,7 +65,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { chromium } from 'playwright';
+import { chromium, firefox } from 'playwright';
 
 import { axeFindings } from './a11y.mjs';
 import { serve } from './serve.mjs';
@@ -4930,6 +4930,106 @@ try
               `a worker that dies says so and the sound goes on: ${died[0].status}, ` +
               `${after - before} quanta`);
         await wide.close();
+    }
+
+    /* ---- the picture across workers ---- */
+
+    /* belfry, nine instruments, with the video worker told to lead two
+       helpers (videopart.js), in both browsers, since the helpers are
+       workers a worker starts: the line says so and the picture lights.
+       One helper closed mid-piece: the other alone is too few, so the
+       picture is drawn as it always was, and goes on. And
+       told to lead none, it never does. */
+    const fox = await firefox.launch({ firefoxUserPrefs: {
+        'media.autoplay.default': 0, 'media.autoplay.blocking_policy': 0 } });
+
+    try
+    {
+        for (const [name, engine] of [['chromium', browser], ['firefox', fox]])
+        {
+            /* How bright each draws it: two helpers' parts summed are one
+               worker's picture, not some of it. */
+            const bright = {};
+
+            for (const helpers of [2, 0])
+            {
+                const wide = await engine.newContext({ viewport: { width: 1600, height: 900 } });
+                const v = await wide.newPage();
+                const said = [];
+
+                v.on('pageerror', (e) => errors.push(`${name} split video: ${e.message}`));
+                await v.goto(url.replace('?panes=0', `?helpers=${helpers}`));
+                await v.waitForFunction(() => document.body.classList.contains('tiled'));
+                await v.selectOption('#mode', 'piece');
+                await v.selectOption('#piece', 'belfry.gen');
+                await v.click('#start');
+                await v.waitForFunction(() => !document.getElementById('loadpiece').disabled,
+                                        null, { timeout: 60000 });
+                await v.click('#loadpiece');
+                await v.evaluate(() => window.solo.settled());
+                await v.evaluate(() => window.solo.pane('present', 'videoview'));
+                await v.click('#play');
+
+                const light = () => v.evaluate(() =>
+                {
+                    const c = document.getElementById('videocanvas');
+                    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+                    let sum = 0;
+
+                    for (let i = 0; i < d.length; i += 4)
+                        sum += d[i] + d[i + 1] + d[i + 2];
+                    return sum / (d.length / 4);
+                });
+                const watch = async (ms) =>
+                {
+                    let most = 0;
+
+                    for (let t = 0; t < ms; t += 250)
+                    {
+                        await v.waitForTimeout(250);
+                        said.push(await v.textContent('#videostatus'));
+                        most = Math.max(most, await light());
+                    }
+                    return most;
+                };
+                const parts = () => v.workers().filter((w) => w.url().endsWith('videopart.js'));
+                const lit = await watch(4000);
+                const drawn = said.some((t) => t.includes('drawn by 2 workers'));
+
+                bright[helpers] = lit;
+
+                if (helpers === 0)
+                {
+                    check(lit > 20 && !drawn && parts().length === 0 &&
+                          Math.abs(bright[2] - lit) < 0.15 * lit,
+                          `${name}: told to lead no helpers, the video worker draws belfry ` +
+                          `alone, as bright as two helpers drew it: light ${lit} against ` +
+                          `${bright[2]}, ${parts().length} helpers`);
+                    await wide.close();
+                    continue;
+                }
+                check(lit > 20 && drawn && parts().length === 2,
+                      `${name}: belfry drawn by two helpers, and the line says so: light ${lit}, ` +
+                      `${parts().length} helpers, said ${[...new Set(said)].join(' | ')}`);
+
+                /* Firefox says so as the worker goes, which is the point. */
+                await parts()[0]?.evaluate(() => close()).catch(() => {});
+                said.length = 0;
+
+                const after = await watch(3000);
+
+                /* At whatever size this machine draws it alone. */
+                check(after > 20 && parts().length === 0,
+                      `${name}: a helper closed mid-piece, the picture goes on drawn alone: ` +
+                      `light ${after}, ${parts().length} helpers, ` +
+                      `said ${[...new Set(said)].join(' | ')}`);
+                await wide.close();
+            }
+        }
+    }
+    finally
+    {
+        await fox.close();
     }
 
     for (const e of errors)
