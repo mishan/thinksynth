@@ -4961,6 +4961,17 @@ try
 
                 v.on('pageerror', (e) => errors.push(`${name} split video: ${e.message}`));
                 await v.goto(url.replace('?panes=0', `?helpers=${helpers}`));
+
+                /* The leader draws with a core fewer than there are. */
+                const cores = await v.evaluate(() => navigator.hardwareConcurrency);
+
+                if (cores < 4)
+                {
+                    process.stdout.write(`skip  ${name}: three workers want 4 cores, ` +
+                                         `this machine has ${cores}\n`);
+                    await wide.close();
+                    break;
+                }
                 await v.waitForFunction(() => document.body.classList.contains('tiled'));
                 await v.selectOption('#mode', 'piece');
                 await v.selectOption('#piece', 'belfry.gen');
@@ -5038,6 +5049,7 @@ try
     /* Left to choose, the worker draws belfry alone on a machine with room;
        held up again and again, as a machine too slow is, it adds workers,
        and keeps the full size while it still can. */
+    growing:
     {
         const wide = await browser.newContext({ viewport: { width: 1600, height: 900 } });
         const v = await wide.newPage();
@@ -5045,6 +5057,15 @@ try
 
         v.on('pageerror', (e) => errors.push(`growing video: ${e.message}`));
         await v.goto(url.replace('?panes=0', ''));
+
+        const cores = await v.evaluate(() => navigator.hardwareConcurrency);
+
+        if (cores < 3)
+        {
+            process.stdout.write(`skip  growing workers want 3 cores, this machine has ${cores}\n`);
+            await wide.close();
+            break growing;
+        }
         await v.waitForFunction(() => document.body.classList.contains('tiled'));
         await v.selectOption('#mode', 'piece');
         await v.selectOption('#piece', 'belfry.gen');
