@@ -4882,10 +4882,9 @@ try
               `${shrunk[2].painted - small} painted, told ${told}, response ${shrunk[3]}`);
 
         /* Slow for a moment only: the full size again once the small one
-           has drawn on a while without dropping a frame, though four times
-           its busy fraction is more than the worker has, and after failing
-           there again, a longer wait before the next try. */
-        await busy(0.9, 0.3);
+           has had room to spare a while, and after failing there again, a
+           longer wait before the next try. */
+        await busy(0.9, 0.05);
         await response(5);
         await behind();
 
@@ -4923,17 +4922,43 @@ try
 
         const still = await width();
 
-        await drawer.evaluate(() =>
-        {
-            globalThis.postMessage = globalThis.unfaked;
-            removeEventListener('message', globalThis.opened);
-        });
         check(down === 80 && held === 80 && upS >= 3 && upS < 10 && kept === '5' &&
               again === 80 && still === 80,
               'a machine slow for a moment is back at 160x120 with its knobs as set, ' +
               'not while it still drops frames, and waits longer after failing ' +
               `again: ${down}, ${held}, up after ${upS} s, ` +
               `response ${kept}, ${again}, then ${still}`);
+
+        /* Made small by a load that has passed, though four times the small
+           picture's busy fraction is more than the worker has: the full
+           size is tried anyway, after four times the wait without a
+           dropped frame. */
+        await v.selectOption('#videopatch', 'rings.dsp');
+        await v.waitForTimeout(500);
+        await busy(0.9, 0.3);
+        await behind();
+
+        const shrank = await width();
+        const t1 = Date.now();
+
+        await v.waitForTimeout(10000);
+
+        const waited = await width();
+
+        while (await width() !== 160 && Date.now() - t1 < 30000)
+            await v.waitForTimeout(250);
+
+        const retryS = (Date.now() - t1) / 1000;
+
+        await drawer.evaluate(() =>
+        {
+            globalThis.postMessage = globalThis.unfaked;
+            removeEventListener('message', globalThis.opened);
+        });
+        check(shrank === 80 && waited === 80 && retryS >= 12 && retryS < 25,
+              'a picture made small by a passing load, its small size too busy to ' +
+              'say the full one fits, tries 160x120 after a longer wait: ' +
+              `${shrank}, ${waited} after 10 s, up after ${retryS} s`);
 
         /* An output a quarter of a second behind: every frame waits that
            long on the page, and there are buffers enough for all of them.

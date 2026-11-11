@@ -180,9 +180,13 @@ is due rather than falling behind, and the pane says that it is dropping
 frames. Behind in two seconds running with a worker busy all the while,
 it draws at 80x60 instead, a quarter of the pixels, and says so; another
 patch or effect, or the pane shown again, starts at 160x120 again. So
-does the same patch once it has drawn small for 4 s running without
-dropping a frame. Each time 160x120 falls behind again, the wait before
-the next try doubles, up to 30 s.
+does the same patch once drawing it small has dropped no frame and taken
+under an eighth of the worker's time for 4 s running, which means that
+at full size it would take under half, or else once it has drawn small
+for four times as long without dropping a frame: the small picture costs
+more than a quarter of the full one's time, so a picture made small by
+a passing load might never pass the first test. Each time 160x120 falls behind again, the
+waits before the next try double, up to 30 s and 2 minutes.
 
 The worker draws with as few workers as keep up. It starts alone; two
 seconds behind, it adds a helper, and another each time it still is, up
