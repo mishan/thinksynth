@@ -48,7 +48,6 @@ node two osc::sample {
 node env env::ad {
     a = 0;
     d = @d;
-    trigger = ionode->trigger;
 };
 
 node mix mixer::fade {

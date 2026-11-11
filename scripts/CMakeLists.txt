@@ -947,8 +947,9 @@ endif()
 # The fixtures beside this harness, which are not in dsp/ and so are in no
 # corpus sweep. They still have to load: divergent.dsp is the only user of
 # filt::divbuf in the tree, and a fixture nothing ever loads is a fixture
-# that has quietly stopped being one. Loading is all that is claimed here --
-# what these files do once loaded is dspsweep.guard's business.
+# that has quietly stopped being one. Loading, with every name real, is all
+# that is claimed here -- what these files do once loaded is dspsweep.guard's
+# business.
 add_test(NAME dspcheck.guard
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dspcheck>
@@ -956,7 +957,7 @@ add_test(NAME dspcheck.guard
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/scripts/guard
                  -DMODE=dsp
-                 -DEXTRA_ARGS=-q
+                 "-DEXTRA_ARGS=-q --strict"
                  -P "${_runner}")
 
 add_test(NAME dspcheck.patch

@@ -5,18 +5,15 @@
 # here give: it is not an instrument and every corpus sweep globs dsp/.
 #
 # THE CYCLE: `osc' is frequency-modulated by `delay', and `delay' is fed from
-# `osc'. The loop is closed through the io node's `dfreq', so it is also
-# the case for finding a loop through an io arg. A graph with a loop runs a
-# sample at a time, so this one renders the same at every buffer size.
+# `osc'. A graph with a loop runs a sample at a time, so this one renders
+# the same at every buffer size.
 #
 # The node editor's layout is checked against it and one other file:
 # back-edges, a feedback arc set reversed for layering
 # (docs/NODE_EDITOR.md).
 #
-# This is dsp/noargs/dfb.dsp, 2004, by Leif Ames. Its `dcalc' node writes `in'
-# to a `misc::freq2samples' whose input is called `freq', so nothing reads it
-# and nothing ever did; left as it was, because what is being preserved is the
-# graph somebody actually wrote.
+# This is dsp/noargs/dfb.dsp, 2004, by Leif Ames, less a node and an io arg
+# that nothing read.
 
 name "Guard: feedback";
 description "An oscillator FM'd by a delay line fed from itself.";
@@ -31,7 +28,6 @@ node ionode {
     fmamt = 0.1;
     fmul = 1;
     pmul = 2;
-    dfreq = freqmul->out;
     dwave = 3;
     dfeed = 0.3;
     ddry = 0;
@@ -79,10 +75,6 @@ node osc osc::simple {
 node dosc osc::simple {
     freq = freqmul->out;
     waveform = ionode->dwave;
-};
-
-node dcalc misc::freq2samples {
-    in = freq->out;
 };
 
 node dmul math::mul {
