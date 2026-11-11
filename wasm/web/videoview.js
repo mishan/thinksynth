@@ -326,7 +326,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             r.dropping = performance.now();
             /* A stall outside drawing is not in the busy fraction. */
             r.roomy = 0;
-            say('dropping frames: this machine cannot draw it in time');
+            say(['dropping frames: this machine cannot draw it in time', drawnBy]
+                .filter((t) => t !== '').join('; '));
         }
         else if (m.type === 'busy' && r.scale > 1)
         {
