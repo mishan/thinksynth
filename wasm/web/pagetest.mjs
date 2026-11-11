@@ -4882,9 +4882,10 @@ try
               `${shrunk[2].painted - small} painted, told ${told}, response ${shrunk[3]}`);
 
         /* Slow for a moment only: the full size again once the small one
-           has had room to spare a while, and after failing there again, a
-           longer wait before the next try. */
-        await busy(0.9, 0.05);
+           has drawn on a while without dropping a frame, though four times
+           its busy fraction is more than the worker has, and after failing
+           there again, a longer wait before the next try. */
+        await busy(0.9, 0.3);
         await response(5);
         await behind();
 

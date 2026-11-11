@@ -177,12 +177,12 @@ played and what the sound says every four quanta, about 11 ms. Each
 finished frame is painted when the audio clock says its sound is being
 heard. A machine that cannot draw that fast skips ahead to the frame that
 is due rather than falling behind, and the pane says that it is dropping
-frames. Behind twice in a second, it draws at 80x60 instead, a quarter of
-the pixels, and says so; another patch or effect, or the pane shown
-again, starts at 160x120 again. So does the same patch once drawing it
-small has taken under an eighth of the worker's time for 4 s running,
-which means that at full size it would take under half. Each time 160x120
-falls behind again, the wait before the next try doubles, up to 30 s.
+frames. Behind in two seconds running with a worker busy all the while,
+it draws at 80x60 instead, a quarter of the pixels, and says so; another
+patch or effect, or the pane shown again, starts at 160x120 again. So
+does the same patch once it has drawn small for 4 s running without
+dropping a frame. Each time 160x120 falls behind again, the wait before
+the next try doubles, up to 30 s.
 
 The worker draws with as few workers as keep up. It starts alone; two
 seconds behind, it adds a helper, and another each time it still is, up
