@@ -4898,6 +4898,42 @@ try
               `again: ${down}, ${held}, up after ${upS} s, ` +
               `response ${kept}, ${again}, then ${await width()}`);
 
+        /* Shrunk though the full size had room: back at 160x120 once the
+           wait is out, however busy 80x60 reads. Shrunk while the full size
+           was busy: kept small, unless 80x60 has room for four times its
+           pixels. The busy the worker reports at each size is set here;
+           each patch starts with the shortest wait. */
+        for (const [patch, full, small, up] of [['rings.dsp', 0.3, 0.3, true],
+                                                ['moire.dsp', 0.9, 0.9, false],
+                                                ['pond.dsp', 0.9, 0.05, true]])
+        {
+            await v.selectOption('#videopatch', patch);
+            await v.waitForTimeout(1500);
+            await drawer.evaluate(([full, small]) =>
+            {
+                const post = globalThis.postMessage;
+
+                globalThis.postMessage = (m, transfer) =>
+                    post.call(globalThis, m.type === 'busy' ?
+                              { ...m, fraction: m.width === 160 ? full : small } : m, transfer);
+                globalThis.unfake = () => { globalThis.postMessage = post; };
+            }, [full, small]);
+            await v.waitForTimeout(1200);
+            await stall();
+            await stall();
+
+            const down = await width();
+
+            await v.waitForTimeout(8000);
+
+            const after = await width();
+
+            await drawer.evaluate(() => globalThis.unfake());
+            check(down === 80 && after === (up ? 160 : 80),
+                  `shrunk with busy ${full} at 160x120 and ${small} at 80x60, the ` +
+                  `picture ${up ? 'is back at 160x120' : 'stays at 80x60'}: ${down}, then ${after}`);
+        }
+
         /* An output a quarter of a second behind: every frame waits that
            long on the page, and there are buffers enough for all of them.
            Opened again for the pool to be sized, and the clock given time

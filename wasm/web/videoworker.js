@@ -255,6 +255,10 @@ function open (m, again = false, count = 1)
     lastOpen = m;
     override = m.helpers ?? override;
     lastAt = 0;
+    /* No busy straddles two sizes. */
+    spent = 0;
+    since = performance.now();
+    skipped = 0;
     if (!again)
     {
         pageSets.clear();
@@ -741,7 +745,7 @@ function second (now)
     const drawing = active();
     const busy = Math.max(...drawing.map((w) => w.busy));
 
-    post({ type: 'busy', fraction: busy });
+    post({ type: 'busy', fraction: busy, width: raster.width });
     scaler.limit = limit();
 
     /* Counted with those still starting, so one on its way isn't asked

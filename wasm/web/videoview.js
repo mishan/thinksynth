@@ -66,7 +66,10 @@ const SMALLER = 2;
 /* The full size is tried again once the small one has, for this many
    seconds running (doubled for each try that fell behind, up to the
    most), dropped no frame and been busy little enough that the full
-   size's SMALLER^2 pixels would fill under ROOMY of the worker's time. */
+   size's SMALLER^2 pixels would fill under ROOMY of the worker's time.
+   Shrunk while the full size was busy under ROOMY, the small size's busy
+   is not asked: it overstates the full size's, since not every cost
+   shrinks with the pixels and the small size starts on one worker. */
 const PATIENCE_S = 4, MOST_PATIENCE_S = 30;
 const ROOMY = 0.5;
 
@@ -316,6 +319,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
         else if (m.type === 'dropping' && r.scale === 1 && r.dropping > 0)
         {
             r.scale = SMALLER;
+            r.fullRoomy = r.full < ROOMY;
             r.dropping = 0;
             r.patience = Math.min(r.patience * 2 || PATIENCE_S, MOST_PATIENCE_S);
             r.roomy = 0;
@@ -329,9 +333,11 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             say(['dropping frames: this machine cannot draw it in time', drawnBy]
                 .filter((t) => t !== '').join('; '));
         }
+        else if (m.type === 'busy' && m.width === WIDTH)
+            r.full = m.fraction;
         else if (m.type === 'busy' && r.scale > 1)
         {
-            r.roomy = m.fraction * r.scale * r.scale < ROOMY ? r.roomy + 1 : 0;
+            r.roomy = r.fullRoomy || m.fraction * r.scale * r.scale < ROOMY ? r.roomy + 1 : 0;
             if (r.roomy >= r.patience)
             {
                 r.scale = 1;
@@ -443,6 +449,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             run.scale = 1;
             run.dropping = 0;
             run.patience = 0;
+            run.full = undefined;
             open(run).catch((e) => fail(`the video: ${e.message}`));
         }
         else if (failed && shown)
