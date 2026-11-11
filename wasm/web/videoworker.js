@@ -668,6 +668,14 @@ function lead ()
        are in. */
     if (d >= 0 && to > next + 1)
     {
+        /* With a part already in for a later frame from a worker other
+           than those missing this one, the ones behind are stragglers,
+           which STALL_MS judges; with none, this machine is behind. */
+        const missing = needed(next).filter((w) => !parts.get(next)?.has(w));
+        const ahead = missing.length > 0 &&
+                      [...parts].some(([f, got]) => f > next &&
+                                      [...got.keys()].some((w) => !missing.includes(w)));
+
         M._tv_skip_to(to);
         for (const w of helpers())
             if (w.ready)
@@ -682,7 +690,7 @@ function lead ()
         next = to;
         skipped++;
         /* Behind is another worker's to answer while one could be added. */
-        if (!settling && !scaler.canGrow(active().length) && workers.every(recent))
+        if (!settling && !scaler.canGrow(active().length) && !ahead && workers.every(recent))
             post({ type: 'dropping' });
     }
     const composing = performance.now();
