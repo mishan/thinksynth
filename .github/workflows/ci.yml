@@ -61,11 +61,12 @@ concurrency:
 jobs:
   # What a change needs built. Anything but the docs -- the Markdown, the
   # docs' pictures, TODO, AUTHORS and COPYING -- is code, and a change with
-  # none builds and tests nothing; anything outside wasm/ as well is the
-  # desktop's, and a change to the browser page alone skips the jobs that
-  # only build and test the desktop. Skipped, which a required check counts
-  # as passed. Three Markdown files are code all the same, because a build
-  # or a gate reads them: docs/NODES.md (dspnodes), gen/README.md (gencheck,
+  # none builds and tests nothing; anything outside wasm/, relay/ and the
+  # npm files at the top as well is the desktop's, and a change to the
+  # browser page or the relay alone skips the jobs that only build and test
+  # the desktop. Skipped, which a required check counts as passed. Three
+  # Markdown files are code all the same, because a build or a gate reads
+  # them: docs/NODES.md (dspnodes), gen/README.md (gencheck,
   # gencatalogcheck) and docs/SDK.md (the SDK's package). A PR is held
   # against its base and a push against the commit it moved the branch
   # from; with neither -- a dispatch, a new branch -- everything builds.
@@ -95,7 +96,7 @@ jobs:
           gated='^(docs/NODES\.md|gen/README\.md|docs/SDK\.md)$'
           built=$({ grep -vE "$docs" <<< "$files"; grep -E "$gated" <<< "$files"; } || true)
           code=$(grep -q . <<< "$built" && echo true || echo false)
-          desktop=$(grep -qvE '^wasm/|^$' <<< "$built" && echo true || echo false)
+          desktop=$(grep -qvE '^(wasm|relay)/|^package(-lock)?\.json$|^$' <<< "$built" && echo true || echo false)
           printf 'code=%s\ndesktop=%s\n' "$code" "$desktop" >> "$GITHUB_OUTPUT"
 
   linux:
@@ -571,7 +572,6 @@ jobs:
       # what drawcheck.mjs's replayer is, so it was always going to be run
       # in this job.
       - name: npm ci
-        working-directory: wasm/web
         run: npm ci
 
       # genwav is the tape every piece gate is compared against; dspedit is
@@ -657,7 +657,7 @@ jobs:
       # The site distcheck just passed, for `pages' below. Only from master:
       # a pull request's build is not what the demo should be. The room
       # page joins the relay the JAM_RELAY repository variable names
-      # (wss://..., docker/), or none.
+      # (wss://..., relay/), or none.
       - name: The demo's relay
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && vars.JAM_RELAY != ''
         env:
@@ -793,7 +793,6 @@ jobs:
       # cairo2d's replayer and drawcheck.mjs's `cairo-canvas2d' are both
       # npm packages now, not files in this tree.
       - name: npm ci
-        working-directory: wasm/web
         run: npm ci
 
       # The cairo stand-in, on its own terms: what each call records, and
@@ -806,7 +805,7 @@ jobs:
       - name: cairo2d
         run: |
           node build-web/cairo2d/cairo2dtest.js
-          node wasm/web/node_modules/cairo-canvas2d/test/replaytest.mjs \
+          node node_modules/cairo-canvas2d/test/replaytest.mjs \
               build-web/cairo2d/cairo2dtest.js
 
       # Every shipped patch, loaded and played through the module.
@@ -1007,7 +1006,6 @@ jobs:
         timeout-minutes: 10
 
       - name: npm ci
-        working-directory: wasm/web
         run: npm ci
 
       # Both engines on the chromium leg, for the page's gates below it.
@@ -1125,7 +1123,6 @@ jobs:
         timeout-minutes: 10
 
       - name: npm ci
-        working-directory: wasm/web
         run: npm ci
 
       # The mirror: the module twice in one process, one rendering and one
@@ -1149,14 +1146,14 @@ jobs:
       # presence, seats, the clock, signalling, the relayed fallback, and
       # the shared document reaching two providers.
       - name: The relay
-        working-directory: wasm/web
+        working-directory: relay
         run: node relaytest.mjs
 
       # The relay's accounts over HTTP, on a clock the script turns: keys,
       # handles, sessions, passkeys from a software authenticator, the
       # limits and the admin commands.
       - name: Accounts
-        working-directory: wasm/web
+        working-directory: relay
         run: node accountstest.mjs
 
   wasm-jam:
@@ -1199,7 +1196,6 @@ jobs:
           native: 'true'
 
       - name: npm ci
-        working-directory: wasm/web
         run: npm ci
 
       # The room's second gate: a Chromium page and a Firefox page in one
@@ -1254,7 +1250,7 @@ jobs:
       - id: deploy
         uses: actions/deploy-pages@v4
 
-  # The room relay's image (docker/relay.Dockerfile): built and joined on
+  # The room relay's image (relay/Dockerfile): built and joined on
   # every run, published to ghcr.io from master for the host to pull.
   relay:
     name: the relay's image
@@ -1271,7 +1267,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build
-        run: docker build -f docker/relay.Dockerfile -t thinksynth-relay .
+        run: docker build -f relay/Dockerfile -t thinksynth-relay .
 
       # A room joined, not just the health line: that one answers before
       # a room has been seeded from the image's gen/ and dsp/.

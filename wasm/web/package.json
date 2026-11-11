@@ -1,15 +1,12 @@
 {
   "name": "thinksynth-web-tests",
   "private": true,
-  "description": "The relay's dependencies, the tests' browsers, and what the pages' bundles are built from.",
+  "description": "The page's dependencies, the tests' browsers, and what the pages' bundles are built from.",
   "type": "module",
   "scripts": {
     "check": "node check.mjs",
     "piececheck": "node piececheck.mjs",
     "protocoltest": "node protocoltest.mjs",
-    "relaytest": "node relaytest.mjs",
-    "accountstest": "node accountstest.mjs",
-    "relay": "node relay.mjs",
     "browsertest": "node browsertest.mjs",
     "pagetest": "node pagetest.mjs",
     "sdkcheck": "node sdkcheck.mjs",
@@ -30,13 +27,11 @@
   },
   "dependencies": {
     "@simplewebauthn/browser": "^14.0.0",
-    "@simplewebauthn/server": "^14.0.3",
     "cairo-canvas2d": "^0.1.0",
     "codemirror": "^6.0.2",
     "mullion": "0.5.1",
     "ws": "^8.21.3",
     "y-codemirror.next": "^0.3.6",
-    "y-protocols": "^1.0.7",
     "y-websocket": "^3.1.0",
     "yjs": "^13.6.32"
   }

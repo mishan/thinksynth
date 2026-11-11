@@ -21,7 +21,7 @@
  * accountstest.mjs -- the relay's accounts, over HTTP as the page uses
  * them, on a clock this script turns.
  *
- *   node wasm/web/accountstest.mjs
+ *   node relay/accountstest.mjs
  *
  * Keys are eight words and read back however they were typed; handles are
  * cleaned up, and clash when they fold alike; registering, logging in,
@@ -46,7 +46,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 
-import { foldName, normalizeKey, normalizeName } from './account.js';
+import { foldName, normalizeKey, normalizeName } from '../wasm/web/account.js';
 import { AccountStore, Accounts, HANDLE_KEPT_MS, RENAME_EVERY_MS,
          SESSION_TTL_MS, accountRoutes, clientKey, forwardedAddress,
          newKey, runAdmin } from './accounts.mjs';

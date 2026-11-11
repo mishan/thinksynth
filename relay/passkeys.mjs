@@ -48,7 +48,7 @@ import { generateAuthenticationOptions, generateRegistrationOptions,
          verifyAuthenticationResponse,
          verifyRegistrationResponse } from '@simplewebauthn/server';
 
-import { foldName, isOrigin, onRpId } from './account.js';
+import { foldName, isOrigin, onRpId } from '../wasm/web/account.js';
 import { ApiError, banned, handleOf, infoOf, newKey, newSession,
          passkeyTaken, secretHash, taken } from './accounts.mjs';
 

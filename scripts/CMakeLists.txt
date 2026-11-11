@@ -703,18 +703,18 @@ endif()
 # to the stand-in; the object libraries next door are the same sources against
 # real cairomm, for the application.
 #
-# cairo-canvas2d comes from npm and lives under wasm/web/node_modules, which
+# cairo-canvas2d comes from npm and lives under node_modules, which
 # the browser build takes it out of by path. So this is built where it is
 # there and skipped where it is not, with a line saying so: a native tree is
 # not required to have run `npm ci' to build the synth, and the gate that
 # needs this binary (.github/workflows/ci.yml, wasm-pieces) runs npm ci before
 # the native build for exactly this reason.
-set(CAIRO2D_DIR "${PROJECT_SOURCE_DIR}/wasm/web/node_modules/cairo-canvas2d")
+set(CAIRO2D_DIR "${PROJECT_SOURCE_DIR}/node_modules/cairo-canvas2d")
 
 if(NOT EXISTS "${CAIRO2D_DIR}/cairo2d.cpp")
   message(STATUS
-    "scripts: no cairo-canvas2d, so no rollcheck. Run `npm ci' in "
-    "wasm/web and configure again; nothing else here needs it.")
+    "scripts: no cairo-canvas2d, so no rollcheck. Run `npm ci' at the "
+    "top and configure again; nothing else here needs it.")
 else()
   think_harness(rollcheck COMPOSERHOST
                 EXTRA "${PROJECT_SOURCE_DIR}/src/CanvasContent.cpp"

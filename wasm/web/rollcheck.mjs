@@ -96,7 +96,7 @@ if (!fs.existsSync(rollcheck))
     process.stdout.write(
         `rollcheck: no rollcheck in ${native}; build the native tree ` +
         'first -- it is the desktop half of the comparison, and it needs ' +
-        "`npm ci' in wasm/web to have been run before it was configured.\n");
+        "`npm ci' at the top to have been run before it was configured.\n");
     process.exit(1);
 }
 

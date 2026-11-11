@@ -1,0 +1,9 @@
+{
+  "name": "thinksynth",
+  "private": true,
+  "description": "The browser page and the room relay, installed together so that the modules they share load one copy of Yjs.",
+  "workspaces": [
+    "wasm/web",
+    "relay"
+  ]
+}

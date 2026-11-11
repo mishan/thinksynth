@@ -21,7 +21,7 @@
  * relaytest.mjs -- the relay, driven from Node by the clients the page
  * will be: two room sockets and two document providers in one room.
  *
- *   node wasm/web/relaytest.mjs
+ *   node relay/relaytest.mjs
  *
  * What the relay promises, each checked: a hello is answered with who is
  * here and told to the others; a seat is first-claim and released on
@@ -55,13 +55,13 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as syncProtocol from 'y-protocols/sync';
 
 import { dspNames, fileNames, hashOf, pieceName, pieceText, readFile, seenOf,
-         snapshot } from './doc.js';
+         snapshot } from '../wasm/web/doc.js';
 import { AccountStore, runAdmin } from './accounts.mjs';
 import { PROTOCOL, relay } from './relay.mjs';
-import { Room } from './room.js';
+import { Room } from '../wasm/web/room.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const tree = path.join(here, '..', '..');
+const tree = path.join(here, '..');
 
 let failures = 0;
 
