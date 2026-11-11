@@ -31,7 +31,9 @@
 #include <string.h>
 
 #include <algorithm>
+#include <functional>
 #include <map>
+#include <mutex>
 #include <set>
 
 #include <string>
@@ -159,6 +161,15 @@ nearest (const std::string &name, const std::vector<std::string> &names)
     if (best.empty())
         best = begins;
     return best.empty() ? "" : "; did you mean '" + best + "'?";
+}
+
+/* "osc/simple" as a .dsp writes it, "osc::simple". */
+std::string
+spelled (std::string plugin)
+{
+    for (size_t at; (at = plugin.find('/')) != std::string::npos;)
+        plugin.replace(at, 1, "::");
+    return plugin;
 }
 
 /* The unit is the author's, and is folded at load time by
@@ -322,8 +333,8 @@ private:
         if (error_)
             error_(at.src->line, msg);
         else
-            fprintf(stderr, "line %d: error: %s\n", at.src->line,
-                    msg.c_str());
+            fprintf(stderr, "line %d, col %d: error: %s\n", at.src->line,
+                    at.src->col, msg.c_str());
     }
 
     /* `expected X', naming what was there instead. */
@@ -476,11 +487,8 @@ Parser::checkNames (void)
         if (!said.insert(std::make_pair(at.src->off, kind)).second)
             return;
 
-        const std::string line = "line " + std::to_string(at.src->line) +
-                                 ": warning: " + msg;
-
-        tree_->addWarning(line);
-        fprintf(stderr, "%s\n", line.c_str());
+        tree_->addWarning("line " + std::to_string(at.src->line) + ", col " +
+                          std::to_string(at.src->col) + ": warning: " + msg);
     };
     const auto who = [&](const std::string &node) {
         const auto p = plugins_.find(node);
@@ -734,20 +742,20 @@ Parser::nodeStatement (void)
            the tree. */
         if (plug == NULL)
         {
+            std::vector<std::string> all =
+                synth_->getPluginManager()->available();
+
+            for (std::string &n : all)
+                n = spelled(n);
             error(plugAt, "could not load plugin '" + plugName +
-                  "' required by node '" + name + "'");
+                  "' required by node '" + name + "'" +
+                  nearest(spelled(plugName), all));
             return false;
         }
     }
 
     if (plug != NULL)
-    {
-        std::string shown = plugName;
-
-        for (size_t at; (at = shown.find('/')) != std::string::npos;)
-            shown.replace(at, 1, "::");
-        plugins_[name] = shown;
-    }
+        plugins_[name] = spelled(plugName);
 
     node_->setPlugin(plug);
     node_->setName(name);
@@ -1418,25 +1426,46 @@ parseLexed (thSynth *synth, std::vector<thLexToken> &tokens, bool lexed,
     {
         const thLexToken *bad = thLexError(tokens);
 
-        fprintf(stderr, "line %d: error: %s\n",
-                bad ? bad->line : 0,
+        fprintf(stderr, "line %d, col %d: error: %s\n",
+                bad ? bad->line : 0, bad ? bad->col : 0,
                 bad ? bad->text.c_str() : "lexical error");
 
         return 1;
     }
 
     std::string why;
-    int line = 0;
+    thLexToken bad;
 
-    if (!thExpandArrays(tokens, why, line))
+    if (!thExpandArrays(tokens, why, bad))
     {
-        fprintf(stderr, "line %d: error: %s\n", line, why.c_str());
+        fprintf(stderr, "line %d, col %d: error: %s\n", bad.line, bad.col,
+                why.c_str());
         return 1;
     }
 
-    Parser parser(synth, *treeOut, tokens);
+    std::string source;
 
-    return parser.statements() ? 0 : 1;
+    for (const thLexToken &t : tokens)
+        source += std::to_string(t.kind) + t.text + '\0';
+
+    Parser parser(synth, *treeOut, tokens);
+    const int result = parser.statements() ? 0 : 1;
+
+    /* Once a process for each patch: one is often loaded more than once
+       -- a reload, a second channel, dspcheck's five loads of each -- and
+       the same warning each time buries the one that is new. By its text,
+       since the web page names every patch it loads /patch.dsp. The tree
+       keeps them all. */
+    static std::mutex said;
+    static std::set<std::pair<size_t, std::string>> printed;
+    std::lock_guard<std::mutex> lock(said);
+    const size_t patch = std::hash<std::string>()(source);
+
+    for (const std::string &w : (*treeOut)->warnings())
+        if (printed.insert(std::make_pair(patch, w)).second)
+            fprintf(stderr, "%s\n", w.c_str());
+
+    return result;
 }
 
 } /* namespace */
@@ -1446,11 +1475,11 @@ bool thDspCheck (const std::vector<thLexToken> &tokens,
 {
     std::vector<thLexToken> expanded(tokens);
     std::string why;
-    int line = 0;
+    thLexToken bad;
 
-    if (!thExpandArrays(expanded, why, line))
+    if (!thExpandArrays(expanded, why, bad))
     {
-        error(line, why);
+        error(bad.line, why);
         return false;
     }
 
