@@ -69,6 +69,11 @@ const PART_BUFFERS = 4;
 /* Frames ahead of the next composed that a helper joins at. */
 const JOIN_AHEAD = 3;
 
+/* How many busy reports a worker gives after it takes its first channel
+   before they are of its load: one sent before the channel reached it,
+   one straddling, then one whole. */
+const SAID = 3;
+
 /* How long a helper let go may take for its channels to fade there before
    every worker is opened again without it. */
 const FORCE_MS = 10000;
@@ -150,7 +155,7 @@ async function start (m)
 
 function worker (fields)
 {
-    return { share: new Set(), fading: new Map(), from: new Map(), busy: 0,
+    return { share: new Set(), fading: new Map(), from: new Map(), busy: 0, said: 0,
              last: performance.now(),
              gap: 1000 / raster.fps, ready: false, joinAt: Infinity, leaveAt: Infinity,
              retiring: 0, silent: new Set(), drawn: 0, started: performance.now(),
@@ -237,6 +242,10 @@ function place (channel, w)
         from.silent.delete(channel);
         give(from, channel, at);
     }
+    /* An idle worker's busy says nothing of what it now draws; a channel
+       more, often a silent one, changes little. */
+    if (w.share.size === 0)
+        w.said = 0;
     w.share.add(channel);
     take(w, channel, from === undefined ? -ALWAYS : at);
 }
@@ -414,7 +423,7 @@ function fromHelper (w, m)
         break;
     case 'busy':
         w.busy = m.fraction;
-        w.sampled = true;
+        w.said++;
         w.silent = new Set(m.silent);
         w.drawn = m.drawn;
         break;
@@ -746,10 +755,12 @@ function second (now)
     const drawing = active();
     const busy = Math.max(...drawing.map((w) => w.busy));
 
-    /* Whole once every worker drawing has said, a helper's busy being 0
-       until then. */
-    post({ type: 'busy', fraction: busy, open: lastOpen.open,
-           whole: drawing.every((w) => w === self || w.sampled) });
+    /* For the page, every worker still drawing parts, retiring or
+       starting, and whole once each has said SAID times since it took its
+       first channel. */
+    self.said++;
+    post({ type: 'busy', fraction: Math.max(...workers.map((w) => w.busy)),
+           open: lastOpen.open, whole: workers.every((w) => w.said >= SAID) });
     scaler.limit = limit();
 
     /* Counted with those still starting, so one on its way isn't asked

@@ -4823,6 +4823,9 @@ try
 
         const hiccup = await v.evaluate(() => document.getElementById('videocanvas').width);
 
+        /* What the full size costs known first: until then a picture
+           behind is only told so. */
+        await v.waitForTimeout(4000);
         await response(3);
         await stall();
         await stall();
@@ -4855,6 +4858,7 @@ try
            longer wait before the next try. */
         const width = () => v.evaluate(() => document.getElementById('videocanvas').width);
 
+        await v.waitForTimeout(4000);
         await response(5);
         await stall();
         await stall();
@@ -4883,8 +4887,9 @@ try
         const kept = await v.evaluate(() =>
             document.querySelector('#videoknobs [data-knob="response"]').value);
 
-        /* A stall before the reopened worker has its first batch is not a skip. */
-        await v.waitForTimeout(500);
+        /* A stall before the reopened worker has its first batch is not a
+           skip, nor is one before the full size's cost is known again. */
+        await v.waitForTimeout(4000);
         await stall();
         await stall();
 
@@ -4901,8 +4906,9 @@ try
         /* Shrunk though the full size had room: back at 160x120 once the
            wait is out, however busy 80x60 reads. Shrunk while the full size
            was busy: kept small, unless 80x60 has room for four times its
-           pixels. The busy the worker reports at each size is set here;
-           each patch starts with the shortest wait. */
+           pixels. The busy the worker reports at each size is set here,
+           a few seconds ahead for the full size's to be known; each patch
+           starts with the shortest wait. */
         for (const [patch, full, small, up] of [['rings.dsp', 0.3, 0.3, true],
                                                 ['moire.dsp', 0.9, 0.9, false],
                                                 ['pond.dsp', 0.9, 0.05, true]])
@@ -4925,7 +4931,7 @@ try
                     removeEventListener('message', opened);
                 };
             }, [full, small]);
-            await v.waitForTimeout(1200);
+            await v.waitForTimeout(4000);
             await stall();
             await stall();
 
@@ -4940,6 +4946,17 @@ try
                   `shrunk with busy ${full} at 160x120 and ${small} at 80x60, the ` +
                   `picture ${up ? 'is back at 160x120' : 'stays at 80x60'}: ${down}, then ${after}`);
         }
+
+        /* Behind twice in a second before what the full size costs is
+           known: told, still at 160x120. */
+        await v.selectOption('#videopatch', 'wells.dsp');
+        await v.waitForTimeout(1000);
+        await stall();
+        await stall();
+        check(await width() === 160 &&
+              await v.evaluate(() => window.videoSaid.at(-1).startsWith('dropping frames')),
+              'behind twice before the full size has been measured, the picture says so ' +
+              `and stays at 160x120: ${await width()}`);
 
         /* An output a quarter of a second behind: every frame waits that
            long on the page, and there are buffers enough for all of them.

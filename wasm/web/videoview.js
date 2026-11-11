@@ -318,8 +318,9 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             sayNarrow();
         }
         /* Behind twice in a second is a machine too slow for the size,
-           not a hiccup. */
-        else if (m.type === 'dropping' && r.scale === 1 && r.dropping > 0)
+           not a hiccup -- once what the full size costs is known. */
+        else if (m.type === 'dropping' && r.scale === 1 && r.dropping > 0 &&
+                 r.full !== undefined)
         {
             r.scale = SMALLER;
             r.fullRoomy = r.full < ROOMY;
@@ -336,9 +337,10 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             say(['dropping frames: this machine cannot draw it in time', drawnBy]
                 .filter((t) => t !== '').join('; '));
         }
+        /* Only a busy of this open and every worker drawing counts. */
         else if (m.type === 'busy' && r.scale === 1)
-            r.full = m.open === opens && m.whole ? m.fraction : r.full;
-        else if (m.type === 'busy' && r.scale > 1)
+            r.full = m.open === opens && m.whole ? m.fraction : undefined;
+        else if (m.type === 'busy' && m.open === opens && m.whole)
         {
             r.roomy = r.fullRoomy || m.fraction * r.scale * r.scale < ROOMY ? r.roomy + 1 : 0;
             if (r.roomy >= r.patience)
