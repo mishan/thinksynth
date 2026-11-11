@@ -112,6 +112,11 @@ public:
 
     /* ---- audio thread ---- */
     void process(void);
+    /* With `add', laid out as getOutput() is, mixed in after the channels
+       and before the master effect, the gain and the limiter: a mix drawn
+       elsewhere, put through this synth's effect. It reaches the effect's
+       ins, not its sends. */
+    void process(const float *add);
 
     /* ---- live input ----
      *

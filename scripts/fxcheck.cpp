@@ -2262,6 +2262,60 @@ int main (int argc, char **argv)
                  num(whole));
     }
 
+    /* process(add): a mix drawn elsewhere, added before the master effect,
+       is what that effect hears of a channel playing it. Squared, so an add
+       after the effect would come out otherwise. */
+    {
+        const string fx = effect(
+            "", "node sq mixer::mul {\n"
+                "    in0 = ionode->in0;\n"
+                "    in1 = ionode->in0;\n"
+                "};\n\n"
+                "node sq1 mixer::mul {\n"
+                "    in0 = ionode->in1;\n"
+                "    in1 = ionode->in1;\n"
+                "};\n\n", "sq->out", "sq1->out");
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            Session drawn(pluginPath), whole(pluginPath), added(pluginPath);
+            vector<float> got[2];
+
+            drawn.synth.setLimiter(false);
+            whole.synth.setLimiter(false);
+            added.synth.setLimiter(false);
+            if (drawn.synth.loadTree(instFile, 0, 100) == NULL ||
+                whole.synth.loadTree(instFile, 0, 100) == NULL ||
+                whole.synth.loadMasterEffect(fxFile) == NULL ||
+                added.synth.loadMasterEffect(fxFile) == NULL)
+                fail("process(add): the graphs load", "");
+            else
+            {
+                const size_t n = thOutputSamples(drawn.synth.audioChannelCount(),
+                                                 drawn.synth.getWindowlen());
+
+                drawn.synth.addNote(0, 60, 100);
+                whole.synth.addNote(0, 60, 100);
+                for (int w = 0; w < 6; w++)
+                {
+                    drawn.synth.process();
+                    whole.synth.process();
+                    added.synth.process(drawn.synth.getOutput());
+                    got[0].insert(got[0].end(), whole.synth.getOutput(),
+                                  whole.synth.getOutput() + n);
+                    got[1].insert(got[1].end(), added.synth.getOutput(),
+                                  added.synth.getOutput() + n);
+                }
+
+                okOrFail(peak(got[0]) > 0.01 && got[0] == got[1],
+                         "process(add) is mixed in before the master effect, "
+                         "as a channel playing it is",
+                         "peak " + num(peak(got[0])) + " against " +
+                         num(peak(got[1])));
+            }
+        }
+    }
+
     remove(instFile.c_str());
     remove(fxFile.c_str());
     remove(fxFile2.c_str());

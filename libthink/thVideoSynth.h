@@ -95,6 +95,9 @@ public:
 
     /* One window. */
     bool render (const Frame &frame);
+    /* One window, with `add' mixed in before the effect: a picture drawn
+       elsewhere, laid out as the synth's output (thSynth::process). */
+    bool render (const Frame &frame, const float *add);
 
     /* Every whole window that ends at or before `audio' samples at
        `audioRate'. */
