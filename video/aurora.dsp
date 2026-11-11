@@ -65,8 +65,18 @@ node near math::clamp { in = 1 - up->out; lo = 0; hi = 1; };
 node bottom math::clamp { in = 1 + up->out * 25; lo = 0; hi = 1; };
 
 # The rays: upright streaks that lean with the ripple and slide along.
-node ray math::sin { index = s->x * 23 + w1->out * 30 + up->out * 1.5 +
-                         s->t * 0.03 * @drift; };
+# Their sine's angle is a part that doesn't change down the picture and
+# one that doesn't change along the line, so it is worked out as
+# sin(a + b) = sin a cos b + cos a sin b: the a sines once a column a
+# window, the b sines once a line, and none a pixel.
+node ra math::add { in0 = s->x * 23 + w1->out * 30 + edge->out * tall->out * 1.5;
+                    in1 = s->t * 0.03 * @drift; };
+node rb math::mul { in0 = s->y * -1.5; in1 = tall->out; };
+node sa math::sin { index = ra->out; };
+node ca math::sin { index = ra->out + 0.25; };
+node sb math::sin { index = rb->out; };
+node cb math::sin { index = rb->out + 0.25; };
+node ray math::add { in0 = sa->out * cb->out; in1 = ca->out * sb->out; };
 
 node lit math::mul {
     in0 = near->out * (0.4 + 0.6 * near->out) * bottom->out * (0.55 + 0.45 * ray->out) * env->out;
