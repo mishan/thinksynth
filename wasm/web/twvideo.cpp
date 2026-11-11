@@ -390,9 +390,10 @@ tv_open (int width, int height, int fps, int lines, int audioRate)
     /* Windows that divide a frame, so a summed frame goes through the
        stage whole, never waiting on the next for a window's end. */
     for (; video_->open("", width, height, fps, lines, said_) &&
-           (int64_t)width * height % video_->window() != 0 && lines > 1; lines--)
+           (int64_t)width * height % video_->window() != 0 &&
+           (lines = video_->window() / width - 1) > 0;)
         video_.reset(new thVideoSynth);
-    lines_ = lines;
+    lines_ = video_->window() / std::max(width, 1);
     if (audioRate < 1 || video_->width() == 0)
     {
         if (said_.empty())

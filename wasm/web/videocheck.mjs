@@ -630,7 +630,8 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
    a channel as planes, the leader sums each frame once both parts are in
    and hands it to its effect stage, and what comes out is what one module
    drawing both channels under the effect draws, within a step, frame for
-   frame. At 80x60, where 8 lines would straddle frames, as at 160x120. As
+   frame. At 80x60, where 8 lines would straddle frames, as at 160x120, and
+   at 80x60 with the lines left to tv_open. As
    drawn through, with a skip, and with what the effect hears turned at
    frame 20: its knob, or for one that reads the sound, the sound. */
 {
@@ -657,9 +658,11 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
         const frames = [];
         const bytes = (planes ? 12 : 4) * w * h;
 
-        for (let calls = 0; calls < 1000; calls++)
+        /* A window at a time, so no call finishes more frames than tv_done
+           holds; a frame takes at most `h' windows. */
+        for (let calls = 0, idle = 0; calls < 10000 && idle < h; calls++)
         {
-            const n = M._tv_render(due, h);
+            const n = M._tv_render(due, 1);
 
             for (let i = 0; i < n; i++)
             {
@@ -668,20 +671,19 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
                 frames.push({ frame: M._tv_done_frame(i), data: M.HEAPU8.slice(at, at + bytes) });
             }
             M._tv_done_clear();
-            if (n === 0)
-                break;
+            idle = n === 0 ? idle + 1 : 0;
         }
         return frames;
     };
     /* `channels' this module draws, under `fx' ([name, text]) on the
        module itself or (`staged') on its stage. To frame 10, then on to 60,
        skipping to 30 if `skips'; `step' draws. */
-    const play = (w, h, channels, fx, staged, turn, skips, step) =>
+    const play = (w, h, lines, channels, fx, staged, turn, skips, step) =>
     {
         const [name, text] = fx ?? [];
 
         call('tv_open', 'string', ['number', 'number', 'number', 'number', 'number'],
-             [w, h, FPS, LINES, RATE]);
+             [w, h, FPS, lines, RATE]);
         for (const ch of channels)
             follow(ch, 'rings.dsp', rings);
         if (fx && !staged)
@@ -701,7 +703,7 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
     };
 
     for (const [fx, text, turn] of fxs)
-        for (const [w, h] of [[W, H], [W / 2, H / 2]])
+        for (const [w, h, lines] of [[W, H, LINES], [W / 2, H / 2, LINES], [W / 2, H / 2, 0]])
             for (const variant of ['drawn through', 'skipping', 'turned'])
             {
                 const skips = variant === 'skipping';
@@ -713,12 +715,12 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
 
                 M = whole;
                 M._tv_planes(0);
-                play(w, h, [0, 1], [fx, text], false, turned, skips,
+                play(w, h, lines, [0, 1], [fx, text], false, turned, skips,
                      (due) => expected.push(...drain(due, w, h, false)));
 
                 M = helper;
                 M._tv_planes(1);
-                play(w, h, [1], null, false, turned, skips, (due) =>
+                play(w, h, lines, [1], null, false, turned, skips, (due) =>
                 {
                     if (due >= 0)
                         M._tv_skip_to(due);
@@ -728,7 +730,7 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
 
                 M = leader;
                 M._tv_planes(1);
-                play(w, h, [0], [fx, text], true, turned, skips, (due) =>
+                play(w, h, lines, [0], [fx, text], true, turned, skips, (due) =>
                 {
                     if (due >= 0)
                         M._tv_skip_to(due);
@@ -772,7 +774,7 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
                                       `${f.data[i]} whole`;
                 }
 
-                check(`${fx} over two modules' halves at ${w}x${h}, ${variant}, draws ` +
+                check(`${fx} over two modules' halves at ${w}x${h}, ${lines || 'automatic'} lines, ${variant}, draws ` +
                       'what one module draws',
                       why === '' && expected.length > 20 &&
                       expected.some((f) => peak({ rgba: f.data }) > 32),
