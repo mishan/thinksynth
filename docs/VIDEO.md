@@ -184,6 +184,19 @@ small has taken under an eighth of the worker's time for 4 s running,
 which means that at full size it would take under half. Each time 160x120
 falls behind again, the wait before the next try doubles, up to 30 s.
 
+Where the machine has the cores, the worker draws nothing itself: it
+leads helpers, one a core past the page's and the audio's, two at least,
+no more than the channels the picture follows, and deals each some of the
+channels. Each draws its channels' voices; the worker sums their frames
+and paints the sum, and decides every skip for all of them, so a frame is
+never drawn from two moments. The pane says how many workers draw it.
+A picture with an effect, or one channel, is drawn by the worker alone,
+as is any picture on a machine with fewer than four cores. A helper that
+stops handing frames back is given up on, and the picture goes on with
+the others. `?helpers=N` on the page's address sets how many, 0 for
+none. Summed across workers, a frame can differ from genwav's by a
+rounding step in a pixel; drawn by one worker it matches.
+
 The video runs only while its pane is in front and the tab is shown. When
 the pane comes back, the video starts again from the present, with any
 notes already held.

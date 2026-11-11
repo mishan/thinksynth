@@ -30,6 +30,13 @@
  *
  * Every frame number on the way in is the audio context's (its time times
  * its rate); the video's own frames count from the first batch.
+ *
+ * Where the cores allow, it leads helpers (videopart.js) rather than
+ * drawing: each follows some of the channels, sent every batch stamped
+ * from this worker's start, and hands back float planes; this sums each
+ * frame's parts in helper order, turns them to RGBA and decides every
+ * skip, the same for all. A picture with an effect, or one channel, or a
+ * machine with too few cores, is drawn here alone, as it always was.
  */
 
 import createThinkWeb from './thinkweb.js';
@@ -65,11 +72,25 @@ let settling = false;   /* catching up to now after an open */
 let knobs = [];         /* their values as last set */
 let worklet = null;     /* the worklet's port */
 
+/* Helpers: one a core past the page's and the audio's, two at least or
+   none, no more than the channels, and none for a picture with an effect.
+   `cap' is how many a machine has shown it can run; `override' the
+   page's. A helper that hands nothing back for STALL_MS longer than
+   another is given up on. */
+const MOST_HELPERS = 8, STALL_MS = 250;
+
+/* Frames a helper has out with this worker at most: videopart.js's MOST. */
+const PART_BUFFERS = 4;
+let module = null, helpers = [], epoch = 0, cap = MOST_HELPERS, override = null;
+let lastOpen = null, next = 0, lastAt = 0, narrowSaid = false;
+const parts = new Map();    /* frame -> each helper's planes */
+
 const post = (m, transfer) => postMessage(m, transfer ?? []);
 
 /* The module the page compiled, instantiated here. */
-async function start ({ module })
+async function start (m)
 {
+    module = m.module;
     try
     {
         M = await createThinkWeb({
@@ -109,6 +130,9 @@ function follow (channel)
 
 function open (m)
 {
+    lastOpen = m;
+    override = m.helpers ?? override;
+    stopHelpers();
     raster = { width: m.width, height: m.height, fps: m.fps, lines: m.lines,
                rate: m.rate };
     most = m.pool;
@@ -144,15 +168,137 @@ function open (m)
     const was = following;
 
     following = new Set();
-    for (const ch of was)
-        follow(ch);
+    if (wanted(was.size) >= 2)
+        startHelpers(wanted(was.size), [...was]);
+    else
+        for (const ch of was)
+            follow(ch);
+    post({ type: 'workers', count: Math.max(1, helpers.length) });
 
     /* Opened with nothing held: what is down already, after this. */
     worklet?.postMessage({ type: 'resend' });
 }
 
+/* How many helpers `channels' followed would have. */
+function wanted (channels)
+{
+    const cores = override ?? (navigator.hardwareConcurrency ?? 2) - 2;
+    const n = Math.min(cores, cap, channels, MOST_HELPERS);
+
+    return effect !== null || n < 2 ? 0 : n;
+}
+
+function stopHelpers ()
+{
+    for (const h of helpers)
+        h.worker.terminate();
+    helpers = [];
+    parts.clear();
+    next = 0;
+    epoch++;
+}
+
+/* `n' helpers, `list' dealt among them, each to the one with fewest. */
+function startHelpers (n, list)
+{
+    for (let k = 0; k < n; k++)
+    {
+        const worker = new Worker(new URL('videopart.js', import.meta.url), { type: 'module' });
+        const h = { worker, share: new Set(), busy: 0, last: 0, ready: false };
+
+        worker.onmessage = (e) => fromHelper(h, e.data);
+        worker.onerror = () => lose(h);
+        helpers.push(h);
+    }
+    for (const ch of list)
+        deal(ch);
+    for (const h of helpers)
+    {
+        h.worker.postMessage({ type: 'start', module });
+        h.worker.postMessage({ type: 'open', width: raster.width, height: raster.height,
+                               fps: raster.fps, lines: raster.lines, rate: raster.rate,
+                               patch, share: [...h.share], epoch });
+    }
+    for (const ch of list)
+        following.add(ch);
+}
+
+function deal (channel)
+{
+    const h = helpers.reduce((a, b) => (b.share.size < a.share.size ? b : a));
+
+    h.share.add(channel);
+}
+
+/* A helper given up on: every worker opened again, one helper fewer. */
+function lose (h)
+{
+    if (!helpers.includes(h))
+        return;
+    cap = helpers.length - 1;
+    open(lastOpen);
+}
+
+function fromHelper (h, m)
+{
+    if (!helpers.includes(h))
+        return;
+    switch (m.type)
+    {
+    case 'ready':
+        h.ready = true;
+        h.last = performance.now();
+        break;
+    case 'part':
+        if (m.epoch !== epoch)
+            return;
+        h.last = performance.now();
+        if (m.frame < next)
+        {
+            h.worker.postMessage({ type: 'back', epoch, buffer: m.buffer }, [m.buffer]);
+            return;
+        }
+        if (!parts.has(m.frame))
+            parts.set(m.frame, new Array(helpers.length).fill(null));
+        parts.get(m.frame)[helpers.indexOf(h)] = m.buffer;
+        soon();
+        break;
+    case 'busy':
+        h.busy = m.fraction;
+        break;
+    case 'narrow':
+        if (!narrowSaid)
+            post({ type: 'narrow', text: m.text });
+        narrowSaid = true;
+        break;
+    case 'failed':
+        lose(h);
+        break;
+    }
+}
+
 function channels (list)
 {
+    if (raster !== null && wanted(list.length) !== helpers.length)
+    {
+        following = new Set(list);
+        open(lastOpen);
+        return;
+    }
+    if (helpers.length > 0)
+    {
+        for (const h of helpers)
+            for (const ch of h.share)
+                if (!list.includes(ch))
+                    h.share.delete(ch);
+        for (const ch of list)
+            if (!helpers.some((h) => h.share.has(ch)))
+                deal(ch);
+        for (const h of helpers)
+            h.worker.postMessage({ type: 'share', list: [...h.share] });
+        following = new Set(list);
+        return;
+    }
     for (const ch of following)
         if (!list.includes(ch))
         {
@@ -176,6 +322,26 @@ function batch ({ frame, notes, inputs, knobs: values })
     origin ??= frame;
 
     const count = notes.length / RECORD;
+
+    lastAt = frame - origin;
+    if (helpers.length > 0)
+    {
+        for (let i = 0; i < count; i++)
+            notes[i * RECORD] -= origin;
+
+        const turned = [];
+
+        knobNames.forEach((name, k) =>
+        {
+            if (values[k] !== knobs[k])
+                turned.push([`knob_${name}`, values[k]]);
+        });
+        knobs = [...values];
+        for (const h of helpers)
+            h.worker.postMessage({ type: 'batch', at: lastAt, notes, inputs, knobs: turned });
+        soon();
+        return;
+    }
 
     if (count > 0)
     {
@@ -242,11 +408,127 @@ function hand (count)
     M._tv_done_clear();
 }
 
+/* RGBA at `at' in the module, frame `frame', to the page, if it has a
+   buffer to spare. */
+function show (frame, at)
+{
+    const bytes = 4 * raster.width * raster.height;
+
+    if (pool.length + most - made <= 0)
+        return;
+
+    let buffer = pool.pop();
+
+    if (buffer === undefined)
+    {
+        buffer = new ArrayBuffer(bytes);
+        made++;
+    }
+    new Uint8Array(buffer).set(M.HEAPU8.subarray(at, at + bytes));
+    post({ type: 'frame', at: origin + frame * raster.rate / raster.fps, buffer }, [buffer]);
+}
+
+/* The frame's parts summed in helper order, turned to RGBA, and shown;
+   each part's buffer back to its helper. */
+function compose (frame)
+{
+    const pixels = 3 * raster.width * raster.height;
+    const into = M._tv_plane_buffer() / 4;
+    const sum = M.HEAPF32.subarray(into, into + pixels);
+    const got = parts.get(frame);
+
+    got.forEach((buffer, k) =>
+    {
+        const p = new Float32Array(buffer);
+
+        if (k === 0)
+            sum.set(p);
+        else
+            for (let i = 0; i < pixels; i++)
+                sum[i] += p[i];
+        helpers[k].worker.postMessage({ type: 'back', epoch, buffer }, [buffer]);
+    });
+    parts.delete(frame);
+    show(frame, M._tv_rgba());
+}
+
+const complete = (frame) => parts.get(frame)?.every((b) => b !== null) ?? false;
+
+/* Led: each frame once all its parts are in, and a skip, the same for
+   every helper, when the picture has fallen more than a frame behind. */
+function lead ()
+{
+    const began = performance.now();
+    const reachable = Math.floor(lastAt * raster.fps / raster.rate);
+    const d = due();
+    const to = d < reachable ? d : reachable;
+
+    /* How long a helper has been quiet longer than the one heard from
+       last. Waiting for audio, a slow machine or this worker held up quiet
+       every helper alike; one quiet alone has stalled, which STALL_MS
+       judges. Until then the page isn't told frames are dropping, which
+       would shrink a picture this machine can draw. */
+    const heard = (h) =>
+    {
+        const k = helpers.indexOf(h);
+        let held = 0;
+
+        for (const got of parts.values())
+            held += got[k] !== null ? 1 : 0;
+
+        /* One whose buffers are all here waits on this worker, not
+           quiet: it draws only with two free (videopart.js). */
+        return held > PART_BUFFERS - 2 ? began : h.last;
+    };
+    const newest = Math.max(...helpers.map(heard));
+    const quiet = (h) => (h.ready ? newest - heard(h) : 0);
+    const recent = (h) => quiet(h) <= 3000 / raster.fps;
+
+    if (d >= 0 && to > next + 1 && !complete(next))
+    {
+        for (const h of helpers)
+            h.worker.postMessage({ type: 'skip', frame: to });
+        for (const [frame, got] of parts)
+            if (frame < to)
+            {
+                got.forEach((buffer, k) =>
+                {
+                    if (buffer !== null)
+                        helpers[k].worker.postMessage({ type: 'back', epoch, buffer }, [buffer]);
+                });
+                parts.delete(frame);
+            }
+        next = to;
+        if (!settling && helpers.every(recent))
+            post({ type: 'dropping' });
+    }
+    while (complete(next))
+        compose(next++);
+    if (next >= reachable)
+        settling = false;
+
+    const now = performance.now();
+    const late = helpers.find((h) => quiet(h) > STALL_MS);
+
+    if (now - since >= 1000)
+    {
+        post({ type: 'busy', fraction: Math.max(...helpers.map((h) => h.busy)) });
+        since = now;
+    }
+    if (late !== undefined)
+        lose(late);
+}
+
 function draw ()
 {
     pending = false;
     if (raster === null || origin === null)
         return;
+    if (helpers.length > 0)
+    {
+        lead();
+        return;
+    }
 
     const began = performance.now();
     const perFrame = Math.ceil(raster.height / raster.lines);
@@ -326,7 +608,12 @@ function receive (m)
         knobNames = m.names;
         break;
     case 'set':
-        M.ccall('tv_set', null, ['string', 'number'], [m.name, m.value]);
+        /* Led, at the audio reached, so every helper sets it on one line. */
+        if (helpers.length > 0)
+            for (const h of helpers)
+                h.worker.postMessage({ type: 'set', name: m.name, value: m.value, at: lastAt });
+        else
+            M.ccall('tv_set', null, ['string', 'number'], [m.name, m.value]);
         break;
     case 'clock':
         clock = { offset: m.offset, timeOrigin: m.timeOrigin, rate: m.rate };
