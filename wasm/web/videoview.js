@@ -67,9 +67,14 @@ const SMALLER = 2;
 /* The full size is tried again once the small one has, for this many
    seconds running (doubled for each try that fell behind, up to the
    most), dropped no frame and been busy little enough that the full
-   size's SMALLER^2 pixels would fill under ROOMY of the worker's time. */
+   size's SMALLER^2 pixels would fill under ROOMY of the worker's time.
+   SMALLER^2 times the small size's busy fraction overstates the full
+   size's cost, though, so a picture made small by a passing load might
+   never pass it: the full size is tried anyway after RETRY times as long
+   without a dropped frame. */
 const PATIENCE_S = 4, MOST_PATIENCE_S = 30;
 const ROOMY = 0.5;
+const RETRY = 4;
 
 /* A video .dsp's knobs: each `@name' it gives a widget, with the value,
    range, step and label the text declares. */
@@ -335,17 +340,20 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
                 r.late = 0;
                 r.patience = Math.min(r.patience * 2 || PATIENCE_S, MOST_PATIENCE_S);
                 r.roomy = 0;
+                r.calm = 0;
                 open(r, true).catch((e) => fail(`the video: ${e.message}`));
             }
         }
         else if (m.type === 'busy')
         {
+            r.calm = r.dropped ? 0 : r.calm + 1;
             r.dropped = false;
             r.roomy = m.fraction * r.scale * r.scale < ROOMY ? r.roomy + 1 : 0;
-            if (r.roomy >= r.patience)
+            if (r.roomy >= r.patience || r.calm >= r.patience * RETRY)
             {
                 r.scale = 1;
                 r.roomy = 0;
+                r.calm = 0;
                 open(r, true).catch((e) => fail(`the video: ${e.message}`));
             }
         }
@@ -385,7 +393,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
 
         const r = { worker, clock: new AudioClock(ctx.sampleRate), frames: [], raf: 0,
                     timer: 0, last: performance.now(), dropping: 0, scale: 1,
-                    patience: 0, roomy: 0, late: 0, dropped: false };
+                    patience: 0, roomy: 0, calm: 0, late: 0, dropped: false };
         const { port1, port2 } = new MessageChannel();
         const tick = () =>
         {
