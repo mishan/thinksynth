@@ -326,10 +326,10 @@ for (const [what, read, turn] of [
 
     check(`${what} lands at its time, however early its batch arrives`,
           early.length === 40 && late.length === 40 && differs < 0 &&
-          pixel(early[19], 0, 0, 0) === 51 && pixel(early[21], 0, 0, 0) === 204,
+          pixel(early[19], 0, 0, 0) === 51 && pixel(early[20], 0, 0, 0) === 204,
           `${early.length} and ${late.length} frames; frame ${differs} differs; ` +
-          `frames 19 and 21 at ${early[19] && pixel(early[19], 0, 0, 0)}, ` +
-          `${early[21] && pixel(early[21], 0, 0, 0)}`);
+          `frames 19 and 20 at ${early[19] && pixel(early[19], 0, 0, 0)}, ` +
+          `${early[20] && pixel(early[20], 0, 0, 0)}`);
 }
 
 /* A note struck half way through frame 10. */
