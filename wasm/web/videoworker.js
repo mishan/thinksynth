@@ -35,14 +35,14 @@
  * helpers (videopart.js) once it falls behind, one a core past the page's
  * and the audio's at most and no more than the channels. Each draws some
  * of the channels as float planes, sent every batch stamped from this
- * worker's start; this sums each frame's parts in order, turns them to
- * RGBA and decides every skip, the same for all. A channel moves between
+ * worker's start; this sums each frame's parts in order, puts the sum
+ * through the effect if there is one (tv_stage) or else turns it to RGBA,
+ * and decides every skip, the same for all. A channel moves between
  * workers at a moment: the one it leaves keeps the notes struck before,
  * release and all, until they have faded, and the one it goes to takes
  * those struck from then on (tv_window), so a move cuts nothing. A helper
  * let go leaves once its channels have faded there, or after FORCE_MS by
- * opening every worker again. A picture with an effect is drawn here
- * alone.
+ * opening every worker again.
  */
 
 import createThinkWeb from './thinkweb.js';
@@ -164,9 +164,6 @@ const active = () => workers.filter((w) => w.ready && w.joinAt !== Infinity && !
    audio's, the channels, and how many this machine has shown it can run. */
 function limit ()
 {
-    if (effect !== null)
-        return 1;
-
     const cores = (navigator.hardwareConcurrency ?? 2) - 1;
 
     return Math.max(1, Math.min(cores, following.size, MOST_HELPERS + 1, cap));
@@ -297,7 +294,7 @@ function open (m, again = false, count = 1)
 
     if (effect !== null)
     {
-        const fxWhy = M.ccall('tv_effect', 'string', ['string', 'string'],
+        const fxWhy = M.ccall('tv_stage', 'string', ['string', 'string'],
                               [effect.name, effect.text]);
 
         if (fxWhy !== '')
@@ -561,8 +558,8 @@ const complete = (frame) =>
     return got !== undefined && needed(frame).every((w) => got.has(w));
 };
 
-/* The frame's parts summed in order, turned to RGBA, and shown; each
-   part's buffer back to its worker. */
+/* The frame's parts summed in order, through the effect if there is one,
+   and shown; each part's buffer back to its worker. */
 function compose (frame)
 {
     const pixels = 3 * raster.width * raster.height;
@@ -585,7 +582,14 @@ function compose (frame)
     for (const [w, buffer] of got)
         giveBack(w, buffer);
     parts.delete(frame);
-    show(frame, M._tv_rgba());
+    if (effect === null)
+    {
+        show(frame, M._tv_rgba());
+        return;
+    }
+    for (let i = 0, n = M._tv_stage_frame(frame); i < n; i++)
+        show(M._tv_stage_done_frame(i), M._tv_stage_rgba(i));
+    M._tv_stage_clear();
 }
 
 /* This worker's own share, drawn while it has buffers to put it in. */

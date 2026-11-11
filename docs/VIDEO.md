@@ -197,9 +197,11 @@ moment: the notes struck before stay with the one it leaves, release and
 all, and the one it goes to takes those struck after, so nothing is cut;
 during the hand-over each side has its own two voices. A helper that
 stops handing frames back is given up on, and the picture goes on with
-the others. The pane says how many workers draw it. A picture with an
-effect is drawn by the worker alone. `?helpers=N` on the page's address
-keeps it to N helpers, 0 for none. Summed across workers, a frame can
+the others. The pane says how many workers draw it. An effect runs once,
+on the summed frame, in the worker; on the page a window divides the
+frame (6 lines at 80x60, not 8), so a frame goes through it whole. A
+helper's sends don't reach it, and no shipped patch or effect sends.
+`?helpers=N` on the page's address keeps it to N helpers, 0 for none. Summed across workers, a frame can
 differ from genwav's by a rounding step in a pixel; drawn by one worker it
 matches.
 

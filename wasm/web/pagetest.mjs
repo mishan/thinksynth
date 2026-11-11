@@ -4941,7 +4941,8 @@ try
        helpers (videopart.js), three workers with itself, in both browsers,
        since the helpers are workers a worker starts: the line says so and
        the picture lights. One helper closed mid-piece: two workers draw
-       on. And told to lead none, it never does. */
+       on. And told to lead none, it never does. All again under feedback,
+       which runs once on the summed picture. */
     const fox = await firefox.launch({ firefoxUserPrefs: {
         'media.autoplay.default': 0, 'media.autoplay.blocking_policy': 0 } });
 
@@ -4953,8 +4954,10 @@ try
                worker's picture, not some of it. */
             const bright = {};
 
-            for (const helpers of [2, 0])
+            for (const [fx, helpers] of [['', 2], ['', 0],
+                                         ['fx/feedback.dsp', 2], ['fx/feedback.dsp', 0]])
             {
+                const under = `${name}${fx && ' under feedback'}`;
                 const wide = await engine.newContext({ viewport: { width: 1600, height: 900 } });
                 const v = await wide.newPage();
                 const said = [];
@@ -4981,6 +4984,7 @@ try
                 await v.click('#loadpiece');
                 await v.evaluate(() => window.solo.settled());
                 await v.evaluate(() => window.solo.pane('present', 'videoview'));
+                await v.selectOption('#videofx', fx);
                 await v.click('#play');
 
                 const light = () => v.evaluate(() =>
@@ -4993,48 +4997,51 @@ try
                         sum += d[i] + d[i + 1] + d[i + 2];
                     return sum / (d.length / 4);
                 });
+                /* The brightest moment, and the brightest in the last second:
+                   a picture that froze dark keeps the first, not the second. */
                 const watch = async (ms) =>
                 {
-                    let most = 0;
+                    const seen = [];
 
                     for (let t = 0; t < ms; t += 250)
                     {
                         await v.waitForTimeout(250);
                         said.push(await v.textContent('#videostatus'));
-                        most = Math.max(most, await light());
+                        seen.push(await light());
                     }
-                    return most;
+                    return [Math.max(...seen), Math.max(...seen.slice(-4))];
                 };
                 const parts = () => v.workers().filter((w) => w.url().endsWith('videopart.js'));
-                const lit = await watch(4000);
+                const [lit, late] = await watch(4000);
                 const drawn = said.some((t) => t.includes('drawn by 3 workers'));
 
-                bright[helpers] = lit;
+                bright[fx + helpers] = lit;
 
                 if (helpers === 0)
                 {
-                    check(lit > 20 && !drawn && parts().length === 0 &&
-                          Math.abs(bright[2] - lit) < 0.15 * lit,
-                          `${name}: told to lead no helpers, the video worker draws belfry ` +
+                    check(lit > 20 && late > 20 && !drawn && parts().length === 0 &&
+                          Math.abs(bright[fx + 2] - lit) < 0.15 * lit,
+                          `${under}: told to lead no helpers, the video worker draws belfry ` +
                           `alone, as bright as two helpers drew it: light ${lit} against ` +
-                          `${bright[2]}, ${parts().length} helpers`);
+                          `${bright[fx + 2]}, ${late} at the end, ${parts().length} helpers`);
                     await wide.close();
                     continue;
                 }
-                check(lit > 20 && drawn && parts().length === 2,
-                      `${name}: belfry drawn by three workers, and the line says so: light ${lit}, ` +
-                      `${parts().length} helpers, said ${[...new Set(said)].join(' | ')}`);
+                check(lit > 20 && late > 20 && drawn && parts().length === 2,
+                      `${under}: belfry drawn by three workers, and the line says so: ` +
+                      `light ${lit}, ${late} at the end, ${parts().length} helpers, ` +
+                      `said ${[...new Set(said)].join(' | ')}`);
 
                 /* Firefox says so as the worker goes, which is the point. */
                 await parts()[0]?.evaluate(() => close()).catch(() => {});
                 said.length = 0;
 
-                const after = await watch(3000);
+                const [, after] = await watch(3000);
 
                 /* At whatever size this machine draws it with two. */
                 check(after > 20 && parts().length === 1 &&
                       said.at(-1).includes('drawn by 2 workers'),
-                      `${name}: a helper closed mid-piece, the picture goes on drawn by two: ` +
+                      `${under}: a helper closed mid-piece, the picture goes on drawn by two: ` +
                       `light ${after}, ${parts().length} helpers, ` +
                       `said ${[...new Set(said)].join(' | ')}`);
                 await wide.close();
