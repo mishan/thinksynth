@@ -36,6 +36,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <algorithm>
 #include <deque>
@@ -89,6 +90,11 @@ std::deque<std::pair<int64_t, std::vector<uint8_t> > > done_;
 std::string said_;
 std::vector<double> noteBuffer_;
 bool interpret_ = false;
+/* tv_planes: finished frames as float planes, for a leader to sum. */
+bool planes_ = false;
+/* tv_rgba's: a frame's planes in, its RGBA out. */
+std::vector<float> planeBuffer_;
+std::vector<uint8_t> rgbaBuffer_;
 float inputBuffer_[4 + TH_MIDI_CHANNELS];
 
 uint8_t
@@ -101,17 +107,9 @@ byte (float v)
     return (uint8_t)lrintf(v * 255);
 }
 
-bool
-keep (int64_t frame, const float *r, const float *g, const float *b)
+void
+toRgba (size_t pixels, const float *r, const float *g, const float *b, uint8_t *out)
 {
-    const size_t pixels = (size_t)video_->width() * video_->height();
-
-    if (done_.size() == DONE_MOST)
-        done_.pop_front();
-    done_.emplace_back(frame, std::vector<uint8_t>(4 * pixels));
-
-    uint8_t *out = done_.back().second.data();
-
     for (size_t i = 0; i < pixels; i++)
     {
         out[4 * i] = byte(r[i]);
@@ -119,6 +117,28 @@ keep (int64_t frame, const float *r, const float *g, const float *b)
         out[4 * i + 2] = byte(b[i]);
         out[4 * i + 3] = 255;
     }
+}
+
+bool
+keep (int64_t frame, const float *r, const float *g, const float *b)
+{
+    const size_t pixels = (size_t)video_->width() * video_->height();
+    const size_t plane = pixels * sizeof(float);
+
+    if (done_.size() == DONE_MOST)
+        done_.pop_front();
+    done_.emplace_back(frame, std::vector<uint8_t>(planes_ ? 3 * plane : 4 * pixels));
+
+    uint8_t *out = done_.back().second.data();
+
+    if (planes_)
+    {
+        memcpy(out, r, plane);
+        memcpy(out + plane, g, plane);
+        memcpy(out + 2 * plane, b, plane);
+    }
+    else
+        toRgba(pixels, r, g, b, out);
     return true;
 }
 
@@ -419,6 +439,50 @@ tv_done_frame (int i)
     return (double)done_[i].first;
 }
 
+/* Finished frames from now as float planes, R, G then B, unclamped,
+   through tv_done_rgba, for a leader to sum; 0 for RGBA again. */
+EMSCRIPTEN_KEEPALIVE void
+tv_planes (int on)
+{
+    planes_ = on != 0;
+}
+
+/* Where tv_rgba reads a frame's planes from. */
+EMSCRIPTEN_KEEPALIVE float *
+tv_plane_buffer (void)
+{
+    if (video_ == NULL)
+        return NULL;
+    planeBuffer_.resize(3 * (size_t)video_->width() * video_->height());
+    return planeBuffer_.data();
+}
+
+/* tv_plane_buffer's planes as RGBA, as a finished frame is. */
+EMSCRIPTEN_KEEPALIVE const uint8_t *
+tv_rgba (void)
+{
+    if (video_ == NULL)
+        return NULL;
+
+    const size_t pixels = (size_t)video_->width() * video_->height();
+
+    planeBuffer_.resize(3 * pixels);
+    rgbaBuffer_.resize(4 * pixels);
+    toRgba(pixels, planeBuffer_.data(), planeBuffer_.data() + pixels,
+           planeBuffer_.data() + 2 * pixels, rgbaBuffer_.data());
+    return rgbaBuffer_.data();
+}
+
+/* Straight to frame `frame', when told: a helper the leader keeps in step
+   with the others, which tv_render with no frame due never skips. */
+EMSCRIPTEN_KEEPALIVE void
+tv_skip_to (double frame)
+{
+    if (video_ != NULL && (int64_t)frame > video_->frames())
+        skipTo((int64_t)frame);
+}
+
+/* The i-th finished frame: RGBA, or with tv_planes its float planes. */
 EMSCRIPTEN_KEEPALIVE const uint8_t *
 tv_done_rgba (int i)
 {
