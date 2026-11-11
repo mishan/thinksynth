@@ -5,7 +5,7 @@
 #
 # The ripple goes on after the note ends, until it has faded, unless ten
 # newer notes on the channel are sounding: then the oldest is let go. `Speed' is
-# how fast it spreads. `@in_level', the music's loudness, brightens it,
+# how fast it spreads. `@in_level_slow', the music's loudness, brightens it,
 # scaled by `Response'.
 
 name "Pond";
@@ -13,7 +13,7 @@ author "Misha Nasledov";
 description "A ripple per note, dropped where its pitch chooses, spreading and crossing.";
 category "Video";
 
-    @in_level = 0;
+    @in_level_slow = 0;
 
     @speed = 1;
     @speed.widget = 1;
@@ -69,10 +69,10 @@ node w2 math::mul { in0 = 0.03 + 0.15 * radius->out; in1 = 0.03 + 0.15 * radius-
 node packet math::div { in0 = w2->out; in1 = w2->out + off->out * off->out; };
 
 # Fainter as it spreads, and gone when the drop's time is up.
-node loud filt::svf { in = @in_level * @response; cutoff = 4; res = 0; };
+node loud math::clamp { in = @in_level_slow * @response; lo = 0; hi = 1; };
 node lit math::mul {
     in0 = wave->out * packet->out * packet->out * life->out / (1 + radius->out * 6);
-    in1 = 0.6 + loud->out_low;
+    in1 = 0.6 + loud->out;
 };
 
 node r math::mul { in0 = lit->out; in1 = 0.45; };

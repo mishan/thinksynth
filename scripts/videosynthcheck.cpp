@@ -33,6 +33,11 @@
  *
  * The voices: five notes held on a patch that draws 1 a voice. It draws
  * two, a video channel's limit, and five where its io says poly = 5.
+ *
+ * The slow inputs: a synth's first level, 0.5, is @in_level_slow at
+ * once. Struck to 1, it climbs a window at a time, in a frame neither
+ * still at 0.5 nor there yet, never falling, and there within a second;
+ * after a skip, it is where the sound is.
  */
 
 #include "config.h"
@@ -44,6 +49,7 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "think.h"
 #include "thSynth.h"
@@ -252,6 +258,84 @@ checkVoices (const string &plugins)
     }
 }
 
+static void
+checkSlow (const string &plugins)
+{
+    const int W = 8, H = 4, FPS = 10;
+    const string name = "@in_level_slow climbs to a level struck at once, a window at a time";
+    thVideoSynth video;
+    string why;
+
+    if (!video.open(plugins, W, H, FPS, 1, why) ||
+        !video.followText(0, "slow", "@in_level_slow = 0;"
+                          " node ionode { channels = 3; play = 1;"
+                          " out0 = @in_level_slow; out1 = 0; out2 = 0; };"
+                          " io ionode;", why))
+    {
+        report(name, why);
+        return;
+    }
+    video.noteOn(0, 60, MIDIVALMAX, 1, NULL);
+
+    thVideoInputs in;
+    float took = -1;
+    const auto one = [&](int64_t, const float *r, const float *, const float *)
+    {
+        took = r[0];
+        return true;
+    };
+
+    in.level = 0.5f;
+    video.setInputs(in);
+    for (int k = 0; k < H; k++)
+        video.render(one);
+    report("a synth's first level is @in_level_slow at once",
+           took == 0.5f ? "" : "it is " + std::to_string(took));
+    in.level = 1;
+    video.setInputs(in);
+
+    std::vector<float> seen;
+    const auto keep = [&](int64_t, const float *r, const float *, const float *)
+    {
+        for (int y = 0; y < H; y++)
+            seen.push_back(r[y * W]);
+        return true;
+    };
+
+    for (int k = 0; k < H * FPS; k++)
+        video.render(keep);
+
+    char said[200] = "";
+
+    if (seen.size() != (size_t)H * FPS)
+        snprintf(said, sizeof(said), "%zu windows drawn, not %d", seen.size(), H * FPS);
+    else if (!(seen[0] > 0.5f && seen[H - 1] < 0.97f && seen[0] < seen[H - 1]))
+        snprintf(said, sizeof(said), "the first frame runs %g to %g", seen[0], seen[H - 1]);
+    else if (seen.back() < 0.99f)
+        snprintf(said, sizeof(said), "a second on, it is %g", seen.back());
+    for (size_t i = 1; i < seen.size() && !said[0]; i++)
+        if (seen[i] < seen[i - 1])
+            snprintf(said, sizeof(said), "window %zu falls to %g from %g", i, seen[i],
+                     seen[i - 1]);
+    report(name, said);
+
+    in.level = 0.25f;
+    video.setInputs(in);
+    video.skipTo(video.frames() + 2);
+
+    float after = -1;
+    const auto first = [&](int64_t, const float *r, const float *, const float *)
+    {
+        after = r[0];
+        return true;
+    };
+
+    for (int k = 0; k < H; k++)
+        video.render(first);
+    report("after a skip, @in_level_slow is where the sound is",
+           after == 0.25f ? "" : "it is " + std::to_string(after));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -265,6 +349,7 @@ main (int argc, char *argv[])
     checkBridge(plugins);
     checkSkip(plugins);
     checkVoices(plugins);
+    checkSlow(plugins);
 
     return failed ? 1 : 0;
 }

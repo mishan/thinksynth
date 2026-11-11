@@ -63,6 +63,7 @@
 #include "thMidiChan.h"
 #include "thSynth.h"
 #include "thSynthTree.h"
+#include "thVideoBridge.h"
 #include "thVideoSynth.h"
 
 #include "thvExpression.h"
@@ -179,10 +180,13 @@ play (const string &plugins, const Run &run, std::vector<uint64_t> &frames,
 
         if (k % perFrame == 0)
         {
-            video.set("in_level", 0.1f + 0.03f * (frame % 7));
-            video.set("in_bass", 0.5f - 0.02f * (frame % 5));
-            video.set("in_mid", 0.2f + 0.01f * frame);
-            video.set("in_high", 0.05f * (frame % 3));
+            thVideoInputs in;
+
+            in.level = 0.1f + 0.03f * (frame % 7);
+            in.bass = 0.5f - 0.02f * (frame % 5);
+            in.mid = 0.2f + 0.01f * frame;
+            in.high = 0.05f * (frame % 3);
+            video.setInputs(in);
         }
         if (k == at(0, 0))
         {

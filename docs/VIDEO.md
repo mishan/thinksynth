@@ -106,11 +106,15 @@ any other:
 | `@in_level` | the mix's loudness, RMS |
 | `@in_level0` ... | each audio channel's own, before the master |
 | `@in_bass`, `@in_mid`, `@in_high` | the mix's amplitude under 250 Hz, to 2 kHz, and above, DC taken out: a full-scale sine reads 1 |
+| `@in_level_slow`, `@in_bass_slow`, `@in_mid_slow`, `@in_high_slow` | the same, smoothed: a step swells over about a tenth of a second, critically damped |
 | `@knob_NAME` | each of the piece's knobs |
 
-Nothing is smoothed. A patch that wants smoothing filters the chanarg, and
-one that wants it louder multiplies it: a typical mix's `@in_level` is
-around 0.1 to 0.2.
+A step in the plain ones lands partway down a frame and can cut the
+picture across; the slow ones swell instead. They are smoothed once a
+window, not once a pixel, so they cost a patch nothing, where a filter
+in the patch runs on every pixel. A skip ahead, and a synth's first
+window, take them straight to the sound. A patch that wants the sound louder
+multiplies it: a typical mix's `@in_level` is around 0.1 to 0.2.
 
 ## Feedback
 

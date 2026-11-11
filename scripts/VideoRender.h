@@ -23,11 +23,13 @@
  * Its .dsp is loaded on each audio channel it follows and plays the notes
  * the scheduler hands that channel (a thcNoteTap). After each audio window
  * the bridge's measures, and each of the piece's knobs as @knob_<name>, go
- * onto those channels as chanargs (docs/VIDEO.md). A window is no longer
- * than an audio window, so the video trails the audio by less than one,
- * and a note reaches it within two of its time -- unless one line takes
- * longer to scan than an audio window lasts, as on a picture a few lines
- * tall, when a window is that line.
+ * onto those channels as chanargs (docs/VIDEO.md). A window is 8 lines, as
+ * the web page draws 160x120, and no longer than an audio window, so the
+ * video trails the audio by less than one, a note reaches it within two of
+ * its time, and the slow inputs, which step once a window, swell in steps
+ * too fine to see -- unless one line takes longer to scan than an audio
+ * window lasts, as on a picture a few lines tall, when a window is that
+ * line.
  */
 
 #ifndef VIDEO_RENDER_H
@@ -66,7 +68,7 @@ public:
         int width = 0, height = 0, fps = 0, end = 0;
 
         if (sscanf(raster.c_str(), "%dx%d@%d%n", &width, &height, &fps, &end) != 3 ||
-            end != (int)raster.size() || !video_.open(pluginPath, width, height, fps, 0, why))
+            end != (int)raster.size() || !video_.open(pluginPath, width, height, fps, 8, why))
         {
             why = "--raster wants WIDTHxHEIGHT@FPS in whole numbers, at most " +
                   std::to_string(TH_MAX_WINDOW_LENGTH) + " wide and " +
