@@ -270,6 +270,91 @@ int main (int argc, char **argv)
                  "than the depth allowed, nor once it comes down", why);
     }
 
+    /* With no target, an edit that takes most of a real low end away is
+       no champion however new it sounds: the bass is what makes the
+       instrument the one it came from. Heard by an ear for which every
+       edit is as new as an edit can be and leaves a hundredth of the low
+       end, so no dice can save it. */
+    {
+        double rms, peak;
+        const NodeBreed::Ear real = NodeBreed::localEar(pluginPath, bare, "", "");
+
+        real.level(bare, rms, peak);
+
+        NodeBreed::Ear deaf;
+        NodeBreed::Params p;
+
+        deaf.level = [&] (const string &, double &r, double &pk) {
+            r = rms;
+            pk = peak;
+            return true;
+        };
+        deaf.tone = [&] (const string &text, double &r, double &pk, double &c,
+                         double &low) {
+            r = rms;
+            pk = peak;
+            c = 1000;
+            low = text == bare ? 0.6 : 0.006;
+            return true;
+        };
+        deaf.apart = [] (const string &text, const string &from) {
+            return text == from ? 0.0 : 60.0;
+        };
+        p.population = 6;
+        p.kinds = "";
+
+        NodeBreed::Flock flock;
+        bool kept = true;
+        string heard;
+
+        for (unsigned int g = 1; kept && g <= 3; g++)
+        {
+            string a;
+            size_t da;
+
+            kept = NodeBreed::generation(&synth, bare, flock, p, 900 + g, deaf,
+                                         a, da, why) && a == bare;
+            heard = a;
+
+            /* Not a member either: one would hold a place a sound edit
+               could have. */
+            for (const NodeBreed::Member &m : flock.members)
+                kept &= m.ops.empty();
+        }
+        okOrFail(kept, "with no target an edit that loses most of the low "
+                 "end is no champion, however new it sounds",
+                 why.empty() ? heard : why);
+
+        /* And a flock that already holds only such edits -- bred by an ear
+           that let them in, a target since taken away -- plays the
+           declared graph rather than one of them. */
+        NodeBreed::Ear lenient = deaf;
+        NodeBreed::Flock full;
+        string a;
+        size_t da;
+        bool onlyEdits = true;
+
+        lenient.tone = [&] (const string &, double &r, double &pk, double &c,
+                            double &low) {
+            r = rms;
+            pk = peak;
+            c = 1000;
+            low = 0.6;
+            return true;
+        };
+        NodeBreed::generation(&synth, bare, full, p, 950, lenient, a, da, why);
+        for (const NodeBreed::Member &m : full.members)
+            onlyEdits &= !m.ops.empty();
+
+        const bool played = NodeBreed::generation(&synth, bare, full, p, 951,
+                                                  deaf, a, da, why);
+
+        okOrFail(onlyEdits && played && a == bare, "a flock of nothing but "
+                 "edits that lose the low end plays the declared graph",
+                 !onlyEdits ? "the flock still held the declared graph"
+                            : why.empty() ? a : why);
+    }
+
     /* Nothing to grow is a flock of the declared graph. */
     {
         NodeBreed::Flock still;
