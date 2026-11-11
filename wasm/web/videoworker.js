@@ -160,8 +160,8 @@ function worker (fields)
 const helpers = () => workers.filter((w) => w !== self);
 const active = () => workers.filter((w) => w.ready && w.joinAt !== Infinity && !w.retiring);
 
-/* The most workers: the cores past the page's and the audio's, the
-   channels, and how many this machine has shown it can run. */
+/* The most workers: this one and a helper a core past the page's and the
+   audio's, the channels, and how many this machine has shown it can run. */
 function limit ()
 {
     if (effect !== null)
