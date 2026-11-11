@@ -414,6 +414,7 @@ function fromHelper (w, m)
         break;
     case 'busy':
         w.busy = m.fraction;
+        w.sampled = true;
         w.silent = new Set(m.silent);
         w.drawn = m.drawn;
         break;
@@ -745,7 +746,10 @@ function second (now)
     const drawing = active();
     const busy = Math.max(...drawing.map((w) => w.busy));
 
-    post({ type: 'busy', fraction: busy, width: raster.width });
+    /* Whole once every worker drawing has said, a helper's busy being 0
+       until then. */
+    post({ type: 'busy', fraction: busy, open: lastOpen.open,
+           whole: drawing.every((w) => w === self || w.sampled) });
     scaler.limit = limit();
 
     /* Counted with those still starting, so one on its way isn't asked

@@ -176,6 +176,9 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
     const open = async (r, keep = false) =>
     {
         const name = patch.value, effect = fx.value, mine = ++opens;
+
+        /* What this size costs is this open's to say. */
+        r.full = undefined;
         const dsp = await text(name);
         const fxText = effect ? await text(effect) : '';
 
@@ -200,7 +203,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
                                pool: Math.ceil(latency * FPS) + SPARE,
                                patch: { name, text: dsp },
                                fx: effect ? { name: effect, text: fxText } : null,
-                               helpers: HELPERS });
+                               helpers: HELPERS, open: mine });
 
         const set = new Map(keep ? [...knobs.querySelectorAll('input')]
                                        .map((i) => [i.dataset.knob, i.value]) : []);
@@ -333,8 +336,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             say(['dropping frames: this machine cannot draw it in time', drawnBy]
                 .filter((t) => t !== '').join('; '));
         }
-        else if (m.type === 'busy' && m.width === WIDTH)
-            r.full = m.fraction;
+        else if (m.type === 'busy' && r.scale === 1)
+            r.full = m.open === opens && m.whole ? m.fraction : r.full;
         else if (m.type === 'busy' && r.scale > 1)
         {
             r.roomy = r.fullRoomy || m.fraction * r.scale * r.scale < ROOMY ? r.roomy + 1 : 0;
@@ -449,7 +452,6 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             run.scale = 1;
             run.dropping = 0;
             run.patience = 0;
-            run.full = undefined;
             open(run).catch((e) => fail(`the video: ${e.message}`));
         }
         else if (failed && shown)

@@ -4912,11 +4912,18 @@ try
             await drawer.evaluate(([full, small]) =>
             {
                 const post = globalThis.postMessage;
+                let width = 160;
+                const opened = (e) => { width = e.data?.type === 'open' ? e.data.width : width; };
 
+                addEventListener('message', opened);
                 globalThis.postMessage = (m, transfer) =>
                     post.call(globalThis, m.type === 'busy' ?
-                              { ...m, fraction: m.width === 160 ? full : small } : m, transfer);
-                globalThis.unfake = () => { globalThis.postMessage = post; };
+                              { ...m, fraction: width === 160 ? full : small } : m, transfer);
+                globalThis.unfake = () =>
+                {
+                    globalThis.postMessage = post;
+                    removeEventListener('message', opened);
+                };
             }, [full, small]);
             await v.waitForTimeout(1200);
             await stall();
