@@ -4619,7 +4619,10 @@ try
                     .observe(document.getElementById('videostatus'),
                              { childList: true, characterData: true, subtree: true }));
         });
-        await v.goto(url.replace('?panes=0', ''));
+        /* One worker, kept to: what a machine at the most workers it may
+           use does, which is when a picture behind is drawn smaller. The
+           workers a picture adds are below. */
+        await v.goto(url.replace('?panes=0', '?helpers=0'));
         await v.waitForFunction(() => document.body.classList.contains('tiled'));
 
         /* The pane up, and a Start that fails on an instrument that will
@@ -4935,11 +4938,10 @@ try
     /* ---- the picture across workers ---- */
 
     /* belfry, nine instruments, with the video worker told to lead two
-       helpers (videopart.js), in both browsers, since the helpers are
-       workers a worker starts: the line says so and the picture lights.
-       One helper closed mid-piece: the other alone is too few, so the
-       picture is drawn as it always was, and goes on. And
-       told to lead none, it never does. */
+       helpers (videopart.js), three workers with itself, in both browsers,
+       since the helpers are workers a worker starts: the line says so and
+       the picture lights. One helper closed mid-piece: two workers draw
+       on. And told to lead none, it never does. */
     const fox = await firefox.launch({ firefoxUserPrefs: {
         'media.autoplay.default': 0, 'media.autoplay.blocking_policy': 0 } });
 
@@ -4994,7 +4996,7 @@ try
                 };
                 const parts = () => v.workers().filter((w) => w.url().endsWith('videopart.js'));
                 const lit = await watch(4000);
-                const drawn = said.some((t) => t.includes('drawn by 2 workers'));
+                const drawn = said.some((t) => t.includes('drawn by 3 workers'));
 
                 bright[helpers] = lit;
 
@@ -5009,7 +5011,7 @@ try
                     continue;
                 }
                 check(lit > 20 && drawn && parts().length === 2,
-                      `${name}: belfry drawn by two helpers, and the line says so: light ${lit}, ` +
+                      `${name}: belfry drawn by three workers, and the line says so: light ${lit}, ` +
                       `${parts().length} helpers, said ${[...new Set(said)].join(' | ')}`);
 
                 /* Firefox says so as the worker goes, which is the point. */
@@ -5018,9 +5020,10 @@ try
 
                 const after = await watch(3000);
 
-                /* At whatever size this machine draws it alone. */
-                check(after > 20 && parts().length === 0,
-                      `${name}: a helper closed mid-piece, the picture goes on drawn alone: ` +
+                /* At whatever size this machine draws it with two. */
+                check(after > 20 && parts().length === 1 &&
+                      said.at(-1).includes('drawn by 2 workers'),
+                      `${name}: a helper closed mid-piece, the picture goes on drawn by two: ` +
                       `light ${after}, ${parts().length} helpers, ` +
                       `said ${[...new Set(said)].join(' | ')}`);
                 await wide.close();
@@ -5030,6 +5033,53 @@ try
     finally
     {
         await fox.close();
+    }
+
+    /* Left to choose, the worker draws belfry alone on a machine with room;
+       held up again and again, as a machine too slow is, it adds workers,
+       and keeps the full size while it still can. */
+    {
+        const wide = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+        const v = await wide.newPage();
+        const said = [];
+
+        v.on('pageerror', (e) => errors.push(`growing video: ${e.message}`));
+        await v.goto(url.replace('?panes=0', ''));
+        await v.waitForFunction(() => document.body.classList.contains('tiled'));
+        await v.selectOption('#mode', 'piece');
+        await v.selectOption('#piece', 'belfry.gen');
+        await v.click('#start');
+        await v.waitForFunction(() => !document.getElementById('loadpiece').disabled,
+                                null, { timeout: 60000 });
+        await v.click('#loadpiece');
+        await v.evaluate(() => window.solo.settled());
+        await v.evaluate(() => window.solo.pane('present', 'videoview'));
+        await v.click('#play');
+        await v.waitForTimeout(2000);
+
+        const leader = v.workers().filter((w) => w.url().includes('videoworker')).at(-1);
+        let narrowest = 160;
+
+        for (let k = 0; k < 8; k++)
+        {
+            await leader.evaluate(() =>
+            {
+                for (const t = performance.now(); performance.now() - t < 150;)
+                    ;
+            });
+            await v.waitForTimeout(350);
+            said.push(await v.textContent('#videostatus'));
+            narrowest = Math.min(narrowest,
+                                 await v.evaluate(() => document.getElementById('videocanvas').width));
+        }
+
+        const grew = said.some((t) => /drawn by [2-9] workers/.test(t));
+
+        check(grew && narrowest === 160 &&
+              v.workers().some((w) => w.url().endsWith('videopart.js')),
+              'held up again and again, the picture adds workers and keeps its full size: ' +
+              `${[...new Set(said)].join(' | ')}, narrowest ${narrowest}`);
+        await wide.close();
     }
 
     for (const e of errors)

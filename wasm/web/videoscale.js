@@ -43,7 +43,7 @@ export class Scaler
     constructor ({ limit, fixed = null })
     {
         this.limit = Math.max(1, limit);
-        this.fixed = fixed === null ? null : Math.max(1, Math.min(fixed, this.limit));
+        this.fixed = fixed === null ? null : Math.max(1, fixed);
         this.hot = 0;
         this.cool = 0;
         this.wait = SHRINK_S;
@@ -64,7 +64,7 @@ export class Scaler
     tick ({ busy, skips, workers, now })
     {
         if (this.fixed !== null)
-            return Math.sign(this.fixed - workers);
+            return Math.sign(Math.min(this.fixed, this.limit) - workers);
 
         const behind = skips > 0 || busy > HOT;
         const room = workers > 1 && busy * workers / (workers - 1) < ROOM;
