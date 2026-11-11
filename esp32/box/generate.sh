@@ -7,10 +7,18 @@ set -e
 build=${1:-build}
 here=$(dirname "$0")
 patches="dxbell grab index rhodes pluck clav glass stylophone"
+# What only the composer's pieces play, not stepped through on the keys.
+pieces="kick909 clap hat"
 list="$here/main/patches.h"
 
 echo "/* The patches the BOX steps through. Written by generate.sh. */" > "$list"
 for p in $patches; do
+    name=$(echo "$p" | sed 's/^./\U&/')
+    "$build/scripts/dspcompile" -p "$build/plugins/" -r 32000 -c box,marbles,life \
+        "$here/../../dsp/$p.dsp" "$name" > "$here/main/thv$name.h"
+    echo "#include \"thv$name.h\"" >> "$list"
+done
+for p in $pieces; do
     name=$(echo "$p" | sed 's/^./\U&/')
     "$build/scripts/dspcompile" -p "$build/plugins/" -r 32000 -c box,marbles,life \
         "$here/../../dsp/$p.dsp" "$name" > "$here/main/thv$name.h"
@@ -39,5 +47,11 @@ for p in $patches; do
     name=$(echo "$p" | sed 's/^./\U&/')
     g=$(gain "$name")
     echo "    PATCH($name, \"$p\", $g) \\" >> "$list"
+done
+echo "" >> "$list"
+echo "#define PIECE_PATCHES \\" >> "$list"
+for p in $pieces; do
+    name=$(echo "$p" | sed 's/^./\U&/')
+    echo "    PATCH($name, \"$p\", 1) \\" >> "$list"
 done
 echo "" >> "$list"

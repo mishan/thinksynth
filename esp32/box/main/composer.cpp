@@ -52,11 +52,12 @@
 #include "thcScheduler.h"
 
 #define STEP_MS 20
-/* A step delivers what fell due in the step just run, so an event is
-   stamped up to a step late; played this much after its stamp, the
-   events keep their spacing to within a block. */
-#define LEAD_US 30000
-#define BLOCK_US (1000000LL * BLOCK / BOX_RATE)
+/* How long after its stamp an event plays. A step delivers what fell due
+   in the step just run, so an event is stamped up to a step late, 20 ms
+   and the step's own time; and the audio task renders a block up to the
+   I2S's 45 ms of buffers ahead of when it is heard, so an event must be
+   queued before then. 100 ms leaves 30 for a step that runs long. */
+#define LEAD_US 100000
 #define QUEUE 1024
 
 /* ---- the queue, the scheduler's task to the audio task ------------------ */
@@ -113,9 +114,11 @@ static bool emptying = false;
    are due at once. And the chanargs a step moved that reached a pool,
    past those an instrument starts from. */
 static volatile int late = 0, knobsSet = 0;
+/* And the latest of them, by how much, since the monitor last said. */
+static volatile int32_t worstUs = 0;
 
 void
-composerApply (int64_t now)
+composerApply (int64_t blockAt)
 {
     if (emptying)
     {
@@ -124,13 +127,15 @@ composerApply (int64_t now)
         emptying = false;
         emptied++;
     }
-    for (const Event *e; (e = queue.peek()) != NULL && e->due <= now; queue.pop())
+    for (const Event *e; (e = queue.peek()) != NULL && e->due <= blockAt; queue.pop())
     {
         Patch *p = e->channel >= 0 && e->channel < COMPOSER_CHANNELS
                  ? composerChannel[e->channel] : NULL;
         thhAction a;
 
-        late += e->due > 0 && now - e->due > BLOCK_US;
+        late += e->due > 0 && blockAt - e->due > BLOCK_US;
+        if (e->due > 0 && blockAt - e->due > worstUs)
+            worstUs = (int32_t)(blockAt - e->due);
         a.note = e->note;
         a.vel = e->velocity;
         switch (e->type)
@@ -199,8 +204,8 @@ declare (Surface &s, std::vector<thArg *> &made)
     }
 }
 
-/* Every patch, the percussion too, at the level the desktop's mix plays
-   it: a piece's amps are balanced there. */
+/* Every patch, the percussion and the pieces' own too, at the level the
+   desktop's mix plays it: a piece's amps are balanced there. */
 static const struct
 {
     const char *name;
@@ -209,6 +214,7 @@ static const struct
 } COMPILED[] = {
 #define PATCH(type, name, gain) { name, make<thv##type>, declare<thv##type> },
     PATCHES
+    PIECE_PATCHES
 #undef PATCH
 #define PERC_ROW(type) { #type, make<thv##type>, declare<thv##type> }
 #define PERC_ROW_OF(type) PERC_ROW(type)
@@ -236,9 +242,14 @@ compiledFor (const std::string &dsp)
     extern const char sym##_start[] asm("_binary_" #sym "_start"); \
     extern const char sym##_end[] asm("_binary_" #sym "_end");
 
-EMBEDDED(bells_gen)
+EMBEDDED(harbor_gen) EMBEDDED(garden_gen) EMBEDDED(discreet_gen)
+EMBEDDED(lantern_gen) EMBEDDED(bells_gen)
 
 static const struct { const char *file, *start, *end; } PIECES[] = {
+    { "harbor.gen", harbor_gen_start, harbor_gen_end },
+    { "garden.gen", garden_gen_start, garden_gen_end },
+    { "discreet.gen", discreet_gen_start, discreet_gen_end },
+    { "lantern.gen", lantern_gen_start, lantern_gen_end },
     { "bells.gen", bells_gen_start, bells_gen_end },
 };
 #define NPIECES (int)(sizeof(PIECES) / sizeof(PIECES[0]))
@@ -483,8 +494,9 @@ startPiece (int i)
     }
     syncKnobs(0);
     say(loader.pieceName().c_str(), "");
-    printf("composer: playing \"%s\" (%s), %zu chains, %u KB internal and %u KB "
-           "PSRAM\n", loader.pieceName().c_str(), PIECES[i].file, sched->chainCount(),
+    printf("composer: playing \"%s\" (%s, %d of %d), %zu chains, %u KB internal and "
+           "%u KB PSRAM\n", loader.pieceName().c_str(), PIECES[i].file, i + 1, NPIECES,
+           sched->chainCount(),
            (unsigned)((free0 - heap_caps_get_free_size(MALLOC_CAP_INTERNAL)) / 1024),
            (unsigned)((psram0 - heap_caps_get_free_size(MALLOC_CAP_SPIRAM)) / 1024));
     return true;
@@ -517,7 +529,7 @@ composerTask (void *)
     {
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(STEP_MS));
 
-        const int64_t now = esp_timer_get_time();
+        bool started = false;
 
         if (nexts != nextSeen)
         {
@@ -534,7 +546,15 @@ composerTask (void *)
                 sched->start();
             else
                 sched->stop();
+            started = shown;
         }
+
+        /* Read after a load, which takes a while: its time is not the
+           piece's. A start or a resume steps from there. */
+        const int64_t now = esp_timer_get_time();
+
+        if (started)
+            last = now;
         if (sched && sched->running())
         {
             const double dt = (now - last) / 1e6;
@@ -554,11 +574,13 @@ composerTask (void *)
 
         if (sched && sched->running() && now - printed >= 5000000)
         {
-            printf("composer: %s t %.0f s  step %.0f us mean %.0f max  late %d  "
-                   "knobs %d  non-finite %d  internal %u free\n", title, sched->now(),
-                   steps ? stepSum / steps : 0.0, stepMax, late, knobsSet, boxNonFinite,
+            printf("composer: %s t %.0f s  step %.0f us mean %.0f max  late %d (worst "
+                   "%.1f ms)  knobs %d  non-finite %d  internal %u free\n", title,
+                   sched->now(), steps ? stepSum / steps : 0.0, stepMax, late,
+                   worstUs / 1000.0, knobsSet, boxNonFinite,
                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
             printed = now;
+            worstUs = 0;
             stepSum = stepMax = 0;
             steps = 0;
         }
@@ -644,7 +666,7 @@ ink (const char *s, int x0, int y0, int scale, int x, int y)
 }
 
 void
-composerDraw (bool all)
+composerDraw (bool all, int top)
 {
     static unsigned drawn = ~0u;
     /* Two, each filled while the other is still being sent. */
@@ -675,7 +697,7 @@ composerDraw (bool all)
     const int x0 = (W - 6 * scale * len + scale) / 2, y0 = 80 - 7 * scale / 2;
     const uint16_t fg = rgb(255, 210, 120), dim = rgb(150, 150, 150), bg = rgb(0, 0, 0);
 
-    for (int s = 0; s < H; s += STRIP)
+    for (int s = top; s < H; s += STRIP)
     {
         uint16_t *strip = strips[(s / STRIP) % 2];
 

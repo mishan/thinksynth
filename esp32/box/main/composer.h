@@ -45,11 +45,13 @@ void composerStart (void);
    it paused, its notes let go), and the next piece. */
 void composerShow (bool shown);
 void composerNext (void);
-/* The audio task's, under the lock before a block: what fell due. */
-void composerApply (int64_t now);
+/* The audio task's, under the lock before a block: what falls due by the
+   time the block plays, on the clock of the blocks themselves. */
+void composerApply (int64_t blockAt);
 
-/* The display task's: the screen drawn, all of it or what changed. */
-void composerDraw (bool all);
+/* The display task's: the screen below its top `top' rows drawn, all of
+   it or what changed. */
+void composerDraw (bool all, int top);
 /* The console's: the piece, and what went wrong playing it. */
 void composerStatus (char *line, size_t size);
 

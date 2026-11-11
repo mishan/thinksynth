@@ -21,6 +21,12 @@ level, for a BOX lying on a desk or leaning back in its stand. The side
 button steps to the next patch, the notes of the last left to ring out.
 Each patch is scaled to peak as loud as the others (`generate.sh`).
 
+The top row is the volume, on every screen: a finger there sets it, from
+silent at the left to full at the right, and plays nothing else; an amber
+bar under the patches' squares shows where it is. It scales the mix by
+its square, nearer how loud it sounds, and the BOX keeps it in NVS, a
+second after it last moved, for the next time it starts.
+
 When the blocks run near their time, two in a row over 75% of it, the
 voice sounding longest, a released one before a held one, fades out over
 the next block; and a new note then takes over a sounding voice rather
@@ -78,7 +84,8 @@ roll it, R levels it and X shakes it. `--help` lists the rest.
 
 Held, the side button switches the screen from the keys to marbles and
 pegs (`game/thgMarbles`), then to Life, then to the composer, then back
-to the keys; pressed, it steps to the next patch, and the monitor's line says which patch and
+to the keys; pressed, it steps to the next patch, or on the composer's
+screen to the next piece, and the monitor's line says which patch and
 screen. Balls roll the way the BOX is tipped, and
 play what they strike, through the BOX's mapper with the game's controls
 (`THG_MARBLES_PROFILE`, and a patch's `controller marbles` block over it):
@@ -96,32 +103,40 @@ chord, through the patch's `controller life` block or, with none,
 `THG_LIFE_PROFILE`: a row a degree of C minor pentatonic up from C4, in
 the keys' colors. Each time the playhead comes round, the board advances
 a generation. A finger down on a cell brings it to life or kills it, and
-dragging from there paints or erases the cells it crosses. A tap on the
-patches' row pauses the board, a pause sign at its right end, so the bar
+dragging from there paints or erases the cells it crosses. A tap at the
+top row's right end, the volume's but for that, pauses the board, a pause
+sign there, so the bar
 loops as drawn, the playhead still playing it; another tap lets it go on
 again. A shake brings a fifth of the cells to life, for a board that died
 out. It starts with a glider and a blinker.
 
 ## The composer
 
-The fourth screen plays a piece built into the firmware (`pieces/`,
-for now `bells.gen`) through the `.gen` scheduler, the desktop's own
-(`main/composer.cpp`), listen only for now. An instrument is a pool of its
+The fourth screen plays the pieces built into the firmware (`pieces/`:
+Harbor, Garden, Discreet, Lantern and Bells) through the `.gen` scheduler,
+the desktop's own (`main/composer.cpp`), listen only for now. A piece may
+play a patch the keys don't step through: `generate.sh` compiles those
+too (its `pieces` list, Lantern's drums). An instrument is a pool of its
 compiled patch's voices, one per channel, made in internal RAM as the
 piece loads; its chanargs are the knobs the patch declares, and the
 channel's amp, set as the desktop's mix sets them. The piece starts as its
 screen shows, pauses when it's left, its notes let go, and goes on from
 there on return; a press of the side button starts the next piece. The
-screen shows the piece's name, or why it didn't load. The monitor's line
-says how long a step takes, the events played late, and the chanargs that
-reached the voices.
+screen shows the piece's name, or why it didn't load. A note plays 100 ms
+after the scheduler stamps it, in the block that plays at that time: the
+blocks are timed by their samples, not by when the audio task wakes to
+render them, two at a time as the I2S's 7.5 ms buffers free. The
+monitor's line says how long a step takes, the events played late and the
+latest of them, and the chanargs that reached the voices.
 
-The firmware built for the linux target plays it headless, for a minute:
+The firmware built for the linux target plays them headless, a minute
+each:
 
     ./composercheck.py build-sim/thinkbox.elf
 
-which fails where the piece didn't load, no chanarg reached the voices,
-a sample out wasn't finite, or the piece made no sound.
+which fails where a piece didn't load, the firmware's pieces aren't
+`pieces/`'s, no chanarg a step moved reached the voices, a sample out
+wasn't finite, or a piece made no sound.
 
 ## Debug console
 

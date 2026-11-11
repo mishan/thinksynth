@@ -1,0 +1,123 @@
+# harbor.gen -- D major, evening, for the BOX's compiled patches.
+#
+# Chords that walk the key the way common practice does (gen::progression),
+# voiced close on the electric piano; the same chords broken an octave up
+# on the pluck and walked as a bass on the clav, the three agreeing because
+# their progressions share a seed. Over them a pentatonic line on index,
+# which can't put a wrong note against any chord of the key, with a soft
+# echo a dotted eighth behind. Two knobs for the hands: @light opens the
+# arpeggio and brightens the lead; @swell brings the piano up.
+
+name "Harbor";
+author "Misha Nasledov";
+description "Walking chords on an electric piano, a broken arpeggio and a pentatonic lead, in D.";
+category "Pieces";
+
+tempo 84;
+seed 2611;
+meter 4;
+
+@light = 0.5;
+@light.widget = 1;
+@light.min = 0;
+@light.max = 1;
+@light.label = "Light";
+
+@swell = 80;
+@swell.widget = 1;
+@swell.min = 40;
+@swell.max = 120;
+@swell.label = "Swell";
+
+section still  8 bars { @light = 0.2;  lead = 0;  bass = 0; };
+section tide  16 bars { @light = 0.6; };
+section open   8 bars { @light = 0.35; lead = 0; };
+section bright 16 bars { @light = 0.9; };
+section ebb    8 bars { @light = 0.3;  arp = 0; };
+section loop tide;
+
+scale chords "D3 E3 F#3 G3 A3 B3 C#4";
+scale high   "D4 E4 F#4 G4 A4 B4 C#5";
+scale low    "D2 E2 F#2 G2 A2 B2 C#3";
+scale penta  "D4 E4 F#4 A4 B4 D5 E5 F#5 A5";
+
+instrument piano {
+    dsp   "rhodes.dsp";
+    amp   = @swell;
+    decay = 2600 ms;
+};
+
+instrument arp {
+    dsp    "pluck.dsp";
+    amp    = 72;
+    cutoff = 900;
+    res    = 0.3;
+};
+
+instrument bass {
+    dsp  "clav.dsp";
+    amp  = 110;
+    tone = 650;
+    res  = 0.45;
+};
+
+instrument lead {
+    dsp    "index.dsp";
+    amp    = 127;
+    bright = @light;
+    wobble = 0.15;
+    air    = 0.25;
+};
+
+chain piano {
+    stage src gen::progression {
+        scale = chords;  every = 8 beats;  hold = 7.6 beats;  vel = 72;
+        phrase = 4;  wander = 0.1;  seed = 26;
+    };
+    stage v xform::harmonize {
+        scale = chords;  voices = 3;  step = 2;  spread = 0.02 s;
+        taper = 0.85;  root = 1;  below = 0;  lead = 1;  span = 12;
+    };
+    sink { instrument = piano; };
+};
+
+chain arp {
+    stage src gen::progression {
+        scale = high;  every = 8 beats;  hold = 7.9 beats;  vel = 70;
+        phrase = 4;  wander = 0.1;  seed = 26;
+    };
+    stage v xform::harmonize {
+        scale = high;  voices = 3;  step = 2;  spread = 0 s;
+        taper = 1;  root = 1;  below = 0;  lead = 1;  span = 12;
+    };
+    stage a gen::arp {
+        pattern = 2;  octaves = 2;  period = 0.5 beats;  hold = 0.45 beats;
+        vel = 62;  pass = 0;
+    };
+    stage c xform::chance { prob = 0.35 + 0.65 * @light; };
+    sink { instrument = arp; };
+};
+
+chain bass {
+    stage src gen::progression {
+        scale = low;  every = 8 beats;  hold = 7.9 beats;  vel = 90;
+        phrase = 4;  wander = 0.1;  seed = 26;
+    };
+    stage b xform::bassline {
+        scale = low;  pattern = "r___r__.f___o__.";
+        step = 0.5 beats;  hold = 0.45 beats;  vel = 92;
+        octave = 0;  pass = 0;
+    };
+    sink { instrument = bass; };
+};
+
+chain lead {
+    stage src gen::lsystem {
+        axiom = "F+F+F-Fr-F-F+Frr+F+F-F-Frr--F+F+Frrr";
+        rules = "";  depth = 0;  notes = penta;
+        step = 1 beats;  hold = 0.9 beats;  vel = 80;
+    };
+    stage h xform::humanize { time = 0.012 s;  vel = 8; };
+    stage e xform::echo { repeats = 1;  time = 0.75 beats;  decay = 0.35;  shift = 0;  pass = 1; };
+    sink { instrument = lead; };
+};

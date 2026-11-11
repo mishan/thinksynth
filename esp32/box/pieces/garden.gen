@@ -1,0 +1,96 @@
+# garden.gen -- a waltz in G, for the BOX's compiled patches.
+#
+# Three in a bar: the chords of the key, one a bar, walked by
+# gen::progression and played oom-pah-pah on the electric piano by
+# xform::bassline -- root, third, fifth -- over the clav holding each root
+# low. The tune is an eight-bar L-system phrase on the pentatonic, which
+# no chord of the key can clash with, on the pluck, with a first-species
+# counterpoint under it. Two knobs for the hands: @bloom lets more of the
+# tune through, @tone opens the pluck.
+
+name "Garden";
+author "Misha Nasledov";
+description "A waltz on electric piano, with a plucked tune and its counterpoint, in G.";
+category "Pieces";
+
+tempo 76;
+seed 3105;
+meter 3;
+
+@bloom = 0.6;
+@bloom.widget = 1;
+@bloom.min = 0;
+@bloom.max = 1;
+@bloom.label = "Bloom";
+
+@tone = 1200;
+@tone.widget = 1;
+@tone.min = 500;
+@tone.max = 3000;
+@tone.label = "Tone";
+
+section bud    8 bars { @bloom = 0;   tune = 0; };
+section leaf  16 bars { @bloom = 0.6; };
+section shade  8 bars { @bloom = 0.3; bass = 0; };
+section full  16 bars { @bloom = 0.95; };
+section loop leaf;
+
+scale gmaj  "G3 A3 B3 C4 D4 E4 F#4";
+scale gbass "G2 A2 B2 C3 D3 E3 F#3";
+scale tune  "G4 A4 B4 D5 E5 G5 A5 B5 D6";
+scale under "G3 A3 B3 C4 D4 E4 F#4 G4 A4 B4";
+
+instrument waltz {
+    dsp   "rhodes.dsp";
+    amp   = 104;
+    decay = 1800 ms;
+};
+
+instrument bass {
+    dsp  "clav.dsp";
+    amp  = 112;
+    tone = 500;
+    res  = 0.35;
+    r    = 600 ms;
+};
+
+instrument tune {
+    dsp    "pluck.dsp";
+    amp    = 52;
+    cutoff = @tone;
+    res    = 0.25;
+    d      = 900 ms;
+};
+
+chain waltz {
+    stage src gen::progression {
+        scale = gmaj;  every = 3 beats;  hold = 2.9 beats;  vel = 70;
+        phrase = 8;  wander = 0.08;  seed = 31;
+    };
+    stage b xform::bassline {
+        scale = gmaj;  pattern = "rtf";
+        step = 1 beats;  hold = 0.8 beats;  vel = 66;
+        octave = 0;  pass = 0;
+    };
+    sink { instrument = waltz; };
+};
+
+chain bass {
+    stage src gen::progression {
+        scale = gbass;  every = 3 beats;  hold = 2.6 beats;  vel = 86;
+        phrase = 8;  wander = 0.08;  seed = 31;
+    };
+    sink { instrument = bass; };
+};
+
+chain tune {
+    stage src gen::lsystem {
+        axiom = "F++F+F r-F-F+F--F r r+F+F++F-F-F r -F--F+F+F r r";
+        rules = "";  depth = 0;  notes = tune;
+        step = 1 beats;  hold = 0.9 beats;  vel = 82;
+    };
+    stage h xform::humanize { time = 0.012 s;  vel = 8; };
+    stage c xform::chance { prob = 0.25 + 0.75 * @bloom; };
+    stage cp xform::counterpoint { scale = under;  below = 1;  taper = 0.7;  pass = 1; };
+    sink { instrument = tune; };
+};
