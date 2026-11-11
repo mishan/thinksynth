@@ -188,12 +188,13 @@ function batch ({ frame, notes, inputs, knobs: values })
     }
 
     M.HEAPF32.set(inputs, M._tv_input_buffer() / 4);
-    M._tv_inputs(inputs.length - 4);
+    M._tv_inputs(inputs.length - 4, frame - origin);
 
     knobNames.forEach((name, k) =>
     {
         if (values[k] !== knobs[k])
-            M.ccall('tv_set', null, ['string', 'number'], [`knob_${name}`, values[k]]);
+            M.ccall('tv_set_at', null, ['string', 'number', 'number'],
+                    [`knob_${name}`, values[k], frame - origin]);
     });
     knobs = [...values];
 
