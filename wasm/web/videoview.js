@@ -29,6 +29,7 @@
  */
 
 import { AudioClock } from './clock.js';
+import { HOT } from './videoscale.js';
 import { wasmBytes } from './host.js';
 
 const WIDTH = 160, HEIGHT = 120, FPS = 60;
@@ -311,26 +312,35 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             narrow = [narrow, m.text].filter((t) => t !== '').join('; ');
             sayNarrow();
         }
-        /* Behind twice in a second is a machine too slow for the size,
-           not a hiccup. */
-        else if (m.type === 'dropping' && r.scale === 1 && r.dropping > 0)
-        {
-            r.scale = SMALLER;
-            r.dropping = 0;
-            r.patience = Math.min(r.patience * 2 || PATIENCE_S, MOST_PATIENCE_S);
-            r.roomy = 0;
-            open(r, true).catch((e) => fail(`the video: ${e.message}`));
-        }
         else if (m.type === 'dropping')
         {
             r.dropping = performance.now();
+            r.dropped = true;
             /* A stall outside drawing is not in the busy fraction. */
             r.roomy = 0;
             say(['dropping frames: this machine cannot draw it in time', drawnBy]
                 .filter((t) => t !== '').join('; '));
         }
-        else if (m.type === 'busy' && r.scale > 1)
+        /* Behind in two seconds running, with a worker busy all the
+           while, is a machine too slow for the size; behind with time to
+           spare is a hiccup, which a smaller picture would not cure. */
+        else if (m.type === 'busy' && r.scale === 1)
         {
+            r.late = r.dropped && m.fraction >= HOT ? r.late + 1 : 0;
+            r.dropped = false;
+            if (r.late >= 2)
+            {
+                r.scale = SMALLER;
+                r.dropping = 0;
+                r.late = 0;
+                r.patience = Math.min(r.patience * 2 || PATIENCE_S, MOST_PATIENCE_S);
+                r.roomy = 0;
+                open(r, true).catch((e) => fail(`the video: ${e.message}`));
+            }
+        }
+        else if (m.type === 'busy')
+        {
+            r.dropped = false;
             r.roomy = m.fraction * r.scale * r.scale < ROOMY ? r.roomy + 1 : 0;
             if (r.roomy >= r.patience)
             {
@@ -375,7 +385,7 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
 
         const r = { worker, clock: new AudioClock(ctx.sampleRate), frames: [], raf: 0,
                     timer: 0, last: performance.now(), dropping: 0, scale: 1,
-                    patience: 0, roomy: 0 };
+                    patience: 0, roomy: 0, late: 0, dropped: false };
         const { port1, port2 } = new MessageChannel();
         const tick = () =>
         {
@@ -443,6 +453,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             run.scale = 1;
             run.dropping = 0;
             run.patience = 0;
+            run.late = 0;
+            run.dropped = false;
             open(run).catch((e) => fail(`the video: ${e.message}`));
         }
         else if (failed && shown)

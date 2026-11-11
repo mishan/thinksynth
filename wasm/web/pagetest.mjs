@@ -4803,10 +4803,12 @@ try
         check(await v.evaluate(() => window.videoDelay) === 120,
               'a change of MIDI delay reaches the picture');
 
-        /* A worker kept from drawing once, a hiccup: still 160x120. Twice
-           in a second, as a slow machine is: the picture goes on at a
-           quarter of the pixels, and another patch has the full size
-           again. */
+        /* A slow machine is behind second after second with a worker busy
+           all the while. Kept from drawing once, or in second after second
+           with time to spare, a hiccup: still 160x120. Behind and busy:
+           the picture goes on at a quarter of the pixels, and another
+           patch has the full size again. How busy the worker says it is,
+           at 160x120 and at 80x60, is set here. */
         const drawer = v.workers().filter((w) => w.url().includes('videoworker')).at(-1);
         const stall = async () =>
         {
@@ -4817,15 +4819,44 @@ try
             });
             await v.waitForTimeout(200);
         };
+        const behind = async () =>
+        {
+            for (let i = 0; i < 5; i++)
+            {
+                await stall();
+                await v.waitForTimeout(100);
+            }
+        };
+        const busy = (full, small) => drawer.evaluate(([full, small]) =>
+        {
+            const post = globalThis.unfaked ?? globalThis.postMessage;
+            let width = 160;
 
+            globalThis.unfaked = post;
+            removeEventListener('message', globalThis.opened ?? (() => {}));
+            globalThis.opened = (e) => { width = e.data?.type === 'open' ? e.data.width : width; };
+            addEventListener('message', globalThis.opened);
+            globalThis.postMessage = (m, transfer) =>
+                post.call(globalThis, m.type === 'busy' ?
+                          { ...m, fraction: width === 160 ? full : small } : m, transfer);
+        }, [full, small]);
+        const width = () => v.evaluate(() => document.getElementById('videocanvas').width);
+
+        await busy(0.9, 0.9);
         await stall();
+        await v.waitForTimeout(2500);
+
+        const hiccup = await width();
+
+        await busy(0.3, 0.3);
+        await behind();
         await v.waitForTimeout(1200);
 
-        const hiccup = await v.evaluate(() => document.getElementById('videocanvas').width);
+        const roomy = await width();
 
+        await busy(0.9, 0.9);
         await response(3);
-        await stall();
-        await stall();
+        await behind();
 
         const small = await v.evaluate(() => window.solo.video().painted);
 
@@ -4842,22 +4873,20 @@ try
 
         await v.selectOption('#videopatch', 'moire.dsp');
         await v.waitForTimeout(500);
-        check(hiccup === 160 && shrunk[0] === 80 && shrunk[1] === 60 &&
+        check(hiccup === 160 && roomy === 160 && shrunk[0] === 80 && shrunk[1] === 60 &&
               shrunk[2].painted - small > 30 && told && shrunk[3] === '3' &&
-              await v.evaluate(() => document.getElementById('videocanvas').width) === 160,
-              'a hiccup draws on at 160x120, a machine too slow at 80x60 with its ' +
-              'knobs as set, and a new ' +
-              `patch at 160x120: ${hiccup}, ${shrunk[0]}x${shrunk[1]}, ` +
+              await width() === 160,
+              'a hiccup draws on at 160x120, and behind with time to spare, a machine ' +
+              'too slow at 80x60 with its knobs as set, and a new ' +
+              `patch at 160x120: ${hiccup}, ${roomy}, ${shrunk[0]}x${shrunk[1]}, ` +
               `${shrunk[2].painted - small} painted, told ${told}, response ${shrunk[3]}`);
 
         /* Slow for a moment only: the full size again once the small one
            has had room to spare a while, and after failing there again, a
            longer wait before the next try. */
-        const width = () => v.evaluate(() => document.getElementById('videocanvas').width);
-
+        await busy(0.9, 0.05);
         await response(5);
-        await stall();
-        await stall();
+        await behind();
 
         const down = await width();
 
@@ -4885,18 +4914,25 @@ try
 
         /* A stall before the reopened worker has its first batch is not a skip. */
         await v.waitForTimeout(500);
-        await stall();
-        await stall();
+        await behind();
 
         const again = await width();
 
         await v.waitForTimeout(6000);
+
+        const still = await width();
+
+        await drawer.evaluate(() =>
+        {
+            globalThis.postMessage = globalThis.unfaked;
+            removeEventListener('message', globalThis.opened);
+        });
         check(down === 80 && held === 80 && upS >= 3 && upS < 10 && kept === '5' &&
-              again === 80 && await width() === 80,
+              again === 80 && still === 80,
               'a machine slow for a moment is back at 160x120 with its knobs as set, ' +
               'not while it still drops frames, and waits longer after failing ' +
               `again: ${down}, ${held}, up after ${upS} s, ` +
-              `response ${kept}, ${again}, then ${await width()}`);
+              `response ${kept}, ${again}, then ${still}`);
 
         /* An output a quarter of a second behind: every frame waits that
            long on the page, and there are buffers enough for all of them.
