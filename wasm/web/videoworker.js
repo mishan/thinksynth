@@ -520,6 +520,15 @@ function lead ()
        whether or not their parts are in. */
     if (d >= 0 && to > next + 1)
     {
+        /* With a part already in for a later frame from a helper other
+           than those missing this one, the ones behind are stragglers,
+           which STALL_MS judges; with none, this machine is behind. */
+        const has = (frame, k) => (parts.get(frame)?.[k] ?? null) !== null;
+        const missing = helpers.map((h, k) => k).filter((k) => !has(next, k));
+        const ahead = missing.length > 0 &&
+                      [...parts.keys()].some((f) => f > next &&
+                                             helpers.some((h, k) => !missing.includes(k) && has(f, k)));
+
         for (const h of helpers)
             h.worker.postMessage({ type: 'skip', frame: to });
         for (const [frame, got] of parts)
@@ -533,7 +542,7 @@ function lead ()
                 parts.delete(frame);
             }
         next = to;
-        if (!settling && helpers.every(recent))
+        if (!settling && !ahead && helpers.every(recent))
             post({ type: 'dropping' });
     }
     while (complete(next))
