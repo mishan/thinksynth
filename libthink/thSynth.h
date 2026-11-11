@@ -330,6 +330,12 @@ public:
        reason masterGain is. */
     void setLimiter (bool on) { __atomic_store_n(&limiter_, on, __ATOMIC_RELAXED); }
 
+    /* Whether each channel measures its nodes' outputs voice by voice, for
+       thMidiChan::nodeLevels. Off unless an offline render asks, before
+       its first process(): measuring allocates on the thread that renders. */
+    void setNodeLevels (bool on) { nodeLevels_ = on; }
+    bool nodeLevels (void) const { return nodeLevels_; }
+
     /* The sample that begins the window process() is rendering, or last
        rendered, counted from the first: where a node is in time without a
        clock of its own. Every window process() renders counts, a silent
@@ -684,6 +690,7 @@ private:
     int windowlen_;
     float masterGain_;  /* see setMasterGain(); accessed atomically */
     bool limiter_;      /* see setLimiter(); accessed atomically */
+    bool nodeLevels_;   /* see setNodeLevels() */
     int64_t position_, rendered_;           /* see position() */
     int rasterWidth_, rasterHeight_;        /* see setRaster() */
     float tempo_;       /* see setTempo(); accessed atomically */

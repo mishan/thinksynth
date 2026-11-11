@@ -448,6 +448,7 @@ thSynth::thSynth (int windowlen, int samples, int channels)
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
     limiter_ = true;
+    nodeLevels_ = false;
     position_ = rendered_ = 0;
     rasterWidth_ = rasterHeight_ = 0;
     tempo_ = 120;
@@ -512,6 +513,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples,
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
     limiter_ = true;
+    nodeLevels_ = false;
     position_ = rendered_ = 0;
     rasterWidth_ = rasterHeight_ = 0;
     tempo_ = 120;
