@@ -175,8 +175,15 @@ here (const Note &n)
 void
 hold (std::map<std::pair<int, int>, Note> &held, const Note &n)
 {
-    if ((n.kind != FLUSH && !video_->follows(n.channel)) || !here(n))
+    if (n.kind != FLUSH && !video_->follows(n.channel))
         return;
+    /* Struck again on another worker: the voice here goes, as it would
+       to a voice struck again here. */
+    if (!here(n))
+    {
+        held.erase({ n.channel, n.note });
+        return;
+    }
     if (n.kind == ON)
         held[{ n.channel, n.note }] = n;
     else if (n.kind == OFF)
@@ -194,7 +201,18 @@ void
 play (const Note &n)
 {
     if (!here(n))
+    {
+        thMidiChan *chan = video_->synth()->getChannel(n.channel);
+
+        if (held_.count({ n.channel, n.note }) && video_->follows(n.channel))
+            video_->noteOff(n.channel, n.note);
+        /* A voice the other worker struck counts against this one's limit
+           too, as it would on one worker: the oldest here fades for it. */
+        if (chan != NULL && video_->follows(n.channel) && chan->polyMax() > 1)
+            chan->setPolyMax(chan->polyMax() - 1);
+        hold(held_, n);
         return;
+    }
     if (n.kind == ON)
         video_->noteOn(n.channel, n.note, n.velocity, n.level, n.aux);
     else if (n.kind == OFF && ends(held_, n))
@@ -510,6 +528,14 @@ tv_skip_to (double frame)
 {
     if (video_ != NULL && (int64_t)frame > video_->frames())
         skipTo((int64_t)frame);
+}
+
+/* The audio frame the picture is drawn to: silence a channel reports is
+   as of here, so a note queued past it is still to come. */
+EMSCRIPTEN_KEEPALIVE double
+tv_drawn (void)
+{
+    return video_ != NULL ? (double)video_->rendered() * audioRate_ / video_->rate() : 0;
 }
 
 /* 1 while a voice on `channel' still sounds, held, releasing or fading,

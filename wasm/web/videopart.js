@@ -175,7 +175,7 @@ function draw ()
     spent += now - began;
     if (now - since >= 1000)
     {
-        post({ type: 'busy', fraction: spent / (now - since),
+        post({ type: 'busy', fraction: spent / (now - since), drawn: M._tv_drawn(),
                silent: [...following].filter((ch) => !M._tv_sounding(ch)) });
         spent = 0;
         since = now;
@@ -235,7 +235,7 @@ function receive (m)
         break;
     case 'give':
         if (raster !== null)
-            M._tv_window(m.channel, -1e300, m.at);
+            M._tv_window(m.channel, m.from, m.at);
         break;
     case 'drop':
         if (raster !== null && following.has(m.channel))

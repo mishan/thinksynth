@@ -525,10 +525,14 @@ for (const [what, read, turn] of [
                                                                  'channels = 3; poly = 8;'));
         if (window)
             M._tv_window(0, ...window);
+        /* 64 struck again after the hand-over with no off between, as
+           a piece's overlapping notes are: the voice before goes, here
+           as with one module. */
         notes([{ at: 0, kind: ON, note: 60 }, { at: 5 * PER_FRAME, kind: ON, note: 64 },
                { at: 12 * PER_FRAME, kind: OFF, note: 60 },
-               { at: 18 * PER_FRAME, kind: OFF, note: 64 },
+               { at: 18 * PER_FRAME, kind: ON, note: 64, voice: 2 },
                { at: 20 * PER_FRAME, kind: ON, note: 67 },
+               { at: 24 * PER_FRAME, kind: OFF, note: 64, voice: 2 },
                { at: 30 * PER_FRAME, kind: OFF, note: 67 }]);
         M._tv_generated(45 * PER_FRAME);
     };

@@ -103,6 +103,8 @@ let scaler = null, told = 0;
 const pageSets = new Map();
 /* frame -> worker -> its planes for that frame. */
 const parts = new Map();
+/* channel -> the audio frame of the latest note on sent for it. */
+const latestOn = new Map();
 
 /* The workers drawing: this one first, then its helpers. Each has its
    share of the channels, whose notes it strikes, those it has handed on
@@ -148,9 +150,11 @@ async function start (m)
 
 function worker (fields)
 {
-    return { share: new Set(), fading: new Set(), busy: 0, last: performance.now(),
+    return { share: new Set(), fading: new Map(), from: new Map(), busy: 0,
+             last: performance.now(),
              gap: 1000 / raster.fps, ready: false, joinAt: Infinity, leaveAt: Infinity,
-             retiring: 0, silent: new Set(), started: performance.now(), ...fields };
+             retiring: 0, silent: new Set(), drawn: 0, started: performance.now(),
+             ...fields };
 }
 
 const helpers = () => workers.filter((w) => w !== self);
@@ -186,6 +190,7 @@ const ALWAYS = 1e300;
    on, to keep only those before `at', or to draw it no more. */
 function take (w, channel, at)
 {
+    w.from.set(channel, at);
     if (w === self)
     {
         followHere(channel);
@@ -195,12 +200,16 @@ function take (w, channel, at)
         w.worker.postMessage({ type: 'take', channel, at });
 }
 
+/* Handed on from where it was taken: a channel moved on again soon keeps
+   the notes before its first move with the worker before. */
 function give (w, channel, at)
 {
+    const from = w.from.get(channel) ?? -ALWAYS;
+
     if (w === self)
-        M._tv_window(channel, -ALWAYS, at);
+        M._tv_window(channel, from, at);
     else
-        w.worker.postMessage({ type: 'give', channel, at });
+        w.worker.postMessage({ type: 'give', channel, from, at });
 }
 
 function drop (w, channel)
@@ -211,23 +220,28 @@ function drop (w, channel)
         w.worker.postMessage({ type: 'drop', channel });
 }
 
-/* `channel' to `w' from the moment the audio has reached: its notes from
-   then on struck there, and those before left fading where they were. */
+/* `channel' to `w' from the moment the audio has reached, or just past
+   the latest note on already sent for it, as a MIDI-out channel's is,
+   stamped later: its notes from then on struck there, and those before
+   left fading where they were, which has them all. */
 function place (channel, w)
 {
     const from = workers.find((o) => o.share.has(channel));
 
     if (from === w)
         return;
+
+    const at = Math.max(lastAt, (latestOn.get(channel) ?? -ALWAYS) + 1);
+
     if (from !== undefined)
     {
         from.share.delete(channel);
-        from.fading.add(channel);
+        from.fading.set(channel, at);
         from.silent.delete(channel);
-        give(from, channel, lastAt);
+        give(from, channel, at);
     }
     w.share.add(channel);
-    take(w, channel, from === undefined ? -ALWAYS : lastAt);
+    take(w, channel, from === undefined ? -ALWAYS : at);
 }
 
 /* The joined worker with the fewest channels, other than `but', and not
@@ -253,6 +267,7 @@ function open (m, again = false, count = 1)
     for (const w of helpers())
         w.worker.terminate();
     parts.clear();
+    latestOn.clear();
     next = 0;
     epoch++;
     raster = { width: m.width, height: m.height, fps: m.fps, lines: m.lines,
@@ -298,6 +313,9 @@ function open (m, again = false, count = 1)
 
     for (let k = 1; k < Math.min(want, limit()); k++)
         addHelper(0);
+    /* Dealt among them all at once, each starting afresh: no hand-over,
+       so no voices drawn twice over while one fades. Frames wait for the
+       helpers' parts while their modules start. */
     for (const ch of following)
         place(ch, workers.reduce((a, b) => (b.share.size < a.share.size ? b : a)));
     say();
@@ -396,6 +414,7 @@ function fromHelper (w, m)
     case 'busy':
         w.busy = m.fraction;
         w.silent = new Set(m.silent);
+        w.drawn = m.drawn;
         break;
     case 'narrow':
         if (!narrowSaid)
@@ -456,7 +475,12 @@ function batch ({ frame, notes, inputs: heard, knobs: values })
 
     lastAt = frame - origin;
     for (let i = 0; i < count; i++)
+    {
         notes[i * RECORD] -= origin;
+        if (notes[i * RECORD + 1] === 1)
+            latestOn.set(notes[i * RECORD + 2], Math.max(notes[i * RECORD],
+                                                         latestOn.get(notes[i * RECORD + 2]) ?? -ALWAYS));
+    }
     inputs = heard;
 
     const turned = [];
@@ -524,8 +548,10 @@ function giveBack (w, buffer)
         w.worker.postMessage({ type: 'back', epoch, buffer }, [buffer]);
 }
 
-/* The workers a frame has a part from. */
-const needed = (frame) => workers.filter((w) => w.ready && w.joinAt <= frame &&
+/* The workers a frame has a part from: those joined, and those opened
+   with this one, whose parts it waits for while they start. */
+const needed = (frame) => workers.filter((w) => (w.ready || w.joinFrom === 0) &&
+                                                Math.min(w.joinAt, w.joinFrom ?? Infinity) <= frame &&
                                                 frame < w.leaveAt);
 
 const complete = (frame) =>
@@ -659,8 +685,11 @@ function lead ()
         if (!settling && !scaler.canGrow(active().length) && workers.every(recent))
             post({ type: 'dropping' });
     }
+    const composing = performance.now();
+
     while (complete(next))
         compose(next++);
+    spent += performance.now() - composing;
     if (next >= reachable)
         settling = false;
 
@@ -694,7 +723,8 @@ function lead ()
 function second (now)
 {
     self.busy = spent / (now - since);
-    self.silent = new Set([...self.fading].filter((ch) => !M._tv_sounding(ch)));
+    self.silent = new Set([...self.fading.keys()].filter((ch) => !M._tv_sounding(ch)));
+    self.drawn = M._tv_drawn();
 
     const drawing = active();
     const busy = Math.max(...drawing.map((w) => w.busy));
@@ -730,9 +760,11 @@ function second (now)
    and a channel from the fullest worker to the emptiest. */
 function move (now)
 {
+    /* Silent there as of a point past the hand-over, so nothing struck
+       before it is still to come. */
     for (const w of workers)
-        for (const ch of [...w.fading])
-            if (w.silent.has(ch))
+        for (const [ch, at] of [...w.fading])
+            if (w.silent.has(ch) && w.drawn >= at)
             {
                 w.fading.delete(ch);
                 w.silent.delete(ch);
@@ -758,15 +790,16 @@ function move (now)
 
     const room = active();
 
-    if (room.length < 2)
-        return;
+    while (room.length >= 2)
+    {
+        const full = room.reduce((a, b) => (b.share.size > a.share.size ? b : a));
+        const ch = [...full.share].find((c) => fewest(c, full) !== undefined);
+        const empty = ch === undefined ? undefined : fewest(ch, full);
 
-    const full = room.reduce((a, b) => (b.share.size > a.share.size ? b : a));
-    const ch = [...full.share][0];
-    const empty = fewest(ch, full);
-
-    if (empty !== undefined && full.share.size - empty.share.size >= 2)
+        if (empty === undefined || full.share.size - empty.share.size < 2)
+            break;
         place(ch, empty);
+    }
 }
 
 function draw ()
@@ -776,6 +809,7 @@ function draw ()
         return;
 
     const more = drawHere();
+    const blocked = ownPool.length + PART_BUFFERS - ownMade < 2;
 
     lead();
 
@@ -786,7 +820,10 @@ function draw ()
         narrowSaid = true;
         post({ type: 'narrow', text: narrow });
     }
-    if (more || complete(next))
+    /* Composing gives this worker its buffers back. */
+    const freed = blocked && ownPool.length + PART_BUFFERS - ownMade >= 2;
+
+    if (more || freed || complete(next))
         soon();
 }
 
