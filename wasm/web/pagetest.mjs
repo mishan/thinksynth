@@ -5080,8 +5080,12 @@ try
 
         const leader = v.workers().filter((w) => w.url().includes('videoworker')).at(-1);
         let narrowest = 160;
+        /* At the most workers it may use, belfry's nine channels or a core
+           fewer than there are, held up is a machine too slow, which
+           shrinks. */
+        const most = `drawn by ${Math.min(cores - 1, 9)} workers`;
 
-        for (let k = 0; k < 8; k++)
+        for (let k = 0; k < 8 && !said.at(-1)?.includes(most); k++)
         {
             await leader.evaluate(() =>
             {
