@@ -4824,7 +4824,7 @@ try
             for (let i = 0; i < 5; i++)
             {
                 await stall();
-                await v.waitForTimeout(300);
+                await v.waitForTimeout(100);
             }
         };
         const busy = (full, small) => drawer.evaluate(([full, small]) =>

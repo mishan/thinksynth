@@ -326,9 +326,9 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
            spare is a hiccup, which a smaller picture would not cure. */
         else if (m.type === 'busy' && r.scale === 1)
         {
-            r.late = r.dropped ? r.late + 1 : 0;
+            r.late = r.dropped && m.fraction >= HOT ? r.late + 1 : 0;
             r.dropped = false;
-            if (r.late >= 2 && m.fraction >= HOT)
+            if (r.late >= 2)
             {
                 r.scale = SMALLER;
                 r.dropping = 0;
@@ -453,6 +453,8 @@ export function createVideoView ({ canvas, frame, patch, fx, knobs, status, full
             run.scale = 1;
             run.dropping = 0;
             run.patience = 0;
+            run.late = 0;
+            run.dropped = false;
             open(run).catch((e) => fail(`the video: ${e.message}`));
         }
         else if (failed && shown)
