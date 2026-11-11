@@ -53,9 +53,12 @@ include(TestBigEndian)
 # 10: thSynthTree keeps the units its node values were written in, before
 # members its inline accessors read, and its fingerprint and compiled
 # graph.
+#
+# 11: thMidiChan keeps each voice's node levels, and thSynth a switch for
+# them (setNodeLevels), so both are a different size.
 # ---------------------------------------------------------------------------
 
-set(THINK_LIB_MAJOR 10)
+set(THINK_LIB_MAJOR 11)
 set(THINK_LIB_MINOR 0)
 
 # ---------------------------------------------------------------------------

@@ -182,6 +182,10 @@ static void usage (const char *argv0)
            "(default all)\n"
            "      --interpret         run every graph on its nodes, not "
            "compiled\n"
+           "      --node-levels       each node output's peak and RMS in its "
+           "loudest voice,\n"
+           "                          and where it was silent or never ran "
+           "(implies --interpret)\n"
            "  -q, --quiet             no summary\n",
            argv0);
 }
@@ -605,7 +609,7 @@ int main (int argc, char **argv)
     std::string jsonFile, stemsDir;
     std::string videoDsp, videoFx, videoFile, raster = "160x120@60", videoFollow;
     std::string videoRan;           /* how, for the summary */
-    bool interpret = false;
+    bool interpret = false, nodeLevels = false;
 
     struct KnobMove { double at; std::string name; float value; };
     std::vector<KnobMove> moves;
@@ -747,6 +751,8 @@ int main (int argc, char **argv)
             listStages = true;
         else if (!strcmp(argv[i], "--interpret"))
             interpret = true;
+        else if (!strcmp(argv[i], "--node-levels"))
+            interpret = nodeLevels = true;
         else if (!strcmp(argv[i], "--levels"))
             levels = levelsText = true;
         else if (!strcmp(argv[i], "--sections"))
@@ -781,7 +787,7 @@ int main (int argc, char **argv)
     }
 
     if (wavFile.empty() && tapeFile.empty() && midiFile.empty() && quiet &&
-        !levels && !sections && !checkOnly && !listStages &&
+        !levels && !nodeLevels && !sections && !checkOnly && !listStages &&
         stemsDir.empty() && videoFile.empty())
     {
         fprintf(stderr, "%s: nothing to write and nothing to say\n", argv[0]);
@@ -829,6 +835,8 @@ int main (int argc, char **argv)
         thCompiledInstall();
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
     thcScheduler sched(&synth);
+
+    synth.setNodeLevels(nodeLevels);
 
     sched.setGrower([&synth] (const std::string &text,
                               const std::string &base, unsigned int choice,
@@ -1523,6 +1531,88 @@ int main (int argc, char **argv)
         fputc('\n', stderr);
     }
 
+    /* By channel: what a node outputs, measured in each voice -- the graph
+       is run on its nodes for it, as --interpret does, since a compiled
+       graph has none. */
+    std::vector<std::vector<thMidiChan::NodeLevel> > channelNodes;
+
+    for (int ch = 0; nodeLevels && ch < synth.midiChanCount(); ch++)
+    {
+        thMidiChan *chan = synth.getChannel(ch);
+
+        channelNodes.push_back(chan != NULL ? chan->nodeLevels()
+                                            : std::vector<thMidiChan::NodeLevel>());
+    }
+
+    /* In dBFS where an output is a signal, full scale or a number with no
+       unit; in its own unit otherwise, where a frequency of 261.6 would
+       read as +48 dBFS. */
+    const auto signal = [] (const thMidiChan::NodeLevel &l)
+    {
+        return l.units.empty() || l.units == "full scale";
+    };
+    const auto level = [&] (const thMidiChan::NodeLevel &l, float v) -> std::string
+    {
+        char text[32];
+
+        if (!signal(l))
+            snprintf(text, sizeof text, "%.1f", v);
+        else if (v <= 0)
+            return "-inf";
+        else
+            snprintf(text, sizeof text, "%.1f", 20 * log10(v));
+        return text;
+    };
+    for (size_t ch = 0; ch < channelNodes.size(); ch++)
+    {
+        bool ran = false;
+
+        for (const auto &l : channelNodes[ch])
+            ran = ran || l.voices > 0;
+        if (!ran)
+            continue;
+
+        fprintf(stderr, "node levels, %s (loudest voice, peak / RMS dBFS):\n",
+                channelName((int)ch).c_str());
+
+        for (const auto &l : channelNodes[ch])
+        {
+            const std::string name = l.node + ":" + l.arg;
+
+            if (l.voices == 0)
+            {
+                fprintf(stderr, "  %-24s not run\n", name.c_str());
+                continue;
+            }
+
+            std::string flag;
+
+            /* Not loud: a node past full scale is no fault while what it
+               feeds brings it back, as an FM index does. Nor silent where
+               it has a unit, as a gate or a count at 0 is not. */
+            if (l.nonfinite > 0)
+                flag = "non-finite in " + std::to_string(l.nonfinite) + " of " +
+                       std::to_string(l.voices) + " voices";
+            else if (l.silent > 0 && signal(l))
+                flag = "silent in " + std::to_string(l.silent) + " of " +
+                       std::to_string(l.voices) + " voices";
+            else if (!signal(l))
+                flag = l.units;
+
+            if (flag.empty())
+                fprintf(stderr, "  %-24s %6s / %s\n", name.c_str(),
+                        level(l, l.peak).c_str(), level(l, l.rms).c_str());
+            else if (!signal(l) && l.nonfinite == 0)
+                fprintf(stderr, "  %-24s %6s / %s %s\n", name.c_str(),
+                        level(l, l.peak).c_str(), level(l, l.rms).c_str(),
+                        flag.c_str());
+            else
+                fprintf(stderr, "  %-24s %6s / %-6s  %s\n", name.c_str(),
+                        level(l, l.peak).c_str(), level(l, l.rms).c_str(),
+                        flag.c_str());
+        }
+    }
+
     if (sectionsText)
     {
         fprintf(stderr, "section                   mix RMS\n");
@@ -1753,7 +1843,8 @@ int main (int argc, char **argv)
 
         for (size_t ch = 0; ch < channelLevels.size(); ch++)
         {
-            if (!channelLevels[ch].count && !channelDiffs[ch].count)
+            if (!channelLevels[ch].count && !channelDiffs[ch].count &&
+                (ch >= channelNodes.size() || channelNodes[ch].empty()))
                 continue;
 
             const std::string lufs = lufsText(channelLoudness[ch].get());
@@ -1777,6 +1868,37 @@ int main (int argc, char **argv)
             {
                 jsonKey(out, "diffRms");
                 jsonNumber(out, channelDiffs[ch].rms());
+            }
+
+            if (ch < channelNodes.size())
+            {
+                jsonKey(out, "nodes");
+                out += '[';
+
+                for (const auto &l : channelNodes[ch])
+                {
+                    if (out.back() != '[')
+                        out += ',';
+                    out += '{';
+                    jsonKey(out, "node");
+                    jsonString(out, l.node);
+                    jsonKey(out, "arg");
+                    jsonString(out, l.arg);
+                    jsonKey(out, "units");
+                    jsonString(out, l.units);
+                    jsonKey(out, "peak");
+                    jsonNumber(out, l.peak);
+                    jsonKey(out, "rms");
+                    jsonNumber(out, l.rms);
+                    jsonKey(out, "silentVoices");
+                    jsonInt(out, signal(l) ? l.silent : 0);
+                    jsonKey(out, "nonFiniteVoices");
+                    jsonInt(out, l.nonfinite);
+                    jsonKey(out, "voices");
+                    jsonInt(out, l.voices);
+                    out += '}';
+                }
+                out += ']';
             }
 
             out += '}';

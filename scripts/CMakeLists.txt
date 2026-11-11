@@ -1080,6 +1080,15 @@ add_test(NAME genwav.meters
                  -DTAPE=${PROJECT_BINARY_DIR}/genwav-meters.tape
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavMeters.cmake")
 
+add_test(NAME genwav.nodelevels
+         COMMAND "${CMAKE_COMMAND}"
+                 -DGENWAV=$<TARGET_FILE:genwav>
+                 -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/nodelevels.gen
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DWORK=${PROJECT_BINARY_DIR}/genwav-nodelevels
+                 -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavNodeLevels.cmake")
+
 add_test(NAME genwav.video
          COMMAND "${CMAKE_COMMAND}"
                  -DGENWAV=$<TARGET_FILE:genwav>

@@ -1458,6 +1458,20 @@ accumulate into one row per section name.
 The level table names a channel twice: `channel` is the one-based number the
 application shows, `engine` the zero-based one every event line carries.
 
+`genwav --node-levels` says where in a graph a level comes from: for every
+output of every node, the largest peak and the largest RMS any voice gave it,
+and how many of the voices that ran the node it was silent in (under -100
+dBFS) or went non-finite in. A signal, full scale or unitless, is in dBFS;
+anything with a unit, a frequency or a count of samples, in that unit, and
+never called silent. A node no voice ever ran, one nothing reads, says `not
+run`. Measured voice by voice, because a chord sums voices that are each at
+a sane level, and before the voice is mixed, so one that went non-finite
+still reports. The graph runs on its nodes for it, as under `--interpret`,
+and renders the same. Over the whole render, whatever `--from` and
+`--length` keep. Channel effects are not measured, and a channel's levels
+are those of the graph it ends on: a `gen::swap` leaves only the last.
+`--json` carries the same under each channel's `nodes`.
+
 `genwav --knob NAME=A` sets the piece's `@NAME` to A before Play. `--knob
 NAME=A,B` renders the piece a second time with it at B, on the same seed and in
 step with the first, and the level table gains a `diff RMS` column: the RMS of

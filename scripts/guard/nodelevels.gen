@@ -1,0 +1,31 @@
+# Two notes at once on scripts/guard/nodelevels.dsp, for genwav
+# --node-levels: see that file for what each node is there to show, and
+# cmake/RunGenwavNodeLevels.cmake for what is checked. And one on
+# dxbell.dsp, which the build compiles, so it is measured only if
+# --node-levels runs it on its nodes.
+
+tempo 60;
+
+section chord 1.5 s { };
+section end;
+
+instrument nl { dsp "../scripts/guard/nodelevels.dsp"; };
+instrument bell { dsp "dxbell.dsp"; };
+
+chain low {
+    stage seq gen::grid { notes = "C4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 1 beats; };
+    sink { instrument = nl; };
+};
+
+chain high {
+    stage seq gen::grid { notes = "G4"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 1 beats; };
+    sink { instrument = nl; };
+};
+
+chain ring {
+    stage seq gen::grid { notes = "C5"; steps = 1; rows = 1; cells = "x";
+        period = 32 beats; hold = 1 beats; };
+    sink { instrument = bell; };
+};

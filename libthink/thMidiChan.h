@@ -20,6 +20,8 @@
 #define TH_MIDICHAN_H 1
 
 #include <atomic>
+#include <map>
+#include <vector>
 
 #include "thExport.h"
 
@@ -254,6 +256,23 @@ public:
 
     thSynthTree *modnode (void) { return modnode_; }
 
+    /* One node output's level over a render, where thSynth::setNodeLevels
+     * is on: the largest peak and the largest RMS any voice gave it, in its
+     * units, over its finite samples; and of the voices that ran the node,
+     * how many it was silent in and how many it went non-finite in.
+     * Measured voice by voice because a level summed across voices would
+     * call a node loud that is only loud as a chord. */
+    struct NodeLevel
+    {
+        string node, arg, units;
+        float peak, rms;
+        int silent, nonfinite, voices;  /* voices 0: no voice ran the node */
+    };
+
+    /* Every output of every node of the channel's graph, the voices still
+       sounding counted as they stand. */
+    std::vector<NodeLevel> nodeLevels (void) const;
+
     /* A number no other channel object has ever had.
      *
      * Probes resolve a node to an id against the tree a particular channel is
@@ -362,6 +381,18 @@ private:
 
     bool dirty_;
     thSynthTree *modnode_;
+
+    /* Where thSynth::nodeLevels is on: each sounding voice's levels so far,
+       by node id and plugin arg index, and those of the voices retired. */
+    struct LevelSum { float peak; double sumsq; unsigned long n, bad; };
+    typedef std::map<std::pair<int, int>, LevelSum> VoiceLevels;
+    struct LevelTotal { float peak, rms; int silent, nonfinite, voices; };
+    typedef std::map<std::pair<int, int>, LevelTotal> LevelTotals;
+    std::map<const thMidiNote *, VoiceLevels> voiceLevels_;
+    LevelTotals levelTotals_;
+    void measureVoice (const thMidiNote *note, thSynthTree *tree);
+    void finishVoice (const thMidiNote *note);
+    static void addVoice (const VoiceLevels &voice, LevelTotals &totals);
 
     /* The channel's effect, or NULL. Owned here, installed by setEffect. */
     thChanEffect *effect_;

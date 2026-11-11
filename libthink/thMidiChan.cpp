@@ -359,6 +359,8 @@ void thMidiChan::retireNote (thMidiNote *note, RetireQueue *retire)
     if (note == NULL)
         return;
 
+    finishVoice(note);
+
     thRetired item;
 
     item.kind = thRetired::NOTE;
@@ -1520,6 +1522,13 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
         probes[p]->accumulate(tree);
     }
 
+    /* Before the non-finite guard, so a voice that went bad still says
+       where. */
+    if (tree->synth() != NULL && tree->synth()->nodeLevels())
+    {
+        measureVoice(note, tree);
+    }
+
     thArg *play = resolveIOArg(tree, playindex_);
     thArg *trigger = resolveIOArg(tree, triggerindex_);
 
@@ -1622,6 +1631,117 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
     }
 
     return play;
+}
+
+void thMidiChan::measureVoice (const thMidiNote *note, thSynthTree *tree)
+{
+    VoiceLevels &levels = voiceLevels_[note];
+
+    for (const auto &n : tree->nodes())
+    {
+        const thNode *node = n.second;
+        const thPlugin *plug = node != NULL ? node->plugin() : NULL;
+
+        for (int i = 0; plug != NULL && i < plug->argCount(); i++)
+        {
+            thArg *arg = plug->getArgDir(i) == thPlugin::ARG_OUT
+                ? node->getArg(plug->getArgName(i)) : NULL;
+
+            if (arg == NULL || arg->values() == NULL)
+                continue;
+
+            LevelSum &sum = levels[std::make_pair(node->id(), i)];
+            const unsigned int len = std::min(arg->len(),
+                                              (unsigned int)windowlength_);
+
+            /* A scalar holds for the whole window, so it weighs as much
+               as a window of samples does. */
+            const unsigned long weight = len == 1 ? windowlength_ : 1;
+
+            /* A NaN would drop out of max() without a trace, and an
+               infinity would be the only number left: counted instead. */
+            for (unsigned int j = 0; j < len; j++)
+            {
+                const float v = arg->values()[j];
+
+                if (!std::isfinite(v))
+                {
+                    sum.bad++;
+                    continue;
+                }
+                sum.peak = std::max(sum.peak, std::fabs(v));
+                sum.sumsq += (double)v * v * weight;
+                sum.n += weight;
+            }
+        }
+    }
+}
+
+/* Below this a voice's output counts as silent: -100 dBFS. */
+static const float TH_LEVEL_SILENT = 1e-5f;
+
+void thMidiChan::finishVoice (const thMidiNote *note)
+{
+    const auto v = voiceLevels_.find(note);
+
+    if (v == voiceLevels_.end())
+        return;
+
+    addVoice(v->second, levelTotals_);
+    voiceLevels_.erase(v);
+}
+
+void thMidiChan::addVoice (const VoiceLevels &voice, LevelTotals &totals)
+{
+    for (const auto &l : voice)
+    {
+        LevelTotal &total = totals[l.first];
+        const float rms = l.second.n
+            ? (float)std::sqrt(l.second.sumsq / l.second.n) : 0;
+
+        total.peak = std::max(total.peak, l.second.peak);
+        total.rms = std::max(total.rms, rms);
+        total.nonfinite += l.second.bad > 0;
+        total.silent += l.second.bad == 0 && l.second.peak < TH_LEVEL_SILENT;
+        total.voices++;
+    }
+}
+
+std::vector<thMidiChan::NodeLevel> thMidiChan::nodeLevels (void) const
+{
+    LevelTotals totals = levelTotals_;
+
+    for (const auto &v : voiceLevels_)
+        addVoice(v.second, totals);
+
+    std::vector<NodeLevel> out;
+
+    for (const auto &n : modnode_->nodes())
+    {
+        const thNode *node = n.second;
+        const thPlugin *plug = node != NULL ? node->plugin() : NULL;
+
+        for (int i = 0; plug != NULL && i < plug->argCount(); i++)
+        {
+            if (plug->getArgDir(i) != thPlugin::ARG_OUT)
+                continue;
+
+            const auto t = totals.find(std::make_pair(node->id(), i));
+            NodeLevel l = { node->name(), plug->getArgName(i),
+                            plug->getArgUnits(i), 0, 0, 0, 0, 0 };
+
+            if (t != totals.end())
+            {
+                l.peak = t->second.peak;
+                l.rms = t->second.rms;
+                l.silent = t->second.silent;
+                l.nonfinite = t->second.nonfinite;
+                l.voices = t->second.voices;
+            }
+            out.push_back(l);
+        }
+    }
+    return out;
 }
 
 /* XXX: the tree this walks is shared between every channel that loaded the same
