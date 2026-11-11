@@ -92,6 +92,10 @@ std::deque<std::pair<int64_t, std::vector<uint8_t> > > done_;
 std::string said_;
 std::vector<double> noteBuffer_;
 bool interpret_ = false;
+/* tv_window: the audio frames a channel's notes may be struck in here,
+   for a channel being handed between workers. */
+std::map<int, std::pair<double, double> > windows_;
+
 /* tv_planes: finished frames as float planes, for a leader to sum. */
 bool planes_ = false;
 /* tv_rgba's: a frame's planes in, its RGBA out. */
@@ -155,12 +159,23 @@ ends (const std::map<std::pair<int, int>, Note> &held, const Note &n)
     return h != held.end() && (n.voice == 0 || h->second.voice == n.voice);
 }
 
+/* Whether `n' is struck here: a note on outside its channel's window is
+   another worker's. Offs and flushes always are. */
+bool
+here (const Note &n)
+{
+    const auto w = windows_.find(n.channel);
+
+    return n.kind != ON || w == windows_.end() ||
+           (n.at >= w->second.first && n.at < w->second.second);
+}
+
 /* Notes for a channel the picture does not follow are not held: nothing
    draws them, and a skip must not strike them if it comes to. */
 void
 hold (std::map<std::pair<int, int>, Note> &held, const Note &n)
 {
-    if (n.kind != FLUSH && !video_->follows(n.channel))
+    if ((n.kind != FLUSH && !video_->follows(n.channel)) || !here(n))
         return;
     if (n.kind == ON)
         held[{ n.channel, n.note }] = n;
@@ -178,6 +193,8 @@ hold (std::map<std::pair<int, int>, Note> &held, const Note &n)
 void
 play (const Note &n)
 {
+    if (!here(n))
+        return;
     if (n.kind == ON)
         video_->noteOn(n.channel, n.note, n.velocity, n.level, n.aux);
     else if (n.kind == OFF && ends(held_, n))
@@ -251,6 +268,7 @@ tv_open (int width, int height, int fps, int lines, int audioRate)
         thCompiledInstall();
     video_.reset(new thVideoSynth);
     queue_.clear();
+    windows_.clear();
     inputs_.clear();
     knobs_.clear();
     held_.clear();
@@ -303,9 +321,19 @@ tv_effect (const char *name, const char *fx)
     return said_.c_str();
 }
 
+/* Notes on for `channel' struck from audio frame `from' up to `until'
+   are drawn here, and others not: the window a worker handing it over
+   keeps, or the one it is handed. */
+EMSCRIPTEN_KEEPALIVE void
+tv_window (int channel, double from, double until)
+{
+    windows_[channel] = std::make_pair(from, until);
+}
+
 EMSCRIPTEN_KEEPALIVE void
 tv_unfollow (int channel)
 {
+    windows_.erase(channel);
     if (video_ != NULL)
         video_->unfollow(channel);
     hold(held_, Note { 0, 0, 0, FLUSH, channel, 0, 0, 0, {} });

@@ -507,6 +507,73 @@ for (const [what, read, turn] of [
         check(`workers: ${name}`, ok(decisions), `decisions ${decisions.join(' ')}`);
 }
 
+/* A channel handed over at frame 15 (tv_window): one module keeps its
+   notes struck before, release and all, the other takes those struck
+   from then on, and the two summed draw what one module drawing the
+   channel throughout does, within a step. */
+{
+    const whole = M;
+    const halves = [await createThinkWeb({ print: () => {}, printErr: () => {} }),
+                    await createThinkWeb({ print: () => {}, printErr: () => {} })];
+    const at = 15 * PER_FRAME;
+    const play = (window) =>
+    {
+        open();
+        /* Past the video channel's two voices: during a hand-over each
+           side has its own, so three at once are drawn by both. */
+        follow(0, 'white', flat([0.3, 0.6, 1], '300 ms').replace('channels = 3;',
+                                                                 'channels = 3; poly = 8;'));
+        if (window)
+            M._tv_window(0, ...window);
+        notes([{ at: 0, kind: ON, note: 60 }, { at: 5 * PER_FRAME, kind: ON, note: 64 },
+               { at: 12 * PER_FRAME, kind: OFF, note: 60 },
+               { at: 18 * PER_FRAME, kind: OFF, note: 64 },
+               { at: 20 * PER_FRAME, kind: ON, note: 67 },
+               { at: 30 * PER_FRAME, kind: OFF, note: 67 }]);
+        M._tv_generated(45 * PER_FRAME);
+    };
+
+    M = whole;
+    play(null);
+
+    const drawn = render();
+    const parts = [[-1e300, at], [at, 1e300]].map((window, k) =>
+    {
+        M = halves[k];
+        M._tv_planes(1);
+        play(window);
+        return renderPlanes();
+    });
+
+    M = whole;
+
+    let why = '';
+
+    for (let f = 0; f < drawn.length && !why; f++)
+    {
+        const sum = new Float32Array(3 * W * H);
+
+        for (const p of parts)
+            for (let i = 0; i < sum.length; i++)
+                sum[i] += p[f].planes[i];
+
+        const composed = rgba(sum);
+
+        for (let i = 0; i < composed.length && !why; i++)
+            if (Math.abs(composed[i] - drawn[f].rgba[i]) > 1)
+                why = `frame ${f}, byte ${i}: ${composed[i]} handed over, ${drawn[f].rgba[i]} whole`;
+    }
+
+    const lit = (p, f) => p[f].planes.some((v) => v > 0);
+
+    check('a channel handed over at a moment draws what one module drawing it throughout does',
+          why === '' && drawn.length === 45 && lit(parts[0], 16) && !lit(parts[0], 40) &&
+          !lit(parts[1], 16) && lit(parts[1], 25),
+          why || `${drawn.length} frames; the first lit at 16: ${lit(parts[0], 16)}, at 40: ` +
+                 `${lit(parts[0], 40)}; the second at 16: ${lit(parts[1], 16)}, at 25: ` +
+                 `${lit(parts[1], 25)}`);
+}
+
 /* A note struck half way through frame 10. */
 {
     open();
