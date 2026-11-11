@@ -107,19 +107,6 @@ function open (m)
         follow(ch, m.patch);
 }
 
-function share (list)
-{
-    for (const ch of following)
-        if (!list.includes(ch))
-        {
-            M._tv_unfollow(ch);
-            following.delete(ch);
-        }
-    for (const ch of list)
-        if (!following.has(ch))
-            follow(ch, raster.patch);
-}
-
 /* A batch as the leader stamped it: notes and `at' already in frames from
    the picture's start. */
 function batch ({ at, notes, inputs, knobs })
@@ -188,7 +175,8 @@ function draw ()
     spent += now - began;
     if (now - since >= 1000)
     {
-        post({ type: 'busy', fraction: spent / (now - since) });
+        post({ type: 'busy', fraction: spent / (now - since), drawn: M._tv_drawn(),
+               silent: [...following].filter((ch) => !M._tv_sounding(ch)) });
         spent = 0;
         since = now;
     }
@@ -235,9 +223,26 @@ function receive (m)
     case 'open':
         open(m);
         break;
-    case 'share':
+    /* A channel's notes struck from `at' on, or only those before it,
+       which a channel handed between workers is; or none of it. */
+    case 'take':
         if (raster !== null)
-            share(m.list);
+        {
+            if (!following.has(m.channel))
+                follow(m.channel, raster.patch);
+            M._tv_window(m.channel, m.at, 1e300);
+        }
+        break;
+    case 'give':
+        if (raster !== null)
+            M._tv_window(m.channel, m.from, m.at);
+        break;
+    case 'drop':
+        if (raster !== null && following.has(m.channel))
+        {
+            M._tv_unfollow(m.channel);
+            following.delete(m.channel);
+        }
         break;
     case 'set':
         M.ccall('tv_set_at', null, ['string', 'number', 'number'], [m.name, m.value, m.at]);

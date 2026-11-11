@@ -49,6 +49,7 @@ const video = path.join(here, '..', '..', 'video');
 
 const { default: createThinkWeb } =
     await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
+const { Scaler, SHRINK_S } = await import(pathToFileURL(path.join(here, 'videoscale.js')).href);
 
 /* `M' is the module the helpers below drive. */
 let M = await createThinkWeb({ print: () => {}, printErr: () => {} });
@@ -436,6 +437,193 @@ for (const [what, read, turn] of [
               why === '' && drawn.length === 45 && peak(drawn[20]) > 64,
               why || `${drawn.length} frames, peak ${drawn[20] && peak(drawn[20])}`);
     }
+}
+
+/* Whether a channel's voices still sound (tv_sounding): while a note is
+   held, while its release runs out, and not after, which is when a
+   channel can be moved to another worker without cutting anything. */
+{
+    open();
+    follow(0, 'white', flat([1, 1, 1], '200 ms'));
+
+    const sounding = () => M._tv_sounding(0);
+    const before = sounding();
+
+    notes([{ at: 0, kind: ON }, { at: 10 * PER_FRAME, kind: OFF }]);
+    M._tv_generated(5 * PER_FRAME);
+    render();
+
+    const held = sounding();
+
+    M._tv_generated(14 * PER_FRAME);
+    render();
+
+    const fading = sounding();
+
+    M._tv_generated(40 * PER_FRAME);
+    render();
+    check('a channel sounds while its note is held and its release runs out, and not after',
+          before === 0 && held === 1 && fading === 1 && sounding() === 0,
+          `before ${before}, held ${held}, releasing ${fading}, after ${sounding()}`);
+}
+
+/* How many workers draw (videoscale.js), told second by second how busy
+   the busiest was and what it skipped: one more after two seconds behind,
+   never past the limit, one fewer after ten with room, a longer wait after
+   one let go had to come back, and the page's number kept to. */
+{
+    /* `seconds' [busy, skips] from `workers'; each second's answer, the
+       workers following it. */
+    const run = (scaler, workers, seconds) => seconds.map(([busy, skips], t) =>
+    {
+        const d = scaler.tick({ busy, skips, workers, now: t });
+
+        workers += d;
+        return d;
+    });
+    const at = (decisions, want) => decisions.flatMap((d, t) => (d === want ? [t] : []));
+    const hot = (n) => Array(n).fill([0.9, 0]), idle = (n) => Array(n).fill([0.2, 0]);
+    const cases = [
+        ['two seconds behind adds a worker, one does not',
+         run(new Scaler({ limit: 4 }), 1, [[0.9, 0], [0.1, 0], [0.5, 3], [0.5, 1]]),
+         (d) => at(d, 1).join() === '3'],
+        ['behind at the limit adds none',
+         run(new Scaler({ limit: 2 }), 2, hot(6)), (d) => at(d, 1).length === 0],
+        ['ten seconds with room lets one go, and not before',
+         run(new Scaler({ limit: 4 }), 2, idle(SHRINK_S + 2)),
+         (d) => at(d, -1).join() === String(SHRINK_S - 1)],
+        ['busy enough that one fewer would not keep up keeps them',
+         run(new Scaler({ limit: 4 }), 2, Array(30).fill([0.35, 0])),
+         (d) => at(d, -1).length === 0],
+        ['one let go that had to come back waits twice as long next time',
+         run(new Scaler({ limit: 4 }), 2, [...idle(SHRINK_S), ...hot(2), ...idle(2 * SHRINK_S + 1)]),
+         (d) => at(d, -1).join() === `${SHRINK_S - 1},${3 * SHRINK_S + 1}`],
+        ['the page\'s number is kept to, behind or idle',
+         run(new Scaler({ limit: 8, fixed: 3 }), 1, [...hot(4), ...idle(20)]),
+         (d) => at(d, 1).join() === '0,1' && at(d, -1).length === 0],
+    ];
+
+    for (const [name, decisions, ok] of cases)
+        check(`workers: ${name}`, ok(decisions), `decisions ${decisions.join(' ')}`);
+}
+
+/* A channel handed over at frame 15 (tv_window): one module keeps its
+   notes struck before, release and all, the other takes those struck
+   from then on, and the two summed draw what one module drawing the
+   channel throughout does, within a step. */
+{
+    const whole = M;
+    const halves = [await createThinkWeb({ print: () => {}, printErr: () => {} }),
+                    await createThinkWeb({ print: () => {}, printErr: () => {} })];
+    const at = 15 * PER_FRAME;
+    const play = (window) =>
+    {
+        open();
+        /* Past the video channel's two voices: during a hand-over each
+           side has its own, so three at once are drawn by both. */
+        follow(0, 'white', flat([0.3, 0.6, 1], '300 ms').replace('channels = 3;',
+                                                                 'channels = 3; poly = 8;'));
+        if (window)
+            M._tv_window(0, ...window);
+        /* 64 struck again after the hand-over with no off between, as
+           a piece's overlapping notes are: the voice before goes, here
+           as with one module. */
+        notes([{ at: 0, kind: ON, note: 60 }, { at: 5 * PER_FRAME, kind: ON, note: 64 },
+               { at: 12 * PER_FRAME, kind: OFF, note: 60 },
+               { at: 18 * PER_FRAME, kind: ON, note: 64, voice: 2 },
+               { at: 20 * PER_FRAME, kind: ON, note: 67 },
+               { at: 24 * PER_FRAME, kind: OFF, note: 64, voice: 2 },
+               { at: 30 * PER_FRAME, kind: OFF, note: 67 }]);
+        M._tv_generated(45 * PER_FRAME);
+    };
+
+    M = whole;
+    play(null);
+
+    const drawn = render();
+    const parts = [[-1e300, at], [at, 1e300]].map((window, k) =>
+    {
+        M = halves[k];
+        M._tv_planes(1);
+        play(window);
+        return renderPlanes();
+    });
+
+    M = whole;
+
+    let why = '';
+
+    for (let f = 0; f < drawn.length && !why; f++)
+    {
+        const sum = new Float32Array(3 * W * H);
+
+        for (const p of parts)
+            for (let i = 0; i < sum.length; i++)
+                sum[i] += p[f].planes[i];
+
+        const composed = rgba(sum);
+
+        for (let i = 0; i < composed.length && !why; i++)
+            if (Math.abs(composed[i] - drawn[f].rgba[i]) > 1)
+                why = `frame ${f}, byte ${i}: ${composed[i]} handed over, ${drawn[f].rgba[i]} whole`;
+    }
+
+    const lit = (p, f) => p[f].planes.some((v) => v > 0);
+
+    check('a channel handed over at a moment draws what one module drawing it throughout does',
+          why === '' && drawn.length === 45 && lit(parts[0], 16) && !lit(parts[0], 40) &&
+          !lit(parts[1], 16) && lit(parts[1], 25),
+          why || `${drawn.length} frames; the first lit at 16: ${lit(parts[0], 16)}, at 40: ` +
+                 `${lit(parts[0], 40)}; the second at 16: ${lit(parts[1], 16)}, at 25: ` +
+                 `${lit(parts[1], 25)}`);
+}
+
+/* A module taking a channel at frame 15 hears the other's notes struck
+   before; once they end, its own two voices draw as a module that never
+   heard them does, whether it played those notes or skipped past their
+   end. */
+for (const [name, skips] of [['played', false], ['skipped past', true]])
+{
+    const fresh = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const whole = M;
+    const end = (skips ? 14 : 5) * PER_FRAME;
+    const play = (taker) =>
+    {
+        open();
+        follow(0, 'white', flat([0.3, 0.6, 1]));
+        if (taker)
+        {
+            M._tv_window(0, 15 * PER_FRAME, 1e300);
+            notes([{ at: 0, kind: ON, note: 60 }, { at: end, kind: OFF, note: 60 }]);
+        }
+        notes([{ at: 20 * PER_FRAME, kind: ON, note: 64 },
+               { at: 22 * PER_FRAME, kind: ON, note: 67 },
+               { at: 40 * PER_FRAME, kind: OFF, note: 64 },
+               { at: 40 * PER_FRAME, kind: OFF, note: 67 }]);
+        M._tv_generated(10 * PER_FRAME);
+
+        const early = render();
+
+        M._tv_generated(45 * PER_FRAME);
+        return [...early, ...render(skips ? 35 : -1)];
+    };
+
+    const taken = play(true);
+
+    M = fresh;
+
+    const alone = play(false);
+
+    M = whole;
+
+    const differ = alone.filter((f, k) => taken[k]?.frame !== f.frame ||
+                                           taken[k].rgba.some((v, i) => v !== f.rgba[i]));
+
+    check(`a channel taken over keeps its voices after the other's notes end, ${name}`,
+          taken.length === alone.length && differ.length === 0 &&
+          alone.some((f) => f.frame > 30 && peak(f) > 0),
+          `${taken.length} frames against ${alone.length}; ${differ.length} differ, ` +
+          `from ${differ[0]?.frame}`);
 }
 
 /* A note struck half way through frame 10. */
