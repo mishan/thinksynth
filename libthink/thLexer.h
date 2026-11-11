@@ -66,12 +66,13 @@ struct thLexToken
     };
 
     thLexToken (void)
-        : kind(END), num(0), line(0), off(0), end(0) { }
+        : kind(END), num(0), line(0), col(0), off(0), end(0) { }
 
     Kind        kind;
     std::string text;
     double      num;
     int         line;
+    int         col;    /* 1-based, in bytes from the start of `line'    */
     size_t      off;    /* where the token starts in the source          */
     size_t      end;    /* one past where it stops                       */
 };

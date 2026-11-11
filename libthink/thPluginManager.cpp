@@ -30,6 +30,7 @@
 #include <system_error>
 
 #include "think.h"
+#include "thDynLib.h"
 
 namespace fs = std::filesystem;
 
@@ -164,6 +165,37 @@ const string thPluginManager::getPath (const string &name)
 
     return path;
 #endif
+}
+
+std::vector<string> thPluginManager::available (void) const
+{
+    std::vector<string> out;
+
+#ifdef THINK_STATIC_PLUGINS
+    for (size_t i = 0; i < thStaticPluginCount; i++)
+        out.push_back(thStaticPlugins[i].name);
+#else
+    /* increment(ec), not a range for: its ++ throws on a failed read, and
+       this runs inside a parse that is reporting a plugin it could not
+       load. */
+    std::error_code ec, in;
+    const fs::directory_iterator end;
+
+    for (fs::directory_iterator cat(plugin_path_, ec); !ec && cat != end;
+         cat.increment(ec))
+    {
+        if (!cat->is_directory(in))
+            continue;
+
+        for (fs::directory_iterator f(cat->path(), in); !in && f != end;
+             f.increment(in))
+            if (f->path().extension() == PLUGIN_SUFFIX)
+                out.push_back(cat->path().filename().string() + "/" +
+                              f->path().stem().string());
+    }
+#endif
+
+    return out;
 }
 
 thPlugin *thPluginManager::findLocked (const string &name) const

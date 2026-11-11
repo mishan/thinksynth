@@ -43,12 +43,12 @@
  * names. The tokens keep their lines and spans, so an error in the third
  * copy of a block points at the block.
  *
- * False, with `why' and `line' set, for a malformed array: a size that is
- * not a whole number from 1 to 64, a `[]' with no index to stand for, an
- * index past an array's end or on a node that is not one, a `[]' line in
- * the io node with no plain channel count, or a bracket that is not part
- * of any of these. */
+ * False, with `why' set and `bad' the token at fault, for a malformed
+ * array: a size that is not a whole number from 1 to 64, a `[]' with no
+ * index to stand for, an index past an array's end or on a node that is not
+ * one, a `[]' line in the io node with no plain channel count, or a bracket
+ * that is not part of any of these. */
 bool thExpandArrays (std::vector<thLexToken> &tokens, std::string &why,
-                     int &line);
+                     thLexToken &bad);
 
 #endif /* TH_ARRAYS_H */

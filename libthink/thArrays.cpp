@@ -47,10 +47,10 @@ isWord (const thLexToken &t, const char *w)
 }
 
 static bool
-fail (const thLexToken &at, const string &what, string &why, int &line)
+fail (const thLexToken &at, const string &what, string &why, thLexToken &bad)
 {
     why = what;
-    line = at.line;
+    bad = at;
 
     return false;
 }
@@ -90,7 +90,7 @@ blockEnd (const Tokens &tokens, size_t from)
    else it is the element of an array node. */
 static bool
 substitute (const Tokens &in, size_t b, size_t e, int i, const Sizes &sizes,
-            Tokens &out, string &why, int &line)
+            Tokens &out, string &why, thLexToken &bad)
 {
     for (size_t k = b; k < e; k++)
     {
@@ -101,7 +101,7 @@ substitute (const Tokens &in, size_t b, size_t e, int i, const Sizes &sizes,
         {
             if (i < 0)
                 return fail(t, "`[]' is outside an array node and the io "
-                            "node, so it has no index", why, line);
+                            "node, so it has no index", why, bad);
 
             thLexToken n = t;
 
@@ -129,7 +129,7 @@ substitute (const Tokens &in, size_t b, size_t e, int i, const Sizes &sizes,
             if (i < 0)
                 return fail(t, "`" + t.text + "[]' is outside an array "
                             "node and the io node, so it has no index",
-                            why, line);
+                            why, bad);
             idx = i;
             close = k + 2;
         }
@@ -142,11 +142,11 @@ substitute (const Tokens &in, size_t b, size_t e, int i, const Sizes &sizes,
         }
         else
             return fail(t, "an index is a whole number or nothing: `" +
-                        t.text + "[1]' or `" + t.text + "[]'", why, line);
+                        t.text + "[1]' or `" + t.text + "[]'", why, bad);
 
         if (k > 0 && isPunct(in[k - 1], "@"))
             return fail(t, "a control has no elements: `@" + t.text + "[' "
-                        "names nothing", why, line);
+                        "names nothing", why, bad);
 
         const bool port = k > 0 && isPunct(in[k - 1], "->");
         const bool sets = close + 1 < e && isPunct(in[close + 1], "=") &&
@@ -160,13 +160,13 @@ substitute (const Tokens &in, size_t b, size_t e, int i, const Sizes &sizes,
             if (n == sizes.end())
                 return fail(t, "`" + t.text + "' is not an array, so `" +
                             t.text + "[" + std::to_string(idx) +
-                            "]' names nothing", why, line);
+                            "]' names nothing", why, bad);
 
             if (idx >= n->second)
                 return fail(t, "`" + t.text + "' has " +
                             std::to_string(n->second) + " elements, so `" +
                             t.text + "[" + std::to_string(idx) +
-                            "]' names nothing", why, line);
+                            "]' names nothing", why, bad);
         }
         thLexToken w = t;
 
@@ -185,7 +185,7 @@ substitute (const Tokens &in, size_t b, size_t e, int i, const Sizes &sizes,
    per channel the block declares, the rest once. */
 static bool
 expandIO (const Tokens &in, size_t open, size_t end, const Sizes &sizes,
-          Tokens &out, string &why, int &line)
+          Tokens &out, string &why, thLexToken &bad)
 {
     /* What a `[]' line is repeated over: a `channels = N;' the block
        writes as a plain number, since nothing else is known before the
@@ -210,7 +210,7 @@ expandIO (const Tokens &in, size_t open, size_t end, const Sizes &sizes,
         return fail(in[open], "a `[]' line in a node with no plugin is one "
                     "per channel, so the block wants `channels = N;' with N "
                     "a whole number from 1 to " +
-                    std::to_string(TH_ARRAY_MAX), why, line);
+                    std::to_string(TH_ARRAY_MAX), why, bad);
 
     out.push_back(in[open]);
 
@@ -219,7 +219,7 @@ expandIO (const Tokens &in, size_t open, size_t end, const Sizes &sizes,
     while (s < end)
     {
         if (isPunct(in[s], "}"))
-            return substitute(in, s, end, -1, sizes, out, why, line);
+            return substitute(in, s, end, -1, sizes, out, why, bad);
 
         size_t semi = s;
 
@@ -238,7 +238,7 @@ expandIO (const Tokens &in, size_t open, size_t end, const Sizes &sizes,
 
         for (int c = 0; c < (each ? channels : 1); c++)
             if (!substitute(in, s, semi, each ? c : -1, sizes, out, why,
-                            line))
+                            bad))
                 return false;
 
         s = semi;
@@ -248,7 +248,7 @@ expandIO (const Tokens &in, size_t open, size_t end, const Sizes &sizes,
 }
 
 bool
-thExpandArrays (Tokens &tokens, string &why, int &line)
+thExpandArrays (Tokens &tokens, string &why, thLexToken &bad)
 {
     Tokens out;
     Sizes sizes;
@@ -291,7 +291,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
                     next++;
             }
 
-            if (!substitute(tokens, k, next, -1, sizes, out, why, line))
+            if (!substitute(tokens, k, next, -1, sizes, out, why, bad))
                 return false;
 
             k = next;
@@ -310,7 +310,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
                 tokens[k + 3].num < 1 || tokens[k + 3].num > TH_ARRAY_MAX)
                 return fail(name, "`node " + name.text + "[N]' wants a whole "
                             "number from 1 to " +
-                            std::to_string(TH_ARRAY_MAX), why, line);
+                            std::to_string(TH_ARRAY_MAX), why, bad);
 
             const int n = (int)tokens[k + 3].num;
             const size_t end = blockEnd(tokens, k + 5);
@@ -324,7 +324,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
                 out.push_back(t);
                 out.push_back(w);
 
-                if (!substitute(tokens, k + 5, end, i, sizes, out, why, line))
+                if (!substitute(tokens, k + 5, end, i, sizes, out, why, bad))
                     return false;
             }
 
@@ -340,7 +340,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
             out.push_back(t);
             out.push_back(tokens[k + 1]);
 
-            if (!expandIO(tokens, k + 2, end, sizes, out, why, line))
+            if (!expandIO(tokens, k + 2, end, sizes, out, why, bad))
                 return false;
 
             k = end;
@@ -356,7 +356,7 @@ thExpandArrays (Tokens &tokens, string &why, int &line)
     for (size_t j = 0; j < out.size(); j++)
         if (isPunct(out[j], "[") || isPunct(out[j], "]"))
             return fail(out[j], "a `" + out[j].text + "' that is not part of "
-                        "an array's name or index", why, line);
+                        "an array's name or index", why, bad);
 
     tokens.swap(out);
 

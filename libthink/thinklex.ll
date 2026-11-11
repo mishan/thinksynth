@@ -38,6 +38,7 @@ struct thLexExtra
 {
     size_t     pos;
     size_t     off;
+    size_t     bol;     /* where the line `pos' is on starts */
     thLexToken tok;
 };
 }
@@ -63,6 +64,7 @@ thLexEmit (thLexExtra *x, thLexToken::Kind kind,
     x->tok.text.assign(text, len);
     x->tok.num  = 0;
     x->tok.line = line;
+    x->tok.col  = (int)(x->off - x->bol) + 1;
     x->tok.off  = x->off;
     x->tok.end  = x->pos;
 }
@@ -88,7 +90,14 @@ thLexEmit (thLexExtra *x, thLexToken::Kind kind,
 
   /* \r joins the set so a CRLF file lexes: the old .dsp scanner had no
      rule for it and fell through to flex's default, which echoed it. */
-[ \t\r\n]+     { }
+[ \t\r\n]+     {
+  for (int i = yyleng; i-- > 0;)
+      if (yytext[i] == '\n')
+      {
+          yyextra->bol = yyextra->off + i + 1;
+          break;
+      }
+}
 
 [0-9]+(\.([0-9]+)?)? {
   thLexEmit(yyextra, thLexToken::NUMBER, yytext, yyleng, yylineno);
@@ -158,13 +167,13 @@ thLexFailed (std::vector<thLexToken> &out, const char *why, size_t size)
 
     bad.kind = thLexToken::ERROR;
     bad.text = why;
-    bad.line = 1;
+    bad.line = bad.col = 1;
     bad.off = bad.end = 0;
 
     thLexToken end;
 
     end.kind = thLexToken::END;
-    end.line = 1;
+    end.line = end.col = 1;
     end.off = end.end = size;
 
     out.push_back(bad);
@@ -184,6 +193,7 @@ thLexString (const std::string &text, std::vector<thLexToken> &out)
 
     x.pos = 0;
     x.off = 0;
+    x.bol = 0;
 
     /* Checked, and not because it is likely. flex's own answer to a failed
        allocation is yy_fatal_error, which prints and exits -- a library
@@ -229,6 +239,7 @@ thLexString (const std::string &text, std::vector<thLexToken> &out)
 
     end.kind = thLexToken::END;
     end.line = thinkget_lineno(scanner);
+    end.col  = (int)(text.size() - x.bol) + 1;
     end.off  = end.end = text.size();
 
     out.push_back(end);

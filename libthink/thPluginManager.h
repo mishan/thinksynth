@@ -22,6 +22,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "thExport.h"
 
@@ -91,6 +92,10 @@ public:
     /* Resolve a name: the plugin, loading it if this is the first ask, or
        NULL if it cannot be had. What every caller actually wanted. */
     thPlugin *getOrLoadPlugin (const std::string &name);
+
+    /* Every plugin there is to load, loaded or not, as getOrLoadPlugin
+       takes them: "osc/simple". */
+    std::vector<std::string> available (void) const;
 
     /* Where plugins are actually being loaded from. Not necessarily what was
        passed to the constructor -- see resolveRoot. */

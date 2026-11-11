@@ -26,8 +26,11 @@
 
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
+
+#include <unistd.h>
 
 #include "think.h"
 #include "thSynth.h"
@@ -35,6 +38,45 @@
 
 using std::string;
 using std::vector;
+
+/* What `f' prints to stderr. A file beside the harness rather than
+   tmpfile(), which on Windows wants to write to the root of the drive. */
+static string
+stderrOf (const std::function<void (void)> &f)
+{
+    const char *path = "namecheck.stderr";
+    FILE *to = fopen(path, "w+b");
+    string out;
+
+    if (to == NULL)
+        return "(could not open " + string(path) + ")";
+
+    fflush(stderr);
+    const int saved = dup(fileno(stderr));
+    dup2(fileno(to), fileno(stderr));
+    f();
+    fflush(stderr);
+    dup2(saved, fileno(stderr));
+    close(saved);
+
+    rewind(to);
+    for (int c; (c = fgetc(to)) != EOF;)
+        out += (char)c;
+    fclose(to);
+    remove(path);
+
+    return out;
+}
+
+static size_t
+count (const string &in, const string &what)
+{
+    size_t n = 0;
+
+    for (size_t at = in.find(what); at != string::npos; at = in.find(what, at + 1))
+        n++;
+    return n;
+}
 
 int
 main (int argc, char *argv[])
@@ -53,7 +95,7 @@ main (int argc, char *argv[])
           "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
           "node o osc::simple { frequency = 220; };\n"
           "io ionode;\n",
-          { "line 2:", "node 'o' (osc::simple) has no arg 'frequency'",
+          { "line 2, col 22:", "node 'o' (osc::simple) has no arg 'frequency'",
             "did you mean 'freq'?" }, true },
         { "an output read that the node does not have",
           "node ionode { channels = 1; out0 = m->out; play = 1; };\n"
@@ -61,58 +103,58 @@ main (int argc, char *argv[])
           "node e env::adsr { a = 0; d = 0; s = 1; r = 0; trigger = 1; };\n"
           "node m mixer::mul { in0 = o->out; in1 = e->outt; };\n"
           "io ionode;\n",
-          { "line 4:", "node 'e' (env::adsr) has no arg 'outt'", "did you mean 'out'?" }, true },
+          { "line 4, col 44:", "node 'e' (env::adsr) has no arg 'outt'", "did you mean 'out'?" }, true },
         { "a misspelling inside an expression",
           "node ionode { channels = 1; out0 = o->out * e->outt * 0.5; play = 1; };\n"
           "node o osc::simple { freq = 220; };\n"
           "node e env::adsr { a = 0; d = 0; s = 1; r = 0; trigger = 1; };\n"
           "io ionode;\n",
-          { "line 1:", "has no arg 'outt'", "did you mean 'out'?" }, true },
+          { "line 1, col 48:", "has no arg 'outt'", "did you mean 'out'?" }, true },
         { "an io node name the engine never reads",
           "node ionode { channels = 1; ouy0 = o->out; play = 1; };\n"
           "node o osc::simple { freq = 220; };\n"
           "io ionode;\n",
-          { "line 1:", "'ouy0'", "did you mean 'out0'?" }, true },
+          { "line 1, col 29:", "'ouy0'", "did you mean 'out0'?" }, true },
         { "an io node name the engine never writes",
           "node ionode { channels = 1; out0 = o->out * ionode->velocty; play = 1; };\n"
           "node o osc::simple { freq = 220; };\n"
           "io ionode;\n",
-          { "line 1:", "'velocty'", "did you mean 'velocity'?" }, true },
+          { "line 1, col 53:", "'velocty'", "did you mean 'velocity'?" }, true },
         { "an io name the engine supplies too few of",
           "node ionode { channels = 1; out0 = o->out * ionode->aux4; play = 1; };\n"
           "node o osc::simple { freq = 220; };\n"
           "io ionode;\n",
-          { "line 1:", "'aux4'", "so it reads as 0" }, true },
+          { "line 1, col 53:", "'aux4'", "so it reads as 0" }, true },
         { "an io name the graph sets, read where it never does",
           "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
           "node o osc::simple { freq = 220; amp = ionode->out1; };\n"
           "io ionode;\n",
-          { "line 2:", "'out1'", "so it reads as 0" }, false },
+          { "line 2, col 48:", "'out1'", "so it reads as 0" }, false },
         { "a send on the io node, which is the channel's",
           "node ionode { channels = 1; out0 = o->out; play = 1; send = 0.5; };\n"
           "node o osc::simple { freq = 220; };\n"
           "io ionode;\n",
-          { "line 1:", "'send'", "nothing reads it" }, true },
+          { "line 1, col 54:", "'send'", "nothing reads it" }, true },
         { "a name near nothing",
           "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
           "node o osc::simple { freq = 220; zzzzzz = 1; };\n"
           "io ionode;\n",
-          { "line 2:", "has no arg 'zzzzzz'" }, false },
+          { "line 2, col 34:", "has no arg 'zzzzzz'" }, false },
         { "a short name, which every short name is near",
           "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
           "node o osc::simple { freq = 220; q = 1; };\n"
           "io ionode;\n",
-          { "line 2:", "has no arg 'q'" }, false },
+          { "line 2, col 34:", "has no arg 'q'" }, false },
         { "a misspelling on an array, once rather than per element",
           "node ionode { channels = 1; out0 = o[0]->out; play = 1; };\n"
           "node o[4] osc::simple { frequency = 220; };\n"
           "io ionode;\n",
-          { "line 2:", "has no arg 'frequency'", "did you mean 'freq'?" }, true },
+          { "line 2, col 25:", "has no arg 'frequency'", "did you mean 'freq'?" }, true },
         { "a misspelling on an indexed name, once rather than per index",
           "node ionode { channels = 4; ouy[] = o->out; play = 1; };\n"
           "node o osc::simple { freq = 220; };\n"
           "io ionode;\n",
-          { "line 1:", "'ouy0'", "nothing reads it" }, true },
+          { "line 1, col 29:", "'ouy0'", "nothing reads it" }, true },
         { "the same misspelling twice on one line, warned of twice",
           "node ionode { channels = 1; out0 = o->out + p->out; play = 1; };\n"
           "node o osc::simple { frequency = 220; }; node p osc::simple { frequency = 330; };\n"
@@ -167,6 +209,78 @@ main (int argc, char *argv[])
             printf("FAIL  %s\n  said: %s\n", r.what, all.empty() ? "nothing\n" : all.c_str());
             failed++;
         }
+    }
+
+    /* Graphs that do not load, and what the load says on stderr. */
+    static const struct { const char *what, *dsp; vector<const char *> want;
+                          bool suggests; } refused[] = {
+        { "a plugin that is not installed, near one that is",
+          "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
+          "node o osc::simpel { freq = 220; };\n"
+          "io ionode;\n",
+          { "line 2, col 8: error: could not load plugin 'osc/simpel' required by node 'o'",
+            "; did you mean 'osc::simple'?" }, true },
+        { "a plugin that is not installed, near none",
+          "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
+          "node o osc::zzzzzz { freq = 220; };\n"
+          "io ionode;\n",
+          { "line 2, col 8: error: could not load plugin 'osc/zzzzzz'" }, false },
+        { "a character the language has no use for",
+          "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
+          "node o osc::simple { freq = 220 ! 2; };\n"
+          "io ionode;\n",
+          { "line 2, col 33: error: stray character '!'" }, false },
+        { "an index on a node that is not an array",
+          "node ionode { channels = 1; out0 = o[1]->out; play = 1; };\n"
+          "node o osc::simple { freq = 220; };\n"
+          "io ionode;\n",
+          { "line 1, col 36: error: " }, false },
+    };
+
+    for (const auto &r : refused)
+    {
+        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        const thSynthTree *tree = NULL;
+        const string said = stderrOf([&] {
+            tree = synth.loadTreeText("namecheck", r.dsp, 0, MIDIVALMAX);
+        });
+        bool good = tree == NULL;
+
+        for (const char *w : r.want)
+            good = good && said.find(w) != string::npos;
+        good = good && (said.find("did you mean") != string::npos) == r.suggests;
+
+        printf("%s  %s\n%s%s", good ? "ok  " : "FAIL", r.what,
+               good ? "" : "  said: ", good ? "" : said.c_str());
+        failed += !good;
+    }
+
+    /* dspcheck loads each file five times, and five copies of a warning
+       read as five problems. It is printed once per patch, and the tree
+       still holds it on every load. The web page names every patch it
+       loads /patch.dsp, so a patch is its text, not its name. */
+    {
+        const char *typo = "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
+                           "node o osc::simple { frequency = 440; };\n"
+                           "io ionode;\n";
+        bool kept = true;
+        const string said = stderrOf([&] {
+            const string edited = string(typo) + "node p osc::simple { freq = 330; };\n";
+
+            for (const string &text : { string(typo), string(typo), edited })
+            {
+                thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+                const thSynthTree *tree = synth.loadTreeText("/patch.dsp", text, 0, MIDIVALMAX);
+
+                kept = kept && tree != NULL && tree->warnings().size() == 1;
+            }
+        });
+        const bool good = kept && count(said, "has no arg 'frequency'") == 2;
+
+        printf("%s  a warning printed once for each patch it is in\n%s%s",
+               good ? "ok  " : "FAIL", good ? "" : "  said: ",
+               good ? "" : kept ? said.c_str() : "a load lost its warning\n");
+        failed += !good;
     }
 
     return failed ? 1 : 0;
