@@ -28,6 +28,11 @@
 #include "config.h"
 
 #include <stdio.h>
+#include <string.h>
+
+#include <algorithm>
+#include <map>
+#include <set>
 
 #include <string>
 #include <vector>
@@ -58,6 +63,103 @@ struct Tok
     const char        *units;   /* "ms" on th_sample, the unit on a UNIT */
     const thLexToken  *src;
 };
+
+/* The io node's names the engine reads or writes: anything else on it is
+   the graph's own variable, and fine as long as the graph reads it. A
+   numbered name runs from 0 to below its count, one digit for a channel
+   (TH_MAX_CHANNELS says why). What the engine only reads, the graph has to
+   set before reading it back. */
+struct IoName
+{
+    const char *name;
+    int         count;      /* 0 for a name with no number */
+    bool        supplied;   /* written by the engine, not by the graph */
+};
+const IoName IO_NAMES[] = {
+    { "note", 0, true }, { "velocity", 0, true }, { "trigger", 0, true },
+    { SAYARG, 0, true }, { PEDALARG, 0, true },
+    { "play", 0, false }, { "channels", 0, false }, { "mono", 0, false },
+    { "poly", 0, false }, { "choke", 0, false },
+    { OUTPUTPREFIX, TH_MAX_CHANNELS, false },
+    { INPUTPREFIX, TH_MAX_CHANNELS, true }, { AUXPREFIX, TH_NOTE_AUX, true },
+    { SIDEPREFIX, TH_MAX_CHANNELS, true }, { LIVEPREFIX, TH_MAX_CHANNELS, true },
+    { SENDPREFIX, TH_MAX_CHANNELS, true } };
+
+std::vector<std::string>
+ioNames (const IoName &k)
+{
+    std::vector<std::string> out;
+
+    if (k.count == 0)
+        out.push_back(k.name);
+    for (int i = 0; i < k.count; i++)
+        out.push_back(k.name + std::to_string(i));
+    return out;
+}
+
+const IoName *
+ioName (const std::string &n)
+{
+    for (const IoName &k : IO_NAMES)
+        for (const std::string &name : ioNames(k))
+            if (n == name)
+                return &k;
+    return NULL;
+}
+
+size_t
+editDistance (const std::string &a, const std::string &b)
+{
+    std::vector<size_t> row(b.size() + 1);
+
+    for (size_t j = 0; j <= b.size(); j++)
+        row[j] = j;
+    for (size_t i = 1; i <= a.size(); i++)
+    {
+        size_t diag = row[0];
+
+        row[0] = i;
+        for (size_t j = 1; j <= b.size(); j++)
+        {
+            const size_t up = row[j];
+
+            row[j] = std::min(std::min(row[j] + 1, row[j - 1] + 1),
+                              diag + (a[i - 1] != b[j - 1]));
+            diag = up;
+        }
+    }
+    return row[b.size()];
+}
+
+/* "; did you mean 'x'?" for the nearest of `names': within two edits --
+   and nearer than the name is long, which every short name would otherwise
+   be to every other -- or else one that begins the other, as `freq' does
+   `frequency'. Nothing if none is. */
+std::string
+nearest (const std::string &name, const std::vector<std::string> &names)
+{
+    std::string best, begins;
+    size_t at = 3;
+
+    for (const std::string &n : names)
+    {
+        const size_t d = editDistance(name, n);
+        const std::string &shorter = n.size() < name.size() ? n : name;
+        const std::string &longer = n.size() < name.size() ? name : n;
+
+        if (d < at && d < name.size())
+        {
+            best = n;
+            at = d;
+        }
+        else if (begins.empty() && shorter.size() >= 3 &&
+                 longer.compare(0, shorter.size(), shorter) == 0)
+            begins = n;
+    }
+    if (best.empty())
+        best = begins;
+    return best.empty() ? "" : "; did you mean '" + best + "'?";
+}
 
 /* The unit is the author's, and is folded at load time by
    thSynthTree::foldUnits, which knows the rate. */
@@ -169,7 +271,17 @@ private:
 
     /* Every `node->arg' read, checked once every node is declared: a
        reference to none would be read as a NULL arg while playing. */
-    std::vector<std::pair<Tok, std::string> > refs_;
+    struct Ref { Tok node, arg; };
+    std::vector<Ref> refs_;
+
+    /* Each arg a body writes, where, and each node's plugin as written:
+       what checkNames compares with what the plugins register. */
+    struct Written { Tok at; std::string node, arg; };
+    std::vector<Written> written_;
+    std::map<std::string, std::string> plugins_;
+    std::string body_;     /* the node whose body is being read */
+
+    void checkNames (void);
 
     /* Classified as it is looked at rather than up front: another language
        hands over one expression at a time from a file it has lexed once. */
@@ -301,14 +413,105 @@ Parser::statements (void)
     }
 
     for (size_t i = 0; i < refs_.size(); i++)
-        if (tree_->findNode(refs_[i].second) == NULL)
+        if (tree_->findNode(refs_[i].node.src->text) == NULL)
         {
-            error(refs_[i].first, "no node called '" + refs_[i].second +
-                  "'");
+            error(refs_[i].node, "no node called '" +
+                  refs_[i].node.src->text + "'");
             return false;
         }
 
+    if (synth_ != NULL)
+        checkNames();
+
     return true;
+}
+
+/* A name nothing defines loads and plays as 0, so a misspelling makes a
+   silent graph that says nothing about why. Warned rather than refused: a
+   graph that loads today goes on loading. An arg a plugin does not have is
+   fine where another node reads it -- the graph keeping a number of its
+   own there -- as is anything on a node with no plugin but the io node. */
+void
+Parser::checkNames (void)
+{
+    const thNode *io = tree_->IONode();
+    std::set<std::pair<std::string, std::string> > written, read;
+    std::set<std::pair<size_t, int> > said;
+
+    for (const Written &w : written_)
+        written.insert(std::make_pair(w.node, w.arg));
+    for (const Ref &r : refs_)
+        read.insert(std::make_pair(r.node.src->text, r.arg.src->text));
+
+    const auto isIO = [&](const std::string &node) {
+        return io != NULL && node == io->name();
+    };
+    /* What a node's args can be called, false for a node not checked. */
+    const auto names = [&](const std::string &node,
+                           std::vector<std::string> &out) {
+        out.clear();
+        if (isIO(node))
+        {
+            for (const IoName &k : IO_NAMES)
+                for (const std::string &name : ioNames(k))
+                    out.push_back(name);
+        }
+        if (plugins_.count(node))
+        {
+            const thPlugin *plug = tree_->findNode(node)->plugin();
+
+            for (int i = 0; i < plug->argCount(); i++)
+                out.push_back(plug->getArgName(i));
+        }
+        return isIO(node) || !out.empty();
+    };
+    const auto known = [&](const std::string &node, const std::string &arg,
+                           const std::vector<std::string> &all) {
+        return std::find(all.begin(), all.end(), arg) != all.end();
+    };
+    /* Once for each kind of warning at a place in the source: an array's
+       elements and an indexed name's indices are copies of one place. */
+    enum { UNREAD, UNSET, UNKNOWN };
+    const auto warn = [&](const Tok &at, int kind, const std::string &msg) {
+        if (!said.insert(std::make_pair(at.src->off, kind)).second)
+            return;
+
+        const std::string line = "line " + std::to_string(at.src->line) +
+                                 ": warning: " + msg;
+
+        tree_->addWarning(line);
+        fprintf(stderr, "%s\n", line.c_str());
+    };
+    const auto who = [&](const std::string &node) {
+        const auto p = plugins_.find(node);
+
+        return isIO(node) ? std::string("the io node")
+             : "node '" + node + "' (" + p->second + ")";
+    };
+    std::vector<std::string> all;
+
+    for (const Written &w : written_)
+        if (names(w.node, all) && !known(w.node, w.arg, all) &&
+            !read.count(std::make_pair(w.node, w.arg)))
+            warn(w.at, UNREAD, who(w.node) + " has no arg '" + w.arg +
+                 "', and nothing reads it" + nearest(w.arg, all));
+
+    for (const Ref &r : refs_)
+    {
+        const std::string &node = r.node.src->text, &arg = r.arg.src->text;
+
+        if (written.count(std::make_pair(node, arg)) || !names(node, all))
+            continue;
+
+        const IoName *k = isIO(node) ? ioName(arg) : NULL;
+
+        if (k != NULL && !k->supplied && !plugins_.count(node))
+            warn(r.arg, UNSET, "nothing sets " + who(node) + "'s '" + arg +
+                 "', so it reads as 0");
+        else if (!known(node, arg, all))
+            warn(r.arg, UNKNOWN, who(node) + " has no arg '" + arg +
+                 "', so it reads as 0" + nearest(arg, all));
+    }
 }
 
 bool
@@ -511,6 +714,7 @@ Parser::nodeStatement (void)
     if (!expect("{"))
         return false;
 
+    body_ = name;
     while (!isPunct(peek(), "}"))
         if (!assignment() || !expect(";"))
             return false;
@@ -534,6 +738,15 @@ Parser::nodeStatement (void)
                   "' required by node '" + name + "'");
             return false;
         }
+    }
+
+    if (plug != NULL)
+    {
+        std::string shown = plugName;
+
+        for (size_t at; (at = shown.find('/')) != std::string::npos;)
+            shown.replace(at, 1, "::");
+        plugins_[name] = shown;
     }
 
     node_->setPlugin(plug);
@@ -698,10 +911,12 @@ bool
 Parser::assignment (void)
 {
     std::string name;
+    const Tok at = peek();
 
     if (!word(name, "an arg name") || !expect("="))
         return false;
 
+    written_.push_back(Written{at, body_, name});
     tree_->dropExpr(node_, name);
 
     /* A quoted name on a node arg -- osc::sample's `file' -- which cannot
@@ -915,12 +1130,13 @@ Parser::factor (Value &out)
         take();
 
         std::string arg;
+        const Tok argAt = peek();
 
         if (!word(arg, "an arg name after '->'"))
             return false;
 
         if (tree_)
-            refs_.push_back(std::make_pair(t, t.src->text));
+            refs_.push_back(Ref{t, argAt});
 
         out.expr = thExprNodeRef(t.src->text, arg);
         return true;

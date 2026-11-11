@@ -303,7 +303,8 @@ and requires the two renders to be bitwise equal.
 
 | Harness | CTest gate | Covers |
 |---|---|---|
-| `dspcheck` | yes | loads every DSP and patch, plays a chord, overruns polyphony, releases, reloads onto the same channel, tears down; renders each note twice and compares bitwise |
+| `dspcheck` | yes | loads every DSP and patch, plays a chord, overruns polyphony, releases, reloads onto the same channel, tears down; renders each note twice and compares bitwise. With `--strict`, as the corpus gate runs it, a name the parse warns of fails |
+| `namecheck` | yes | a misspelled name -- an arg a plugin lacks, an arg read that nothing writes, an io node name the engine never uses -- is warned of with its line and the nearest real name, and real names, the io node's own variables among them, are not |
 | `dsplevel` | yes | peak, proportion shaped, gain reduction; exit status is the number of measurements over `TH_MAX` |
 | `dspsweep` | yes | every control of every DSP at both ends of its range and three points between, at both ends of the keyboard; exit status is the number of cases the per-voice guard fired on. With `-g` it also gates the guard itself |
 | `wavcheck` | yes | both wav readers (`osc::sample`'s and `thsound::readWav`) on every PCM width and float, mono and stereo, plain, 18-byte and extensible `fmt ` chunks and an odd chunk before the data; malformed files; non-finite floats; and 20000 files of changed bytes |

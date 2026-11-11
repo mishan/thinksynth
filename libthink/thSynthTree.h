@@ -143,6 +143,11 @@ public:
     void printIONode(void);
     thNode *IONode(void) const { return ionode_; }
 
+    /* What the parse loaded but doubts: an arg written or read that
+       nothing defines, which plays as 0. One line each, as printed. */
+    const std::vector<string> &warnings (void) const { return warnings_; }
+    void addWarning (const string &line) { warnings_.push_back(line); }
+
     /* Bounds-checked lookup into nodeindex_; NULL if id is out of range or the
        index has not been built yet. */
     thNode *nodeAt(int id) const;
@@ -415,6 +420,7 @@ private:
        after it has been finished, and a copy that carried these would
        fold a second time if anyone ever called foldUnits on it. */
     std::vector<thUnitFold> unitFolds_;
+    std::vector<string> warnings_;
 
     /* Not copied either: a voice takes its values from the prototype at
        its start, and only the prototype follows the tempo. */

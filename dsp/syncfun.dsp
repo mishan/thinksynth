@@ -69,8 +69,6 @@ node ionode {
     out0 = envmixer->out;
     out1 = envmixer->out;
     play = env->play;
-
-    amp = 0.5;            # Amplitude before filtering
 };
 
 node suscalc math::mul {

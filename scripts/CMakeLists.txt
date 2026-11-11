@@ -183,6 +183,7 @@ think_harness(dsplevel)
 think_harness(motioncheck)
 think_harness(videofilecheck)
 think_harness(envcheck)
+think_harness(namecheck)
 think_harness(widthcheck)
 think_harness(scancheck)
 think_harness(videosynthcheck)
@@ -898,7 +899,7 @@ add_test(NAME dspcheck.dsp
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=dsp
-                 "-DEXTRA_ARGS=-q --shipped"
+                 "-DEXTRA_ARGS=-q --shipped --strict"
                  -P "${_runner}")
 
 # Every .dsp parses, prints and plays the same under de_DE as under C. A
@@ -1319,6 +1320,8 @@ add_test(NAME lexcheck COMMAND lexcheck)
 add_test(NAME hidblockcheck COMMAND hidblockcheck)
 add_test(NAME hidmapcheck COMMAND hidmapcheck)
 add_test(NAME hidloopcheck COMMAND hidloopcheck)
+add_test(NAME namecheck
+         COMMAND namecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME envcheck
          COMMAND envcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME widthcheck
