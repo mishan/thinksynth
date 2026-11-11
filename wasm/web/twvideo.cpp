@@ -107,6 +107,17 @@ bool planes_ = false;
 std::vector<float> planeBuffer_;
 std::vector<uint8_t> rgbaBuffer_;
 float inputBuffer_[4 + TH_MIDI_CHANNELS];
+int lines_ = 0;
+
+/* tv_stage: an effect on a picture summed from modules that drew it
+   without one, run window by window as one module runs it. Its own
+   inputs and knobs, queued as the drawing synth's are, and its finished
+   frames. */
+std::unique_ptr<thVideoSynth> stage_;
+std::deque<std::pair<double, thVideoInputs> > stageInputs_;
+std::deque<Knob> stageKnobs_;
+std::vector<float> add_;
+std::deque<std::pair<int64_t, std::vector<uint8_t> > > stageDone_;
 
 uint8_t
 byte (float v)
@@ -151,6 +162,47 @@ keep (int64_t frame, const float *r, const float *g, const float *b)
     else
         toRgba(pixels, r, g, b, out);
     return true;
+}
+
+/* Onto `v', the inputs and knobs due by its sample `start'. */
+void
+arrive (thVideoSynth &v, std::deque<std::pair<double, thVideoInputs> > &inputs,
+        std::deque<Knob> &knobs, int64_t start)
+{
+    const int64_t rate = v.rate();
+
+    while (!inputs.empty() && inputs.front().first * rate <= (double)start * audioRate_)
+    {
+        v.setInputs(inputs.front().second);
+        inputs.pop_front();
+    }
+    while (!knobs.empty() && knobs.front().at * rate <= (double)start * audioRate_)
+    {
+        v.set(knobs.front().chanarg, knobs.front().value);
+        knobs.pop_front();
+    }
+}
+
+/* Those before frame `frame', for a skip to it: the sound as it last was,
+   and every knob turned. */
+void
+arriveBefore (thVideoSynth &v, std::deque<std::pair<double, thVideoInputs> > &inputs,
+              std::deque<Knob> &knobs, int64_t frame)
+{
+    const double at = (double)frame * audioRate_ / v.fps();
+
+    while (inputs.size() > 1 && inputs[1].first < at)
+        inputs.pop_front();
+    if (!inputs.empty() && inputs.front().first < at)
+    {
+        v.setInputs(inputs.front().second);
+        inputs.pop_front();
+    }
+    while (!knobs.empty() && knobs.front().at < at)
+    {
+        v.set(knobs.front().chanarg, knobs.front().value);
+        knobs.pop_front();
+    }
 }
 
 /* Whether off `n' ends the note held on its key: not one struck since, on
@@ -303,18 +355,7 @@ skipTo (int64_t frame)
                            t.second.level, t.second.aux);
     }
     held_ = then;
-    while (inputs_.size() > 1 && inputs_[1].first < startOf(frame))
-        inputs_.pop_front();
-    if (!inputs_.empty() && inputs_.front().first < startOf(frame))
-    {
-        video_->setInputs(inputs_.front().second);
-        inputs_.pop_front();
-    }
-    while (!knobs_.empty() && knobs_.front().at < startOf(frame))
-    {
-        video_->set(knobs_.front().chanarg, knobs_.front().value);
-        knobs_.pop_front();
-    }
+    arriveBefore(*video_, inputs_, knobs_, frame);
     video_->skipTo(frame);
     skips_++;
 }
@@ -339,10 +380,21 @@ tv_open (int width, int height, int fps, int lines, int audioRate)
     held_.clear();
     serial_ = 0;
     done_.clear();
+    stage_.reset();
+    stageInputs_.clear();
+    stageKnobs_.clear();
+    stageDone_.clear();
     audioRate_ = audioRate;
     generated_ = skips_ = 0;
     said_.clear();
-    if (audioRate < 1 || !video_->open("", width, height, fps, lines, said_))
+    /* Windows that divide a frame, so a summed frame goes through the
+       stage whole, never waiting on the next for a window's end. */
+    for (; video_->open("", width, height, fps, lines, said_) &&
+           (int64_t)width * height % video_->window() != 0 &&
+           (lines = video_->window() / width - 1) > 0;)
+        video_.reset(new thVideoSynth);
+    lines_ = video_->window() / std::max(width, 1);
+    if (audioRate < 1 || video_->width() == 0)
     {
         if (said_.empty())
             said_ = "no audio rate";
@@ -385,6 +437,21 @@ tv_effect (const char *name, const char *fx)
     said_.clear();
     if (video_ != NULL)
         video_->effectText(name, fx, said_);
+    return said_.c_str();
+}
+
+/* An effect, called `name', on the pictures tv_stage_frame is handed:
+   for a leader, whose modules draw with none. */
+EMSCRIPTEN_KEEPALIVE const char *
+tv_stage (const char *name, const char *fx)
+{
+    said_.clear();
+    if (video_ == NULL)
+        return said_.c_str();
+    stage_.reset(new thVideoSynth);
+    if (!stage_->open("", video_->width(), video_->height(), video_->fps(), lines_, said_) ||
+        !stage_->effectText(name, fx, said_))
+        stage_.reset();
     return said_.c_str();
 }
 
@@ -464,6 +531,8 @@ tv_inputs (int channels, double at)
         v.levels[c] = in[4 + c];
     if (video_ != NULL)
         inputs_.push_back(std::make_pair(at, v));
+    if (stage_ != NULL)
+        stageInputs_.push_back(std::make_pair(at, v));
 }
 
 EMSCRIPTEN_KEEPALIVE void
@@ -471,6 +540,8 @@ tv_set (const char *chanarg, float value)
 {
     if (video_ != NULL)
         video_->set(chanarg, value);
+    if (stage_ != NULL)
+        stage_->set(chanarg, value);
 }
 
 /* `chanarg' to `value' as of audio frame `at', as the sound's inputs
@@ -480,6 +551,8 @@ tv_set_at (const char *chanarg, float value, double at)
 {
     if (video_ != NULL)
         knobs_.push_back({ at, chanarg, value });
+    if (stage_ != NULL)
+        stageKnobs_.push_back({ at, chanarg, value });
 }
 
 /* The audio has been generated to audio frame `at'. */
@@ -517,16 +590,7 @@ tv_render (double due, int windows)
             play(queue_.front());
             queue_.pop_front();
         }
-        while (!inputs_.empty() && inputs_.front().first * rate <= (double)start * audioRate_)
-        {
-            video_->setInputs(inputs_.front().second);
-            inputs_.pop_front();
-        }
-        while (!knobs_.empty() && knobs_.front().at * rate <= (double)start * audioRate_)
-        {
-            video_->set(knobs_.front().chanarg, knobs_.front().value);
-            knobs_.pop_front();
-        }
+        arrive(*video_, inputs_, knobs_, start);
         video_->render(keep);
     }
     return (int)done_.size();
@@ -570,6 +634,71 @@ tv_rgba (void)
     toRgba(pixels, planeBuffer_.data(), planeBuffer_.data() + pixels,
            planeBuffer_.data() + 2 * pixels, rgbaBuffer_.data());
     return rgbaBuffer_.data();
+}
+
+/* tv_plane_buffer's planes, frame `frame' summed, through the stage's
+   effect window by window. A frame later than the next is a skip to it;
+   an earlier one is passed over. Returns how many finished frames wait,
+   RGBA, for tv_stage_rgba. */
+EMSCRIPTEN_KEEPALIVE int
+tv_stage_frame (double frame)
+{
+    if (stage_ == NULL)
+        return 0;
+
+    const int64_t pixels = (int64_t)stage_->width() * stage_->height();
+    const int64_t window = stage_->window();
+    const int64_t at = (int64_t)frame * pixels;
+
+    if (at < stage_->rendered())
+        return (int)stageDone_.size();
+    if (at > stage_->rendered())
+    {
+        arriveBefore(*stage_, stageInputs_, stageKnobs_, (int64_t)frame);
+        stage_->skipTo((int64_t)frame);
+    }
+    planeBuffer_.resize(3 * (size_t)pixels);
+    add_.resize(3 * (size_t)window);
+
+    const auto out = [] (int64_t f, const float *r, const float *g, const float *b)
+    {
+        const size_t n = (size_t)stage_->width() * stage_->height();
+
+        if (stageDone_.size() == DONE_MOST)
+            stageDone_.pop_front();
+        stageDone_.emplace_back(f, std::vector<uint8_t>(4 * n));
+        toRgba(n, r, g, b, stageDone_.back().second.data());
+        return true;
+    };
+
+    for (int64_t from = 0; from < pixels; from += window)
+    {
+        for (int c = 0; c < 3; c++)
+            std::copy(planeBuffer_.begin() + c * pixels + from,
+                      planeBuffer_.begin() + c * pixels + from + window,
+                      add_.begin() + c * window);
+        arrive(*stage_, stageInputs_, stageKnobs_, stage_->rendered());
+        stage_->render(out, add_.data());
+    }
+    return (int)stageDone_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE double
+tv_stage_done_frame (int i)
+{
+    return (double)stageDone_[i].first;
+}
+
+EMSCRIPTEN_KEEPALIVE const uint8_t *
+tv_stage_rgba (int i)
+{
+    return stageDone_[i].second.data();
+}
+
+EMSCRIPTEN_KEEPALIVE void
+tv_stage_clear (void)
+{
+    stageDone_.clear();
 }
 
 /* Straight to frame `frame', when told: a helper the leader keeps in step

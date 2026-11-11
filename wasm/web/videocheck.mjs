@@ -626,6 +626,162 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
           `from ${differ[0]?.frame}`);
 }
 
+/* An effect over two modules' halves of a picture (tv_stage): each draws
+   a channel as planes, the leader sums each frame once both parts are in
+   and hands it to its effect stage, and what comes out is what one module
+   drawing both channels under the effect draws, within a step, frame for
+   frame. At 80x60, where 8 lines would straddle frames, as at 160x120, and
+   at 80x60 with the lines left to tv_open. As
+   drawn through, with a skip, and with what the effect hears turned at
+   frame 20: its knob, or for one that reads the sound, the sound. */
+{
+    const knob = (name) => (at) => call('tv_set_at', null, ['string', 'number', 'number'],
+                                        [name, 0.3, at]);
+    const level = `@in_level = 1;
+                   node ionode { channels = 3; in0 = 0; in1 = 0; in2 = 0;
+                                 out0 = ionode->in0 * @in_level;
+                                 out1 = ionode->in1 * @in_level;
+                                 out2 = ionode->in2 * @in_level; };
+                   io ionode;`;
+    const shipped = (name) => fs.readFileSync(path.join(video, name), 'utf8');
+    const fxs = [['fx/feedback.dsp', shipped('fx/feedback.dsp'), knob('keep')],
+                 ['fx/palette.dsp', shipped('fx/palette.dsp'), knob('palette')],
+                 ['fx/soften.dsp', shipped('fx/soften.dsp'), knob('soften')],
+                 ['an effect the sound turns', level, (at) => inputs(0.6, 0.3, 0.1, 0.3, at)]];
+    const rings = fs.readFileSync(path.join(video, 'rings.dsp'), 'utf8');
+    const whole = M;
+    const helper = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const leader = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    /* Every frame drawn as far as the audio, after a skip to `due'. */
+    const drain = (due, w, h, planes) =>
+    {
+        const frames = [];
+        const bytes = (planes ? 12 : 4) * w * h;
+
+        /* A window at a time, so no call finishes more frames than tv_done
+           holds; a frame takes at most `h' windows. */
+        for (let calls = 0, idle = 0; calls < 10000 && idle < h; calls++)
+        {
+            const n = M._tv_render(due, 1);
+
+            for (let i = 0; i < n; i++)
+            {
+                const at = M._tv_done_rgba(i);
+
+                frames.push({ frame: M._tv_done_frame(i), data: M.HEAPU8.slice(at, at + bytes) });
+            }
+            M._tv_done_clear();
+            idle = n === 0 ? idle + 1 : 0;
+        }
+        return frames;
+    };
+    /* `channels' this module draws, under `fx' ([name, text]) on the
+       module itself or (`staged') on its stage. To frame 10, then on to 60,
+       skipping to 30 if `skips'; `step' draws. */
+    const play = (w, h, lines, channels, fx, staged, turn, skips, step) =>
+    {
+        const [name, text] = fx ?? [];
+
+        call('tv_open', 'string', ['number', 'number', 'number', 'number', 'number'],
+             [w, h, FPS, lines, RATE]);
+        for (const ch of channels)
+            follow(ch, 'rings.dsp', rings);
+        if (fx && !staged)
+            effect(name, text);
+        if (fx && staged)
+            call('tv_stage', 'string', ['string', 'string'], [name, text]);
+        inputs(0.15, 0.3, 0.1, 0.3);
+        turn?.(20 * PER_FRAME);
+        notes([{ at: 0, kind: ON, channel: 0, note: 60, aux: [0.5, 0.25, 0, 1] },
+               { at: 10 * PER_FRAME, kind: ON, channel: 1, note: 64, aux: [0.2, 0.5, 0, 1] },
+               { at: 30 * PER_FRAME, kind: OFF, channel: 1, note: 64 },
+               { at: 40 * PER_FRAME, kind: OFF, channel: 0, note: 60 }]);
+        M._tv_generated(10 * PER_FRAME);
+        step(-1);
+        M._tv_generated(60 * PER_FRAME);
+        step(skips ? 30 : -1);
+    };
+
+    for (const [fx, text, turn] of fxs)
+        for (const [w, h, lines] of [[W, H, LINES], [W / 2, H / 2, LINES], [W / 2, H / 2, 0]])
+            for (const variant of ['drawn through', 'skipping', 'turned'])
+            {
+                const skips = variant === 'skipping';
+                const turned = variant === 'turned' ? turn : null;
+                const pixels = 3 * w * h;
+                const expected = [];
+                const theirs = new Map();
+                const got = new Map();
+
+                M = whole;
+                M._tv_planes(0);
+                play(w, h, lines, [0, 1], [fx, text], false, turned, skips,
+                     (due) => expected.push(...drain(due, w, h, false)));
+
+                M = helper;
+                M._tv_planes(1);
+                play(w, h, lines, [1], null, false, turned, skips, (due) =>
+                {
+                    if (due >= 0)
+                        M._tv_skip_to(due);
+                    for (const f of drain(-1, w, h, true))
+                        theirs.set(f.frame, new Float32Array(f.data.buffer));
+                });
+
+                M = leader;
+                M._tv_planes(1);
+                play(w, h, lines, [0], [fx, text], true, turned, skips, (due) =>
+                {
+                    if (due >= 0)
+                        M._tv_skip_to(due);
+                    for (const f of drain(-1, w, h, true))
+                    {
+                        const mine = new Float32Array(f.data.buffer);
+                        const other = theirs.get(f.frame);
+                        const at = M._tv_plane_buffer() / 4;
+                        const into = M.HEAPF32.subarray(at, at + pixels);
+
+                        for (let i = 0; i < pixels; i++)
+                            into[i] = mine[i] + other[i];
+
+                        const n = M._tv_stage_frame(f.frame);
+
+                        for (let i = 0; i < n; i++)
+                        {
+                            const out = M._tv_stage_rgba(i);
+
+                            got.set(M._tv_stage_done_frame(i),
+                                    M.HEAPU8.slice(out, out + 4 * w * h));
+                        }
+                        M._tv_stage_clear();
+                    }
+                });
+                M = whole;
+
+                let why = expected.length === got.size ? '' :
+                    `${got.size} frames staged against ${expected.length}`;
+
+                for (const f of expected)
+                {
+                    const g = got.get(f.frame);
+
+                    if (g === undefined)
+                        why ||= `frame ${f.frame} missing`;
+                    else
+                        for (let i = 0; i < g.length && !why; i++)
+                            if (Math.abs(g[i] - f.data[i]) > 1)
+                                why = `frame ${f.frame}, byte ${i}: ${g[i]} staged, ` +
+                                      `${f.data[i]} whole`;
+                }
+
+                check(`${fx} over two modules' halves at ${w}x${h}, ${lines || 'automatic'} lines, ${variant}, draws ` +
+                      'what one module draws',
+                      why === '' && expected.length > 20 &&
+                      expected.some((f) => peak({ rgba: f.data }) > 32),
+                      why || `${expected.length} frames, peak ${Math.max(...expected.map((f) => peak({ rgba: f.data })))}`);
+            }
+}
+
 /* A note struck half way through frame 10. */
 {
     open();
