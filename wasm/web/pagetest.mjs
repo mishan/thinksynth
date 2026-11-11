@@ -4947,6 +4947,10 @@ try
     {
         for (const [name, engine] of [['chromium', browser], ['firefox', fox]])
         {
+            /* How bright each draws it: two helpers' parts summed are one
+               worker's picture, not some of it. */
+            const bright = {};
+
             for (const helpers of [2, 0])
             {
                 const wide = await engine.newContext({ viewport: { width: 1600, height: 900 } });
@@ -4992,11 +4996,15 @@ try
                 const lit = await watch(4000);
                 const drawn = said.some((t) => t.includes('drawn by 2 workers'));
 
+                bright[helpers] = lit;
+
                 if (helpers === 0)
                 {
-                    check(lit > 20 && !drawn && parts().length === 0,
-                          `${name}: told to lead no helpers, the video worker draws belfry alone: ` +
-                          `light ${lit}, ${parts().length} helpers`);
+                    check(lit > 20 && !drawn && parts().length === 0 &&
+                          Math.abs(bright[2] - lit) < 0.15 * lit,
+                          `${name}: told to lead no helpers, the video worker draws belfry ` +
+                          `alone, as bright as two helpers drew it: light ${lit} against ` +
+                          `${bright[2]}, ${parts().length} helpers`);
                     await wide.close();
                     continue;
                 }

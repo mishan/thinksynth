@@ -79,10 +79,18 @@ let worklet = null;     /* the worklet's port */
    another is given up on. */
 const MOST_HELPERS = 8, STALL_MS = 250;
 
+/* How long a helper may take to start before it is given up on. */
+const START_MS = 2000;
+
 /* Frames a helper has out with this worker at most: videopart.js's MOST. */
 const PART_BUFFERS = 4;
 let module = null, helpers = [], epoch = 0, cap = MOST_HELPERS, override = null;
 let lastOpen = null, next = 0, lastAt = 0, narrowSaid = false;
+/* The page's own sets, put back when this worker opens again of itself
+   (a helper given up on, a change of channels), which the page doesn't
+   know to resend. */
+const pageSets = new Map();
+let patchSaid = false;
 const parts = new Map();    /* frame -> each helper's planes */
 
 const post = (m, transfer) => postMessage(m, transfer ?? []);
@@ -128,10 +136,17 @@ function follow (channel)
         following.add(channel);
 }
 
-function open (m)
+/* `again': opened by this worker rather than the page. */
+function open (m, again = false)
 {
     lastOpen = m;
     override = m.helpers ?? override;
+    lastAt = 0;
+    if (!again)
+    {
+        pageSets.clear();
+        patchSaid = false;
+    }
     stopHelpers();
     raster = { width: m.width, height: m.height, fps: m.fps, lines: m.lines,
                rate: m.rate };
@@ -174,6 +189,8 @@ function open (m)
         for (const ch of was)
             follow(ch);
     post({ type: 'workers', count: Math.max(1, helpers.length) });
+    for (const [name, value] of pageSets)
+        set(name, value);
 
     /* Opened with nothing held: what is down already, after this. */
     worklet?.postMessage({ type: 'resend' });
@@ -204,7 +221,8 @@ function startHelpers (n, list)
     for (let k = 0; k < n; k++)
     {
         const worker = new Worker(new URL('videopart.js', import.meta.url), { type: 'module' });
-        const h = { worker, share: new Set(), busy: 0, last: 0, ready: false };
+        const h = { worker, share: new Set(), busy: 0, last: 0, ready: false,
+                    started: performance.now(), gap: 1000 / raster.fps };
 
         worker.onmessage = (e) => fromHelper(h, e.data);
         worker.onerror = () => lose(h);
@@ -236,7 +254,7 @@ function lose (h)
     if (!helpers.includes(h))
         return;
     cap = helpers.length - 1;
-    open(lastOpen);
+    open(lastOpen, true);
 }
 
 function fromHelper (h, m)
@@ -252,6 +270,8 @@ function fromHelper (h, m)
     case 'part':
         if (m.epoch !== epoch)
             return;
+        /* Its own pace: how long it takes between parts, smoothed. */
+        h.gap += (performance.now() - h.last - h.gap) / 8;
         h.last = performance.now();
         if (m.frame < next)
         {
@@ -272,7 +292,16 @@ function fromHelper (h, m)
         narrowSaid = true;
         break;
     case 'failed':
-        lose(h);
+        /* A patch that won't load is the patch's to say, once; a module
+           that won't start is this helper's. */
+        if (m.patch)
+        {
+            if (!patchSaid)
+                post({ type: 'failed', text: m.text });
+            patchSaid = true;
+        }
+        else
+            lose(h);
         break;
     }
 }
@@ -282,7 +311,7 @@ function channels (list)
     if (raster !== null && wanted(list.length) !== helpers.length)
     {
         following = new Set(list);
-        open(lastOpen);
+        open(lastOpen, true);
         return;
     }
     if (helpers.length > 0)
@@ -482,9 +511,14 @@ function lead ()
     };
     const newest = Math.max(...helpers.map(heard));
     const quiet = (h) => (h.ready ? newest - heard(h) : 0);
-    const recent = (h) => quiet(h) <= 3000 / raster.fps;
+    /* Quiet for a few of its own frames is slow, not stalled. */
+    const recent = (h) => quiet(h) <= 3 * Math.max(h.gap, 1000 / raster.fps);
+    const stalled = (h) => (h.ready ? quiet(h) > Math.max(STALL_MS, 4 * h.gap)
+                                    : began - h.started > START_MS);
 
-    if (d >= 0 && to > next + 1 && !complete(next))
+    /* As a module alone skips: frames older than the one due are late
+       whether or not their parts are in. */
+    if (d >= 0 && to > next + 1)
     {
         for (const h of helpers)
             h.worker.postMessage({ type: 'skip', frame: to });
@@ -508,7 +542,7 @@ function lead ()
         settling = false;
 
     const now = performance.now();
-    const late = helpers.find((h) => quiet(h) > STALL_MS);
+    const late = helpers.find(stalled);
 
     if (now - since >= 1000)
     {
@@ -583,6 +617,17 @@ function soon ()
     }
 }
 
+/* The page's set: led, at the audio reached, so every helper sets it on
+   one line. */
+function set (name, value)
+{
+    if (helpers.length > 0)
+        for (const h of helpers)
+            h.worker.postMessage({ type: 'set', name, value, at: lastAt });
+    else
+        M.ccall('tv_set', null, ['string', 'number'], [name, value]);
+}
+
 function receive (m)
 {
     if (m.type === 'start')
@@ -608,12 +653,8 @@ function receive (m)
         knobNames = m.names;
         break;
     case 'set':
-        /* Led, at the audio reached, so every helper sets it on one line. */
-        if (helpers.length > 0)
-            for (const h of helpers)
-                h.worker.postMessage({ type: 'set', name: m.name, value: m.value, at: lastAt });
-        else
-            M.ccall('tv_set', null, ['string', 'number'], [m.name, m.value]);
+        pageSets.set(m.name, m.value);
+        set(m.name, m.value);
         break;
     case 'clock':
         clock = { offset: m.offset, timeOrigin: m.timeOrigin, rate: m.rate };

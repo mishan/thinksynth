@@ -78,7 +78,7 @@ function follow (channel, patch)
                         [channel, patch.name, patch.text]);
 
     if (why !== '')
-        post({ type: 'failed', text: why });
+        post({ type: 'failed', text: why, patch: true });
     else
         following.add(channel);
 }
