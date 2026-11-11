@@ -50,6 +50,8 @@
 
 #include "think.h"
 #include "thCompiled.h"
+#include "thMidiChan.h"
+#include "thSynth.h"
 #include "thVideoBridge.h"
 #include "thVideoSynth.h"
 
@@ -480,6 +482,16 @@ tv_skip_to (double frame)
 {
     if (video_ != NULL && (int64_t)frame > video_->frames())
         skipTo((int64_t)frame);
+}
+
+/* 1 while a voice on `channel' still sounds, held, releasing or fading,
+   as of the windows drawn; 0 once none does. */
+EMSCRIPTEN_KEEPALIVE int
+tv_sounding (int channel)
+{
+    thMidiChan *chan = video_ != NULL ? video_->synth()->getChannel(channel) : NULL;
+
+    return chan != NULL && chan->sounding() ? 1 : 0;
 }
 
 /* The i-th finished frame: RGBA, or with tv_planes its float planes. */

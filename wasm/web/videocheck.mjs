@@ -438,6 +438,34 @@ for (const [what, read, turn] of [
     }
 }
 
+/* Whether a channel's voices still sound (tv_sounding): while a note is
+   held, while its release runs out, and not after, which is when a
+   channel can be moved to another worker without cutting anything. */
+{
+    open();
+    follow(0, 'white', flat([1, 1, 1], '200 ms'));
+
+    const sounding = () => M._tv_sounding(0);
+    const before = sounding();
+
+    notes([{ at: 0, kind: ON }, { at: 10 * PER_FRAME, kind: OFF }]);
+    M._tv_generated(5 * PER_FRAME);
+    render();
+
+    const held = sounding();
+
+    M._tv_generated(14 * PER_FRAME);
+    render();
+
+    const fading = sounding();
+
+    M._tv_generated(40 * PER_FRAME);
+    render();
+    check('a channel sounds while its note is held and its release runs out, and not after',
+          before === 0 && held === 1 && fading === 1 && sounding() === 0,
+          `before ${before}, held ${held}, releasing ${fading}, after ${sounding()}`);
+}
+
 /* A note struck half way through frame 10. */
 {
     open();
