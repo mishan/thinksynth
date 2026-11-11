@@ -172,7 +172,9 @@ static void usage (const char *argv0)
            "  -w, --windows N         process N windows per file (default 8)\n"
            "  -q, --quiet             only report failures\n"
            "      --shipped           these are this tree's own graphs: each\n"
-           "                          must declare a documented category\n",
+           "                          must declare a documented category\n"
+           "      --strict            a name the parse warns of -- one that\n"
+           "                          nothing defines, and plays as 0 -- fails\n",
            argv0, PLUGIN_PATH);
 }
 
@@ -182,6 +184,7 @@ int main (int argc, char **argv)
     int windows = 8;
     bool quiet = false;
     bool shipped = false;
+    bool strict = false;
     int firstFile = -1;
 
     for (int i = 1; i < argc; i++)
@@ -203,6 +206,10 @@ int main (int argc, char **argv)
         else if (!strcmp(argv[i], "--shipped"))
         {
             shipped = true;
+        }
+        else if (!strcmp(argv[i], "--strict"))
+        {
+            strict = true;
         }
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
         {
@@ -292,6 +299,15 @@ int main (int argc, char **argv)
         if (tree == NULL)
         {
             printf("FAIL  %s (did not load)\n", file);
+            failed++;
+            continue;
+        }
+
+        if (strict && !tree->warnings().empty())
+        {
+            printf("FAIL  %s (names nothing defines)\n", file);
+            for (const string &w : tree->warnings())
+                printf("  %s\n", w.c_str());
             failed++;
             continue;
         }

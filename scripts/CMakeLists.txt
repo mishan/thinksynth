@@ -183,6 +183,7 @@ think_harness(dsplevel)
 think_harness(motioncheck)
 think_harness(videofilecheck)
 think_harness(envcheck)
+think_harness(namecheck)
 think_harness(widthcheck)
 think_harness(scancheck)
 think_harness(videosynthcheck)
@@ -898,7 +899,7 @@ add_test(NAME dspcheck.dsp
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=dsp
-                 "-DEXTRA_ARGS=-q --shipped"
+                 "-DEXTRA_ARGS=-q --shipped --strict"
                  -P "${_runner}")
 
 # Every .dsp parses, prints and plays the same under de_DE as under C. A
@@ -946,8 +947,9 @@ endif()
 # The fixtures beside this harness, which are not in dsp/ and so are in no
 # corpus sweep. They still have to load: divergent.dsp is the only user of
 # filt::divbuf in the tree, and a fixture nothing ever loads is a fixture
-# that has quietly stopped being one. Loading is all that is claimed here --
-# what these files do once loaded is dspsweep.guard's business.
+# that has quietly stopped being one. Loading, with every name real, is all
+# that is claimed here -- what these files do once loaded is dspsweep.guard's
+# business.
 add_test(NAME dspcheck.guard
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dspcheck>
@@ -955,7 +957,7 @@ add_test(NAME dspcheck.guard
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/scripts/guard
                  -DMODE=dsp
-                 -DEXTRA_ARGS=-q
+                 "-DEXTRA_ARGS=-q --strict"
                  -P "${_runner}")
 
 add_test(NAME dspcheck.patch
@@ -1319,6 +1321,8 @@ add_test(NAME lexcheck COMMAND lexcheck)
 add_test(NAME hidblockcheck COMMAND hidblockcheck)
 add_test(NAME hidmapcheck COMMAND hidmapcheck)
 add_test(NAME hidloopcheck COMMAND hidloopcheck)
+add_test(NAME namecheck
+         COMMAND namecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME envcheck
          COMMAND envcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME widthcheck
