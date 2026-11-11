@@ -49,6 +49,7 @@ const video = path.join(here, '..', '..', 'video');
 
 const { default: createThinkWeb } =
     await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
+const { Scaler, SHRINK_S } = await import(pathToFileURL(path.join(here, 'videoscale.js')).href);
 
 /* `M' is the module the helpers below drive. */
 let M = await createThinkWeb({ print: () => {}, printErr: () => {} });
@@ -464,6 +465,46 @@ for (const [what, read, turn] of [
     check('a channel sounds while its note is held and its release runs out, and not after',
           before === 0 && held === 1 && fading === 1 && sounding() === 0,
           `before ${before}, held ${held}, releasing ${fading}, after ${sounding()}`);
+}
+
+/* How many workers draw (videoscale.js), told second by second how busy
+   the busiest was and what it skipped: one more after two seconds behind,
+   never past the limit, one fewer after ten with room, a longer wait after
+   one let go had to come back, and the page's number kept to. */
+{
+    /* `seconds' [busy, skips] from `workers'; each second's answer, the
+       workers following it. */
+    const run = (scaler, workers, seconds) => seconds.map(([busy, skips], t) =>
+    {
+        const d = scaler.tick({ busy, skips, workers, now: t });
+
+        workers += d;
+        return d;
+    });
+    const at = (decisions, want) => decisions.flatMap((d, t) => (d === want ? [t] : []));
+    const hot = (n) => Array(n).fill([0.9, 0]), idle = (n) => Array(n).fill([0.2, 0]);
+    const cases = [
+        ['two seconds behind adds a worker, one does not',
+         run(new Scaler({ limit: 4 }), 1, [[0.9, 0], [0.1, 0], [0.5, 3], [0.5, 1]]),
+         (d) => at(d, 1).join() === '3'],
+        ['behind at the limit adds none',
+         run(new Scaler({ limit: 2 }), 2, hot(6)), (d) => at(d, 1).length === 0],
+        ['ten seconds with room lets one go, and not before',
+         run(new Scaler({ limit: 4 }), 2, idle(SHRINK_S + 2)),
+         (d) => at(d, -1).join() === String(SHRINK_S - 1)],
+        ['busy enough that one fewer would not keep up keeps them',
+         run(new Scaler({ limit: 4 }), 2, Array(30).fill([0.35, 0])),
+         (d) => at(d, -1).length === 0],
+        ['one let go that had to come back waits twice as long next time',
+         run(new Scaler({ limit: 4 }), 2, [...idle(SHRINK_S), ...hot(2), ...idle(2 * SHRINK_S + 1)]),
+         (d) => at(d, -1).join() === `${SHRINK_S - 1},${3 * SHRINK_S + 1}`],
+        ['the page\'s number is kept to, behind or idle',
+         run(new Scaler({ limit: 8, fixed: 3 }), 1, [...hot(4), ...idle(20)]),
+         (d) => at(d, 1).join() === '0,1' && at(d, -1).length === 0],
+    ];
+
+    for (const [name, decisions, ok] of cases)
+        check(`workers: ${name}`, ok(decisions), `decisions ${decisions.join(' ')}`);
 }
 
 /* A note struck half way through frame 10. */
