@@ -77,8 +77,8 @@ roll it, R levels it and X shakes it. `--help` lists the rest.
 ## Marbles
 
 Held, the side button switches the screen from the keys to marbles and
-pegs (`game/thgMarbles`), then to Life, then back to the keys; pressed,
-it steps to the next patch, and the monitor's line says which patch and
+pegs (`game/thgMarbles`), then to Life, then to the composer, then back
+to the keys; pressed, it steps to the next patch, and the monitor's line says which patch and
 screen. Balls roll the way the BOX is tipped, and
 play what they strike, through the BOX's mapper with the game's controls
 (`THG_MARBLES_PROFILE`, and a patch's `controller marbles` block over it):
@@ -101,6 +101,27 @@ patches' row pauses the board, a pause sign at its right end, so the bar
 loops as drawn, the playhead still playing it; another tap lets it go on
 again. A shake brings a fifth of the cells to life, for a board that died
 out. It starts with a glider and a blinker.
+
+## The composer
+
+The fourth screen plays a piece built into the firmware (`pieces/`,
+for now `bells.gen`) through the `.gen` scheduler, the desktop's own
+(`main/composer.cpp`), listen only for now. An instrument is a pool of its
+compiled patch's voices, one per channel, made in internal RAM as the
+piece loads; its chanargs are the knobs the patch declares, and the
+channel's amp, set as the desktop's mix sets them. The piece starts as its
+screen shows, pauses when it's left, its notes let go, and goes on from
+there on return; a press of the side button starts the next piece. The
+screen shows the piece's name, or why it didn't load. The monitor's line
+says how long a step takes, the events played late, and the chanargs that
+reached the voices.
+
+The firmware built for the linux target plays it headless, for a minute:
+
+    ./composercheck.py build-sim/thinkbox.elf
+
+which fails where the piece didn't load, no chanarg reached the voices,
+a sample out wasn't finite, or the piece made no sound.
 
 ## Debug console
 

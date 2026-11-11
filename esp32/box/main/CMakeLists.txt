@@ -11,12 +11,13 @@ endif()
 # Whole: the plugin table refers to each composer's entry points weakly,
 # and a weak reference does not pull an archive member in.
 idf_component_register(
-    SRCS "box.cpp"
+    SRCS "box.cpp" "composer.cpp"
          "${T}/hid/thhMapper.cpp" "${T}/hid/thhControls.cpp" "${T}/hid/thhBox.cpp"
          "${T}/game/thgMarbles.cpp" "${T}/game/thgLife.cpp" ${composer}
     INCLUDE_DIRS "." "${T}/hid" "${T}/game" "${T}/src" "${T}/libthink" "${T}/plugins"
                  ${composerinc}
     WHOLE_ARCHIVE
+    EMBED_TXTFILES "../pieces/bells.gen"
     REQUIRES boxsim esp_timer heap freertos)
 # The mapper and the touch driver both leave members to their defaults.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-missing-field-initializers

@@ -76,6 +76,11 @@ struct Patch
        run late: a released one before a held one, the oldest first. */
     virtual void shed () = 0;
     virtual int sounding () const = 0;
+    /* A chanarg as the scheduler wrote it: the channel's amp, or a knob
+       the patch declares. */
+    virtual void set (const char *name, float value) = 0;
+    /* Every voice faded out over the next block, as a shed one is. */
+    virtual void silence () = 0;
 
     /* The block's amp, once for both halves; nothing to do on the block
        after one that began where the amp still is, which every screen
@@ -283,6 +288,24 @@ struct PatchOf : Patch
 
         if (v >= 0)
             slot[v].fading = true;
+    }
+
+    void set (const char *name, float value) override
+    {
+        if (!strcmp(name, "amp"))
+            amp = value;
+        else
+            knobs.set(name, value);
+    }
+
+    void silence () override
+    {
+        for (int i = 0; i < VOICES; i++)
+            if (slot[i].sounding)
+            {
+                slot[i].fading = true;
+                slot[i].next = false;
+            }
     }
 };
 

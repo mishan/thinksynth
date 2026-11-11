@@ -1,0 +1,79 @@
+# bells.gen -- C minor pentatonic for the BOX's own patches.
+#
+# The scale the BOX's keys play, on its own bell: dxbell.dsp on a
+# five-in-sixteen Euclidean rhythm over two octaves of the scale, a
+# denser fill pool every fourth cycle, nudged by xform::humanize so the
+# grid breathes. Under it glass.dsp holds a slow line, an L-system of
+# steps on the scale, and clave.dsp knocks three in eight. The bell's
+# brightness, its FM index, walks between dull and glassy over half a
+# minute. Short decays throughout, so the parts fit the BOX's voices.
+
+name "Bells";
+author "Misha Nasledov";
+description "A pentatonic bell rhythm over a slow glass line and a clave.";
+category "Pieces";
+
+tempo 92;
+seed 2026;
+meter 4;
+
+section open  8 bars { wood = 0; };
+section full 16 bars { };
+section thin  8 bars { glass = 0; };
+section loop full;
+
+instrument bell {
+    dsp "dxbell.dsp";
+    amp = 40;
+    d   = 1800 ms;
+};
+
+instrument glass {
+    dsp "glass.dsp";
+    amp = 90;
+    id  = 2500 ms;
+    r   = 1500 ms;
+};
+
+instrument wood {
+    dsp "clave.dsp";
+    amp = 50;
+};
+
+chain bell {
+    stage src gen::euclid {
+        steps = 16;  fills = 5;  rotate = 0;
+        notes = "C5 Eb5 G5 F5 Bb5 C6 G5 Eb5";
+        fill  = "C6 Bb5 G5 F5 Eb5 C5 Eb5 F5 G5 Bb5";
+        every = 4;
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 90;
+    };
+    stage h xform::humanize { time = 0.01 s; vel = 10; };
+    sink { instrument = bell; };
+};
+
+chain glass {
+    stage src gen::lsystem {
+        axiom = "F+F-F++F_ -F r";
+        rules = "";
+        depth = 0;
+        notes = "C4 Eb4 F4 G4 Bb4 C5";
+        step = 2 beats;  hold = 1.8 beats;  vel = 70;
+    };
+    sink { instrument = glass; };
+};
+
+chain wood {
+    stage src gen::euclid {
+        steps = 8;  fills = 3;  rotate = 2;  notes = "C5";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 80;
+    };
+    sink { instrument = wood; };
+};
+
+chain bright {
+    stage src gen::walk {
+        min = 2; max = 8; step = 1; period = 30 s;
+    };
+    sink { instrument = bell; chanarg = "index"; };
+};
