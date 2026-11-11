@@ -114,6 +114,14 @@ static void run (K &env, thNode *node, thSynthTree *mod, unsigned int windowlen)
     thkAdsrCtl c = thkAdsr((*in_a)[0], (*in_d)[0], (*in_s)[0] / TH_MAX,
                            (*in_r)[0], (*in_p)[0] / TH_MAX);
 
+    /* A trigger and reset held through the window too: a phase at a time. */
+    if (still && in_trigger->len() <= 1 && in_reset->len() <= 1)
+    {
+        env.run(c, (*in_trigger)[0], (*in_reset)[0], (int)windowlen, out, play);
+        for (unsigned int i = 0; i < windowlen; i++)
+            out[i] *= TH_MAX;
+        return;
+    }
     for (unsigned int i = 0; i < windowlen; i++)
     {
         if (!still)
