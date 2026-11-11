@@ -657,8 +657,8 @@ async function main ()
     env.relayUrl = `ws://${env.hub}:8787`;
     const relayLog = fs.openSync(path.join(env.tmp, 'relay.log'), 'w');
     const relay = spawn(process.execPath,
-                        [path.join(here, 'relay.mjs'), '--port', '8787',
-                         '--host', env.hub, '--tree', top],
+                        [path.join(top, 'relay', 'relay.mjs'),
+                         '--port', '8787', '--host', env.hub, '--tree', top],
                         { stdio: ['ignore', relayLog, relayLog] });
 
     env.procs.push(relay);

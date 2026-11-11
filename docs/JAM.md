@@ -231,7 +231,7 @@ On `jam-m3`, which starts where `jam-m2` ends. Where it stands:
   `gencheck` gates every seeded piece's rewind against its load. Every
   peer's Play is a rewind, so this would have parted the peers before the
   network had a chance to.
-- The relay (`wasm/web/relay.mjs`): the document over y-websocket's
+- The relay (`relay/relay.mjs`): the document over y-websocket's
   protocol, the clock, presence and seats, signalling, and the relayed
   path for gestures the mesh cannot carry. `relaytest.mjs` drives it from
   Node and is in CI.
@@ -241,8 +241,8 @@ On `jam-m3`, which starts where `jam-m2` ends. Where it stands:
   the fallback, seats as the piece's instruments, Play as a start from an
   agreed origin, knobs, tempo and keys as commands, and the numbers --
   the clocks' round trip and spread, the late count -- on the page. It is
-  bundled by esbuild from the CMake build, so `npm ci` in `wasm/web` comes
-  once before the configure.
+  bundled by esbuild from the CMake build, so `npm ci` at the top of the
+  tree comes once before the configure.
 - **Gate 8.2 passes.** `wasm/web/jamtest.mjs` starts a relay and a site,
   puts a Chromium page and a Firefox page in one room, each with a live
   `AudioContext`, presses Play on one, moves a knob from each side and the
@@ -400,10 +400,10 @@ M4 is done. Where it stands:
 
 Where it stands:
 
-- **A deployed relay.** `docker/` builds the relay as an image, which CI
-  publishes to GHCR from master, and the Pages site's `config.json` names
-  the relay the `JAM_RELAY` repository variable does. Running one is
-  [RELAY.md](RELAY.md).
+- **A deployed relay.** `relay/Dockerfile` builds the relay as an image,
+  which CI publishes to GHCR from master, and the Pages site's
+  `config.json` names the relay the `JAM_RELAY` repository variable does.
+  Running one is [RELAY.md](RELAY.md).
 - **Free play.** `gen/free.gen` is eight seats, each its own instrument,
   and nothing composed. Beside the seat, a picker lists the same graphs
   as the solo page's patch menu; a choice is a stamped `pick` command,

@@ -97,7 +97,7 @@ broadcast peer of section 4.1, so it is built once and early.
 **Done when** a scripted run prints those numbers and CI runs a small one
 against the Node module.
 
-**Built:** `wasm/web/relayload.mjs`, fake peers on room.js against a relay
+**Built:** `relay/relayload.mjs`, fake peers on room.js against a relay
 with opt-in metrics, and `wasm/web/nettest.mjs`, real pages behind
 impaired links (section 10). Not yet: a peer on the Node wasm build, the
 determinism diff of every peer's tape at scale, and the CI run.

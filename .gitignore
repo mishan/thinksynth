@@ -43,10 +43,12 @@ build-flatpak/
 repo/
 *.flatpak
 
-# The browser build's test harness (wasm/web/package.json) installs here.
+# The page's and the relay's dependencies (package.json) install here.
 node_modules/
 
-# A relay run from the tree keeps its accounts beside itself (relay.mjs).
+# A relay run from the tree keeps its accounts beside itself (relay.mjs),
+# and did in wasm/web before it moved: a branch from then still writes one.
+/relay/relay.db*
 /wasm/web/relay.db*
 
 # wasm/compare.mjs renders every piece twice, natively and through the

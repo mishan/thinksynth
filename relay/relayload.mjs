@@ -22,7 +22,7 @@
  * client code: room.js's Room, mesh.js's Mesh, y-websocket's provider let
  * in by the room socket's tickets, with ws for the WebSocket.
  *
- *   node wasm/web/relayload.mjs [options]
+ *   node relay/relayload.mjs [options]
  *
  * Node has no WebRTC, so every Mesh link falls back to the relay, and
  * every gesture goes as `relayed' -- what the relay carries for a pair
@@ -52,10 +52,10 @@ import WebSocket from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 
-import { Maker, replayable } from './commands.js';
-import { files, hashOf, pieceName, seenOf } from './doc.js';
-import { Mesh } from './mesh.js';
-import { Room } from './room.js';
+import { Maker, replayable } from '../wasm/web/commands.js';
+import { files, hashOf, pieceName, seenOf } from '../wasm/web/doc.js';
+import { Mesh } from '../wasm/web/mesh.js';
+import { Room } from '../wasm/web/room.js';
 
 /* room.js opens the global WebSocket; ws is the one the relay is
    written against. */

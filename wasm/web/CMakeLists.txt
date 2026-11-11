@@ -20,7 +20,7 @@
 # .patch files the page offers, each directory with an index.json listing
 # it, and jam.html with its bundled jam.js -- the room page -- and the solo
 # page's bundled editor, sourcebox.js: the two things here with npm
-# dependencies (`npm ci' in this directory, once). And
+# dependencies (`npm ci' at the top of the tree, once). And
 # manifest.json and sw.js, which make the solo page an installable app
 # that plays offline, and keep both pages on one build.
 #
@@ -108,22 +108,22 @@ set(THINK_VISUAL_PROTO_cleanup "void @ (thVisual *)")
 # Its test is built here because this is the build with a node beside it,
 # and CI runs it -- against the pinned copy, which is the one that matters
 # to this build rather than whatever upstream's own CI last saw.
-set(CAIRO2D "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/cairo-canvas2d")
+set(CAIRO2D "${THINK_TOP}/node_modules/cairo-canvas2d")
 
 if(NOT EXISTS "${CAIRO2D}/CMakeLists.txt")
   message(FATAL_ERROR
-      "cairo-canvas2d is not installed: run `npm ci` in wasm/web first.\n"
+      "cairo-canvas2d is not installed: run `npm ci` at the top first.\n"
       "The composers' cairo comes from npm, so the browser build needs "
       "node_modules before it can configure.")
 endif()
 
 # The tiler: mullion, from npm, and the same arrangement as the replayer
 # below -- copied in beside the pages under the names they load it by.
-set(MULLION "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/mullion/src")
+set(MULLION "${THINK_TOP}/node_modules/mullion/src")
 
 if(NOT EXISTS "${MULLION}/panes.js")
   message(FATAL_ERROR
-      "mullion is not installed: run `npm ci` in wasm/web first.")
+      "mullion is not installed: run `npm ci` at the top first.")
 endif()
 
 set(CAIRO2D_TESTS ON CACHE BOOL "" FORCE)
@@ -519,10 +519,10 @@ file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/patches/index.json"
 # fetch them from. The solo page's code editor, sourcebox.js, is bundled
 # the same way by the same run. Both pages need it, so esbuild is as
 # required as the packages above.
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/esbuild")
+if(NOT EXISTS "${THINK_TOP}/node_modules/esbuild")
   message(FATAL_ERROR
       "The pages' editors are bundled with esbuild, from npm: run `npm ci' "
-      "in ${CMAKE_CURRENT_SOURCE_DIR} and configure again.")
+      "in ${THINK_TOP} and configure again.")
 endif()
 
 # package-lock.json among the dependencies because the bundles contain
@@ -535,7 +535,7 @@ set(BUNDLE_SOURCES jam.js chat.js room.js mesh.js editor.js doc.js clock.js
                    canvasview.js composerview.js nodeview.js rollview.js
                    tapediff.js offline.js layouts.js sourcebox.js seqview.js
                    packs.js evolveui.js
-                   thinklang.js bundle.mjs package-lock.json)
+                   thinklang.js bundle.mjs ../../package-lock.json)
 set(BUNDLE_DEPENDS "")
 
 foreach(f IN LISTS BUNDLE_SOURCES)

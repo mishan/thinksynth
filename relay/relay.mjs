@@ -21,8 +21,8 @@
  * relay.mjs -- the room's server: the document, the clock, who is here,
  * and the way peers find each other.
  *
- *   node wasm/web/relay.mjs [--port 8787] [--tree DIR]
- *   node wasm/web/relay.mjs admin <command>      (accounts.mjs, runAdmin)
+ *   node relay/relay.mjs [--port 8787] [--tree DIR]
+ *   node relay/relay.mjs admin <command>      (accounts.mjs, runAdmin)
  *
  * One process, one port. It does three jobs and is
  * authoritative for none of the music: it holds the shared document so a
@@ -85,14 +85,16 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 
-import { ACCOUNT_API, isOrigin, normalizeName, shownName } from './account.js';
+import { ACCOUNT_API, isOrigin, normalizeName, shownName }
+    from '../wasm/web/account.js';
 import { AccountStore, Accounts, ADMIN_USAGE, Bucket as TokenBucket,
          TieredLimit, accountRoutes, clientOf, runAdmin }
     from './accounts.mjs';
 import { Passkeys, passkeyConfig } from './passkeys.mjs';
-import { RELAY, TRANSPORT_LEAD } from './commands.js';
+import { RELAY, TRANSPORT_LEAD } from '../wasm/web/commands.js';
 import { DEFAULT_PIECE, dspNames, files, hashOfFiles, hasSeen, meta,
-         pieceName, putFile, readSeen, seenOf, snapshot } from './doc.js';
+         pieceName, putFile, readSeen, seenOf, snapshot }
+    from '../wasm/web/doc.js';
 
 export const PROTOCOL = 1;
 
@@ -169,7 +171,7 @@ const SWEEP_EVERY_MS = 60 * 1000;
    too few to let go it is refused. Measured, an empty room holds 6 KB
    of heap and is charged 8 KB, one seeded with airports.gen 18 KB and
    26 KB, and with sunrise.gen 96 KB and 165 KB. The budget is a third
-   of the 384 MiB heap (docker/compose.yaml): 4096 rooms of the default
+   of the 384 MiB heap (compose.yaml): 4096 rooms of the default
    piece, or about 800 of sunrise.gen's. One room may be charged an
    eighth of it, and an update that could take it past that is refused
    (refusal): twice the largest document frame (DOC_FRAME_MAX), twice
@@ -370,7 +372,7 @@ const DOCS_PER_PEER = 4;
    so the one a socket asked for is held apart from its cap while it
    drains, and counted relay-wide once however many sockets share it. The
    total is a quarter of the 512 MiB the relay's container is given
-   (docker/compose.yaml): queued frames are Buffers, outside the heap but
+   (compose.yaml): queued frames are Buffers, outside the heap but
    inside that. A cut socket's close is waited for a few seconds, for the
    page to read why. */
 const QUEUED_MAX_BYTES = 16 * 1024 * 1024;
@@ -2977,7 +2979,7 @@ class Room
    `server.metrics' is that server, and one that cannot listen rejects.
    The two times, the caps and `limits', over LIMITS, are for a harness. */
 export function relay ({ port = 8787, host = '0.0.0.0',
-                         tree = path.join(here, '..', '..'), db = ':memory:',
+                         tree = path.join(here, '..'), db = ':memory:',
                          corsOrigin = null, trustProxy = 0, passkeys = null,
                          metricsPort = null,
                          ticketMs = TICKET_MS, heartbeatMs = HEARTBEAT_MS,
@@ -3801,7 +3803,7 @@ if (process.argv[1] !== undefined &&
 
     process.stdout.write(`relay on ws://${a.address}:${a.port}/  ` +
                          `(rooms seeded from ${path.resolve(
-                             opts.tree ?? path.join(here, '..', '..'))}, ` +
+                             opts.tree ?? path.join(here, '..'))}, ` +
                          `accounts in ${opts.db}` +
                          (server.metrics === null ? '' :
                           `, metrics on http://127.0.0.1:` +

@@ -111,7 +111,7 @@ import { WebSocketServer } from 'ws';
 
 import { tapeBefore } from '../tape.mjs';
 import { firstDifference, reference } from './piececheck.mjs';
-import { relay } from './relay.mjs';
+import { relay } from '../../relay/relay.mjs';
 import { axeFindings } from './a11y.mjs';
 import { serve } from './serve.mjs';
 

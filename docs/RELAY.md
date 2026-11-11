@@ -1,6 +1,6 @@
 # Running the relay
 
-The room page needs a relay (`wasm/web/relay.mjs`): the shared document,
+The room page needs a relay (`relay/relay.mjs`): the shared document,
 the clock, who is in a room, and signalling. One Node process, one port.
 Rooms live in memory; accounts are kept in one SQLite file. A page
 served over https can only open `wss://`, so the relay runs behind a TLS
@@ -8,7 +8,7 @@ proxy.
 
 ## The image
 
-CI's `relay` job builds `docker/relay.Dockerfile` on every run, joins a
+CI's `relay` job builds `relay/Dockerfile` on every run, joins a
 room on it, and from master publishes `ghcr.io/mishan/thinksynth-relay`
 as `latest` and as the commit. The image holds the relay, its npm
 dependencies, and `gen/` and `dsp/`, which new rooms are seeded from.
@@ -26,7 +26,7 @@ served from.
 
        docker rm -f thinksynth-relay
 
-2. nginx: merge `docker/nginx.conf` into the site's file by hand -- do
+2. nginx: merge `relay/nginx.conf` into the site's file by hand -- do
    not copy it over, or certbot's `listen 443` and certificate lines go
    with it. What it adds:
 
@@ -51,7 +51,7 @@ served from.
    `sudo certbot --nginx -d relay.example.org`. Long proxy timeouts
    matter: a document socket is quiet while nobody types.
 
-3. Copy `docker/compose.yaml` over, with a `.env` beside it:
+3. Copy `relay/compose.yaml` over, with a `.env` beside it:
 
        CORS_ORIGIN=https://pages.example.org
        PASSKEY_RP_ID=pages.example.org
@@ -85,7 +85,7 @@ guest with no Account button; an old page is refused by a new relay
 be new by the time the relay is.
 
 1. Let master's build deploy the Pages site.
-2. Merge any change to `docker/nginx.conf` by hand, as above, and
+2. Merge any change to `relay/nginx.conf` by hand, as above, and
    `sudo nginx -t && sudo systemctl reload nginx`.
 3. `docker compose -f compose.yaml pull && docker compose -f
    compose.yaml up -d`.
@@ -113,7 +113,7 @@ room page's Account dialog shows once for a password manager to save.
 The relay keeps only hashes of keys and sessions. Anyone may still join
 as a guest, marked as one, under any name that is not an account's
 handle; no handle starts with `guest-`. The routes are under
-`/api/account/` on the relay's own port (`wasm/web/accounts.mjs`).
+`/api/account/` on the relay's own port (`relay/accounts.mjs`).
 Accounts belong to the relay the site's `config.json` names: a page sent
 to another relay with `?relay=` joins it as a guest and keeps its
 session to itself.
@@ -136,7 +136,7 @@ two more for passkeys (below):
 
 - `TRUST_PROXY`: how many proxies in front append to `X-Forwarded-For`,
   which the API's rate limits read. `compose.yaml` sets 1 for the nginx
-  of `docker/nginx.conf`, which appends it. Set it only behind proxies
+  of `relay/nginx.conf`, which appends it. Set it only behind proxies
   that do, or a client picks its own address.
 
 ### Passkeys
@@ -181,7 +181,7 @@ orphans every passkey made so far; their owners log in with their keys
 and add new ones.
 
 The document socket is let in by a ticket in its query string, good for
-five minutes. `docker/nginx.conf` logs requests by path alone so that
+five minutes. `relay/nginx.conf` logs requests by path alone so that
 tickets stay out of the access log; keep that `log_format` if the file is
 adapted. nginx's error log still names the whole request, ticket and all,
 when the relay cannot be reached; a ticket lapses five minutes after it
@@ -248,7 +248,7 @@ out of every room within the minute.
 ## Limits
 
 What one client can cost the relay is bounded, by constants in
-`wasm/web/relay.mjs`. A client past one is refused or cut, and told why
+`relay/relay.mjs`. A client past one is refused or cut, and told why
 on its room socket where that can reach it, which the page shows as the
 room closing. A refusal that passes -- too many new rooms, a full room
 or relay, a page that fell behind or sent too much, a relay short of
@@ -366,7 +366,7 @@ Rejoin.
 ## Metrics
 
 - `METRICS_PORT`: a port to serve the relay's metrics on, for a load
-  test (`wasm/web/relayload.mjs`): `GET /` answers JSON with the event
+  test (`relay/relayload.mjs`): `GET /` answers JSON with the event
   loop's delay, the worst lag of a 10 ms timer and the CPU used, all
   over the window since the last reset; memory; counts of rooms, peers
   and sockets; messages and bytes each way by type, since the start;

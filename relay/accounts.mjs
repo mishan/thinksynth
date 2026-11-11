@@ -48,7 +48,7 @@ import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 
 import { ACCOUNT_API, KEY_WORDS_PER_KEY, foldName, normalizeKey,
-         normalizeName } from './account.js';
+         normalizeName } from '../wasm/web/account.js';
 import { KEY_WORDS } from './wordlist.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

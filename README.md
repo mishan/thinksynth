@@ -319,7 +319,7 @@ page's CRDT (below), come from npm and are bundled at build time, so
 
 ```sh
 source ~/emsdk/emsdk_env.sh
-(cd wasm/web && npm ci)
+npm ci
 emcmake cmake -S wasm/web -B build-web -G Ninja
 cmake --build build-web -j
 node wasm/web/serve.mjs            # http://localhost:8080/
@@ -412,7 +412,7 @@ It needs a relay: one small server that holds the document, answers the
 clock, and introduces the peers to each other. Run it beside the site:
 
 ```sh
-node wasm/web/relay.mjs                                # ws://0.0.0.0:8787
+node relay/relay.mjs                                   # ws://0.0.0.0:8787
 node wasm/web/serve.mjs --relay ws://localhost:8787    # http://localhost:8080/
 ```
 
@@ -453,7 +453,7 @@ the room:
 `wasm/web/protocoltest.mjs` runs two peers in one process at different
 windows and rates over a simulated network and holds their tapes against
 each other and against `genwav.mjs`'s under the same commands;
-`wasm/web/relaytest.mjs` drives the relay from Node; and
+`relay/relaytest.mjs` drives the relay from Node; and
 `wasm/web/jamtest.mjs` puts a Chromium page and a Firefox page in one
 room on a relay and does the same comparison live.
 
