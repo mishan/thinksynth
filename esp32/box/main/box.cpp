@@ -36,6 +36,11 @@
 
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "sdkconfig.h"
+#if !CONFIG_IDF_TARGET_LINUX
+#include "nvs.h"
+#include "nvs_flash.h"
+#endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -51,6 +56,11 @@
 #include "pool.h"
 
 #define GAIN 0.25f
+/* The volume, 0 to 1 along the top row, as the mix's gain is scaled by
+   its square, nearer how loud it sounds; saved this long after it last
+   moved, and not on every move, to spare the flash. */
+static volatile float volume = 0.8f;
+#define VOLUME_SAVED_US 1000000
 /* How far ahead of the wall clock the blocks may be rendered: the I2S's
    six 7.5 ms DMA buffers, the simulator's 50 ms, and a block. */
 #define AHEAD_US 60000
@@ -218,12 +228,14 @@ audioTask (void *)
         patches[playing]->late += load > 1;
         xSemaphoreGive(lock);
 
+        const float gain = GAIN * volume * volume;
+
         for (int i = 0; i < BLOCK; i++)
             for (int c = 0; c < 2; c++)
             {
                 /* A NaN would clamp to -1, an infinity to 1, a full-scale DC:
                    silence. */
-                const float y = mix[c][i] * GAIN;
+                const float y = mix[c][i] * gain;
                 const float x = std::isfinite(y) ? fminf(1, fmaxf(-1, y)) : 0;
 
                 boxNonFinite += !std::isfinite(y);
@@ -323,10 +335,51 @@ drawKey (int k, bool on)
     }
 }
 
-/* The patches along the top, a square each, the playing one lit; at the
-   right end, Life's paused as a pause sign. */
+/* Life's pause sign, at the top row's right end: a tap there pauses the
+   board rather than setting the volume. */
+#define PAUSE_X 296
+
+/* Kept in NVS on the BOX. The simulator's flash goes when it quits, and
+   IDF's NVS doesn't build for its linux target. */
 static void
-drawPatches (int n, int on, bool paused)
+saveVolume ()
+{
+#if !CONFIG_IDF_TARGET_LINUX
+    nvs_handle_t h;
+
+    if (nvs_open("thinkbox", NVS_READWRITE, &h) != ESP_OK)
+        return;
+    nvs_set_u8(h, "volume", (uint8_t)lroundf(volume * 100));
+    nvs_commit(h);
+    nvs_close(h);
+#endif
+}
+
+static void
+loadVolume ()
+{
+#if !CONFIG_IDF_TARGET_LINUX
+    nvs_handle_t h;
+    uint8_t saved;
+
+    esp_err_t e = nvs_flash_init();
+
+    /* Written by something else, or by another IDF's NVS: begun again. */
+    if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND)
+        e = nvs_flash_erase() == ESP_OK ? nvs_flash_init() : e;
+    if (e != ESP_OK || nvs_open("thinkbox", NVS_READONLY, &h) != ESP_OK)
+        return;
+    if (nvs_get_u8(h, "volume", &saved) == ESP_OK && saved <= 100)
+        volume = saved / 100.0f;
+    nvs_close(h);
+#endif
+}
+
+/* The patches along the top, a square each, the playing one lit; at the
+   right end, Life's paused as a pause sign; and under them the volume,
+   a bar as far along as it is. */
+static void
+drawPatches (int n, int on, bool paused, int vol)
 {
     static uint16_t *row = NULL;
 
@@ -342,7 +395,10 @@ drawPatches (int n, int on, bool paused)
             const bool bar = paused && y >= 3 && y < TOP - 3 &&
                              ((x >= 301 && x < 305) || (x >= 308 && x < 312));
 
+            const bool level = y >= TOP - 2 && x * 100 < vol * W;
+
             row[y * W + x] = bar ? rgb(255, 255, 255)
+                           : level ? rgb(255, 170, 60)
                            : !square ? rgb(0, 0, 0)
                            : p == on ? rgb(255, 255, 255) : rgb(70, 70, 70);
         }
@@ -540,7 +596,7 @@ static void
 displayTask (void *)
 {
     uint32_t keysShown = 0;
-    int patchShown = -1;
+    int patchShown = -1, volShown = -1;
     bool pausedShown = false;
 
     for (int k = 0; k < KEYS; k++)
@@ -557,22 +613,21 @@ displayTask (void *)
 
         const int on = screen;
         const bool paused = on == ON_LIFE && shownPaused;
+        const int vol = (int)lroundf(volume * 100);
 
-        /* The whole screen is its own, the patches' row too: drawn again
-           after. */
-        if (on == ON_COMPOSER)
-        {
-            composerDraw(again);
-            patchShown = -1;
-            vTaskDelay(pdMS_TO_TICKS(50));
-            continue;
-        }
-
-        if (shown != patchShown || paused != pausedShown)
+        /* The composer plays no patch of the row's. */
+        if (again || shown != patchShown || paused != pausedShown || vol != volShown)
         {
             patchShown = shown;
             pausedShown = paused;
-            drawPatches(NPATCHES, patchShown, pausedShown);
+            volShown = vol;
+            drawPatches(on == ON_COMPOSER ? 0 : NPATCHES, patchShown, pausedShown, vol);
+        }
+        if (on == ON_COMPOSER)
+        {
+            composerDraw(again, TOP);
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
         }
         if (again)
         {
@@ -933,8 +988,52 @@ controlTask (void *)
         /* Each contact to the finger with its id, or to a free one. */
         box_hal_contact points[FINGERS];
         static bool wasHome = false;
-        const int count = box_touch_read(points, FINGERS);
+        int count = box_touch_read(points, FINGERS);
         const bool home = box_button_down(BOX_HAL_HOME);
+
+        /* The top row is the volume's, all of it but Life's pause sign at
+           its right end: a finger that comes down there sets it, left to
+           right, wherever it slides, and plays nothing else. A finger that
+           came down anywhere else stays its screen's, even slid up into
+           the row. Which is which by the controller's id for the contact,
+           a contact new where its id wasn't seen for TOUCH_LIFTED_US. */
+        static struct { int id = -1; int64_t seen = 0; } recent[FINGERS];
+        static int stripId = -1;
+        static int64_t volumeMoved = -1;
+
+        for (int p = 0; p < count;)
+        {
+            const int id = points[p].id;
+            auto *slot = &recent[0];
+
+            /* Its own slot, or one gone quiet. */
+            for (auto &r : recent)
+                if (r.id == id || (slot->id != id && now - r.seen > TOUCH_LIFTED_US))
+                    slot = &r;
+            /* New, it is the strip's or not by where it came down. */
+            if (slot->id != id || now - slot->seen > TOUCH_LIFTED_US)
+            {
+                const bool strip = points[p].y < TOP &&
+                                   !(screen == ON_LIFE && points[p].x >= PAUSE_X);
+
+                stripId = strip ? id : stripId == id ? -1 : stripId;
+            }
+            slot->id = id;
+            slot->seen = now;
+            if (id == stripId)
+            {
+                volume = fminf(1, fmaxf(0, points[p].x / (float)(W - 1)));
+                volumeMoved = now;
+                points[p] = points[--count];
+            }
+            else
+                p++;
+        }
+        if (volumeMoved >= 0 && now - volumeMoved > VOLUME_SAVED_US)
+        {
+            saveVolume();
+            volumeMoved = -1;
+        }
 
         /* The red button: the pose it's in now is level. */
         if (home && !wasHome)
@@ -1053,9 +1152,9 @@ static void
 status (char *line, size_t size)
 {
     const int on = screen;
-    const int n = snprintf(line, size, "screen %s  patch %s (%d of %d)  voices %d  load %.0f%%",
-                           SCREEN_NAME[on], patches[playing]->name, playing + 1, NPATCHES,
-                           voicesNow, load * 100);
+    const int n = snprintf(line, size, "screen %s  patch %s (%d of %d)  voices %d  load %.0f%%  "
+                           "volume %.0f%%", SCREEN_NAME[on], patches[playing]->name, playing + 1,
+                           NPATCHES, voicesNow, load * 100, volume * 100);
 
     if (on == ON_LIFE && n > 0 && n < (int)size)
     {
@@ -1073,6 +1172,8 @@ status (char *line, size_t size)
 extern "C" void
 app_main (void)
 {
+    loadVolume();
+
     debugcon_start(BOX_RATE, DEBUGCON_TOUCH | DEBUGCON_HOME | DEBUGCON_SHAKE, status);
 
     const unsigned opened = box_hal_open(BOX_HAL_SPEAKER | BOX_HAL_IMU | BOX_HAL_TOUCH |

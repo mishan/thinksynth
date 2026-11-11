@@ -21,6 +21,12 @@ level, for a BOX lying on a desk or leaning back in its stand. The side
 button steps to the next patch, the notes of the last left to ring out.
 Each patch is scaled to peak as loud as the others (`generate.sh`).
 
+The top row is the volume, on every screen: a finger there sets it, from
+silent at the left to full at the right, and plays nothing else; an amber
+bar under the patches' squares shows where it is. It scales the mix by
+its square, nearer how loud it sounds, and the BOX keeps it in NVS, a
+second after it last moved, for the next time it starts.
+
 When the blocks run near their time, two in a row over 75% of it, the
 voice sounding longest, a released one before a held one, fades out over
 the next block; and a new note then takes over a sounding voice rather
@@ -97,8 +103,9 @@ chord, through the patch's `controller life` block or, with none,
 `THG_LIFE_PROFILE`: a row a degree of C minor pentatonic up from C4, in
 the keys' colors. Each time the playhead comes round, the board advances
 a generation. A finger down on a cell brings it to life or kills it, and
-dragging from there paints or erases the cells it crosses. A tap on the
-patches' row pauses the board, a pause sign at its right end, so the bar
+dragging from there paints or erases the cells it crosses. A tap at the
+top row's right end, the volume's but for that, pauses the board, a pause
+sign there, so the bar
 loops as drawn, the playhead still playing it; another tap lets it go on
 again. A shake brings a fifth of the cells to life, for a board that died
 out. It starts with a glider and a blinker.

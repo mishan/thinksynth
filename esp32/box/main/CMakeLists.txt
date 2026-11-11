@@ -8,6 +8,11 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
   include("${CMAKE_CURRENT_LIST_DIR}/composer.cmake")
   box_composer_sources(composer composerinc)
 endif()
+# The volume is kept in NVS on the BOX; the linux target has none to keep.
+set(requires boxsim esp_timer heap freertos)
+if(NOT IDF_TARGET STREQUAL "linux")
+  list(APPEND requires nvs_flash)
+endif()
 # Whole: the plugin table refers to each composer's entry points weakly,
 # and a weak reference does not pull an archive member in.
 idf_component_register(
@@ -19,7 +24,7 @@ idf_component_register(
     WHOLE_ARCHIVE
     EMBED_TXTFILES "../pieces/harbor.gen" "../pieces/garden.gen" "../pieces/discreet.gen"
                    "../pieces/lantern.gen" "../pieces/bells.gen"
-    REQUIRES boxsim esp_timer heap freertos)
+    REQUIRES ${requires})
 # The mapper and the touch driver both leave members to their defaults.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-missing-field-initializers
                        $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>)

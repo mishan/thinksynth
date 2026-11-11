@@ -666,7 +666,7 @@ ink (const char *s, int x0, int y0, int scale, int x, int y)
 }
 
 void
-composerDraw (bool all)
+composerDraw (bool all, int top)
 {
     static unsigned drawn = ~0u;
     /* Two, each filled while the other is still being sent. */
@@ -697,7 +697,7 @@ composerDraw (bool all)
     const int x0 = (W - 6 * scale * len + scale) / 2, y0 = 80 - 7 * scale / 2;
     const uint16_t fg = rgb(255, 210, 120), dim = rgb(150, 150, 150), bg = rgb(0, 0, 0);
 
-    for (int s = 0; s < H; s += STRIP)
+    for (int s = top; s < H; s += STRIP)
     {
         uint16_t *strip = strips[(s / STRIP) % 2];
 
