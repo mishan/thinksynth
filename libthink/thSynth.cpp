@@ -2702,6 +2702,11 @@ void thSynth::handBack (void)
 /* Audio thread. */
 void thSynth::process (void)
 {
+    process(NULL);
+}
+
+void thSynth::process (const float *add)
+{
     FlushDenormals flush;
     int mixchannels, notechannels;
     thMidiChan *chan;
@@ -2904,6 +2909,10 @@ void thSynth::process (void)
             }
         }
     }
+
+    if (add != NULL)
+        for (size_t i = 0, n = thOutputSamples(channels_, windowlen_); i < n; i++)
+            output_[i] += add[i];
 
     /* The master effect, on the sum of every channel and before the gain.
      *

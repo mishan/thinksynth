@@ -157,7 +157,12 @@ void thVideoSynth::setInputs (const thVideoInputs &in)
 
 bool thVideoSynth::render (const Frame &frame)
 {
-    synth_->process();
+    return render(frame, NULL);
+}
+
+bool thVideoSynth::render (const Frame &frame, const float *add)
+{
+    synth_->process(add);
     rendered_ += window_;
     processed_ = true;
 
