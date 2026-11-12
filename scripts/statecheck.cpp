@@ -9023,6 +9023,422 @@ static void checkMoog (const string &pluginPath)
                  "and at five hundred");
 }
 
+/* filt::bar: a click into it, and whatever else a check sets. `strike' is
+   env::ad's decay in samples: 1 is a one-sample click of height `hit'. */
+static vector<NodeSpec> barGraph (const vector<Value> &set, float strike = 1,
+                                  float hit = 1)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, bar;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+
+    Value a = { "a", 0 };
+    Value d = { "d", strike };
+    Value p = { "p", hit };
+
+    src.values.push_back(a);
+    src.values.push_back(d);
+    src.values.push_back(p);
+
+    bar.name = "bar";
+    bar.spelling = "filt/bar";
+    bar.values = set;
+
+    Wire in = { "in", "src", "out" };
+
+    bar.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(bar);
+
+    return spec;
+}
+
+/* The level of a component at `hz' in `n' samples from `from', through a
+   Hann window, so a louder component nearby does not leak into it. */
+static double hannBin (const vector<float> &v, size_t from, size_t n, double hz)
+{
+    double re = 0, im = 0;
+
+    for (size_t i = 0; i < n && from + i < v.size(); i++)
+    {
+        const double w = 2.0 * M_PI * hz * (double)i / TH_DEFAULT_SAMPLES;
+        const double hann = 0.5 - 0.5 * cos(2.0 * M_PI * i / n);
+
+        re += hann * v[from + i] * cos(w);
+        im -= hann * v[from + i] * sin(w);
+    }
+
+    return 4.0 * sqrt(re * re + im * im) / (double)n;
+}
+
+/* How long a component at `hz' takes to fall 60 dB, from its level in
+   blocks of 20 ms between `from' and `to' seconds: a line through the
+   decibels, as decayTime fits the whole signal's. Each block Hann-windowed,
+   or a louder, slower mode leaking into the bin holds the fall up. */
+static double modeDecay (const vector<float> &v, double hz, double from,
+                         double to)
+{
+    const size_t block = TH_DEFAULT_SAMPLES / 50;
+    double sx = 0, sy = 0, sxx = 0, sxy = 0;
+    int n = 0;
+
+    for (size_t at = (size_t)(from * TH_DEFAULT_SAMPLES);
+         at + block <= v.size() && at < (size_t)(to * TH_DEFAULT_SAMPLES);
+         at += block)
+    {
+        const double x = (double)at / TH_DEFAULT_SAMPLES;
+        const double y = 20.0 * log10(hannBin(v, at, block, hz) + 1e-300);
+
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        sxy += x * y;
+        n++;
+    }
+
+    return -60.0 / ((n * sxy - sx * sy) / (n * sxx - sx * sx));
+}
+
+static void checkBar (const string &pluginPath)
+{
+    /* The free-free bar's modes over its first, (beta_n / beta_1)^2, from
+       the roots of cos(b) cosh(b) = 1: the physics, not the plugin's
+       table. */
+    const double ratios[] = { 1, 2.7565, 5.4039, 8.9330, 13.3443 };
+    const double rate = TH_DEFAULT_SAMPLES;
+    const size_t fftn = 1 << 16;
+
+    /* ---- where the modes are ---- */
+    {
+        vector<float> out;
+        string why;
+        Value f = { "freq", 440 }, dp = { "damp", -1 }, dc = { "decay", 2 };
+
+        if (!render1(pluginPath, barGraph({ f, dp, dc }), "bar", "out", 512,
+                     fftn, out, why))
+            fail("filt::bar renders", why);
+        else
+        {
+            const vector<double> power = powerSpectrum(out, 0, fftn);
+            const double perBin = rate / fftn;
+            string bad;
+
+            for (double r : ratios)
+            {
+                const double want = 440 * r;
+                size_t best = 0;
+
+                for (size_t k = (size_t)(want * 0.97 / perBin);
+                     k <= (size_t)(want * 1.03 / perBin) && k < power.size(); k++)
+                    if (power[k] > power[best])
+                        best = k;
+
+                if (fabs(best * perBin - want) > 1.5 * perBin)
+                    bad += " " + num(want) + " Hz peaks at " + num(best * perBin);
+            }
+            okOrFail(bad.empty(), "filt::bar: a click rings at 440 Hz times "
+                     "the free-free bar's first five ratios, to a bin", bad);
+        }
+    }
+
+    /* ---- how long ---- */
+    {
+        vector<float> out;
+        string why;
+        Value f = { "freq", 440 }, m = { "modes", 1 }, dc = { "decay", 0.5f };
+
+        if (render1(pluginPath, barGraph({ f, m, dc }), "bar", "out", 512,
+                    (unsigned)rate, out, why))
+        {
+            const double t = decayTime(out, 0.05, 0.45);
+
+            okOrFail(fabs(t - 0.5) < 0.025, "filt::bar: one mode falls 60 dB "
+                     "in `decay', to 5%", "took " + num(t) + " s");
+        }
+        else
+            fail("filt::bar renders one mode", why);
+
+        /* The bar's own d is 1: the second mode's decay is decay / r2^(1 + damp). */
+        for (float damp : { -1.0f, 0.0f, 1.0f })
+        {
+            Value dp = { "damp", damp }, dc2 = { "decay", 2 };
+
+            if (!render1(pluginPath, barGraph({ f, dp, dc2 }), "bar", "out",
+                         512, (unsigned)(2 * rate), out, why))
+            {
+                fail("filt::bar renders", why);
+                continue;
+            }
+            const double want = 2 / pow(ratios[1], 1 + damp);
+            const double t = modeDecay(out, 440 * ratios[1], 0.05,
+                                       0.05 + std::min(1.5, want / 2));
+
+            okOrFail(fabs(t - want) < 0.05 * want,
+                     "filt::bar: at `damp' " + num(damp) + " the second mode "
+                     "falls 60 dB in decay / r2^(1 + damp), to 5%",
+                     "took " + num(t) + " s, want " + num(want));
+        }
+    }
+
+    /* ---- how loud: a full-scale click never rings past full scale ---- */
+    for (float modes : { 1.0f, 8.0f, 16.0f })
+        for (float tilt : { -12.0f, 0.0f, 12.0f })
+        {
+            if (modes == 1 && tilt != 0)
+                continue;   /* one mode's gain is 1 at any tilt */
+
+            vector<float> out;
+            string why;
+            Value f = { "freq", 220 }, m = { "modes", modes }, t = { "tilt", tilt };
+
+            if (!render1(pluginPath, barGraph({ f, m, t }), "bar", "out", 512,
+                         (unsigned)(rate / 2), out, why))
+            {
+                fail("filt::bar renders", why);
+                continue;
+            }
+            okOrFail(peak(out, 0) <= 1.0 && peak(out, 0) > 0.1,
+                     "filt::bar: a full-scale click at " + num(modes) +
+                     " modes and a tilt of " + num(tilt) + " peaks inside full scale",
+                     "peak " + num(peak(out, 0)));
+        }
+
+    /* ---- above Nyquist: at 8 kHz every mode but the first is over 0.45
+       of the rate, so all the power is at 8 kHz ---- */
+    {
+        vector<float> out;
+        string why;
+        Value f = { "freq", 8000 }, m = { "modes", 16 };
+
+        if (render1(pluginPath, barGraph({ f, m }), "bar", "out", 512, fftn,
+                    out, why))
+        {
+            const vector<double> power = powerSpectrum(out, 0, fftn);
+            const double perBin = rate / fftn;
+            double near = 0, all = 0;
+
+            for (size_t k = 0; k < power.size(); k++)
+            {
+                all += power[k];
+                if (fabs(k * perBin - 8000) < 50)
+                    near += power[k];
+            }
+            okOrFail(allFinite(out) && all > 0 && near / all > 0.999,
+                     "filt::bar: at 8 kHz the modes above 0.45 of the rate "
+                     "are left out, none folded back",
+                     "share at 8 kHz " + num(all > 0 ? near / all : 0));
+        }
+        else
+            fail("filt::bar renders at 8 kHz", why);
+    }
+
+    /* ---- the long and the low ---- */
+    {
+        vector<float> out;
+        string why;
+        Value f = { "freq", 20 }, m = { "modes", 1 }, dc = { "decay", 60 };
+
+        if (render1(pluginPath, barGraph({ f, m, dc }), "bar", "out", 512,
+                    (unsigned)(4 * rate), out, why))
+        {
+            const vector<double> up = upCrossings(out);
+            const double hz = up.size() > 2
+                ? (up.size() - 1) * rate / (up.back() - up.front()) : 0;
+            const double t = decayTime(out, 0.5, 4);
+
+            okOrFail(allFinite(out) && fabs(hz - 20) < 0.02 &&
+                     fabs(t - 60) < 3,
+                     "filt::bar: 20 Hz with a 60 s decay holds its pitch and "
+                     "falls at the rate asked",
+                     num(hz) + " Hz, " + num(t) + " s");
+        }
+        else
+            fail("filt::bar renders at 20 Hz", why);
+    }
+
+    /* ---- a 0 is the material: what the node editor writes on a
+       disconnect is what a .dsp that never names the arg gets ---- */
+    {
+        vector<float> left, zero;
+        string why;
+        Value f = { "freq", 440 }, m = { "modes", 0 }, dc = { "decay", 0 };
+
+        if (render1(pluginPath, barGraph({ f }), "bar", "out", 512, 8192,
+                    left, why) &&
+            render1(pluginPath, barGraph({ f, m, dc }), "bar", "out", 512,
+                    8192, zero, why))
+            okOrFail(left == zero && peak(left, 0) > 0.1,
+                     "filt::bar: `modes' and `decay' of 0 are the bar's own",
+                     "they differ");
+        else
+            fail("filt::bar renders", why);
+    }
+
+    /* ---- a mode `modes' drops is let go, not held: it does not come
+       back when `modes' rises again ---- */
+    {
+        vector<NodeSpec> spec = barGraph({ { "freq", 440 }, { "decay", 2 },
+                                           { "damp", -1 } });
+        NodeSpec sq, step;
+
+        sq.name = "sq";
+        sq.spelling = "osc/simple";
+        sq.values = { { "freq", 2 }, { "amp", 6 }, { "waveform", 2 } };
+        step.name = "step";
+        step.spelling = "math/sub";
+        step.values = { { "in0", 10 } };
+        step.wires = { { "in1", "sq", "out" } };
+        spec[1].wires.push_back({ "modes", "step", "out" });
+        spec.push_back(sq);
+        spec.push_back(step);
+
+        vector<Watch> watch = { { "step", "out" }, { "bar", "out" } };
+        vector< vector<float> > got;
+        string why;
+
+        if (render(pluginPath, spec, watch, 512, (unsigned)rate, got, why))
+        {
+            /* 16 modes from the click, then 4, then 16 again: the sixth
+               mode, at 8.2 kHz, before the drop and after the rise, in
+               50 ms either side. */
+            size_t drop = 0, rise = 0;
+
+            for (size_t i = 1; i < got[0].size(); i++)
+            {
+                if (!drop && got[0][i] < 10 && got[0][i - 1] > 10)
+                    drop = i;
+                else if (drop && !rise && got[0][i] > 10)
+                    rise = i;
+            }
+            const size_t block = (size_t)(0.05 * rate);
+            const double b6 = 13 * M_PI / 2 / 4.730040745, hz = 440 * b6 * b6;
+            const double before = drop > block ? hannBin(got[1], drop - block, block, hz) : 0;
+            const double after = rise ? hannBin(got[1], rise, block, hz) : 1;
+
+            okOrFail(drop && rise && before > 0 && after < before * 1e-3,
+                     "filt::bar: a mode `modes' drops is let go, and is "
+                     "silent when it rises again",
+                     "the sixth mode at " + num(before) + " before the drop, " +
+                     num(after) + " after the rise");
+        }
+        else
+            fail("filt::bar renders with `modes' stepping", why);
+    }
+
+    /* ---- a strike that is not a number rings as silence, not as NaN in
+       every mode ---- */
+    {
+        vector<NodeSpec> spec = barGraph({ { "freq", 440 } });
+        NodeSpec nan;
+
+        nan.name = "nan";
+        nan.spelling = "math/div";
+        nan.values = { { "in0", 0 }, { "in1", 0 } };
+        spec[1].wires = { { "in", "nan", "out" } };
+        spec.push_back(nan);
+
+        vector<float> out;
+        string why;
+
+        if (render1(pluginPath, spec, "bar", "out", 512, 4096, out, why))
+            okOrFail(allFinite(out), "filt::bar: a NaN strike rings as "
+                     "silence", "the output is not finite");
+        else
+            fail("filt::bar renders a NaN strike", why);
+    }
+
+    /* ---- play: 1 while the ring is heard, 0 once it is not ---- */
+    {
+        vector<float> out;
+        string why;
+        Value f = { "freq", 440 }, m = { "modes", 1 }, dc = { "decay", 0.3f };
+
+        if (render1(pluginPath, barGraph({ f, m, dc }), "bar", "play", 512,
+                    (unsigned)rate, out, why))
+        {
+            /* -80 dBFS from a click's full scale, at 60 dB in 0.3 s, is
+               0.4 s, and the follower's release adds a little. */
+            const size_t on = (size_t)(0.3 * rate), off = (size_t)(0.6 * rate);
+            bool good = out[on] == 1;
+
+            for (size_t i = off; i < out.size(); i++)
+                good = good && out[i] == 0;
+            okOrFail(good, "filt::bar: `play' holds while the ring is heard "
+                     "and ends after it", "play " + num(out[on]) + " at 0.3 s, " +
+                     num(out[off]) + " at 0.6 s");
+        }
+        else
+            fail("filt::bar renders `play'", why);
+    }
+
+    /* ---- every draw finite, and never past the strike's sum of |x| ---- */
+    {
+        unsigned seed = 1;
+        auto draw = [&] (double lo, double hi) {
+            seed = seed * 1103515245u + 12345u;
+            return lo + (hi - lo) * ((seed >> 8) & 0xffff) / 65535.0;
+        };
+        string bad;
+
+        for (int k = 0; k < 300 && bad.empty(); k++)
+        {
+            vector<Watch> watch = { { "src", "out" }, { "bar", "out" } };
+            vector< vector<float> > got;
+            string why;
+            Value f = { "freq", (float)exp(draw(log(10.0), log(22000.0))) };
+            Value m = { "modes", (float)floor(draw(0, 17)) };
+            Value dc = { "decay", (float)draw(0, 60) };
+            Value dp = { "damp", (float)draw(-1, 1) };
+            Value t = { "tilt", (float)draw(-24, 24) };
+
+            if (!render(pluginPath, barGraph({ f, m, dc, dp, t },
+                                             (float)floor(draw(1, 400)),
+                                             (float)draw(0, 1)),
+                        watch, 512, 8192, got, why))
+            {
+                bad = why;
+                break;
+            }
+            double sum = 0;
+
+            for (float x : got[0])
+                sum += fabs(x);
+            if (!allFinite(got[1]) || peak(got[1], 0) > sum + 1e-4)
+                bad = "draw " + num(k) + ": freq " + num(f.value) + ", modes " +
+                      num(m.value) + ", decay " + num(dc.value) + ", damp " +
+                      num(dp.value) + ", tilt " + num(t.value) + ": peak " +
+                      num(peak(got[1], 0)) + " against a strike of " + num(sum);
+        }
+        okOrFail(bad.empty(), "filt::bar: 300 random settings and strikes "
+                 "stay finite and inside the strike's sum of |x|", bad);
+    }
+
+    {
+        Value f = { "freq", 440 }, dc = { "decay", 0.5f };
+
+        windowsAgree(pluginPath, barGraph({ f, dc }), "bar", "out",
+                     "filt::bar: the same ring at one sample a window and at "
+                     "five hundred");
+
+        /* Past the hold, where `play' is the follower's: windowsAgree's
+           2000 samples end inside it. */
+        vector<float> one, many;
+        string why;
+
+        if (render1(pluginPath, barGraph({ f, dc }), "bar", "play", 1,
+                    (unsigned)(0.8 * rate), one, why) &&
+            render1(pluginPath, barGraph({ f, dc }), "bar", "play", 500,
+                    (unsigned)(0.8 * rate), many, why))
+            okOrFail(one == many, "filt::bar: the same `play' at one sample a "
+                     "window and at five hundred", "they differ");
+        else
+            fail("filt::bar renders `play'", why);
+    }
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -9035,6 +9451,7 @@ int main (int argc, char **argv)
         pluginPath += '/';
 
     checkSlew(pluginPath);
+    checkBar(pluginPath);
     checkSvf(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);

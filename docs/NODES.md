@@ -398,6 +398,22 @@ Allpass Filter
 | `last` | state |  |  |  |  |  |
 | `out` | out | The input, phase-shifted |  |  | full scale |  |
 
+### filt::bar
+
+A struck bar: modes at a free bar's ratios
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The strike: a click, a burst of noise, a mallet. A longer strike rings louder |  | -1 to 1 | full scale |  |
+| `freq` | in | The pitch heard: the bar's lowest mode |  |  | Hz |  |
+| `modes` | in | How many modes ring, lowest first; fewer is darker and cheaper | 8 | 1 to 16 |  |  |
+| `decay` | in | Seconds for the `freq' mode to fall 60 dB, as a bare number: `8 s' would be samples | 1 | 0.001 to 60 | seconds |  |
+| `damp` | in | How much faster the high modes die than the material's own; 0 is the material |  | -1 to 1 |  |  |
+| `tilt` | in | Brighter or darker than the material struck, per octave of mode; 0 is the material |  | -24 to 24 | dB/oct |  |
+| `out` | out | The modes summed |  |  | full scale |  |
+| `play` | out | 1 while the ring is heard, for the io node's play |  | 0 to 1 |  |  |
+| `last` | state |  |  |  |  |  |
+
 ### filt::comb
 
 Comb Filter
