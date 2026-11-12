@@ -5058,6 +5058,198 @@ static vector<NodeSpec> adsrGraph (const char *trigger, float a, float d,
     return spec;
 }
 
+/* osc::unison against osc::blep saws built beside it: voice k's pitch
+   from the same math nodes supersaw.dsp spells it with, so each side's
+   mean is checked bit for bit. `f' and `d' are the frequency and the
+   detune, each an add node so a check can move either with an LFO. */
+static const char *const unisonNames[][5] = {
+    { "b0", "e0", "s0", "o0", "m0" }, { "b1", "e1", "s1", "o1", "m1" },
+    { "b2", "e2", "s2", "o2", "m2" }, { "b3", "e3", "s3", "o3", "m3" },
+    { "b4", "e4", "s4", "o4", "m4" }, { "b5", "e5", "s5", "o5", "m5" },
+    { "b6", "e6", "s6", "o6", "m6" },
+};
+
+static vector<NodeSpec> stackGraph (float voices, float freq, float detune,
+                                     float freqWobble, float detuneWobble)
+{
+    vector<NodeSpec> g;
+    NodeSpec u, f, d, lf, ld;
+
+    lf.name = "lf";
+    lf.spelling = "osc/simple";
+    lf.values = { { "freq", 5 }, { "amp", freqWobble }, { "waveform", 0 } };
+    ld.name = "ld";
+    ld.spelling = "osc/simple";
+    ld.values = { { "freq", 7 }, { "amp", detuneWobble }, { "waveform", 0 } };
+    f.name = "f";
+    f.spelling = "math/add";
+    f.values = { { "in0", freq } };
+    /* An amp of 0 is osc::simple's full scale, so a still one is unwired. */
+    if (freqWobble != 0)
+        f.wires = { { "in1", "lf", "out" } };
+    d.name = "d";
+    d.spelling = "math/add";
+    d.values = { { "in0", detune } };
+    if (detuneWobble != 0)
+        d.wires = { { "in1", "ld", "out" } };
+    u.name = "u";
+    u.spelling = "osc/unison";
+    u.values = { { "voices", voices } };
+    u.wires = { { "freq", "f", "out" }, { "detune", "d", "out" } };
+    g = { lf, ld, f, d, u };
+
+    for (int k = 0; k < 7; k++)
+    {
+        const int steps = (k + 1) / 2;
+        NodeSpec b = blepGraph(0, 0, 0.5f, (float)fmod(k * 0.6180339887498949, 1.0))[0];
+
+        b.name = unisonNames[k][0];
+        if (k == 0)
+            b.wires = { { "freq", "f", "out" } };
+        else
+        {
+            NodeSpec cents, over, e, m;
+
+            /* `d * steps / 1200', then exp2, then the frequency times it
+               going up and divided by it going down. */
+            cents.name = unisonNames[k][2];
+            cents.spelling = "math/mul";
+            cents.values = { { "in1", (float)steps } };
+            cents.wires = { { "in0", "d", "out" } };
+            over.name = unisonNames[k][3];
+            over.spelling = "math/div";
+            over.values = { { "in1", 1200 } };
+            over.wires = { { "in0", cents.name, "out" } };
+            e.name = unisonNames[k][1];
+            e.spelling = "math/exp2";
+            e.wires = { { "in", over.name, "out" } };
+            m.name = unisonNames[k][4];
+            m.spelling = k % 2 ? "math/mul" : "math/div";
+            m.wires = { { "in0", "f", "out" }, { "in1", e.name, "out" } };
+            g.insert(g.end(), { cents, over, e, m });
+            b.wires = { { "freq", m.name, "out" } };
+        }
+        g.push_back(b);
+    }
+
+    return g;
+}
+
+/* The mean of the reference saws in `which', in ascending order, as the
+   node is to sum them. */
+static vector<float> unisonMean (const vector< vector<float> > &saws,
+                                 const vector<int> &which)
+{
+    vector<float> m(saws[0].size(), 0);
+
+    for (size_t i = 0; i < m.size(); i++)
+    {
+        float sum = 0;
+
+        for (int k : which)
+            sum += saws[k][i];
+        m[i] = sum / which.size();
+    }
+
+    return m;
+}
+
+static void checkUnison (const string &pluginPath)
+{
+    vector<Watch> watch = { { "u", "out" }, { "u", "out_left" },
+                            { "u", "out_right" } };
+
+    for (int k = 0; k < 7; k++)
+        watch.push_back(Watch{ unisonNames[k][0], "out" });
+
+    /* Which voices each side holds: the center on both, the ones above on
+       the left and the ones below on the right. Steady pitches, then both
+       moving within a window, which is when a held cycle or ratio would
+       go stale. */
+    const struct { float voices, wobble; vector<int> all, left, right; } layouts[] = {
+        { 1, 0, { 0 }, { 0 }, { 0 } },
+        { 2, 0, { 0, 1 }, { 0, 1 }, { 0 } },
+        { 4, 0, { 0, 1, 2, 3 }, { 0, 1, 3 }, { 0, 2 } },
+        { 7, 0, { 0, 1, 2, 3, 4, 5, 6 }, { 0, 1, 3, 5 }, { 0, 2, 4, 6 } },
+        { 7, 1, { 0, 1, 2, 3, 4, 5, 6 }, { 0, 1, 3, 5 }, { 0, 2, 4, 6 } },
+    };
+
+    for (const auto &l : layouts)
+    {
+        vector< vector<float> > got;
+        string why;
+        const string what = "osc::unison: " + num(l.voices) + " voices" +
+                            (l.wobble ? ", pitch and detune moving," : "");
+
+        if (!render(pluginPath, stackGraph(l.voices, 440, 10, 30 * l.wobble,
+                                            5 * l.wobble),
+                    watch, 256, 8192, got, why))
+        {
+            fail(what + " renders", why);
+            continue;
+        }
+
+        const vector< vector<float> > saws(got.begin() + 3, got.end());
+
+        okOrFail(got[0] == unisonMean(saws, l.all) &&
+                 got[1] == unisonMean(saws, l.left) &&
+                 got[2] == unisonMean(saws, l.right),
+                 what + " the mean of osc::blep saws, all, above and below",
+                 "out " + string(got[0] == unisonMean(saws, l.all) ? "agrees" : "differs") +
+                 ", left " + (got[1] == unisonMean(saws, l.left) ? "agrees" : "differs") +
+                 ", right " + (got[2] == unisonMean(saws, l.right) ? "agrees" : "differs"));
+    }
+
+    /* What makes no number plays as the nearest that does. */
+    {
+        const struct { float voices, detune, voices2, detune2; const char *what; } same[] = {
+            { NAN, 10, 1, 10, "a NaN `voices' plays one voice" },
+            { 7, NAN, 7, 0, "a NaN `detune' plays every voice on the center" },
+        };
+
+        for (const auto &c : same)
+        {
+            vector<float> a, b;
+            string why;
+
+            if (!render1(pluginPath, stackGraph(c.voices, 440, c.detune, 0, 0),
+                         "u", "out_left", 256, 4096, a, why) ||
+                !render1(pluginPath, stackGraph(c.voices2, 440, c.detune2, 0, 0),
+                         "u", "out_left", 256, 4096, b, why))
+                fail(string("osc::unison: ") + c.what, why);
+            else
+                okOrFail(a == b, string("osc::unison: ") + c.what, "differs");
+        }
+    }
+
+    /* Past half the rate a voice is silent: at 15 kHz an octave a step
+       puts the one above at 30 kHz. */
+    {
+        vector< vector<float> > got;
+        string why;
+
+        if (!render(pluginPath, stackGraph(2, 15000, 1200, 0, 0), watch,
+                    256, 4096, got, why))
+            fail("osc::unison renders a voice past half the rate", why);
+        else
+        {
+            vector< vector<float> > saws(got.begin() + 3, got.end());
+            const vector<float> both = unisonMean(saws, { 0, 1 });
+
+            /* Silent and still counted: the center over two. */
+            saws[1].assign(saws[1].size(), 0);
+            okOrFail(got[1] == unisonMean(saws, { 0, 1 }) && got[1] != both &&
+                     peak(got[1], 0) > 0,
+                     "osc::unison: a voice past half the rate is silent",
+                     "left " + num(peak(got[1], 0)) + " at its peak");
+        }
+    }
+
+    windowsAgree(pluginPath, stackGraph(7, 440, 10, 30, 5), "u", "out_left",
+                 "osc::unison: the same moving unison at one sample a window "
+                 "and at five hundred");
+}
+
 static void checkAdsrGated (const string &pluginPath)
 {
     const float sr = TH_DEFAULT_SAMPLES;
@@ -9516,6 +9708,7 @@ int main (int argc, char **argv)
     checkBuffers(pluginPath);
     checkLoop(pluginPath);
     checkBlep(pluginPath);
+    checkUnison(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);
