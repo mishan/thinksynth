@@ -924,7 +924,7 @@ bool level (thSynth &synth, const string &text, double &rms, double &peak,
     const int len = synth.getWindowlen();
     const int channels = synth.audioChannelCount();
     const thMidiChan *chan = synth.getChannel(0);
-    /* The sides the graph sends: a mono one leaves the rest silent. */
+    /* The sides the graph sends: a mono one is the same on every side. */
     const int sent = chan ? std::min(chan->numChannels(), channels) : channels;
     vector<double> sum(channels, 0);
     long count = 0;

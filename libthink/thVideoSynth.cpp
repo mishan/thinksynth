@@ -57,6 +57,7 @@ bool thVideoSynth::open (const std::string &pluginPath, int width, int height,
     synth_.reset(new thSynth(pluginPath, window_, (int)rate_, 3));
     synth_->setRaster(width_, height_);
     synth_->setLimiter(false);
+    synth_->setSpreadMono(false);
     frame_.assign(3 * (size_t)width_ * height_, 0.0f);
     return true;
 }
