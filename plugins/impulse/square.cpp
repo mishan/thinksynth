@@ -35,6 +35,20 @@ enum { IN_LEN,IN_WIDTH,IN_PW,IN_NUM,OUT_ARG };
 
 std::atomic<int> args[OUT_ARG + 1];
 
+/* The response is sized when a voice is built, not on its first window:
+   as long as `len' says where the text sets it, and where a node feeds it,
+   the longest any response can be. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const thArg *len = node->getArg(args[IN_LEN]);
+
+    if (voice && len != NULL)
+        mod->getArg(node, args[OUT_ARG])->reserve(
+            len->type() == thArg::ARG_VALUE ? impulseLen((*len)[0], samples)
+                                            : samples);
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);

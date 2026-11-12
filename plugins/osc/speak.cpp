@@ -419,6 +419,15 @@ void module_cleanup (thPlugin *plugin)
 {
 }
 
+/* A voice reserves a window's worth for each output and state arg, and
+   a host's window can be shorter than the state. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_LEN);
+}
+
 int module_init (thPlugin *plugin)
 {
     for (int k = 0; k < TH_PHONEMES; k++)

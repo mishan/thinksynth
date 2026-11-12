@@ -33,6 +33,19 @@ enum { IN_ARG,IN_IMPULSE,IN_MIX,INOUT_BUFFER,INOUT_BUFPOS,OUT_ARG };
 
 std::atomic<int> args[OUT_ARG + 1];
 
+/* The line is as long as the impulse, sized when a voice is built: the
+   impulse the text sets, or where a node feeds it, the longest an
+   impulse:: response can be, a second and a sample. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    thArg *impulse = node->getArg(args[IN_IMPULSE]);
+
+    if (voice && impulse != NULL)
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(
+            impulse->type() == thArg::ARG_VALUE ? impulse->len() : samples + 1);
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);

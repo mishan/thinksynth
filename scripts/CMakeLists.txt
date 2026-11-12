@@ -1121,16 +1121,21 @@ add_test(NAME poolcheck
                  -P "${_runner}")
 
 # And at a window shorter than the state some plugins keep, which a voice
-# has to have reserved before the audio thread runs it. The graphs whose
-# plugins do: the corpus is not there yet at 32, as `-l 32' over it shows.
+# has to have reserved before the audio thread runs it: the browser's is
+# 128, and a host's can be 32.
 add_test(NAME poolcheck.window
-         COMMAND poolcheck -p "${PROJECT_BINARY_DIR}/plugins/" -l 32
-                 "${PROJECT_SOURCE_DIR}/dsp/churchbell.dsp")
-# A graph poolcheck cannot play it skips, and exits 0 having checked
-# nothing: the pass is its line saying it compared the two renders.
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:poolcheck>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 "-DEXTRA_ARGS=-l 32"
+                 -P "${_runner}")
+# A graph poolcheck cannot play it skips, so a corpus that all skipped
+# would pass having checked nothing.
 set_tests_properties(poolcheck.window PROPERTIES
-    PASS_REGULAR_EXPRESSION "same +[^ ]*churchbell[.]dsp"
-    FAIL_REGULAR_EXPRESSION "FAIL")
+    FAIL_REGULAR_EXPRESSION "(^|\n)0 identical")
 
 add_test(NAME dsplevel
          COMMAND "${CMAKE_COMMAND}"
