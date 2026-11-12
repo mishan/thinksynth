@@ -322,14 +322,23 @@ skipTo (int64_t frame)
         if (t == then.end() || t->second.serial != h.second.serial)
             video_->noteOff(h.first.first, h.first.second);
     }
+    /* In the order play() would have struck them, not by key: past the
+       voice limit the oldest goes, as it would have had the gap been
+       played. The queue is in time order, arrivals in order within it. */
+    std::vector<const Note *> struck;
+
     for (const auto &t : then)
     {
         const auto h = held_.find(t.first);
 
         if (h == held_.end() || h->second.serial != t.second.serial)
-            video_->noteOn(t.first.first, t.first.second, t.second.velocity,
-                           t.second.level, t.second.aux);
+            struck.push_back(&t.second);
     }
+    std::sort(struck.begin(), struck.end(),
+              [](const Note *a, const Note *b)
+              { return a->at != b->at ? a->at < b->at : a->serial < b->serial; });
+    for (const Note *n : struck)
+        video_->noteOn(n->channel, n->note, n->velocity, n->level, n->aux);
     held_ = then;
     arriveBefore(*video_, inputs_, knobs_, frame);
     video_->skipTo(frame);

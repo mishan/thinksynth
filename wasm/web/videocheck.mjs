@@ -642,6 +642,35 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
           `from ${differ[0]?.frame}`);
 }
 
+/* A skip strikes the keys held across it again in the order they were
+   struck, so the voice limit cuts the one it would have: the module a
+   channel leaves holds 72 from frame 9, the other strikes 60 and 62 after
+   the hand-over at 10, and with two voices 72 is the oldest of three,
+   played through or skipped past. */
+for (const [name, due] of [['played', -1], ['skipped past', 20]])
+{
+    open();
+    follow(0, 'white', flat([0.3, 0.6, 1]));
+    M._tv_window(0, -1e300, ff(10));
+    notes([{ at: ff(9), kind: ON, note: 72 }, { at: ff(12), kind: ON, note: 60 },
+           { at: ff(13), kind: ON, note: 62 }, { at: ff(40), kind: OFF, note: 72 },
+           { at: ff(40), kind: OFF, note: 60 }, { at: ff(40), kind: OFF, note: 62 }]);
+    M._tv_generated(ff(5));
+
+    const early = render();
+
+    M._tv_generated(ff(45));
+
+    const frames = [...early, ...render(due)];
+    const at = (n) => frames.find((f) => f.frame === n);
+    const drew = due < 0 ? at(11) !== undefined && peak(at(11)) > 0 : true;
+
+    check(`a skip over a hand-over cuts the oldest key as playing through does, ${name}`,
+          drew && at(25) !== undefined && peak(at(25)) === 0,
+          `72 drew before the hand-over: ${drew}; frame 25 ` +
+          `${at(25) ? `peaks at ${peak(at(25))}` : 'not drawn'}`);
+}
+
 /* A mono channel handed over with a key still down: the module it leaves
    keeps drawing that key until its off, though the other strikes and lets
    go of one in between. */
