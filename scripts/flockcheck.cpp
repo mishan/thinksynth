@@ -348,10 +348,17 @@ int main (int argc, char **argv)
 
         const bool played = NodeBreed::generation(&synth, bare, full, p, 951,
                                                   deaf, a, da, why);
+        bool cleared = true;
 
-        okOrFail(onlyEdits && played && a == bare, "a flock of nothing but "
-                 "edits that lose the low end plays the declared graph",
+        /* And keeps none of them: one carried would hold a place. */
+        for (const NodeBreed::Member &m : full.members)
+            cleared &= m.ops.empty();
+
+        okOrFail(onlyEdits && played && a == bare && cleared, "a flock of "
+                 "nothing but edits that lose the low end plays the declared "
+                 "graph, and keeps none of them",
                  !onlyEdits ? "the flock still held the declared graph"
+                 : !cleared ? "an edit it turned away is still a member"
                             : why.empty() ? a : why);
     }
 

@@ -742,14 +742,15 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
                      { return score[x] < score[y]; });
 
     /* Every member turned away -- a flock bred under a target that let
-       them in, heard now without it -- and the declared graph comes back
-       to be played and bred from. */
+       them in, heard now without it -- and the flock starts again from
+       the declared graph: kept, a rejected member would be carried or
+       bred from. */
     if (!order.empty() && score[order[0]] >= NodeEvolve::DEAD)
     {
-        flock.members.push_back(Member());
-        texts.push_back(base);
-        score.push_back(0);
-        order.insert(order.begin(), flock.members.size() - 1);
+        flock.members.assign(1, Member());
+        texts.assign(1, base);
+        score.assign(1, 0);
+        order.assign(1, 0);
     }
 
     champion = texts[order[0]];
