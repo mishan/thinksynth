@@ -1119,6 +1119,10 @@ add_test(NAME poolcheck
                  -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=dsp
                  -P "${_runner}")
+# A graph poolcheck cannot play it skips, so a corpus that all skipped
+# would pass having checked nothing.
+set_tests_properties(poolcheck PROPERTIES
+    FAIL_REGULAR_EXPRESSION "(^|\n)0 identical|, 0 effects,")
 
 # And at a window shorter than the state some plugins keep, which a voice
 # has to have reserved before the audio thread runs it: the browser's is
@@ -1135,7 +1139,7 @@ add_test(NAME poolcheck.window
 # A graph poolcheck cannot play it skips, so a corpus that all skipped
 # would pass having checked nothing.
 set_tests_properties(poolcheck.window PROPERTIES
-    FAIL_REGULAR_EXPRESSION "(^|\n)0 identical")
+    FAIL_REGULAR_EXPRESSION "(^|\n)0 identical|, 0 effects,")
 
 add_test(NAME dsplevel
          COMMAND "${CMAKE_COMMAND}"

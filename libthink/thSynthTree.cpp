@@ -419,6 +419,27 @@ void thSynthTree::prepare (bool voice)
                                          synth_->getSampleRate(), voice);
 }
 
+/* See the header. */
+void thSynthTree::reserveWindow (unsigned int windowlen)
+{
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+    {
+        thPlugin *plug = i->second ? i->second->plugin() : NULL;
+
+        for (size_t k = 0; plug && k < i->second->smoothing().size(); k++)
+            i->second->smoothing()[k].ramp->reserve(windowlen);
+
+        for (int a = 0; plug && a < plug->argCount(); a++)
+        {
+            thArg *arg = i->second->getArg(a);
+
+            if (arg && arg->type() == thArg::ARG_VALUE &&
+                plug->getArgDir(a) != thPlugin::ARG_IN)
+                arg->reserve(windowlen);
+        }
+    }
+}
+
 void thSynthTree::retempo (double bpm, const thArgMap &chanargs)
 {
     if (beatFolds_.empty() || bpm == beatsAt_ || bpm <= 0)

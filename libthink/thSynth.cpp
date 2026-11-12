@@ -2246,6 +2246,12 @@ thSynthTree *thSynth::checkEffect (const string &filename, thSynthTree *raw,
         return NULL;
     }
 
+    /* An effect runs as it was built, not as copies made for each note,
+       so it is readied here as a voice is when it starts: what it grows
+       to on its first window, and what its plugins keep. */
+    tree->reserveWindow(windowlen_);
+    tree->prepare(true);
+
     return tree;
 }
 

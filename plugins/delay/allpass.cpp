@@ -115,6 +115,29 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
+/* A voice, or an effect as it is loaded: its line, sized here and not in
+   its first window -- as long as a number or a control says (a control on
+   an effect not yet on its channel, as the file declares it), and where a
+   node feeds it, as the reverbs' `@diffuse * @size' do, the longest a line
+   can be, a second. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    const thArg *raw = node->getArg(args[IN_DELAY]);
+    thArg *in_delay = mod->getArg(node, args[IN_DELAY]);
+
+    if (in_delay == NULL && raw != NULL && raw->type() == thArg::ARG_CHANNEL)
+    {
+        const auto declared = mod->chanArgs().find(raw->argPtrName());
+
+        in_delay = declared != mod->chanArgs().end() ? declared->second : NULL;
+    }
+    if (voice && raw != NULL)
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(
+            raw->type() != thArg::ARG_POINTER && in_delay != NULL
+                ? thkAllpassLen((*in_delay)[0], (float)samples) : samples);
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {

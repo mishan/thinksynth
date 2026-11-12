@@ -150,9 +150,18 @@ void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
         thSamplePrime(node->plugin(), file->text(), samples);
 
     /* A voice reserves a window's worth for each output and state arg,
-       and a host's window can be shorter than the state. */
+       and a host's window can be shorter than the state. The ring too,
+       where the text sets the source live. */
     if (voice)
+    {
+        const thArg *source = node->getArg(args[IN_SOURCE]);
+
         mod->getArg(node, args[INOUT_STATE])->reserve(S_COUNT);
+        if (source != NULL && source->type() == thArg::ARG_VALUE &&
+            (*source)[0] >= 0.5f)
+            mod->getArg(node, args[INOUT_RING])->reserve(GRAIN_RING_SECONDS *
+                                                         samples);
+    }
 }
 
 int module_init (thPlugin *plugin)

@@ -194,6 +194,21 @@ static float measure (const float *ring, unsigned len, unsigned w,
     return rate / period;
 }
 
+/* A voice, or an effect as it is loaded: its ring and state, sized here
+   and not in its first window, as the callback sizes them. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+    {
+        unsigned lo, hi;
+
+        lags(20, 20, (float)samples / DECIMATE, &lo, &hi);
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(2 * hi + 2 + hi + 1);
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_LEN);
+    }
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {

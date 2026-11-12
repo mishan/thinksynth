@@ -282,9 +282,15 @@ public:
 
     /* Every node's thPlugin::prepare, on the thread that built the tree.
        thSynth calls it on each tree it builds, and on every tree it holds
-       when data files change; thMidiChan on each voice it starts, with
-       `voice' set. */
+       when data files change; thMidiChan on each voice it starts, and
+       thSynth on each effect it loads, with `voice' set. */
     void prepare (bool voice = false);
+
+    /* Every plugin output and state arg, and every smoothing ramp, room for
+       a window of `windowlen': they grow to it on the tree's first window,
+       which done here is a memset on the audio thread. For a voice as it is
+       built, and an effect as it is loaded. */
+    void reserveWindow (unsigned int windowlen);
 
     /* A chanarg a piece wrote in `beats' (or stopped writing in them),
        so it follows the tempo whatever the .dsp declared it in. */
