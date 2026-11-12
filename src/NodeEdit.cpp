@@ -886,8 +886,8 @@ static string indentOf (const vector<string> &lines, size_t open, size_t close)
  * outside every block. Depending on what followed, the file then either
  * stopped parsing or kept parsing with a statement in it that nothing reads --
  * and the caller was told OK either way. One-line bodies are not a curiosity;
- * dsp/supersaw.dsp writes seven oscillators as seven one-line nodes precisely
- * so that they read as seven variations of one line. So the assignment is
+ * dsp/fx/vocoder.dsp writes each of its bands as four one-line nodes
+ * precisely so that they read as variations of one line. So the assignment is
  * spliced in ahead of the closing brace instead, where a reader would have
  * put it.
  *
