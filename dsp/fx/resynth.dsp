@@ -22,14 +22,14 @@
 # five instruments played at five octaves:
 #
 #     played        55     110     220     440     880 Hz
-#     guitar        55.1   110.2   221.6   445.5   900.0
-#     epiano       101.6   110.0   220.5   445.5   900.0
-#     supersaw      55.0   110.5   221.6   432.4   450.0
-#     ts1           55.3   111.6   217.2  1696.2  2000.0
-#     bass         176.4    55.1   110.2   222.7   531.3
+#     guitar        55.0   110.2   221.6   445.5   918.8
+#     epiano        55.0   110.2   221.6   445.5   900.0
+#     supersaw      86.5   110.5   222.8   445.5   900.0
+#     ts1           55.4   111.6   226.1  1696.1  2000.0
+#     bass          55.0   267.2   110.2   221.6   445.5
 #
-# Three octaves inside about forty cents for most of them, and then each
-# one gives up somewhere. The readings that are a few cents sharp are
+# Three octaves or more inside about forty cents for most of them, and
+# every one but epiano gives up somewhere. The readings that are a few cents sharp are
 # the method rather than the filter: a period is a whole number of
 # samples, and at 440 Hz the choice is between 99 and 100 of them.
 #
@@ -45,15 +45,15 @@
 # and costs the bottom end nothing:
 #
 #     played        110     220     440     880 Hz
-#     Detect 150   111.6   217.2  1696.2  2000.0
-#     Detect 400   111.4   221.6   441.0   612.5
-#     Detect 700   111.1   221.6   445.5   882.0
+#     Detect 150   111.6   226.1  1696.1  2000.0
+#     Detect 400   111.4   221.6   445.5   722.9
+#     Detect 700   111.1   221.6   445.5   900.0
 #
 # TWO THINGS IT IS RIGHT ABOUT AND SOUND WRONG. Fed `bass.dsp' it tracks
-# 55 Hz under a note played at 110, because that file has a sub
-# oscillator an octave down and 55 Hz is really there. Fed `supersaw.dsp'
-# it holds up until the top octave and then answers 450 for 880, because
-# seven detuned saws have no one period to find. Neither is the tracker
+# 110 Hz under a note played at 220, because that file has a sub
+# oscillator an octave down and 110 Hz is really there. Fed `supersaw.dsp'
+# it answers 86.5 for 55, because seven detuned saws have no one period
+# to find, and at the bottom the low-pass leaves little else. Neither is the tracker
 # failing; both are a monophonic question asked of something that is not.
 #
 # `Gate' does two jobs at once: it keeps the tracker off the noise floor
