@@ -25,6 +25,7 @@ using namespace std;
 
 #include <memory>
 #include <string>
+#include <system_error>
 
 class THINK_API thUtil {
 public:
@@ -49,6 +50,12 @@ public:
      * directory: that is where scripts/packs.py, run on the host, puts
      * them, and the manifest grants the home directory. */
     static string userDataDir (void);
+
+    /* std::filesystem::exists, but false with `ec' set, not an exception,
+       for a name this platform cannot make a path of. On Windows a narrow
+       name is converted to UTF-16 and a byte that will not convert throws,
+       and a .dsp's strings can hold any byte. */
+    static bool exists (const string &name, std::error_code &ec);
 
     /* Find a data file that something referred to by bare name.
      *

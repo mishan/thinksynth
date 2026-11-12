@@ -20,8 +20,11 @@
  * to a triangle. See modal.h for the bank.
  *
  * The ratios are a free-free uniform bar's (Euler-Bernoulli): (bn / b1)^2,
- * b the roots of cos(b) cosh(b) = 1, which past the fifth are (2n + 1) pi/2
- * to better than a part in a million. Nothing here is tuned by ear. A real
+ * b the roots of cos(b) cosh(b) = 1 -- 4.730040745, 7.853204624,
+ * 10.995607838, 14.137165491, 17.278759657, and (2n + 1) pi/2 after, to
+ * better than a part in a million. Nothing here is tuned by ear. A table
+ * and not a loop in module_init: every synth that loads the plugin runs
+ * that, and one would rewrite it under another reading it. A real
  * glockenspiel key is cut under its middle to pull the second mode toward a
  * harmonic; this is the bar before the cut, which is what wind chimes and
  * struck rods are.
@@ -31,10 +34,13 @@
 
 #include "modal.h"
 
-static double ratios[thkModal::MODES_MAX];
+static const double ratios[] = { 1, 2.756539, 5.403918, 8.932950, 13.344287,
+                                 18.637888, 24.813756, 31.871891, 39.812293,
+                                 48.634962, 58.339898, 68.927100, 80.396570,
+                                 92.748306, 105.982309, 120.098579 };
 
 static const thkModal::Material bar = {
-    ratios, thkModal::MODES_MAX, 8, 1, 1, -6,
+    ratios, (int)(sizeof ratios / sizeof ratios[0]), 8, 1, 1, -6,
     "The pitch heard: the bar's lowest mode"
 };
 
@@ -49,21 +55,17 @@ void module_cleanup (thPlugin *plugin)
 
 int module_init (thPlugin *plugin)
 {
-    const double roots[] = { 4.730040745, 7.853204624, 10.995607838,
-                             14.137165491, 17.278759657 };
-
-    for (int k = 0; k < thkModal::MODES_MAX; k++)
-    {
-        const double b = k < 5 ? roots[k] : (2 * k + 3) * M_PI / 2;
-
-        ratios[k] = (b / roots[0]) * (b / roots[0]);
-    }
-
     plugin->setDesc (desc);
     plugin->setState (mystate);
     thModalInit(plugin, args, bar);
 
     return 0;
+}
+
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    thModalPrepare(node, mod, voice, args);
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,

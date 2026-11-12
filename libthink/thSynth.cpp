@@ -1437,7 +1437,7 @@ thSynthTree * thSynth::loadTree (const string &filename)
 
     std::error_code ec;
 
-    if (!std::filesystem::exists(filename, ec))
+    if (!thUtil::exists(filename, ec))
     {
         /* ec is only set when the query itself failed -- a permission problem
            on a parent directory, say. A file that is simply not there is not
@@ -1500,7 +1500,7 @@ thSynthTree * thSynth::parseTree (const string &filename)
 
     std::error_code ec;
 
-    if (!std::filesystem::exists(filename, ec) ||
+    if (!thUtil::exists(filename, ec) ||
         std::filesystem::is_directory(filename, ec))
         return NULL;
 
@@ -1838,7 +1838,7 @@ thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
 
     std::error_code ec;
 
-    if (!std::filesystem::exists(filename, ec))
+    if (!thUtil::exists(filename, ec))
     {
         /* ec is only set when the query itself failed -- a permission problem
            on a parent directory, say. A file that is simply not there is not
@@ -2185,7 +2185,7 @@ thSynthTree *thSynth::parseEffect (const string &filename, const string *text)
 
     std::error_code ec;
 
-    if (!std::filesystem::exists(filename, ec))
+    if (!thUtil::exists(filename, ec))
     {
         fprintf(stderr, "couldn't open %s: %s\n", filename.c_str(),
                 ec ? ec.message().c_str() : "no such file or directory");

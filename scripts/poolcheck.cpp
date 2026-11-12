@@ -19,7 +19,7 @@
 /*
  * poolcheck -- a restarted voice sounds like a new one.
  *
- *   scripts/poolcheck -p plugins/ $(find dsp -name '*.dsp')
+ *   scripts/poolcheck -p plugins/ [-l WINDOW] $(find dsp -name '*.dsp')
  *
  * A channel keeps the voices the audio thread has finished with and starts
  * them over for later notes (thMidiChan::recycle), resetting each arg in the
@@ -122,11 +122,15 @@ static void setPedal (thSynth &synth, float value)
     synth.setChanArg(0, new thArg(string("SusPedal"), value));
 }
 
+/* -l: a host's window can be shorter than the default, and shorter than
+   what a plugin keeps in a state arg, which a voice then has to grow. */
+static unsigned int windowLength = TH_DEFAULT_WINDOW_LENGTH;
+
 static bool render (const string &plugins, const char *file, Sequence seq,
                     bool pool, vector<float> &out, unsigned long *restarts,
                     unsigned long *allocated, bool *excused)
 {
-    thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    thSynth synth(plugins, windowLength, TH_DEFAULT_SAMPLES);
     thSynthTree *tree = synth.loadTree(file, 0, 100);
     const int step = (seq == SCALE) ? 3 : 2;
     const int hold = (seq == SCALE) ? 6 : 30;
@@ -290,6 +294,12 @@ int main (int argc, char **argv)
         if (!strcmp(argv[i], "-p") && i + 1 < argc)
         {
             plugins = argv[++i];
+            continue;
+        }
+
+        if (!strcmp(argv[i], "-l") && i + 1 < argc)
+        {
+            windowLength = (unsigned int)atoi(argv[++i]);
             continue;
         }
 

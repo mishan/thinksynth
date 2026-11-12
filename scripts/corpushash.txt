@@ -11,6 +11,7 @@ b32504b1b640679d  bass.dsp
 db33994f4b82398d  brass.dsp
 f4ca101dca300885  breakloop.dsp
 fa9e3b1b0730c2ad  choir.dsp
+46f327e2a601f9d1  churchbell.dsp
 814f1b5ae312bc4d  clap.dsp
 adf6ea83747ba74d  clav.dsp
 38a45373615b92fd  clave.dsp
