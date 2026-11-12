@@ -519,6 +519,20 @@ struct Compiler
             s << "        const float " << out << " = exp2f(" << v[0].text << ");\n";
         else if (p == "math/pow")
             s << "        const float " << out << " = powf(" << args(0) << ");\n";
+        else if (runs(n))
+        {
+            string a;
+
+            for (const Value &x : v)
+                a += x.text + ", ";
+            s << "        if (i % RUN == 0)\n"
+              << "            " << self << ".run(" << var(n, "ctl") << ", " << a
+              << "count - i < RUN ? count - i : RUN, " << self << "_runs, " << self
+              << "_plays);\n"
+              << "        const float " << var(n, "play") << " = " << self << "_plays[i % RUN];\n"
+              << "        const float " << out << " = " << self << "_runs[i % RUN];\n"
+              << "        (void)" << out << ";    /* an envelope read for play alone */\n";
+        }
         else if (p == "env/ad" || p == "env/adsr")
             s << "        float " << var(n, "play") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
@@ -567,6 +581,17 @@ struct Compiler
               << (p == "math/add" ? " + " : p == "math/sub" ? " - " : p == "math/div" ? " / " : " * ")
               << v[1].text << ";\n";
         return s.str();
+    }
+
+    /* An envelope whose control struct, trigger and reset hold through a
+       call: run RUN samples at a time, a phase at a time
+       (plugins/env/adsr.h), into arrays the samples read, rather than
+       ticked every sample. */
+    bool runs (thNode *n)
+    {
+        return string(kernelFor(n)->plugin) == "env/adsr" && ctlOnce[n] &&
+               std::all_of(ins[n].begin(), ins[n].end(),
+                           [](const Value &v) { return v.control; });
     }
 
     /* env::adsr runs free on a trigger written as a number, gated on one
@@ -979,6 +1004,7 @@ main (int argc, char **argv)
     if (engine)
         printf("#include \"think.h\"\n#include \"thCompiled.h\"\n");
     printf("\nstruct thv%s\n{\n    static constexpr float rate = %d;\n"
+           "    static constexpr int RUN = 64;    /* an envelope's samples a run() */\n"
            "    static constexpr int channels = %zu;\n\n"
            "    struct Knobs\n    {\n", name.c_str(), rate, outs.size());
     for (const auto &k : c.knobs)
@@ -1021,6 +1047,8 @@ main (int argc, char **argv)
                state arg: sized, and zeroed, when its length changes. */
             if (!strncmp(Compiler::kernelFor(n)->plugin, "delay/", 6))
                 printf("    std::vector<float> n%d_line;\n", c.order[n]);
+            if (c.runs(n))
+                printf("    float n%d_runs[RUN], n%d_plays[RUN];\n", c.order[n], c.order[n]);
         }
 
     /* A time is folded as the engine folds it at load (thFoldUnit). */
