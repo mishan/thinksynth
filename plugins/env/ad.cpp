@@ -97,12 +97,20 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     const bool still = in_a->len() <= 1 && in_d->len() <= 1 && in_p->len() <= 1;
     thkAd::Ctl c = thkAd::ctl((*in_a)[0], (*in_d)[0], (*in_p)[0] / TH_MAX);
 
-    for (unsigned int i = 0; i < windowlen; i++)
+    /* A reset held through the window too: a half at a time. */
+    if (still && in_reset->len() <= 1)
     {
-        if (!still)
-            c = thkAd::ctl((*in_a)[i], (*in_d)[i], (*in_p)[i] / TH_MAX);
-        out[i] = TH_MAX * env.tick(c, (*in_reset)[i], play[i]);
+        env.run(c, (*in_reset)[0], (int)windowlen, out, play);
+        for (unsigned int i = 0; i < windowlen; i++)
+            out[i] *= TH_MAX;
     }
+    else
+        for (unsigned int i = 0; i < windowlen; i++)
+        {
+            if (!still)
+                c = thkAd::ctl((*in_a)[i], (*in_d)[i], (*in_p)[i] / TH_MAX);
+            out[i] = TH_MAX * env.tick(c, (*in_reset)[i], play[i]);
+        }
 
     thSplitCount(env.position, state[0], state[2]);
     state[1] = env.phase;

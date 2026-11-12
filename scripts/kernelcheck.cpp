@@ -694,6 +694,55 @@ main ()
             printf("  %s\n", why);
     }
 
+    /* env::ad's run() against its tick(), to the bit, output and state:
+       calls of several lengths, a reset mid-attack, mid-decay and once
+       done, over times of none, of a fraction of a sample, negative and
+       not a number. */
+    {
+        static const struct { float a, d; } CTLS[] = {
+            { 100, 300 }, { 0, 300 }, { 100, 0 }, { 0, 0 }, { 100.5f, 299.25f },
+            { -5, 300 }, { NAN, 300 },
+        };
+        static const int CALLS[] = { 1, 7, 100, 1280 };
+        const int N = 3000;
+        char why[160] = "";
+
+        for (const auto &ct : CTLS)
+            for (int call : CALLS)
+            {
+                const thkAd::Ctl c = thkAd::ctl(ct.a, ct.d, 0.8f);
+                thkAd ad, adRun;
+                static float out[N], play[N];
+
+                for (int at = 0; at < N && !why[0]; at += call)
+                {
+                    const int n = std::min(call, N - at);
+                    const auto near = [&](int t) { return at >= t && at < t + call; };
+                    const float reset = near(50) || near(1250) || near(1500) || near(2000)
+                                        ? 1 : 0;
+
+                    adRun.run(c, reset, n, out + at, play + at);
+                    for (int i = 0; i < n && !why[0]; i++)
+                    {
+                        float p;
+                        const float y = ad.tick(c, reset, p);
+
+                        if (memcmp(&y, &out[at + i], sizeof y) || p != play[at + i])
+                            snprintf(why, sizeof(why),
+                                     "a %g d %g, calls of %d, sample %d: %a, %g; tick %a, %g",
+                                     ct.a, ct.d, call, at + i, out[at + i], play[at + i], y, p);
+                    }
+                }
+                if (!why[0] && (ad.position != adRun.position || ad.phase != adRun.phase))
+                    snprintf(why, sizeof(why), "a %g d %g, calls of %d: run() ends at %u in %d, "
+                             "tick() at %u in %d", ct.a, ct.d, call, adRun.position, adRun.phase,
+                             ad.position, ad.phase);
+            }
+        report("env::ad's run() is its tick(), to the bit", why[0] ? 1 : 0, 0);
+        if (why[0])
+            printf("  %s\n", why);
+    }
+
     /* An impulse through the allpass: -g at once, then (1 - g^2) g^(k-1)
        at each k delays; a gain past the bound is the bound's. */
     {
