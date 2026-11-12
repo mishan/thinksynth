@@ -192,11 +192,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     play_arg = mod->getArg(node, args[OUT_PLAY]);
     play = play_arg->allocate(windowlen);
 
-    /* Both pow()s again only when what they are of moves: a rate holds for
-       a segment and a level for the sustain, and the pow()s were most of
-       a DX voice's cost. */
-    double lastRate = NAN, lastScale = NAN, lastSpeed = 0;
-    float lastLevel = NAN, lastOut = 0;
+    /* A rate holds for a segment and a level for the sustain, so each pow()
+       is redone only when its input changes. No NaN to start from: fast
+       math may take a comparison with one to be false. Level 0 is out 0. */
+    bool sped = false;
+    double lastRate = 0, lastScale = 0, lastSpeed = 0;
+    float lastLevel = 0, lastOut = 0;
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
@@ -225,8 +226,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                 x = 31;
             scale = thClampArg((*in_scale)[i], 0, 7) * x / 8.0;
             const float rate = (*in_r[k])[i];
-            if (rate != lastRate || scale != lastScale)
+            if (!sped || rate != lastRate || scale != lastScale)
             {
+                sped = true;
                 lastRate = rate;
                 lastScale = scale;
                 lastSpeed = dxSpeed(rate, scale) / samples;
@@ -262,7 +264,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (level != lastLevel)
         {
             lastLevel = level;
-            lastOut = level > 0 ? (float)(TH_MAX * pow(2.0, (level - 99) / 8.0)) : 0;
+            lastOut = level > 0 ? (float)(TH_MAX * pow(2.0, (level - 99) / 8.0))
+                                : 0;
         }
         out[i] = lastOut;
         play[i] = (seg == SEG_DONE && level <= 0) ? 0 : 1;
