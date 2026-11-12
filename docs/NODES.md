@@ -1390,7 +1390,7 @@ Detuned band-limited saws, the center and a side each above and below
 |---|---|---|---|---|---|---|
 | `freq` | in | The center voice's frequency |  |  | Hz |  |
 | `voices` | in | How many saws, read on the note's first sample | 7 | 1 to 16 |  |  |
-| `detune` | in | The step between voices |  | 0 to 100 | cents |  |
+| `detune` | in | The step between voices | 12 | 0 to 100 | cents |  |
 | `out` | out | The mean of every voice |  | -1 to 1 | full scale |  |
 | `out_left` | out | The mean of the center and the voices above it |  | -1 to 1 | full scale |  |
 | `out_right` | out | The mean of the center and the voices below it |  | -1 to 1 | full scale |  |

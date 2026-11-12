@@ -18,8 +18,8 @@
 
 /* A stack of detuned saws in one node: the supersaw.
  *
- * Each voice is osc::blep's saw (plugins/osc/blep.h), so it does not alias
- * and cannot drift from blep's. Voice 0 is at `freq'; voice k is
+ * Each voice is osc::blep's saw (plugins/osc/blep.h), so it aliases as
+ * little as blep's and cannot drift from it. Voice 0 is at `freq'; voice k is
  * (k + 1) / 2 steps of `detune' cents from it, above for odd k and below
  * for even, the pitch worked out as supersaw.dsp's math nodes spell it --
  * `freq * exp2(detune * steps / 1200)' going up and divided by it going
@@ -97,10 +97,12 @@ int module_init (thPlugin *plugin)
                        "How many saws, read on the note's first sample");
     plugin->setArgRange(args[IN_VOICES], 1, UNISON_MAX);
     plugin->setArgDefault(args[IN_VOICES], 7);
+    plugin->setArgStep(args[IN_VOICES], 1);
     args[IN_DETUNE] = plugin->regArg("detune", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_DETUNE], "The step between voices");
     plugin->setArgRange(args[IN_DETUNE], 0, 100);
     plugin->setArgUnits(args[IN_DETUNE], "cents");
+    plugin->setArgDefault(args[IN_DETUNE], 12);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "The mean of every voice");
@@ -153,10 +155,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *right = mod->getArg(node, args[OUT_RIGHT])->allocate(windowlen);
     const int nLeft = 1 + n / 2, nRight = 1 + (n - 1) / 2;
 
-    /* Each voice's cycle again only when its frequency changes, and the
-       ratios only when the detune does, compared as bits: the same bits
-       make the same cycle, a NaN's included. */
-    float ratio[UNISON_MAX], hz[UNISON_MAX];
+    /* Each voice's cycle is worked out again only when its frequency
+       changes, and the ratios only when the detune does, compared as
+       bits: the same bits make the same cycle, a NaN's included. */
+    float ratio[UNISON_MAX];
     thkBlep::Ctl c[UNISON_MAX];
     bool loud[UNISON_MAX];
     float heldFreq = 0, heldDetune = 0;
@@ -178,9 +180,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             heldFreq = f;
             for (int k = 0; k < n; k++)
             {
-                hz[k] = k == 0 ? f : k % 2 ? f * ratio[k] : f / ratio[k];
-                c[k] = thkBlep::ctl(hz[k], 0, 0.5f, rate);
-                loud[k] = !(thkFinite(hz[k]) && hz[k] > rate * 0.5f);
+                const float hz = k == 0 ? f : k % 2 ? f * ratio[k] : f / ratio[k];
+
+                c[k] = thkBlep::ctl(hz, 0, 0.5f, rate);
+                loud[k] = !(thkFinite(hz) && hz > rate * 0.5f);
             }
         }
         fresh = false;

@@ -5245,6 +5245,50 @@ static void checkUnison (const string &pluginPath)
         }
     }
 
+    /* `voices' is the note's from its first sample: one rising from 7 to
+       10 over the render plays as 7 throughout, and one past the most
+       plays as the most. */
+    {
+        vector<NodeSpec> rising = stackGraph(7, 440, 10, 0, 0);
+        NodeSpec v, lv;
+
+        lv.name = "lv";
+        lv.spelling = "osc/simple";
+        lv.values = { { "freq", 20 }, { "amp", 2 }, { "waveform", 1 } };
+        v.name = "v";
+        v.spelling = "math/add";
+        v.values = { { "in0", 9 } };
+        v.wires = { { "in1", "lv", "out" } };
+        for (NodeSpec &n : rising)
+            if (!strcmp(n.name, "u"))
+            {
+                n.values.clear();
+                n.wires.push_back(Wire{ "voices", "v", "out" });
+            }
+        rising.insert(rising.begin(), { lv, v });
+
+        const struct { vector<NodeSpec> a, b, c; const char *what; } held[] = {
+            { rising, stackGraph(7, 440, 10, 0, 0), stackGraph(8, 440, 10, 0, 0),
+              "a `voices' that rises after the note's first sample plays the first" },
+            { stackGraph(100, 440, 10, 0, 0), stackGraph(16, 440, 10, 0, 0),
+              stackGraph(15, 440, 10, 0, 0), "100 `voices' plays as 16" },
+        };
+
+        for (const auto &h : held)
+        {
+            vector<float> a, b, c;
+            string why;
+
+            if (!render1(pluginPath, h.a, "u", "out", 256, 4096, a, why) ||
+                !render1(pluginPath, h.b, "u", "out", 256, 4096, b, why) ||
+                !render1(pluginPath, h.c, "u", "out", 256, 4096, c, why))
+                fail(string("osc::unison: ") + h.what, why);
+            else
+                okOrFail(a == b && a != c, string("osc::unison: ") + h.what,
+                         a == b ? "and so does one voice more" : "differs");
+        }
+    }
+
     windowsAgree(pluginPath, stackGraph(7, 440, 10, 30, 5), "u", "out_left",
                  "osc::unison: the same moving unison at one sample a window "
                  "and at five hundred");
