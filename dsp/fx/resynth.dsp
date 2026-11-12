@@ -29,9 +29,10 @@
 #     bass          55.0   267.2   110.2   221.6   445.5
 #
 # Three octaves or more inside about forty cents for most of them, and
-# every one but epiano gives up somewhere. The readings that are a few cents sharp are
-# the method rather than the filter: a period is a whole number of
-# samples, and at 440 Hz the choice is between 99 and 100 of them.
+# every one but epiano gives up somewhere. The readings that are a few
+# cents sharp are the method rather than the filter: a period is a
+# whole number of samples, and at 440 Hz the choice is between 99 and
+# 100 of them.
 #
 # ONE POLE AND NOT TWO, which is not what it sounds like it should be.
 # Scored over four instruments at four registers, a single `filt::svf'
@@ -41,7 +42,7 @@
 # a clean nothing.
 #
 # `Detect' moves which register works, and that is what it is for. `ts1'
-# above fails over 220 Hz at the default; turning the knob up fixes it
+# above fails from 220 Hz up at the default; turning the knob up fixes it
 # and costs the bottom end nothing:
 #
 #     played        110     220     440     880 Hz
@@ -53,8 +54,8 @@
 # 110 Hz under a note played at 220, because that file has a sub
 # oscillator an octave down and 110 Hz is really there. Fed `supersaw.dsp'
 # it answers 86.5 for 55, because seven detuned saws have no one period
-# to find, and at the bottom the low-pass leaves little else. Neither is the tracker
-# failing; both are a monophonic question asked of something that is not.
+# to find. Neither is the tracker failing; both are a monophonic
+# question asked of something that is not.
 #
 # `Gate' does two jobs at once: it keeps the tracker off the noise floor
 # between notes, where there is nothing to find and it would find

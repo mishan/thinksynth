@@ -21,9 +21,8 @@
  * Each voice is osc::blep's saw (plugins/osc/blep.h), so it aliases as
  * little as blep's and cannot drift from it. Voice 0 is at `freq'; voice k is
  * (k + 1) / 2 steps of `detune' cents from it, above for odd k and below
- * for even, the pitch worked out as supersaw.dsp's math nodes spell it --
- * `freq * exp2(detune * steps / 1200)' going up and divided by it going
- * down -- so the same seven saws land on the same frequencies.
+ * for even: `freq * exp2(detune * steps / 1200)' going up and divided by
+ * it going down.
  *
  * THE SIDES. `out_left' is the center and the voices above, `out_right'
  * the center and the voices below, each the mean of its own voices; `out'

@@ -3,10 +3,9 @@
 # The chord sound of every trance record: not one oscillator but a
 # spread of them, each a few cents off the last, so the beating between
 # them is a slow shimmer rather than a pitch. Seven here, three above
-# and three below the center, each `Detune' cents from its neighbor,
-# and the detune is an expression -- exp2 of cents over twelve hundred
-# -- so it is the same interval at every pitch, which is what amb01's
-# detune in hertz could never be.
+# and three below the center, each `Detune' cents from its neighbor:
+# cents, so it is the same interval at every pitch, which is what
+# amb01's detune in hertz could never be.
 #
 # The saws above go left and the ones below right, which is width for free:
 # the two sides beat differently, and the center saw is in both.
