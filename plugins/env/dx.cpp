@@ -192,6 +192,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     play_arg = mod->getArg(node, args[OUT_PLAY]);
     play = play_arg->allocate(windowlen);
 
+    /* A rate holds for a segment and a level for the sustain, so each pow()
+       is redone only when its input changes. No NaN to start from: fast
+       math may take a comparison with one to be false. Level 0 is out 0. */
+    bool sped = false;
+    double lastRate = 0, lastScale = 0, lastSpeed = 0;
+    float lastLevel = 0, lastOut = 0;
+
     for (unsigned int i = 0; i < windowlen; i++)
     {
         /* `> 0', so a choked voice's -1 is a release like a 0. */
@@ -218,7 +225,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             if (x > 31)
                 x = 31;
             scale = thClampArg((*in_scale)[i], 0, 7) * x / 8.0;
-            speed = dxSpeed((*in_r[k])[i], scale) / samples;
+            const float rate = (*in_r[k])[i];
+            if (!sped || rate != lastRate || scale != lastScale)
+            {
+                sped = true;
+                lastRate = rate;
+                lastScale = scale;
+                lastSpeed = dxSpeed(rate, scale) / samples;
+            }
+            speed = lastSpeed;
 
             if (target > level)
             {
@@ -246,8 +261,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
         }
 
-        out[i] = level > 0 ? (float)(TH_MAX * pow(2.0, (level - 99) / 8.0))
-                           : 0;
+        if (level != lastLevel)
+        {
+            lastLevel = level;
+            lastOut = level > 0 ? (float)(TH_MAX * pow(2.0, (level - 99) / 8.0))
+                                : 0;
+        }
+        out[i] = lastOut;
         play[i] = (seg == SEG_DONE && level <= 0) ? 0 : 1;
     }
 
