@@ -351,8 +351,13 @@ void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
     const unsigned int len = lineOf(samples);
 
     if (voice)
+    {
         mod->getArg(node, args[INOUT_BUFFER])->reserve(STRINGS_MAX *
                                                        (len + nearOf(len)));
+        /* A voice reserves a window's worth for each output and state
+           arg, and a host's window can be shorter than the state. */
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_COUNT);
+    }
 }
 
 int module_init (thPlugin *plugin)

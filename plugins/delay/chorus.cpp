@@ -158,6 +158,20 @@ static float *grow (thArg *line, unsigned int want, unsigned int most,
     return buffer;
 }
 
+/* A voice reserves a window's worth for each output and state arg, and a
+   host's window can be shorter than the line or the state. A voice's line
+   is sized for the longest it can grow to, so the audio thread never
+   grows it. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+    {
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(samples / 2 + 3);
+        mod->getArg(node, args[INOUT_STATE])->reserve(CHORUS_STATE);
+    }
+}
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);
