@@ -9023,13 +9023,15 @@ static void checkMoog (const string &pluginPath)
                  "and at five hundred");
 }
 
-/* filt::bar: a click into it, and whatever else a check sets. `strike' is
+/* A modal plugin -- filt::bar, filt::bell, filt::plate, filt::membrane --
+   struck by a click, with whatever else a check sets. `strike' is
    env::ad's decay in samples: 1 is a one-sample click of height `hit'. */
-static vector<NodeSpec> barGraph (const vector<Value> &set, float strike = 1,
-                                  float hit = 1)
+static vector<NodeSpec> modalGraph (const char *spelling,
+                                    const vector<Value> &set, float strike = 1,
+                                    float hit = 1)
 {
     vector<NodeSpec> spec;
-    NodeSpec src, bar;
+    NodeSpec src, m;
 
     src.name = "src";
     src.spelling = "env/ad";
@@ -9042,16 +9044,16 @@ static vector<NodeSpec> barGraph (const vector<Value> &set, float strike = 1,
     src.values.push_back(d);
     src.values.push_back(p);
 
-    bar.name = "bar";
-    bar.spelling = "filt/bar";
-    bar.values = set;
+    m.name = "m";
+    m.spelling = spelling;
+    m.values = set;
 
     Wire in = { "in", "src", "out" };
 
-    bar.wires.push_back(in);
+    m.wires.push_back(in);
 
     spec.push_back(src);
-    spec.push_back(bar);
+    spec.push_back(m);
 
     return spec;
 }
@@ -9102,45 +9104,60 @@ static double modeDecay (const vector<float> &v, double hz, double from,
     return -60.0 / ((n * sxy - sx * sy) / (n * sxx - sx * sx));
 }
 
-static void checkBar (const string &pluginPath)
+/* What a material's checks need to know of it: its first six ratios,
+   from the physics rather than the plugin's table, and its own d, how
+   much faster its high modes die. */
+struct Metal
 {
-    /* The free-free bar's modes over its first, (beta_n / beta_1)^2, from
-       the roots of cos(b) cosh(b) = 1: the physics, not the plugin's
-       table. */
-    const double ratios[] = { 1, 2.7565, 5.4039, 8.9330, 13.3443 };
+    const char *name, *spelling;
+    double ratios[6];
+    double d;
+};
+
+static void checkModal (const string &pluginPath, const Metal &mt)
+{
+    const double *r = mt.ratios;
+    const string name = mt.name;
+    const char *sp = mt.spelling;
     const double rate = TH_DEFAULT_SAMPLES;
     const size_t fftn = 1 << 16;
+    /* The lowest mode, which is the one `modes = 1' rings, and its decay
+       for a `decay' of 1: below `freq' (the bell's hum) it lasts longer. */
+    const double low = r[0], lowDecay = 1 / pow(low, mt.d);
+    /* The first mode at least half again `freq', whose decay `damp'
+       shapes. */
+    const int up = r[1] >= 1.5 ? 1 : r[2] >= 1.5 ? 2 : r[3] >= 1.5 ? 3 : 4;
 
     /* ---- where the modes are ---- */
     {
         vector<float> out;
         string why;
-        Value f = { "freq", 440 }, dp = { "damp", -1 }, dc = { "decay", 2 };
 
-        if (!render1(pluginPath, barGraph({ f, dp, dc }), "bar", "out", 512,
-                     fftn, out, why))
-            fail("filt::bar renders", why);
+        if (!render1(pluginPath, modalGraph(sp, { { "freq", 440 }, { "damp", -1 },
+                                                  { "decay", 2 } }),
+                     "m", "out", 512, fftn, out, why))
+            fail(name + " renders", why);
         else
         {
             const vector<double> power = powerSpectrum(out, 0, fftn);
             const double perBin = rate / fftn;
             string bad;
 
-            for (double r : ratios)
+            for (int k = 0; k < 5; k++)
             {
-                const double want = 440 * r;
+                const double want = 440 * r[k];
                 size_t best = 0;
 
-                for (size_t k = (size_t)(want * 0.97 / perBin);
-                     k <= (size_t)(want * 1.03 / perBin) && k < power.size(); k++)
-                    if (power[k] > power[best])
-                        best = k;
+                for (size_t b = (size_t)(want * 0.97 / perBin);
+                     b <= (size_t)(want * 1.03 / perBin) && b < power.size(); b++)
+                    if (power[b] > power[best])
+                        best = b;
 
                 if (fabs(best * perBin - want) > 1.5 * perBin)
                     bad += " " + num(want) + " Hz peaks at " + num(best * perBin);
             }
-            okOrFail(bad.empty(), "filt::bar: a click rings at 440 Hz times "
-                     "the free-free bar's first five ratios, to a bin", bad);
+            okOrFail(bad.empty(), name + ": a click rings at 440 Hz times the "
+                     "first five ratios, to a bin", bad);
         }
     }
 
@@ -9148,37 +9165,39 @@ static void checkBar (const string &pluginPath)
     {
         vector<float> out;
         string why;
-        Value f = { "freq", 440 }, m = { "modes", 1 }, dc = { "decay", 0.5f };
 
-        if (render1(pluginPath, barGraph({ f, m, dc }), "bar", "out", 512,
-                    (unsigned)rate, out, why))
+        if (render1(pluginPath, modalGraph(sp, { { "freq", 440 }, { "modes", 1 },
+                                                 { "decay", 0.5f } }),
+                    "m", "out", 512, (unsigned)rate, out, why))
         {
-            const double t = decayTime(out, 0.05, 0.45);
+            const double want = 0.5 * lowDecay, t = decayTime(out, 0.05, 0.45);
 
-            okOrFail(fabs(t - 0.5) < 0.025, "filt::bar: one mode falls 60 dB "
-                     "in `decay', to 5%", "took " + num(t) + " s");
+            okOrFail(fabs(t - want) < 0.05 * want, name + ": the lowest mode "
+                     "falls 60 dB in decay / r0^d, to 5%",
+                     "took " + num(t) + " s, want " + num(want));
         }
         else
-            fail("filt::bar renders one mode", why);
+            fail(name + " renders one mode", why);
 
-        /* The bar's own d is 1: the second mode's decay is decay / r2^(1 + damp). */
+        /* At 1 kHz, so the bell's quint is 300 Hz from its tierce: at 440
+           they are 132 apart, inside a 20 ms block's main lobe. */
         for (float damp : { -1.0f, 0.0f, 1.0f })
         {
-            Value dp = { "damp", damp }, dc2 = { "decay", 2 };
-
-            if (!render1(pluginPath, barGraph({ f, dp, dc2 }), "bar", "out",
-                         512, (unsigned)(2 * rate), out, why))
+            if (!render1(pluginPath, modalGraph(sp, { { "freq", 1000 },
+                                                      { "damp", damp },
+                                                      { "decay", 2 } }),
+                         "m", "out", 512, (unsigned)(2 * rate), out, why))
             {
-                fail("filt::bar renders", why);
+                fail(name + " renders", why);
                 continue;
             }
-            const double want = 2 / pow(ratios[1], 1 + damp);
-            const double t = modeDecay(out, 440 * ratios[1], 0.05,
+            const double want = 2 / pow(r[up], std::max(0.0, mt.d + damp));
+            const double t = modeDecay(out, 1000 * r[up], 0.05,
                                        0.05 + std::min(1.5, want / 2));
 
             okOrFail(fabs(t - want) < 0.05 * want,
-                     "filt::bar: at `damp' " + num(damp) + " the second mode "
-                     "falls 60 dB in decay / r2^(1 + damp), to 5%",
+                     name + ": at `damp' " + num(damp) + " the mode at " +
+                     num(r[up]) + " falls 60 dB in decay / r^(d + damp), to 5%",
                      "took " + num(t) + " s, want " + num(want));
         }
     }
@@ -9192,29 +9211,31 @@ static void checkBar (const string &pluginPath)
 
             vector<float> out;
             string why;
-            Value f = { "freq", 220 }, m = { "modes", modes }, t = { "tilt", tilt };
 
-            if (!render1(pluginPath, barGraph({ f, m, t }), "bar", "out", 512,
-                         (unsigned)(rate / 2), out, why))
+            if (!render1(pluginPath, modalGraph(sp, { { "freq", 220 },
+                                                      { "modes", modes },
+                                                      { "tilt", tilt } }),
+                         "m", "out", 512, (unsigned)(rate / 2), out, why))
             {
-                fail("filt::bar renders", why);
+                fail(name + " renders", why);
                 continue;
             }
             okOrFail(peak(out, 0) <= 1.0 && peak(out, 0) > 0.1,
-                     "filt::bar: a full-scale click at " + num(modes) +
+                     name + ": a full-scale click at " + num(modes) +
                      " modes and a tilt of " + num(tilt) + " peaks inside full scale",
                      "peak " + num(peak(out, 0)));
         }
 
-    /* ---- above Nyquist: at 8 kHz every mode but the first is over 0.45
-       of the rate, so all the power is at 8 kHz ---- */
+    /* ---- above Nyquist: the second mode put at 0.46 of the rate, so all
+       the power is the first's ---- */
     {
         vector<float> out;
         string why;
-        Value f = { "freq", 8000 }, m = { "modes", 16 };
+        const double f = 0.46 * rate / r[1], at = f * r[0];
 
-        if (render1(pluginPath, barGraph({ f, m }), "bar", "out", 512, fftn,
-                    out, why))
+        if (render1(pluginPath, modalGraph(sp, { { "freq", (float)f },
+                                                 { "modes", 16 } }),
+                    "m", "out", 512, fftn, out, why))
         {
             const vector<double> power = powerSpectrum(out, 0, fftn);
             const double perBin = rate / fftn;
@@ -9223,40 +9244,41 @@ static void checkBar (const string &pluginPath)
             for (size_t k = 0; k < power.size(); k++)
             {
                 all += power[k];
-                if (fabs(k * perBin - 8000) < 50)
+                if (fabs(k * perBin - at) < 50)
                     near += power[k];
             }
             okOrFail(allFinite(out) && all > 0 && near / all > 0.999,
-                     "filt::bar: at 8 kHz the modes above 0.45 of the rate "
-                     "are left out, none folded back",
-                     "share at 8 kHz " + num(all > 0 ? near / all : 0));
+                     name + ": with the second mode past 0.45 of the rate, "
+                     "the modes above are left out, none folded back",
+                     "share at " + num(at) + " Hz " + num(all > 0 ? near / all : 0));
         }
         else
-            fail("filt::bar renders at 8 kHz", why);
+            fail(name + " renders near Nyquist", why);
     }
 
     /* ---- the long and the low ---- */
     {
         vector<float> out;
         string why;
-        Value f = { "freq", 20 }, m = { "modes", 1 }, dc = { "decay", 60 };
 
-        if (render1(pluginPath, barGraph({ f, m, dc }), "bar", "out", 512,
-                    (unsigned)(4 * rate), out, why))
+        if (render1(pluginPath, modalGraph(sp, { { "freq", 20 }, { "modes", 1 },
+                                                 { "decay", 60 } }),
+                    "m", "out", 512, (unsigned)(4 * rate), out, why))
         {
-            const vector<double> up = upCrossings(out);
-            const double hz = up.size() > 2
-                ? (up.size() - 1) * rate / (up.back() - up.front()) : 0;
-            const double t = decayTime(out, 0.5, 4);
+            const vector<double> ups = upCrossings(out);
+            const double hz = ups.size() > 2
+                ? (ups.size() - 1) * rate / (ups.back() - ups.front()) : 0;
+            const double want = 60 * lowDecay, t = decayTime(out, 0.5, 4);
 
-            okOrFail(allFinite(out) && fabs(hz - 20) < 0.02 &&
-                     fabs(t - 60) < 3,
-                     "filt::bar: 20 Hz with a 60 s decay holds its pitch and "
-                     "falls at the rate asked",
-                     num(hz) + " Hz, " + num(t) + " s");
+            okOrFail(allFinite(out) && fabs(hz - 20 * low) < 0.02 &&
+                     fabs(t - want) < 0.05 * want,
+                     name + ": its lowest mode at `freq' 20 and `decay' 60 "
+                     "holds its pitch and falls at the rate asked",
+                     num(hz) + " Hz, " + num(t) + " s, want " + num(20 * low) +
+                     " Hz, " + num(want) + " s");
         }
         else
-            fail("filt::bar renders at 20 Hz", why);
+            fail(name + " renders at 20 Hz", why);
     }
 
     /* ---- a 0 is the material: what the node editor writes on a
@@ -9264,24 +9286,24 @@ static void checkBar (const string &pluginPath)
     {
         vector<float> left, zero;
         string why;
-        Value f = { "freq", 440 }, m = { "modes", 0 }, dc = { "decay", 0 };
 
-        if (render1(pluginPath, barGraph({ f }), "bar", "out", 512, 8192,
-                    left, why) &&
-            render1(pluginPath, barGraph({ f, m, dc }), "bar", "out", 512,
-                    8192, zero, why))
+        if (render1(pluginPath, modalGraph(sp, { { "freq", 440 } }), "m", "out",
+                    512, 8192, left, why) &&
+            render1(pluginPath, modalGraph(sp, { { "freq", 440 }, { "modes", 0 },
+                                                 { "decay", 0 } }),
+                    "m", "out", 512, 8192, zero, why))
             okOrFail(left == zero && peak(left, 0) > 0.1,
-                     "filt::bar: `modes' and `decay' of 0 are the bar's own",
+                     name + ": `modes' and `decay' of 0 are the material's own",
                      "they differ");
         else
-            fail("filt::bar renders", why);
+            fail(name + " renders", why);
     }
 
     /* ---- a mode `modes' drops is let go, not held: it does not come
        back when `modes' rises again ---- */
     {
-        vector<NodeSpec> spec = barGraph({ { "freq", 440 }, { "decay", 2 },
-                                           { "damp", -1 } });
+        vector<NodeSpec> spec = modalGraph(sp, { { "freq", 440 }, { "decay", 2 },
+                                                 { "damp", -1 } });
         NodeSpec sq, step;
 
         sq.name = "sq";
@@ -9295,15 +9317,15 @@ static void checkBar (const string &pluginPath)
         spec.push_back(sq);
         spec.push_back(step);
 
-        vector<Watch> watch = { { "step", "out" }, { "bar", "out" } };
+        vector<Watch> watch = { { "step", "out" }, { "m", "out" } };
         vector< vector<float> > got;
         string why;
 
         if (render(pluginPath, spec, watch, 512, (unsigned)rate, got, why))
         {
-            /* 16 modes from the click, then 4, then 16 again: the sixth
-               mode, at 8.2 kHz, before the drop and after the rise, in
-               50 ms either side. */
+            /* All the modes from the click, then 4, then all again: the
+               sixth before the drop and after the rise, in 50 ms either
+               side. */
             size_t drop = 0, rise = 0;
 
             for (size_t i = 1; i < got[0].size(); i++)
@@ -9314,24 +9336,24 @@ static void checkBar (const string &pluginPath)
                     rise = i;
             }
             const size_t block = (size_t)(0.05 * rate);
-            const double b6 = 13 * M_PI / 2 / 4.730040745, hz = 440 * b6 * b6;
+            const double hz = 440 * r[5];
             const double before = drop > block ? hannBin(got[1], drop - block, block, hz) : 0;
             const double after = rise ? hannBin(got[1], rise, block, hz) : 1;
 
             okOrFail(drop && rise && before > 0 && after < before * 1e-3,
-                     "filt::bar: a mode `modes' drops is let go, and is "
-                     "silent when it rises again",
+                     name + ": a mode `modes' drops is let go, and is silent "
+                     "when it rises again",
                      "the sixth mode at " + num(before) + " before the drop, " +
                      num(after) + " after the rise");
         }
         else
-            fail("filt::bar renders with `modes' stepping", why);
+            fail(name + " renders with `modes' stepping", why);
     }
 
     /* ---- a strike that is not a number rings as silence, not as NaN in
        every mode ---- */
     {
-        vector<NodeSpec> spec = barGraph({ { "freq", 440 } });
+        vector<NodeSpec> spec = modalGraph(sp, { { "freq", 440 } });
         NodeSpec nan;
 
         nan.name = "nan";
@@ -9343,35 +9365,39 @@ static void checkBar (const string &pluginPath)
         vector<float> out;
         string why;
 
-        if (render1(pluginPath, spec, "bar", "out", 512, 4096, out, why))
-            okOrFail(allFinite(out), "filt::bar: a NaN strike rings as "
-                     "silence", "the output is not finite");
+        if (render1(pluginPath, spec, "m", "out", 512, 4096, out, why))
+            okOrFail(allFinite(out) && peak(out, 0) == 0,
+                     name + ": a NaN strike rings as silence",
+                     allFinite(out) ? "peak " + num(peak(out, 0))
+                                    : string("the output is not finite"));
         else
-            fail("filt::bar renders a NaN strike", why);
+            fail(name + " renders a NaN strike", why);
     }
 
     /* ---- play: 1 while the ring is heard, 0 once it is not ---- */
     {
         vector<float> out;
         string why;
-        Value f = { "freq", 440 }, m = { "modes", 1 }, dc = { "decay", 0.3f };
 
-        if (render1(pluginPath, barGraph({ f, m, dc }), "bar", "play", 512,
-                    (unsigned)rate, out, why))
+        if (render1(pluginPath, modalGraph(sp, { { "freq", 440 }, { "modes", 1 },
+                                                 { "decay", 0.3f } }),
+                    "m", "play", 512, (unsigned)(1.5 * rate), out, why))
         {
-            /* -80 dBFS from a click's full scale, at 60 dB in 0.3 s, is
-               0.4 s, and the follower's release adds a little. */
-            const size_t on = (size_t)(0.3 * rate), off = (size_t)(0.6 * rate);
+            /* -80 dBFS from a click's full scale is 4/3 of the 60 dB fall,
+               and the follower's release adds a little. */
+            const double t = 0.3 * lowDecay;
+            const size_t on = (size_t)(t * rate), off = (size_t)((t * 4 / 3 + 0.2) * rate);
             bool good = out[on] == 1;
 
             for (size_t i = off; i < out.size(); i++)
                 good = good && out[i] == 0;
-            okOrFail(good, "filt::bar: `play' holds while the ring is heard "
-                     "and ends after it", "play " + num(out[on]) + " at 0.3 s, " +
-                     num(out[off]) + " at 0.6 s");
+            okOrFail(good, name + ": `play' holds while the ring is heard "
+                     "and ends after it", "play " + num(out[on]) + " at " +
+                     num(t) + " s, " + num(out[off]) + " at " +
+                     num((double)off / rate) + " s");
         }
         else
-            fail("filt::bar renders `play'", why);
+            fail(name + " renders `play'", why);
     }
 
     /* ---- every draw finite, and never past the strike's sum of |x| ---- */
@@ -9385,7 +9411,7 @@ static void checkBar (const string &pluginPath)
 
         for (int k = 0; k < 300 && bad.empty(); k++)
         {
-            vector<Watch> watch = { { "src", "out" }, { "bar", "out" } };
+            vector<Watch> watch = { { "src", "out" }, { "m", "out" } };
             vector< vector<float> > got;
             string why;
             Value f = { "freq", (float)exp(draw(log(10.0), log(22000.0))) };
@@ -9394,9 +9420,9 @@ static void checkBar (const string &pluginPath)
             Value dp = { "damp", (float)draw(-1, 1) };
             Value t = { "tilt", (float)draw(-24, 24) };
 
-            if (!render(pluginPath, barGraph({ f, m, dc, dp, t },
-                                             (float)floor(draw(1, 400)),
-                                             (float)draw(0, 1)),
+            if (!render(pluginPath, modalGraph(sp, { f, m, dc, dp, t },
+                                               (float)floor(draw(1, 400)),
+                                               (float)draw(0, 1)),
                         watch, 512, 8192, got, why))
             {
                 bad = why;
@@ -9412,15 +9438,16 @@ static void checkBar (const string &pluginPath)
                       num(dp.value) + ", tilt " + num(t.value) + ": peak " +
                       num(peak(got[1], 0)) + " against a strike of " + num(sum);
         }
-        okOrFail(bad.empty(), "filt::bar: 300 random settings and strikes "
-                 "stay finite and inside the strike's sum of |x|", bad);
+        okOrFail(bad.empty(), name + ": 300 random settings and strikes stay "
+                 "finite and inside the strike's sum of |x|", bad);
     }
 
     {
-        Value f = { "freq", 440 }, dc = { "decay", 0.5f };
+        const vector<NodeSpec> spec = modalGraph(sp, { { "freq", 440 },
+                                                       { "decay", 0.5f } });
 
-        windowsAgree(pluginPath, barGraph({ f, dc }), "bar", "out",
-                     "filt::bar: the same ring at one sample a window and at "
+        windowsAgree(pluginPath, spec, "m", "out",
+                     name + ": the same ring at one sample a window and at "
                      "five hundred");
 
         /* Past the hold, where `play' is the follower's: windowsAgree's
@@ -9428,15 +9455,35 @@ static void checkBar (const string &pluginPath)
         vector<float> one, many;
         string why;
 
-        if (render1(pluginPath, barGraph({ f, dc }), "bar", "play", 1,
-                    (unsigned)(0.8 * rate), one, why) &&
-            render1(pluginPath, barGraph({ f, dc }), "bar", "play", 500,
-                    (unsigned)(0.8 * rate), many, why))
-            okOrFail(one == many, "filt::bar: the same `play' at one sample a "
+        if (render1(pluginPath, spec, "m", "play", 1, (unsigned)(1.2 * rate),
+                    one, why) &&
+            render1(pluginPath, spec, "m", "play", 500, (unsigned)(1.2 * rate),
+                    many, why))
+            okOrFail(one == many, name + ": the same `play' at one sample a "
                      "window and at five hundred", "they differ");
         else
-            fail("filt::bar renders `play'", why);
+            fail(name + " renders `play'", why);
     }
+}
+
+/* The materials, each from its textbook solution. */
+static void checkMetals (const string &pluginPath)
+{
+    /* A free-free bar: (beta_n / beta_1)^2, beta the roots of
+       cos(b) cosh(b) = 1. */
+    checkModal(pluginPath, { "filt::bar", "filt/bar",
+                             { 1, 2.7565, 5.4039, 8.9330, 13.3443, 18.6379 }, 1 });
+    /* A tuned church bell's partials over the prime, where its strike note
+       is heard (Rossing): hum, prime, tierce, quint, nominal, deciem. */
+    checkModal(pluginPath, { "filt::bell", "filt/bell",
+                             { 0.5, 1, 1.2, 1.5, 2, 2.5 }, 0.7 });
+    /* A square plate with its edges supported: (m^2 + n^2) / 2. */
+    checkModal(pluginPath, { "filt::plate", "filt/plate",
+                             { 1, 2.5, 4, 5, 6.5, 8.5 }, 0.5 });
+    /* An ideal circular membrane: the zeros of the Bessel functions over
+       the first. */
+    checkModal(pluginPath, { "filt::membrane", "filt/membrane",
+                             { 1, 1.5933, 2.1355, 2.2954, 2.6531, 2.9173 }, 1 });
 }
 
 int main (int argc, char **argv)
@@ -9451,7 +9498,7 @@ int main (int argc, char **argv)
         pluginPath += '/';
 
     checkSlew(pluginPath);
-    checkBar(pluginPath);
+    checkMetals(pluginPath);
     checkSvf(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);

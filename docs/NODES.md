@@ -414,6 +414,22 @@ A struck bar: modes at a free bar's ratios
 | `play` | out | 1 while the ring is heard, for the io node's play |  | 0 to 1 |  |  |
 | `last` | state |  |  |  |  |  |
 
+### filt::bell
+
+A struck bell: a church bell's tuned partials
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The strike: a click, a burst of noise, a mallet. A longer strike rings louder |  | -1 to 1 | full scale |  |
+| `freq` | in | The strike note: the bell's prime, an octave under its nominal |  |  | Hz |  |
+| `modes` | in | How many modes ring, lowest first; fewer is darker and cheaper | 12 | 1 to 12 |  |  |
+| `decay` | in | Seconds for the `freq' mode to fall 60 dB, as a bare number: `8 s' would be samples | 8 | 0.001 to 60 | seconds |  |
+| `damp` | in | How much faster the high modes die than the material's own; 0 is the material |  | -1 to 1 |  |  |
+| `tilt` | in | Brighter or darker than the material struck, per octave of mode; 0 is the material |  | -24 to 24 | dB/oct |  |
+| `out` | out | The modes summed |  |  | full scale |  |
+| `play` | out | 1 while the ring is heard, for the io node's play |  | 0 to 1 |  |  |
+| `last` | state |  |  |  |  |  |
+
 ### filt::comb
 
 Comb Filter
@@ -522,6 +538,22 @@ INK Filter ][
 | `res` | in | Resonance, 0 to 1; 1 is the edge of the stable region |  | 0 to 1 |  |  |
 | `shaper` | in | How hard a large step is squashed; 0 is not at all |  |  | exponent |  |
 
+### filt::membrane
+
+A struck membrane: a drumhead's modes
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The strike: a click, a burst of noise, a mallet. A longer strike rings louder |  | -1 to 1 | full scale |  |
+| `freq` | in | The pitch heard: the membrane's lowest mode |  |  | Hz |  |
+| `modes` | in | How many modes ring, lowest first; fewer is darker and cheaper | 10 | 1 to 16 |  |  |
+| `decay` | in | Seconds for the `freq' mode to fall 60 dB, as a bare number: `8 s' would be samples | 0.4 | 0.001 to 60 | seconds |  |
+| `damp` | in | How much faster the high modes die than the material's own; 0 is the material |  | -1 to 1 |  |  |
+| `tilt` | in | Brighter or darker than the material struck, per octave of mode; 0 is the material |  | -24 to 24 | dB/oct |  |
+| `out` | out | The modes summed |  |  | full scale |  |
+| `play` | out | 1 while the ring is heard, for the io node's play |  | 0 to 1 |  |  |
+| `last` | state |  |  |  |  |  |
+
 ### filt::moog
 
 Moog Filter
@@ -565,6 +597,22 @@ Stiff String (a piano string)
 | `force` | out | The hammer's force on the strings; 0 when it is clear of them |  |  |  |  |
 | `buffer` | state |  |  |  |  |  |
 | `state` | state |  |  |  |  |  |
+
+### filt::plate
+
+A struck plate: a square plate's modes
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The strike: a click, a burst of noise, a mallet. A longer strike rings louder |  | -1 to 1 | full scale |  |
+| `freq` | in | The pitch heard: the plate's lowest mode |  |  | Hz |  |
+| `modes` | in | How many modes ring, lowest first; fewer is darker and cheaper | 16 | 1 to 16 |  |  |
+| `decay` | in | Seconds for the `freq' mode to fall 60 dB, as a bare number: `8 s' would be samples | 3 | 0.001 to 60 | seconds |  |
+| `damp` | in | How much faster the high modes die than the material's own; 0 is the material |  | -1 to 1 |  |  |
+| `tilt` | in | Brighter or darker than the material struck, per octave of mode; 0 is the material |  | -24 to 24 | dB/oct |  |
+| `out` | out | The modes summed |  |  | full scale |  |
+| `play` | out | 1 while the ring is heard, for the io node's play |  | 0 to 1 |  |  |
+| `last` | state |  |  |  |  |  |
 
 ### filt::rds
 
