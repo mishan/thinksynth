@@ -325,4 +325,22 @@ static inline void thMap2 (float *out, unsigned int n, thArg *a, thArg *b, F f)
     }
 }
 
+/* An input as a callback's loop reads it: operator[]'s answer for every
+ * index, from a length and a buffer held in locals the compiler can keep
+ * in registers, and a knob read once a call rather than once a sample. */
+struct thArgReader
+{
+    const float *values;
+    unsigned int len;
+    float one;
+
+    explicit thArgReader (thArg *a)
+        : values(a->values()), len(a->len()), one(a->len() ? (*a)[0] : 0) {}
+
+    float operator[] (unsigned int i) const
+    {
+        return len == 1 ? one : i < len ? values[i] : len ? values[i % len] : 0;
+    }
+};
+
 #endif /* TH_ARG_H */

@@ -148,22 +148,34 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *last = inout_last->allocate(1);
     float *sync = mod->getArg(node, args[OUT_SYNC])->allocate(windowlen);
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
-    const auto ctl = [&](unsigned int i) {
-        return thkSimple::ctl((*in_freq)[i], (*in_mul)[i], (*in_amp)[i] / TH_MAX,
-                              (*in_pw)[i], (*in_waveform)[i], (float)samples);
-    };
-    /* The cycle once a window while what makes it holds still. */
+    const thArgReader freq(in_freq), mul(in_mul), amp(in_amp), pw(in_pw),
+                      waveform(in_waveform), fm(in_fm), fmamt(in_fmamt),
+                      reset(in_reset);
+    /* The cycle again only when what makes it changes, compared as bits:
+       the same bits make the same cycle, a NaN's included, where a NaN
+       would never compare equal to itself. */
+    float held[5] = { freq[0], mul[0], amp[0], pw[0], waveform[0] };
+    thkSimple::Ctl c = thkSimple::ctl(held[0], held[1], held[2] / TH_MAX,
+                                      held[3], held[4], (float)samples);
     const bool still = in_freq->len() <= 1 && in_mul->len() <= 1 &&
                        in_amp->len() <= 1 && in_pw->len() <= 1 &&
                        in_waveform->len() <= 1;
-    thkSimple::Ctl c = ctl(0);
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
         if (!still)
-            c = ctl(i);
-        out[i] = TH_MAX * osc.tick(c, (*in_fm)[i] / TH_MAX, (*in_fmamt)[i],
-                                   (*in_reset)[i], sync[i]);
+        {
+            const float now[5] = { freq[i], mul[i], amp[i], pw[i], waveform[i] };
+
+            if (memcmp(now, held, sizeof(held)))
+            {
+                memcpy(held, now, sizeof(held));
+                c = thkSimple::ctl(held[0], held[1], held[2] / TH_MAX, held[3],
+                                   held[4], (float)samples);
+            }
+        }
+        out[i] = TH_MAX * osc.tick(c, fm[i] / TH_MAX, fmamt[i], reset[i],
+                                   sync[i]);
     }
     last[0] = osc.position;
 
