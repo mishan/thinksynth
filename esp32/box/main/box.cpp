@@ -1176,8 +1176,10 @@ app_main (void)
 
     debugcon_start(BOX_RATE, DEBUGCON_TOUCH | DEBUGCON_HOME | DEBUGCON_SHAKE, status);
 
+    /* The codec at its 0 dB, its 100: the volume on the top row is the one
+       turned down, and any less here only lowers where it tops out. */
     const unsigned opened = box_hal_open(BOX_HAL_SPEAKER | BOX_HAL_IMU | BOX_HAL_TOUCH |
-                                         BOX_HAL_SIDE_BUTTON, BOX_RATE, 70);
+                                         BOX_HAL_SIDE_BUTTON, BOX_RATE, 100);
     /* With nothing to write to, the audio task would never wait. */
     const bool speaker = opened & BOX_HAL_SPEAKER;
 
