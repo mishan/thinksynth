@@ -83,6 +83,18 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
+/* A voice, or an effect as it is loaded: its ring and state, sized here
+   and not in its first window. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+    {
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(2 * CHUNK_SECONDS_MAX * samples + 2);
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_LEN);
+    }
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {

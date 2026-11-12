@@ -52,17 +52,23 @@ enum { IN_ARG,IN_SIZE,IN_DELAY,IN_FEEDBACK,IN_DRY,INOUT_BUFFER,INOUT_BUFPOS,OUT_
 std::atomic<int> args[INOUT_LOOP + 1];
 
 
-/* A voice about to start: its ring, sized here and not in its first
-   window. Only a `size' that is a number or a control has a value yet; one
-   fed by another node is left to the callback. */
+/* A voice about to start, or an effect as it is loaded: its ring, sized
+   here and not in its first window. A number has its value already, and
+   a control its value, or on an effect not yet on its channel the value
+   the file declares; one fed by another node is left to the callback. */
 void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
                      int voice)
 {
     const thArg *raw = node->getArg(args[IN_SIZE]);
     thArg *in_size = mod->getArg(node, args[IN_SIZE]);
 
-    if (voice && raw != NULL && raw->type() != thArg::ARG_POINTER &&
-        in_size != NULL)
+    if (in_size == NULL && raw != NULL && raw->type() == thArg::ARG_CHANNEL)
+    {
+        const auto declared = mod->chanArgs().find(raw->argPtrName());
+
+        in_size = declared != mod->chanArgs().end() ? declared->second : NULL;
+    }
+    if (voice && raw != NULL && raw->type() != thArg::ARG_POINTER && in_size != NULL)
         mod->getArg(node, args[INOUT_BUFFER])->reserve(
             thkEchoRing((*in_size)[0], (float)samples));
 }

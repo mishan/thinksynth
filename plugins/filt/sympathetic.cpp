@@ -296,6 +296,18 @@ static inline double flush (double x)
     return fabs(x) < FLUSH ? 0 : x;
 }
 
+/* A voice, or an effect as it is loaded: its lines and state, sized here
+   and not in its first window. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+    {
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(capacity(samples));
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_COUNT);
+    }
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {

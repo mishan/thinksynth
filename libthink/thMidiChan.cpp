@@ -509,29 +509,7 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
 
     voice->setChannel(serial_);
 
-    /* Every plugin output and state arg, and every smoothing ramp, grows to
-       the window on the voice's first one; done here, that is a memset on
-       the audio thread. */
-    const thSynthTree::NodeMap &nodes = voice->synthTree()->nodes();
-
-    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
-         i != nodes.end(); ++i)
-    {
-        thPlugin *plug = i->second ? i->second->plugin() : NULL;
-
-        for (size_t k = 0; plug && k < i->second->smoothing().size(); k++)
-            i->second->smoothing()[k].ramp->reserve(windowlength_);
-
-        for (int a = 0; plug && a < plug->argCount(); a++)
-        {
-            thArg *arg = i->second->getArg(a);
-
-            if (arg && arg->type() == thArg::ARG_VALUE &&
-                plug->getArgDir(a) != thPlugin::ARG_IN)
-                arg->reserve(windowlength_);
-        }
-    }
-
+    voice->synthTree()->reserveWindow(windowlength_);
     voice->synthTree()->prepare(true);
 
     return voice;

@@ -121,7 +121,9 @@ extern "C" {
        built, on the loading thread, or in one it holds when the host says
        data files have changed. `voice' 1: `node' is in a voice about to
        start, its io node holding the note, on the thread that builds
-       voices -- which in the browser is the audio thread. */
+       voices -- which in the browser is the audio thread; or in an effect
+       as it is loaded, which runs as that one graph, its note 0 and its
+       controls not yet bound to its channel's. */
     THINK_PLUGIN_API void module_prepare (thNode *node, thSynthTree *mod,
                                           unsigned int samples, int voice);
 }

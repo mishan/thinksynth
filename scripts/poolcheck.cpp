@@ -47,7 +47,11 @@
  * And the audio thread's side of both renders, synth.process(), allocates
  * nothing: a voice is built and sized on the calling thread, and moving it
  * between the channel's lists is pointer work. A graph with a delay line
- * whose size another node feeds is excused (see render).
+ * whose size another node feeds is excused (see sizedByNode).
+ *
+ * An effect plays no notes and has no pool, so it is only heard: on a
+ * channel over a plain saw, and its share of process() held to nothing
+ * as well, since it is the graph it was loaded as and is never copied.
  *
  * Then, once, the fallback: a voice whose args no longer match its
  * prototype's -- one invented on the voice by name -- is not restarted, and
@@ -126,6 +130,31 @@ static void setPedal (thSynth &synth, float value)
    what a plugin keeps in a state arg, which a voice then has to grow. */
 static unsigned int windowLength = TH_DEFAULT_WINDOW_LENGTH;
 
+/* Lines sized by an arg another node feeds: it has no value until the
+   graph runs, so the line is sized on its first window and a graph with
+   one is not held to none. */
+static bool sizedByNode (const thSynthTree *tree)
+{
+    static const char *const sizing[] = { "comb", "echo" };
+    const thSynthTree::NodeMap &nodes = tree->nodes();
+    bool sized = false;
+
+    for (thSynthTree::NodeMap::const_iterator n = nodes.begin();
+         n != nodes.end(); ++n)
+    {
+        const thPlugin *plug = n->second ? n->second->plugin() : NULL;
+        const string path = plug ? plug->path() : string();
+        const string stem = path.substr(path.find_last_of("/\\") + 1);
+        const thArg *size = plug ? n->second->getArg("size") : NULL;
+
+        for (size_t k = 0; size && k < sizeof(sizing) / sizeof(*sizing); k++)
+            sized |= stem.compare(0, stem.find('.'), sizing[k]) == 0 &&
+                     size->type() == thArg::ARG_POINTER;
+    }
+
+    return sized;
+}
+
 static bool render (const string &plugins, const char *file, Sequence seq,
                     bool pool, vector<float> &out, unsigned long *restarts,
                     unsigned long *allocated, bool *excused)
@@ -185,27 +214,48 @@ static bool render (const string &plugins, const char *file, Sequence seq,
 
     *restarts = synth.getChannel(0)->restarts();
     *allocated = allocations;
-
-    /* Lines sized by an arg another node feeds: it has no value until the
-       voice runs, so the line is sized on its first window and a graph
-       with one is not held to none. */
-    static const char *const sizing[] = { "comb", "echo" };
-    const thSynthTree::NodeMap &nodes = tree->nodes();
-
-    for (thSynthTree::NodeMap::const_iterator n = nodes.begin();
-         n != nodes.end(); ++n)
-    {
-        const thPlugin *plug = n->second ? n->second->plugin() : NULL;
-        const string path = plug ? plug->path() : string();
-        const string stem = path.substr(path.find_last_of("/\\") + 1);
-        const thArg *size = plug ? n->second->getArg("size") : NULL;
-
-        for (size_t k = 0; size && k < sizeof(sizing) / sizeof(*sizing); k++)
-            *excused |= stem.compare(0, stem.find('.'), sizing[k]) == 0 &&
-                        size->type() == thArg::ARG_POINTER;
-    }
+    *excused |= sizedByNode(tree);
 
     return true;
+}
+
+/* An effect plays no notes, so it is heard on a channel of its own over a
+   plain stereo saw, the crowd's notes and pedal through it, and its share
+   of process() counted: nothing in an effect is copied from a prototype,
+   so what it keeps has to have been reserved when it was loaded. -1 if
+   it does not load as one. */
+static long effectAllocations (const string &plugins, const char *file, bool *excused)
+{
+    thSynth synth(plugins, windowLength, TH_DEFAULT_SAMPLES);
+
+    if (synth.loadTreeText("poolcheck-saw",
+                           "node ionode { channels = 2; out0 = o->out; out1 = o->out;"
+                           " play = e->play; };\n"
+                           "node f misc::midi2freq { note = ionode->note; };\n"
+                           "node o osc::blep { freq = f->out; waveform = 0; };\n"
+                           "node e env::adsr { a = 0; d = 0; s = 1; r = 50 ms;"
+                           " trigger = ionode->trigger; };\n"
+                           "io ionode;\n", 0, 100) == NULL)
+        return -1;
+
+    thSynthTree *fx = synth.loadEffect(file, 0);
+
+    if (fx == NULL)
+        return -1;
+    *excused = sizedByNode(fx);
+    allocations = 0;
+    for (int w = 0; w < WINDOWS; w++)
+    {
+        if (w % 2 == 0)
+            synth.addNote(0, noteAt(CROWD, w / 2), 100);
+        if (w >= 30 && w % 2 == 0)
+            synth.delNote(0, noteAt(CROWD, (w - 30) / 2));
+        counting = true;
+        synth.process();
+        counting = false;
+    }
+
+    return (long)allocations;
 }
 
 /* An instrument that loads: not an effect, which plays no notes. */
@@ -286,7 +336,7 @@ int main (int argc, char **argv)
 {
     string plugins = "plugins/";
     const char *probe = NULL;
-    int failed = 0, same = 0, skipped = 0;
+    int failed = 0, same = 0, skipped = 0, effects = 0;
     unsigned long total = 0;
 
     for (int i = 1; i < argc; i++)
@@ -309,8 +359,24 @@ int main (int argc, char **argv)
 
         if (!playable(plugins, argv[i]))
         {
-            printf("skip  %s\n", argv[i]);
-            skipped++;
+            const long fxAllocated = effectAllocations(plugins, argv[i], &excused);
+
+            if (fxAllocated < 0)
+            {
+                printf("skip  %s\n", argv[i]);
+                skipped++;
+            }
+            else if (fxAllocated > 0 && !excused)
+            {
+                printf("FAIL  %-34s %ld allocations in process(), as an effect\n",
+                       argv[i], fxAllocated);
+                failed++;
+            }
+            else
+            {
+                printf("fx    %-34s\n", argv[i]);
+                effects++;
+            }
             continue;
         }
 
@@ -359,8 +425,8 @@ int main (int argc, char **argv)
         same++;
     }
 
-    printf("\n%d identical, %d failed, %d skipped; %lu voices restarted\n",
-           same, failed, skipped, total);
+    printf("\n%d identical, %d effects, %d failed, %d skipped; %lu voices restarted\n",
+           same, effects, failed, skipped, total);
 
     if (probe != NULL && !fallback(plugins, probe))
         failed++;
