@@ -111,9 +111,10 @@ instead, so the list says six and the control still shows three. A step is
 measured from zero, not from the bottom of the range, because the thing being
 stepped to is what `(int)x` can distinguish.
 
-Eight further args carry a step with no names: they are read `(int)(*in_x)[0]`
+Nine further args carry a step with no names: they are read `(int)(*in_x)[0]`
 and used as a length or a count — `delay/echo`'s size, `filt/comb`'s, the four
-`impulse` lengths, `osc/multiwave` and `osc/multisined`'s `waves`. A delay line
+`impulse` lengths, `osc/multiwave` and `osc/multisined`'s `waves`, and
+`osc/unison`'s `voices`. A delay line
 of 220 samples has nothing to call itself. Found by grepping for a cast of an
 arg to int rather than by reading arg names, which is the difference between a
 sweep and a guess — an earlier draft did the latter and named two plugins that

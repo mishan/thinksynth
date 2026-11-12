@@ -363,6 +363,7 @@ int main (int argc, char **argv)
             { "impulse::square",    "len"   },
             { "osc::multiwave",     "waves" },
             { "osc::multisined",    "waves" },
+            { "osc::unison",        "voices" },
             { NULL, NULL }
         };
 
@@ -406,8 +407,8 @@ int main (int argc, char **argv)
             delete t;
         }
 
-        if (whole == 8)
-            ok("eight args their plugins cast to int read as whole numbers, "
+        if (whole == 9)
+            ok("nine args their plugins cast to int read as whole numbers, "
                "and none pretends to be a selector");
     }
 

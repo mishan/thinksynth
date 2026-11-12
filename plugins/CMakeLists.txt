@@ -59,7 +59,7 @@ think_add_plugin_category(mixer    add fade mul pan)
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
                                    fmop blep sample grain stretch pad speak
                                    bandosc shapeo multiwave multisined window
-                                   noise)
+                                   noise unison)
 
 # Visualizers. Not DSP plugins: a different ABI, loaded by the GUI rather than
 # by the parser, drawing with cairo and linking neither libthink nor sigc++.
