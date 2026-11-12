@@ -291,9 +291,9 @@ static inline unsigned int thOutLen (unsigned int windowlen, thArg *a,
 }
 
 /* out[i] = f(a[i], b[i]) for the n values thOutLen gives, read straight
- * from the buffers when each arg is a window or one value: operator[]'s
- * length tests cost more a sample than a math node's own arithmetic. A
- * knob is read once a call rather than once a sample. */
+ * from the buffer of an arg at least n long: operator[]'s length tests
+ * cost more per sample than a math node's own arithmetic. A knob is read
+ * once a call rather than once a sample. */
 template <typename F>
 static inline void thMap2 (float *out, unsigned int n, thArg *a, thArg *b, F f)
 {
