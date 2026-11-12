@@ -290,4 +290,39 @@ static inline unsigned int thOutLen (unsigned int windowlen, thArg *a,
     return 1;
 }
 
+/* out[i] = f(a[i], b[i]) for the n values thOutLen gives, read straight
+ * from the buffer of an arg at least n long: operator[]'s length tests
+ * cost more per sample than a math node's own arithmetic. A knob is read
+ * once a call rather than once a sample. */
+template <typename F>
+static inline void thMap2 (float *out, unsigned int n, thArg *a, thArg *b, F f)
+{
+    const unsigned int la = a->len(), lb = b->len();
+    unsigned int i;
+
+    if (n > 1 && la >= n && lb >= n)
+    {
+        const float *pa = a->values(), *pb = b->values();
+        for (i = 0; i < n; i++)
+            out[i] = f(pa[i], pb[i]);
+    }
+    else if (n > 1 && la >= n && lb == 1)
+    {
+        const float *pa = a->values(), vb = (*b)[0];
+        for (i = 0; i < n; i++)
+            out[i] = f(pa[i], vb);
+    }
+    else if (n > 1 && la == 1 && lb >= n)
+    {
+        const float va = (*a)[0], *pb = b->values();
+        for (i = 0; i < n; i++)
+            out[i] = f(va, pb[i]);
+    }
+    else
+    {
+        for (i = 0; i < n; i++)
+            out[i] = f((*a)[i], (*b)[i]);
+    }
+}
+
 #endif /* TH_ARG_H */

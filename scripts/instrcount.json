@@ -1,8 +1,8 @@
 {
   "GNU 13.3.0 x86_64 RelWithDebInfo [-O2 -g -DNDEBUG]; glibc 2.39; valgrind-3.22.0": {
-    "dx5 -n 8 -w 16": 606903143,
+    "dx5 -n 8 -w 16": 532138029,
     "fircomb -n 4 -w 10": 854360764,
-    "grand -n 8 -w 20": 722521701,
-    "kit_snare -n 8 -w 40": 196475560
+    "grand -n 8 -w 20": 670015365,
+    "kit_snare -n 8 -w 40": 150336932
   }
 }
