@@ -433,6 +433,12 @@ struct Breeding {
         if (lo != NULL)
             *lo = ear.tone ? ll : 0;
 
+        /* With no target, keeping under a third of a real low end turns
+           a member away, as losing the level does: a mark that novelty
+           could outbid would leave it to the dice. */
+        if (!ear.target && ear.tone && low > 0.2 && ll < low / 3)
+            return false;
+
         /* Half the declared level at most, not growth's quarter: a
            flock's champion replaces the instrument every generation, and
            one that drops away reads as the piece stopping. */
@@ -442,8 +448,8 @@ struct Breeding {
     /* In dB, as novelty is, what a member with no target loses for
        sounding unlike the instrument it came from: brightness past
        BRIGHT_OCTAVES either way, and the low end, where the declared
-       graph has one, more than half gone. DEAD for one that does not keep
-       the level. */
+       graph has one, more than half gone. DEAD for one that keeps()
+       turns away. */
     double flaw (const string &text)
     {
         double c, lo;
@@ -734,6 +740,17 @@ bool generation (thSynth *synth, const string &base, Flock &flock_,
     std::stable_sort(order.begin(), order.end(),
                      [&score] (size_t x, size_t y)
                      { return score[x] < score[y]; });
+
+    /* Every member turned away -- a flock bred under a target that let
+       them in, heard now without it -- and the declared graph comes back
+       to be played and bred from. */
+    if (!order.empty() && score[order[0]] >= NodeEvolve::DEAD)
+    {
+        flock.members.push_back(Member());
+        texts.push_back(base);
+        score.push_back(0);
+        order.insert(order.begin(), flock.members.size() - 1);
+    }
 
     champion = texts[order[0]];
     depth = flock.members[order[0]].ops.size();
