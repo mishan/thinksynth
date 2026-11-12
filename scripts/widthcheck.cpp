@@ -24,7 +24,8 @@
  * whose outputs are constants, and reads each of the synth's planes back:
  * its first sample, and whether every other sample in it is the same. A
  * row with no `want' has the limiter on, and wants no plane past full
- * scale.
+ * scale. A row may also send the instrument to a master effect that plays
+ * the send bus, so the planes are what the send carried.
  */
 
 #include "config.h"
@@ -70,9 +71,16 @@ main (int argc, char *argv[])
         float level;
         bool limit;
         const char *want;
+        bool spread = true, send = false;
     } rows[] = {
         { "a 3-wide instrument fills a 3-wide synth", 3, 3, 0.25f, false, "0.25 0.5 0.75" },
-        { "a mono instrument fills the first plane", 3, 1, 0.25f, false, "0.25 0 0" },
+        { "a mono instrument is heard in the middle, at mixer::pan's", 2, 1, 0.25f, false,
+          "0.18 0.18" },
+        { "and on every plane of a wider synth, its power kept", 3, 1, 0.25f, false,
+          "0.14 0.14 0.14" },
+        { "and is sent in the middle", 2, 1, 0.25f, false, "0.18 0.18", true, true },
+        { "a mono instrument not spread fills the first plane, as a picture's does", 3, 1,
+          0.25f, false, "0.25 0 0", false },
         { "a synth drops what is wider than it", 2, 3, 0.25f, false, "0.25 0.5" },
         { "a mono synth", 1, 2, 0.25f, false, "0.25" },
         { "a width of 0 is the default 2", 0, 2, 0.25f, false, "0.25 0.5" },
@@ -89,12 +97,23 @@ main (int argc, char *argv[])
 
         synth.setMasterGain(1);
         synth.setLimiter(r.limit);
+        synth.setSpreadMono(r.spread);
         if (synth.loadTreeText(r.name, instrument(r.instrument, r.level), 0,
-                               MIDIVALMAX) == NULL)
+                               MIDIVALMAX) == NULL ||
+            (r.send && (synth.loadMasterEffectText("widthcheck-send",
+                            "node ionode { channels = 2; in0 = 0; in1 = 0; send0 = 0; send1 = 0;"
+                            " out0 = ionode->send0; out1 = ionode->send1; };\nio ionode;\n") == NULL)))
         {
             printf("FAIL  %s\n  does not load\n", r.name);
             failed++;
             continue;
+        }
+        if (r.send)
+        {
+            synth.setChanArg(0, new thArg(string(TH_EFFECT_PREFIX) + TH_SEND_ARG, 1));
+            /* One window for the command and one for the send's ramp from 0. */
+            synth.process();
+            synth.process();
         }
         synth.addNote(0, 60, MIDIVALMAX);
         synth.process();

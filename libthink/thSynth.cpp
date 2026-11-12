@@ -448,6 +448,7 @@ thSynth::thSynth (int windowlen, int samples, int channels)
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
     limiter_ = true;
+    spreadMono_ = true;
     nodeLevels_ = false;
     position_ = rendered_ = 0;
     rasterWidth_ = rasterHeight_ = 0;
@@ -513,6 +514,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples,
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
     limiter_ = true;
+    spreadMono_ = true;
     nodeLevels_ = false;
     position_ = rendered_ = 0;
     rasterWidth_ = rasterHeight_ = 0;
@@ -2852,6 +2854,17 @@ void thSynth::process (const float *add)
                 mixchannels = channels_;
             }
 
+            /* A one-channel instrument is heard in the middle: its one
+               plane into every plane of the mix (setSpreadMono), at the
+               gain that keeps its power, which on two sides is
+               mixer::pan's middle. */
+            const bool spread = notechannels == 1 &&
+                                __atomic_load_n(&spreadMono_, __ATOMIC_RELAXED);
+            const float middle = spread ? 1 / sqrtf((float)channels_) : 1;
+
+            if (spread)
+                mixchannels = channels_;
+
             chanoutput = chan->output();
 
             if (chanoutput == NULL || mixchannels <= 0) {
@@ -2867,10 +2880,10 @@ void thSynth::process (const float *add)
             for (int j = 0; j < mixchannels; j++)
             {
                 inneroffset = bufferoffset;
-                chanoffset = j;
+                chanoffset = spread ? 0 : j;
                 for (int k = 0; k < windowlen_; k++)
                 {
-                    output_[inneroffset] += chanoutput[chanoffset];
+                    output_[inneroffset] += chanoutput[chanoffset] * middle;
                     inneroffset++;
                     chanoffset += notechannels;
                 }
@@ -2900,13 +2913,13 @@ void thSynth::process (const float *add)
             for (int j = 0; j < mixchannels; j++)
             {
                 float *dst = send_ + (size_t)j * windowlen_;
-                const float *src = chanoutput + j;
+                const float *src = chanoutput + (spread ? 0 : j);
                 float g = from;
 
                 for (int k = 0; k < windowlen_; k++)
                 {
                     g += step;
-                    dst[k] += src[k * notechannels] * g;
+                    dst[k] += src[k * notechannels] * g * middle;
                 }
             }
         }

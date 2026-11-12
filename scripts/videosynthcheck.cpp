@@ -258,6 +258,43 @@ checkVoices (const string &plugins)
     }
 }
 
+/* A one-channel patch draws in red alone, as the warning it gets says: a
+   picture's planes are its colors, so its one plane is not spread. */
+static void
+checkMonoRed (const string &plugins)
+{
+    thVideoSynth video;
+    string why;
+
+    if (!video.open(plugins, 8, 4, 10, 1, why) ||
+        !video.followText(0, "mono", "node ionode { channels = 1; play = 1; out0 = 0.5; };"
+                          " io ionode;", why))
+    {
+        report("a one-channel patch draws in red alone", why);
+        return;
+    }
+    video.noteOn(0, 60, MIDIVALMAX, 1, NULL);
+
+    float rgb[3] = { -1, -1, -1 };
+    const auto keep = [&](int64_t frame, const float *r, const float *g, const float *b)
+    {
+        if (frame == 1)
+        {
+            rgb[0] = r[0];
+            rgb[1] = g[0];
+            rgb[2] = b[0];
+        }
+        return true;
+    };
+
+    for (int k = 0; k < 4 * 2; k++)
+        video.render(keep);
+    report("a one-channel patch draws in red alone",
+           rgb[0] == 0.5f && rgb[1] == 0 && rgb[2] == 0 ? "" :
+           "it drew " + std::to_string(rgb[0]) + " " + std::to_string(rgb[1]) + " " +
+           std::to_string(rgb[2]));
+}
+
 static void
 checkSlow (const string &plugins)
 {
@@ -349,6 +386,7 @@ main (int argc, char *argv[])
     checkBridge(plugins);
     checkSkip(plugins);
     checkVoices(plugins);
+    checkMonoRed(plugins);
     checkSlow(plugins);
 
     return failed ? 1 : 0;

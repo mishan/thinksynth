@@ -32,8 +32,9 @@ class thMidiChan;
 class THINK_API thSynth {
 public:
     /* `channels' is how many planes getOutput() holds: 2 for stereo, 3 for
-       a video synth's R, G and B. An instrument narrower fills the first of
-       them; one wider is cut to fit. */
+       a video synth's R, G and B. A one-channel instrument fills all of
+       them (setSpreadMono), another narrower the first of them; one wider
+       is cut to fit. */
     thSynth (int windowlen=TH_DEFAULT_WINDOW_LENGTH,
              int samples=TH_DEFAULT_SAMPLES, int channels=2);
     thSynth (const string &plugin_path, int windowlen, int samples,
@@ -329,6 +330,12 @@ public:
        here either: what reads getOutput() handles it. Relaxed for the
        reason masterGain is. */
     void setLimiter (bool on) { __atomic_store_n(&limiter_, on, __ATOMIC_RELAXED); }
+
+    /* A one-channel instrument into every plane, and into every plane of
+       the send bus, so it is heard in the middle; on unless turned off. A
+       picture's planes are its colors, so there it fills the first, red.
+       Relaxed for the reason masterGain is. */
+    void setSpreadMono (bool on) { __atomic_store_n(&spreadMono_, on, __ATOMIC_RELAXED); }
 
     /* Whether each channel measures its nodes' outputs voice by voice, for
        thMidiChan::nodeLevels. Off unless an offline render asks, before
@@ -690,6 +697,7 @@ private:
     int windowlen_;
     float masterGain_;  /* see setMasterGain(); accessed atomically */
     bool limiter_;      /* see setLimiter(); accessed atomically */
+    bool spreadMono_;   /* see setSpreadMono(); accessed atomically */
     bool nodeLevels_;   /* see setNodeLevels() */
     int64_t position_, rendered_;           /* see position() */
     int rasterWidth_, rasterHeight_;        /* see setRaster() */
