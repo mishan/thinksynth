@@ -170,6 +170,62 @@ struct thkAdsrFree
         }
         return out;
     }
+
+    /* `n' samples of tick() with the same trigger and reset, the same bits:
+       each phase a loop of its own arithmetic, and tick() itself for a
+       reset, a release begun or ended, a sustain of 0 and times of none. */
+    void run (const thkAdsrCtl &c, float trigger, float reset, int n, float *out,
+              float *play)
+    {
+        for (int i = 0; i < n;)
+        {
+            if (reset > 0)
+            {
+                out[i] = tick(c, trigger, reset, play[i]);
+                i++;
+            }
+            else if (phase == ATTACK && c.a > 0)
+                for (; i < n && phase == ATTACK; i++)
+                {
+                    out[i] = position++ * c.perA * c.peak;
+                    play[i] = 1;
+                    if (position >= c.a)
+                    {
+                        phase = DECAY;
+                        position = 0;
+                    }
+                }
+            else if (phase == DECAY && c.d > 0)
+                for (; i < n && phase == DECAY; i++)
+                {
+                    out[i] = c.s + thkLn1e(THK_E - (THK_E - 1) * (position++ * c.perD)) *
+                                   (c.peak - c.s);
+                    play[i] = 1;
+                    if (position >= c.d)
+                    {
+                        phase = SUSTAIN;
+                        position = 0;
+                    }
+                }
+            else if (phase == SUSTAIN && c.s != 0 && trigger > 0)
+                for (; i < n; i++)
+                {
+                    out[i] = c.s;
+                    play[i] = 1;
+                }
+            else if (phase == RELEASE && c.r > 0 && position < c.r && trigger <= 0)
+                for (; i < n && position < c.r; i++)
+                {
+                    out[i] = (1 - thkLn1e(1 + (THK_E - 1) * (position++ * c.perR))) * c.s;
+                    play[i] = 1;
+                }
+            else
+            {
+                out[i] = tick(c, trigger, reset, play[i]);
+                i++;
+            }
+        }
+    }
 };
 
 /* On a trigger that moves: waiting for the first rise, each rise an
@@ -266,6 +322,65 @@ struct thkAdsrGated
         }
         was = up;
         return level;
+    }
+
+    /* `n' samples of tick() with the same trigger and reset, the same bits:
+       each phase a loop of its own arithmetic, and tick() itself for an
+       edge, a reset, the release's end, a sustain of 0 and times of none. */
+    void run (const thkAdsrCtl &c, float trigger, float reset, int n, float *out,
+              float *play)
+    {
+        const bool up = trigger > 0;
+
+        for (int i = 0; i < n;)
+        {
+            if (reset > 0 || up != was)
+            {
+                out[i] = tick(c, trigger, reset, play[i]);
+                i++;
+            }
+            else if (phase == ATTACK && c.a > 0)
+                for (; i < n && phase == ATTACK; i++)
+                {
+                    out[i] = level = from + (c.peak - from) * (position++ * c.perA);
+                    play[i] = 1;
+                    if (position >= c.a)
+                    {
+                        phase = DECAY;
+                        position = 0;
+                    }
+                }
+            else if (phase == DECAY && c.d > 0)
+                for (; i < n && phase == DECAY; i++)
+                {
+                    out[i] = level = c.s + thkLn1e(THK_E - (THK_E - 1) *
+                                                   (position++ * c.perD)) * (c.peak - c.s);
+                    play[i] = 1;
+                    if (position >= c.d)
+                    {
+                        phase = SUSTAIN;
+                        position = 0;
+                    }
+                }
+            else if (phase == SUSTAIN && c.s != 0)
+                for (; i < n; i++)
+                {
+                    out[i] = level = c.s;
+                    play[i] = 1;
+                }
+            else if (phase == RELEASE && c.r > 0 && position < c.r)
+                for (; i < n && position < c.r; i++)
+                {
+                    out[i] = level = (1 - thkLn1e(1 + (THK_E - 1) * (position++ * c.perR))) *
+                                     from;
+                    play[i] = 1;
+                }
+            else
+            {
+                out[i] = tick(c, trigger, reset, play[i]);
+                i++;
+            }
+        }
     }
 };
 
