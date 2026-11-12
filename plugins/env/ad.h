@@ -94,6 +94,53 @@ struct thkAd
         }
         return out;
     }
+
+    /* `n' samples of tick() with the same reset, the same bits: each half
+       a loop of its own arithmetic, silence once done, and tick() itself
+       for a reset and times of none. */
+    void run (const Ctl &c, float reset, int n, float *out, float *play)
+    {
+        for (int i = 0; i < n;)
+        {
+            if (reset > 0)
+            {
+                out[i] = tick(c, reset, play[i]);
+                i++;
+            }
+            else if (phase == ATTACK && c.a > 0)
+                for (; i < n && phase == ATTACK; i++)
+                {
+                    out[i] = (thkSin2pi((position++ * c.perA - 0.5f) * 0.5f) + 1) *
+                             (c.peak * 0.5f);
+                    play[i] = 1;
+                    if (position >= c.a)
+                    {
+                        phase = DECAY;
+                        position = 0;
+                    }
+                }
+            else if (phase == DECAY && c.d > 0)
+                for (; i < n && phase == DECAY; i++)
+                {
+                    out[i] = (thkSin2pi((position++ * c.perD + 0.5f) * 0.5f) + 1) *
+                             (c.peak * 0.5f);
+                    play[i] = 1;
+                    if (position >= c.d)
+                        phase = DONE;
+                }
+            else if (phase == DONE)
+                for (; i < n; i++)
+                {
+                    out[i] = 0;
+                    play[i] = 0;
+                }
+            else
+            {
+                out[i] = tick(c, reset, play[i]);
+                i++;
+            }
+        }
+    }
 };
 
 #endif /* TH_KERNEL_AD_H */

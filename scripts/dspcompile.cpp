@@ -585,11 +585,13 @@ struct Compiler
 
     /* An envelope whose control struct, trigger and reset hold through a
        call: run RUN samples at a time, a phase at a time
-       (plugins/env/adsr.h), into arrays the samples read, rather than
-       ticked every sample. */
+       (plugins/env/adsr.h, plugins/env/ad.h), into arrays the samples
+       read, rather than ticked every sample. */
     bool runs (thNode *n)
     {
-        return string(kernelFor(n)->plugin) == "env/adsr" && ctlOnce[n] &&
+        const string p = kernelFor(n)->plugin;
+
+        return (p == "env/adsr" || p == "env/ad") && ctlOnce[n] &&
                std::all_of(ins[n].begin(), ins[n].end(),
                            [](const Value &v) { return v.control; });
     }
