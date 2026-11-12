@@ -203,21 +203,26 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         return 0;
     }
 
-    /* The coefficients again only where the cutoff or resonance moves: a
-       tanf a sample would be most of the filter. A NaN never equals
-       itself, so it takes the recompute, where the clamps answer for it. */
+    /* The coefficients once a window while the cutoff and resonance hold
+       still, and again only where they move: a tanf a sample would be most
+       of the filter. A NaN never equals itself, so a moving one is
+       recomputed every sample, where the clamps answer for it. */
     float lastCut = (*in_cutoff)[0], lastRes = (*in_res)[0];
     thkSvf::Ctl c = thkSvf::ctl(lastCut, lastRes, (float)samples);
+    const bool still = in_cutoff->len() <= 1 && in_res->len() <= 1;
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
-        const float cut = (*in_cutoff)[i], res = (*in_res)[i];
-
-        if (cut != lastCut || res != lastRes)
+        if (!still)
         {
-            c = thkSvf::ctl(cut, res, (float)samples);
-            lastCut = cut;
-            lastRes = res;
+            const float cut = (*in_cutoff)[i], res = (*in_res)[i];
+
+            if (cut != lastCut || res != lastRes)
+            {
+                c = thkSvf::ctl(cut, res, (float)samples);
+                lastCut = cut;
+                lastRes = res;
+            }
         }
         out_low[i] = TH_MAX * f.tick(c, in[i] / TH_MAX, out_band[i], out_high[i]);
         out_band[i] *= TH_MAX;
