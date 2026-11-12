@@ -510,43 +510,58 @@ for (const [what, read, turn] of [
 /* A channel handed over at frame 15 (tv_window): one module keeps its
    notes struck before, release and all, the other takes those struck
    from then on, and the two summed draw what one module drawing the
-   channel throughout does, within a step. */
+   channel throughout does, within a step. The one it leaves, dark, says
+   so, though the other's notes ring on there silently. */
+const ff = (f) => f * PER_FRAME;
+
+for (const [name, dsp, list, before, after] of [
+    /* Eight voices: 64 struck again after the hand-over with no off
+       between, as a piece's overlapping notes are: the voice before goes,
+       here as with one module. */
+    ['', flat([0.3, 0.6, 1], '300 ms').replace('channels = 3;', 'channels = 3; poly = 8;'),
+     [{ at: 0, kind: ON, note: 60 }, { at: ff(5), kind: ON, note: 64 },
+      { at: ff(12), kind: OFF, note: 60 }, { at: ff(18), kind: ON, note: 64, voice: 2 },
+      { at: ff(20), kind: ON, note: 67 }, { at: ff(24), kind: OFF, note: 64, voice: 2 },
+      { at: ff(30), kind: OFF, note: 67 }], 16, 25],
+    /* At the video channel's own two voices, short notes with long
+       releases, as a piece's arpeggios are: the two struck after the
+       hand-over cut the two still ringing from before, as on one module. */
+    [', at its two voices', flat([0.1, 0.2, 0.3], '500 ms'),
+     [{ at: 0, kind: ON, note: 60 }, { at: ff(2), kind: OFF, note: 60 },
+      { at: ff(4), kind: ON, note: 62 }, { at: ff(6), kind: OFF, note: 62 },
+      { at: ff(16), kind: ON, note: 64 }, { at: ff(17), kind: OFF, note: 64 },
+      { at: ff(18), kind: ON, note: 65 }, { at: ff(25), kind: OFF, note: 65 }], 14, 20],
+])
 {
     const whole = M;
     const halves = [await createThinkWeb({ print: () => {}, printErr: () => {} }),
                     await createThinkWeb({ print: () => {}, printErr: () => {} })];
-    const at = 15 * PER_FRAME;
+    const at = ff(15);
     const play = (window) =>
     {
         open();
-        /* Past the video channel's two voices: during a hand-over each
-           side has its own, so three at once are drawn by both. */
-        follow(0, 'white', flat([0.3, 0.6, 1], '300 ms').replace('channels = 3;',
-                                                                 'channels = 3; poly = 8;'));
+        follow(0, 'white', dsp);
         if (window)
             M._tv_window(0, ...window);
-        /* 64 struck again after the hand-over with no off between, as
-           a piece's overlapping notes are: the voice before goes, here
-           as with one module. */
-        notes([{ at: 0, kind: ON, note: 60 }, { at: 5 * PER_FRAME, kind: ON, note: 64 },
-               { at: 12 * PER_FRAME, kind: OFF, note: 60 },
-               { at: 18 * PER_FRAME, kind: ON, note: 64, voice: 2 },
-               { at: 20 * PER_FRAME, kind: ON, note: 67 },
-               { at: 24 * PER_FRAME, kind: OFF, note: 64, voice: 2 },
-               { at: 30 * PER_FRAME, kind: OFF, note: 67 }]);
-        M._tv_generated(45 * PER_FRAME);
+        notes(list);
+        M._tv_generated(ff(45));
     };
 
     M = whole;
     play(null);
 
     const drawn = render();
+    let left = null;
     const parts = [[-1e300, at], [at, 1e300]].map((window, k) =>
     {
         M = halves[k];
         M._tv_planes(1);
         play(window);
-        return renderPlanes();
+
+        const planes = renderPlanes();
+
+        left ??= M._tv_sounding(0);
+        return planes;
     });
 
     M = whole;
@@ -570,12 +585,13 @@ for (const [what, read, turn] of [
 
     const lit = (p, f) => p[f].planes.some((v) => v > 0);
 
-    check('a channel handed over at a moment draws what one module drawing it throughout does',
-          why === '' && drawn.length === 45 && lit(parts[0], 16) && !lit(parts[0], 40) &&
-          !lit(parts[1], 16) && lit(parts[1], 25),
-          why || `${drawn.length} frames; the first lit at 16: ${lit(parts[0], 16)}, at 40: ` +
-                 `${lit(parts[0], 40)}; the second at 16: ${lit(parts[1], 16)}, at 25: ` +
-                 `${lit(parts[1], 25)}`);
+    check(`a channel handed over at a moment draws what one module drawing it throughout does${name}`,
+          why === '' && drawn.length === 45 && lit(parts[0], before) && !lit(parts[0], 40) &&
+          left === 0 && !lit(parts[1], before) && lit(parts[1], after),
+          why || `${drawn.length} frames; the first lit at ${before}: ${lit(parts[0], before)}, ` +
+                 `at 40: ${lit(parts[0], 40)}, sounding at the end: ${left}; ` +
+                 `the second at ${before}: ` +
+                 `${lit(parts[1], before)}, at ${after}: ${lit(parts[1], after)}`);
 }
 
 /* A module taking a channel at frame 15 hears the other's notes struck
@@ -624,6 +640,26 @@ for (const [name, skips] of [['played', false], ['skipped past', true]])
           alone.some((f) => f.frame > 30 && peak(f) > 0),
           `${taken.length} frames against ${alone.length}; ${differ.length} differ, ` +
           `from ${differ[0]?.frame}`);
+}
+
+/* A mono channel handed over with a key still down: the module it leaves
+   keeps drawing that key until its off, though the other strikes and lets
+   go of one in between. */
+{
+    open();
+    follow(0, 'white', flat([0.3, 0.6, 1]).replace('channels = 3;', 'channels = 3; mono = 1;'));
+    M._tv_window(0, -1e300, ff(15));
+    notes([{ at: 0, kind: ON, note: 60 }, { at: ff(18), kind: ON, note: 62 },
+           { at: ff(22), kind: OFF, note: 62 }, { at: ff(35), kind: OFF, note: 60 }]);
+    M._tv_generated(ff(45));
+
+    const frames = render();
+    const at = (f) => frames.find((x) => x.frame === f);
+
+    check('a mono channel handed over keeps drawing the key still down where it was',
+          lit(at(20), H / 2, 2) && lit(at(30), H / 2, 2) && !lit(at(40), H / 2, 2),
+          `lit at 20: ${lit(at(20), H / 2, 2)}, at 30: ${lit(at(30), H / 2, 2)}, ` +
+          `at 40: ${lit(at(40), H / 2, 2)}`);
 }
 
 /* An effect over two modules' halves of a picture (tv_stage): each draws

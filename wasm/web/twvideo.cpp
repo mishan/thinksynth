@@ -42,7 +42,6 @@
 #include <deque>
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -96,10 +95,6 @@ bool interpret_ = false;
 /* tv_window: the audio frames a channel's notes may be struck in here,
    for a channel being handed between workers. */
 std::map<int, std::pair<double, double> > windows_;
-/* Keys the other worker holds on a channel being handed over, and the
-   channel's own voice limit, which they count against while held. */
-std::map<int, std::set<int> > foreign_;
-std::map<int, int> limit_;
 
 /* tv_planes: finished frames as float planes, for a leader to sum. */
 bool planes_ = false;
@@ -227,48 +222,29 @@ here (const Note &n)
            (n.at >= w->second.first && n.at < w->second.second);
 }
 
-/* The voices a channel's notes may have here: its own limit, less the
-   keys the other worker holds, as they would count on one worker. */
-void
-recount (int channel)
+/* Whether another worker's note `n', on a channel being handed over, is
+   struck here too, at level 0: it draws nothing and takes its place among
+   the channel's voices as on one worker, so past the limit the oldest
+   goes, whichever worker draws it. Not with no limit, where it would cut
+   nothing; nor on a mono channel, whose one voice would slide to it and go
+   dark with the key before it still down. */
+bool
+shadows (const Note &n)
 {
-    thMidiChan *chan = video_->synth()->getChannel(channel);
-    const auto most = limit_.find(channel);
+    thMidiChan *chan = video_->synth()->getChannel(n.channel);
 
-    if (chan != NULL && most != limit_.end())
-        chan->setPolyMax(most->second == 0 ? 0 :
-                         std::max(1, most->second - (int)foreign_[channel].size()));
+    return chan != NULL && chan->polyMax() > 0 && !chan->mono();
 }
 
-/* Keeps foreign_ as `n' strikes, ends or takes back the other worker's
-   keys. A key struck here again is this worker's: the other's voice on it
-   goes, as hold() lets this one's go. */
-void
-foreign (const Note &n)
+/* `n' as this worker strikes it. */
+Note
+mine (const Note &n)
 {
-    if (n.kind == ON && !here(n) && video_->follows(n.channel))
-    {
-        thMidiChan *chan = video_->synth()->getChannel(n.channel);
+    Note m = n;
 
-        if (chan != NULL)
-            limit_.emplace(n.channel, chan->polyMax());
-        foreign_[n.channel].insert(n.note);
-        recount(n.channel);
-    }
-    else if (n.kind != FLUSH)
-    {
-        const auto f = foreign_.find(n.channel);
-
-        if (f != foreign_.end() && f->second.erase(n.note) > 0)
-            recount(n.channel);
-    }
-    else
-        for (auto &f : foreign_)
-            if (n.channel < 0 || f.first == n.channel)
-            {
-                f.second.clear();
-                recount(f.first);
-            }
+    if (!here(n))
+        m.level = 0;
+    return m;
 }
 
 /* Notes for a channel the picture does not follow are not held: nothing
@@ -280,7 +256,7 @@ hold (std::map<std::pair<int, int>, Note> &held, const Note &n)
         return;
     /* Struck again on another worker: the voice here goes, as it would
        to a voice struck again here. */
-    if (!here(n))
+    if (!here(n) && !shadows(n))
     {
         held.erase({ n.channel, n.note });
         return;
@@ -299,10 +275,11 @@ hold (std::map<std::pair<int, int>, Note> &held, const Note &n)
 
 /* Onto the synth as well as into what is held. */
 void
-play (const Note &n)
+play (const Note &note)
 {
-    foreign(n);
-    if (!here(n))
+    const Note n = mine(note);
+
+    if (!here(n) && !shadows(n))
     {
         if (held_.count({ n.channel, n.note }) && video_->follows(n.channel))
             video_->noteOff(n.channel, n.note);
@@ -333,8 +310,7 @@ skipTo (int64_t frame)
 
     while (!queue_.empty() && queue_.front().at < startOf(frame))
     {
-        foreign(queue_.front());
-        hold(then, queue_.front());
+        hold(then, mine(queue_.front()));
         queue_.pop_front();
     }
     /* A note let go and struck again in the gap is a new voice, with its
@@ -373,8 +349,6 @@ tv_open (int width, int height, int fps, int lines, int audioRate)
     video_.reset(new thVideoSynth);
     queue_.clear();
     windows_.clear();
-    foreign_.clear();
-    limit_.clear();
     inputs_.clear();
     knobs_.clear();
     held_.clear();
@@ -423,8 +397,6 @@ EMSCRIPTEN_KEEPALIVE const char *
 tv_follow (int channel, const char *name, const char *dsp)
 {
     said_.clear();
-    foreign_.erase(channel);
-    limit_.erase(channel);
     if (video_ != NULL)
         video_->followText(channel, name, dsp, said_);
     return said_.c_str();
@@ -468,8 +440,6 @@ EMSCRIPTEN_KEEPALIVE void
 tv_unfollow (int channel)
 {
     windows_.erase(channel);
-    foreign_.erase(channel);
-    limit_.erase(channel);
     if (video_ != NULL)
         video_->unfollow(channel);
     hold(held_, Note { 0, 0, 0, FLUSH, channel, 0, 0, 0, {} });
@@ -718,14 +688,15 @@ tv_drawn (void)
     return video_ != NULL ? (double)video_->rendered() * audioRate_ / video_->rate() : 0;
 }
 
-/* 1 while a voice on `channel' still sounds, held, releasing or fading,
-   as of the windows drawn; 0 once none does. */
+/* 1 while a voice on `channel' still draws, held, releasing or fading,
+   as of the windows drawn; 0 once none does. Another worker's, struck
+   here at level 0, draws nothing. */
 EMSCRIPTEN_KEEPALIVE int
 tv_sounding (int channel)
 {
     thMidiChan *chan = video_ != NULL ? video_->synth()->getChannel(channel) : NULL;
 
-    return chan != NULL && chan->sounding() ? 1 : 0;
+    return chan != NULL && chan->audible() ? 1 : 0;
 }
 
 /* The i-th finished frame: RGBA, or with tv_planes its float planes. */

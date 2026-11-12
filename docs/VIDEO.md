@@ -202,8 +202,9 @@ Each worker draws some of the channels; the worker sums their frames,
 paints the sum, and decides every skip for all of them, so a frame is
 never drawn from two moments. A channel moves between workers at a
 moment: the notes struck before stay with the one it leaves, release and
-all, and the one it goes to takes those struck after, so nothing is cut;
-during the hand-over each side has its own two voices. A helper that
+all, and the one it goes to takes those struck after, so nothing is cut.
+The one it leaves strikes the other's notes too, silently, so a channel's
+voices are cut past its limit as on one worker. A helper that
 stops handing frames back is given up on, and the picture goes on with
 the others. The pane says how many workers draw it. An effect runs once,
 on the summed frame, in the worker; on the page a window divides the
