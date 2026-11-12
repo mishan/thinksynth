@@ -269,8 +269,23 @@ string thUtil::userDataDir (void)
 #endif
 }
 
+bool thUtil::exists (const string &name, std::error_code &ec)
+{
+    try
+    {
+        return fs::exists(name, ec);
+    }
+    catch (const fs::filesystem_error &e)
+    {
+        ec = e.code();
+        return false;
+    }
+}
+
+/* A name no path can be made of (see exists) is not found. */
 string thUtil::findDataFile (const string &name, const string &subdir,
                              const char *envVar, const string &fallback)
+try
 {
     if (name.empty())
         return "";
@@ -338,6 +353,10 @@ string thUtil::findDataFile (const string &name, const string &subdir,
         if (fs::exists(tries[i], ec))
             return absolutePath(tries[i]);
 
+    return "";
+}
+catch (const fs::filesystem_error &)
+{
     return "";
 }
 

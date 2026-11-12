@@ -148,6 +148,21 @@ int main (void)
           dotted.find("\\.\\") == std::string::npos,
           "an absolute name comes back tidied", dotted);
 
+    /* A byte that is no character, as a patch's text can hold: on Windows
+       no path can be made of it, and the name is simply not there. */
+    try
+    {
+        const std::string odd = "trump\xfat_60_2.wav";
+
+        check(thUtil::findDataFile(odd, "dsp", NULL, "").empty() &&
+              !thUtil::exists(odd, ec),
+              "a name with a byte that is no character is not found");
+    }
+    catch (const std::exception &e)
+    {
+        check(false, "a name with a byte that is no character is not found", e.what());
+    }
+
     /* The part that matters: the synth resolves, something moves the working
        directory, and the editor opens what the synth resolved. */
     fs::current_path(was, ec);
