@@ -248,6 +248,17 @@ public:
     {
         return !notes_.empty() || !decaying_.empty() || !fading_.empty();
     }
+    /* Sounding in a voice that is heard: one struck at level 0 counts
+       against the limit and adds nothing to the mix. On the thread that
+       renders the channel. */
+    bool audible (void) const
+    {
+        for (const NoteList *list : { &noteorder_, &decaying_, &fading_ })
+            for (thMidiNote *n = list->front(); n != NULL; n = NoteList::next(n))
+                if (n->level() != 0)
+                    return true;
+        return false;
+    }
     /* On the thread that renders the channel: another limit than its io's
        or the default. */
     void setPolyMax (int n) { polymax_ = n; }
