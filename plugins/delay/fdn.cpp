@@ -396,6 +396,29 @@ static float sign (int row, int col)
     return (__builtin_popcount((unsigned)(row & col)) & 1) ? -1.0f : 1.0f;
 }
 
+/* What the lines, the diffusers and the shifter take, at a rate: nothing
+   else, so it is known before the first window. */
+static unsigned int bufferSize (unsigned int samples)
+{
+    return FDN_LINES * capacity(lineBase[FDN_LINES - 1], samples, FDN_MOD_MAX) +
+           FDN_DIFFUSERS * capacity(diffBase[2], samples, 0) +
+           (unsigned int)(FDN_SHIFT_WINDOW * samples) + 4;
+}
+
+/* A reverb in a voice is sized on the thread that builds the voice, not
+   on the audio thread's first window. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+    {
+        mod->getArg(node, args[INOUT_BUFFER])->reserve(bufferSize(samples));
+        /* A voice reserves a window's worth for each arg, and a host's
+           window can be shorter than the state. */
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_COUNT);
+    }
+}
+
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
@@ -435,8 +458,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
        each group shares a write head and a line's read is just how far
        back it is. Allocated once, at a length that depends only on the
        rate, so it is never handed back empty. */
-    buffer = inout_buffer->allocate(FDN_LINES * lineCap +
-                                    FDN_DIFFUSERS * diffCap + shiftCap);
+    buffer = inout_buffer->allocate(bufferSize(samples));
     state = inout_state->allocate(S_COUNT);
     shiftRing = buffer + FDN_LINES * lineCap + FDN_DIFFUSERS * diffCap;
 
