@@ -244,6 +244,16 @@ static inline void thModalInit (thPlugin *plugin, std::atomic<int> args[],
     args[MODAL_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 }
 
+/* The state is 34 floats and a voice reserves a window's worth for each
+   arg, so at a window under 34 the first callback would grow it on the
+   audio thread. */
+static inline void thModalPrepare (thNode *node, thSynthTree *mod, int voice,
+                                   std::atomic<int> args[])
+{
+    if (voice)
+        mod->getArg(node, args[MODAL_LAST])->reserve(MODAL_STATE);
+}
+
 static inline int thModalCallback (thNode *node, thSynthTree *mod,
                                    unsigned int windowlen, unsigned int samples,
                                    std::atomic<int> args[],
