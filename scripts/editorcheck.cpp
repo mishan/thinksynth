@@ -1624,8 +1624,11 @@ GraphSays graphSays (const NodeGraph &g)
         if (b.isControl)
             out.numbers[b.name] = b.ctlValue;
 
+        /* A control's readers show its value too, and a slider has to keep
+           them up to date. */
         for (const NodeGraph::Param &p : b.params)
-            if (p.hasValue && p.kind == NodeGraph::Param::VALUE)
+            if (p.hasValue && (p.kind == NodeGraph::Param::VALUE ||
+                               p.kind == NodeGraph::Param::CHANARG))
                 out.numbers[b.name + "." + p.name] = p.value;
     }
 
@@ -1645,10 +1648,12 @@ bool graphsAgree (const NodeGraph &a, const NodeGraph &b, string &why)
 {
     const GraphSays x = graphSays(a), y = graphSays(b);
 
+    /* As many of each: a wire drawn twice is not the wire. */
     for (const string &l : x.shape)
-        if (!y.shape.count(l))
+        if (x.shape.count(l) != y.shape.count(l))
         {
-            why = "only the text has " + l;
+            why = "the text has " + std::to_string(x.shape.count(l)) + " of " +
+                  l + " and the canvas " + std::to_string(y.shape.count(l));
             return false;
         }
 
@@ -1656,6 +1661,13 @@ bool graphsAgree (const NodeGraph &a, const NodeGraph &b, string &why)
         if (!x.shape.count(l))
         {
             why = "only the canvas has " + l;
+            return false;
+        }
+
+    for (const auto &n : y.numbers)
+        if (!x.numbers.count(n.first))
+        {
+            why = "only the canvas has a number for " + n.first;
             return false;
         }
 
@@ -1903,25 +1915,26 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
             }
             else if (op == 4)
             {
-                /* A node added from the palette. */
-                std::set<string> names;
+                /* A node added from the palette, under the name the editor
+                   will choose -- worked out here, so an add that quietly
+                   does nothing is a difference and not a refusal. */
+                vector<string> taken;
 
                 for (const NodeGraph::Box &x : g.boxes())
-                    names.insert(x.name);
+                    if (!x.isControl)
+                        taken.push_back(x.name);
 
-                what = "add osc::simple";
+                const string name = NodeCatalog::suggestName("simple", taken);
+
+                what = "add osc::simple as " + name;
+
+                const bool took =
+                    NodeEdit::Text::addNode(want, name, "osc::simple",
+                                            defaults, why) == NodeEdit::OK;
 
                 ed->onPaletteAdd("osc::simple");
 
-                string added;
-
-                for (const NodeGraph::Box &x : ed->graph().boxes())
-                    if (!names.count(x.name))
-                        added = x.name;
-
-                if (added.empty() ||
-                    NodeEdit::Text::addNode(want, added, "osc::simple",
-                                            defaults, why) != NodeEdit::OK)
+                if (!took)
                     refused++;
                 else
                     NodeLayout::Text::write(want, ed->graph());
