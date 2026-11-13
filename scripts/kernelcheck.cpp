@@ -618,7 +618,10 @@ main ()
 
                 x2 = x1; x1 = x; y2 = y1; y1 = y;
                 peak = std::max(peak, std::fabs(y));
-                worstCase = std::max(worstCase, std::fabs(eq.tick(c, (float)x) - y));
+                const double err = std::fabs(eq.tick(c, (float)x) - y);
+
+                /* std::max keeps the old worst against a NaN. */
+                worstCase = std::isfinite(err) ? std::max(worstCase, err) : INFINITY;
             }
             worstRel = std::max(worstRel, worstCase / peak);
         }
