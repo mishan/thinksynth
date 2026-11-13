@@ -30,6 +30,7 @@ efdde78ef3e99b6d  dx16.dsp
 ae90928d0a4babbd  epiano.dsp
 a63bc3b9805b482d  fircomb.dsp
 e06ae9b0747649d5  fmbass.dsp
+9cbce969d1600815  frost.dsp
 8bc2896a9f9c7a1d  fx/amp.dsp
 91411e048f9c48c1  fx/autopan.dsp
 5250590ad2b77b41  fx/autotune.dsp
@@ -68,7 +69,6 @@ c4ed38ef5cd6d115  fx/tapestop.dsp
 82bc7246204d8e89  fx/vocoder-mic.dsp
 fdba79c4761789a5  fx/vocoder.dsp
 c25fd5a4341a2759  fx/wah.dsp
-9cbce969d1600815  frost.dsp
 851a43f80d04be5d  glass.dsp
 3594af2bd8eca3bd  grab.dsp
 21d0ccfb41e07a61  grand.dsp
