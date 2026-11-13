@@ -1131,6 +1131,104 @@ void checkNoScratchFile (thSynth &synth, const char *file)
     std::filesystem::remove(copy);
 }
 
+/* Unsaved means the text differs from the file: a box dragged away and back,
+   or a probe armed and disarmed, on a file whose layout block already says
+   where everything is, leaves nothing to save. */
+void checkLayoutUndone (thSynth &synth, const char *file)
+{
+    const string copy = thUtil::tempFile("editorcheck-undone-");
+
+    std::filesystem::copy_file(file, copy,
+        std::filesystem::copy_options::overwrite_existing);
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1000, 600);
+    w->present();
+
+    pump(0.2);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    const bool opened = ed->open(copy) && !canvases.empty() &&
+                        !ed->visuals_.empty();
+
+    ok(opened, "an editor opens a copy of %s", file);
+
+    /* A node with an output and room above it for a panel: one at the top of
+       the canvas moves down for its panel, and stays moved. */
+    int box = -1;
+    string out;
+
+    for (size_t b = 0; opened && b < ed->graph().boxes().size() && box < 0;
+         b++)
+    {
+        const NodeGraph::Box &x = ed->graph().boxes()[b];
+
+        if (x.attachedTo >= 0 || x.isControl || x.isExpr || x.isIoSource ||
+            x.isIoSink || x.y < 200)
+            continue;
+
+        for (const NodeGraph::Port &p : x.ports)
+            if (!p.isInput)
+            {
+                box = (int)b;
+                out = p.name;
+                break;
+            }
+    }
+
+    ok(!opened || box >= 0, "%s has a node with an output and room above it",
+       file);
+
+    if (box >= 0)
+    {
+        /* Saved once, so the file's layout block holds every box. */
+        ed->onBoxMoved(0);
+        ed->onSave();
+
+        /* Copies: arming a probe adds a box, and moves the rest. */
+        const string name = ed->graph().boxes()[box].name;
+        const double px = ed->graph().boxes()[box].x + 6;
+        const double py = ed->graph().boxes()[box].y + 6;
+        const bool clean = !ed->dirty();
+
+        canvases[0]->onPressed(1, px, py);
+        canvases[0]->onMotion(px + 40, py + 20);
+        canvases[0]->onReleased(1, px + 40, py + 20);
+
+        const bool moved = ed->dirty();
+
+        canvases[0]->onPressed(1, px + 40, py + 20);
+        canvases[0]->onMotion(px, py);
+        canvases[0]->onReleased(1, px, py);
+
+        ok(clean && moved && !ed->dirty(),
+           "a box dragged away is unsaved and dragged back is not (%d %d %d)",
+           clean, moved, ed->dirty());
+
+        const bool armed = ed->armProbe(name, out,
+                                        ed->visuals_.begin()->first) &&
+                           ed->dirty();
+
+        for (size_t i = 0; i < ed->probes_.size(); i++)
+            if (ed->probes_[i].node == name && ed->probes_[i].arg == out)
+                ed->disarmProbe(i);
+
+        ok(armed && !ed->dirty(),
+           "a probe armed is unsaved and disarmed again is not");
+    }
+
+    w->set_visible(false);
+    delete w;
+
+    std::filesystem::remove(copy);
+}
+
 /* Opening a graph that will not parse changes nothing: the next Save still
    writes the graph on screen to where it came from. From a file and from a
    piece's text, since a piece's graph carries its own save. */
@@ -1849,6 +1947,7 @@ int run (const string &pluginPath, const char *file)
     checkFailedOpen(synth, file);
     checkLayoutRestored(synth, file);
     checkNoScratchFile(synth, file);
+    checkLayoutUndone(synth, file);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
