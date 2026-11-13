@@ -57,7 +57,10 @@
  * WHEN IT CAPTURES. Only on a rise of `freeze' while the output is wholly
  * dry. A rise during the fade back, or a fall and a rise inside the fade
  * in, resumes the sound already held: there is one frozen sound at a time,
- * and replacing it under a fade would be a jump. Before 5120 samples have
+ * and replacing it under a fade would be a jump. A fall in the hop after a
+ * capture, before the frozen sound has started, drops the capture, and a
+ * rise within a hop of the last capture waits for that hop to be up: a
+ * `freeze' that flickers then costs a capture a hop at most. Before 5120 samples have
  * played the ring is partly silence, and a freeze then holds what there
  * was; an instrument delays the gate.
  *
@@ -103,7 +106,9 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
    changes, and a zeroed state is a dry one. */
 enum {
     S_RINGPOS, S_STAGE, S_G, S_N, S_HOPPOS, S_FRAME, S_HIGH,
-    S_SCALARS = 8,
+    S_WAIT,         /* samples before another capture may start */
+    S_ARMED,        /* a rise while dry, not yet captured */
+    S_SCALARS,
     S_RING = S_SCALARS,
     S_ACC = S_RING + RING,
     S_MAG = S_ACC + MAXN,
@@ -345,7 +350,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         bad = st[S_RINGPOS] < 0 || st[S_RINGPOS] >= RING || st[S_STAGE] < DRY ||
               st[S_STAGE] > FROZEN || (sn != 0 && frameSize((float)sn) != sn) ||
-              st[S_HOPPOS] < 0 || st[S_HOPPOS] >= (sn ? sn : 2048) / 4;
+              st[S_HOPPOS] < 0 || st[S_HOPPOS] >= (sn ? sn : 2048) / 4 ||
+              st[S_WAIT] < 0 || st[S_WAIT] > MAXH;
     }
     if (bad)
         memset(st, 0, S_LEN * sizeof(float));
@@ -353,7 +359,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     int pos = (int)st[S_RINGPOS], stage = (int)st[S_STAGE], hop = (int)st[S_HOPPOS];
     int n = st[S_N] > 0 ? (int)st[S_N] : 2048;
     float g = st[S_G];
-    bool high = st[S_HIGH] > 0;
+    bool high = st[S_HIGH] > 0, armed = st[S_ARMED] > 0;
+    int wait = (int)st[S_WAIT];
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
@@ -370,6 +377,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         /* The frames end before this sample, so that the frozen sound a hop
            from now is the one that would have been playing. */
         if (stage == DRY && up && !high)
+            armed = true;
+        if (!up)
+            armed = false;
+        if (stage == DRY && armed && wait == 0)
         {
             st[S_RINGPOS] = (float)pos;
             n = frameSize(size[i]);
@@ -377,8 +388,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             advance(st, n, r, seed, false, 1);      /* the frame a hop on */
             stage = PRIMING;
             hop = 0;
+            wait = n / 4;
+            armed = false;
         }
         high = up;
+        if (wait > 0)
+            wait--;
 
         /* Bounded, so that no finite input can carry a frame's magnitudes
            past a float. */
@@ -387,6 +402,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         const int h = n / 4;
 
+        if (stage == PRIMING && !up)
+        {
+            stage = DRY;
+            hop = 0;
+        }
         if (stage == PRIMING)
         {
             /* The four frames that overlap the first frozen hop, a quarter
@@ -450,6 +470,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     st[S_N] = (float)n;
     st[S_G] = g;
     st[S_HIGH] = high ? 1 : 0;
+    st[S_ARMED] = armed ? 1 : 0;
+    st[S_WAIT] = (float)wait;
 
     return 0;
 }

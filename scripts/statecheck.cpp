@@ -5995,6 +5995,27 @@ static void checkFreeze (const string &pluginPath)
                      "untouched", "");
     }
 
+    /* ---- a fall before the frozen sound starts drops the capture, and a
+       rise soon after captures once a hop has passed since the first:
+       as if it had risen then and only then ---- */
+    {
+        const double at = 0.3, hopS = 64 / FZ_RATE;
+        FzRun twice, once;
+        vector<float> in, a, b;
+        string why;
+
+        twice.size = once.size = 256;
+        twice.held = { { at, at + 10 / FZ_RATE }, { at + 40 / FZ_RATE, 9 } };
+        once.held = { { at + hopS, 9 } };
+        if (!fzRender(pluginPath, twice, (unsigned)(0.5 * FZ_RATE), 256, in, a, why) ||
+            !fzRender(pluginPath, once, (unsigned)(0.5 * FZ_RATE), 256, in, b, why))
+            fail("fft::freeze renders a capture dropped and taken again", why);
+        else
+            okOrFail(same(a, b, 0, a.size()),
+                     "fft::freeze: let go in the hop after a capture and frozen again, it "
+                     "captures afresh a hop after the first", "");
+    }
+
     /* ---- a capture and a release at any window length ---- */
     {
         FzRun run;
