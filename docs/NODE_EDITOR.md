@@ -14,6 +14,7 @@ behaviour and layout.
 
 | Piece | Where |
 |---|---|
+| The editor: the patch's text, its edits, Save and Revert | `src/gui/NodeEditor.{h,cpp}` |
 | Arg direction in the plugin API | `thPlugin::ArgDir`, `regArg(name, dir)`, `argIsPort()` |
 | Graph model, layout, hit-testing | `src/NodeGraph.{h,cpp}` |
 | Canvas: the drawing and the gestures, no toolkit | `src/NodeCanvas.{h,cpp}` over `src/CanvasContent.{h,cpp}` |
@@ -29,10 +30,11 @@ registers nor owns the result, so looking at a DSP cannot disturb the tree a
 channel is playing.
 
 `thPluginManager` loads plugins by name and cannot enumerate them, so
-`NodeCatalog` walks the plugin directory instead — 62 plugins across 11
-categories. Names come from the filesystem, which is instant; a plugin is only
-`dlopen`ed when it is selected, to show its description and ports. Loading all 62
-to draw a list would make the palette the slowest thing in the window.
+`NodeCatalog` walks the plugin directory instead, and the palette shows the
+categories whose plugins are nodes. Names come from the filesystem, which is
+instant; a plugin is only `dlopen`ed when it is selected, to show its
+description and ports. Loading every one to draw a list would make the palette
+the slowest thing in the window.
 
 ## 2. The graph model
 
@@ -85,15 +87,45 @@ it would land on and turns red when the drop would be refused, so the refusal is
 visible before the button comes up rather than after. Output-to-input and
 input-to-output are the same gesture. Clicking a wire removes it.
 
-**When edits reach the file.** Values, wires and positions apply to the on-screen
-graph immediately and reach disk only on Save — a wiring gesture that produced no
-visible wire until a save would be unusable, and a file rewritten on every
-gesture would be alarming.
+**Selecting.** A click selects a box and shows its parameters. A drag on empty
+canvas is a rubber band, and dragging any box of a selection moves the whole of
+it.
 
-**Adding and deleting nodes is the exception: those write immediately and
-reopen.** A node's ports come from its plugin, the only thing that knows them is
-a parse, and a node that exists on the canvas but not on disk has no honest way
-to be drawn. Revert still undoes them.
+**Probes.** Right-click an output to watch it with a visual module: a panel
+sits above the node, drawing what it produces, and a double-click opens it in
+a window of its own. Probes are written into the file's layout block, so a
+patch opens with the ones it was saved with.
+
+**The graph as a list.** List, at the end of the toolbar, shows every node as a
+row and, for the chosen one, its wires as buttons: connect, disconnect, watch
+and delete, each the canvas's own gesture. It is the keyboard's and a screen
+reader's way into the graph.
+
+**When edits reach the file.** Every edit goes into the editor's copy of the
+patch's text as it is made, and reaches disk only on Save — a file rewritten on
+every gesture would be alarming. The edits are the splices the browser's editor
+makes, `NodeEdit::Text` and `NodeLayout::Text`, so the two agree byte for byte
+about what an edit is. Save adds the layout block and writes the text; Revert
+reads the file again.
+
+**Unsaved means the text is not the file.** Nothing else is held aside, so an
+edit undone by hand leaves nothing to save: a value typed back goes in the
+file's own spelling, `0.50` staying `0.50`, for that reason. A box dragged back
+or a probe disarmed does the same on a file whose layout block already says
+where every box is; a file without one gains one at the first drag.
+
+**A value, a slider, a drag or a probe changes the graph in place; a wire, a
+node added or deleted, or a control's range parses the text again.** A node's
+ports come from its plugin, and the only thing that knows them is a parse. A
+wire can add or remove boxes — cutting the wire out of an expression removes
+the expression — and changes which node a control's strip sits on. Every box but the strips, which
+go with their nodes, is put back where it was after the parse, so wiring does
+not rearrange the graph.
+
+**An edit the text will not take is refused when it is made**, not at Save: a
+control the file spells as arithmetic, a number with no spelling in the
+grammar. The slider or the panel goes back to what the text says, and the
+status bar says why.
 
 **Fit is a button, not a behaviour.** An earlier revision fitted the graph to the
 window on opening; that was removed, because shrinking every patch until it fits
@@ -200,9 +232,8 @@ label and group. The range is the thing a slider can neither show nor change: a
 cutoff declared `0..1` has a slider that reaches a tenth of the filter, and
 nothing on the canvas says so or offers to fix it.
 
-Four lines, one write. `.min`, `.max`, `.label` and `.group` are spliced
-together and the file renamed into place once, so a range change is not four
-chances to leave a half-edited file behind. A line the file does not have is
+Four lines, one edit. `.min`, `.max`, `.label` and `.group` are spliced
+together, so a range change is one change to the text rather than four. A line the file does not have is
 added at the end of the block: the parser only requires that `@x.min` come
 *after* `@x`, so the canonical order `addControl` writes is for a reader rather
 than a requirement, and reordering someone's file to match it would be an edit
@@ -232,11 +263,11 @@ range lines are literals — so `dspnew` writes the files that do.
 `addControl` and a different thing to offer. The field is shown and
 insensitive, so the dialog still says which control it is about.
 
-Like adding a node, this writes immediately and reopens rather than waiting for
-Save. A range decides how the strip is drawn and what the slider can reach, and
-both come from a parse — a range that had changed in the file and not on the
-canvas would be a slider lying about where its own ends are. Revert still
-undoes it.
+Like adding a node, this goes into the text and parses it again at once. A
+range decides how the strip is drawn and what the slider can reach, and both
+come from a parse — a range that had changed in the text and not on the canvas
+would be a slider lying about where its own ends are. Revert undoes it like
+any other edit.
 
 ### Controls that are not scales
 
@@ -296,7 +327,7 @@ shipped patches forced:
 
 ## 5. Authoring
 
-The palette lists every plugin on disk grouped by category, which is not an
+The palette lists every node plugin on disk grouped by category, which is not an
 invention — a `.dsp` spells a plugin `osc::simple`, so category-then-name is how
 the format already thinks about it.
 
@@ -396,22 +427,24 @@ up that is deep and *narrowly* connected, it is one call away.
 
 ## 8. The checks
 
-One of these is a CTest gate. `argtype` builds its own `.dsp` files and needs
-neither a corpus nor a display, which is the whole reason it can be one: the
-cases that matter — a control two nodes disagree about, a value list with a hole
-in it, a `.dsp` overriding its plugin — are ones no shipped file contains. The
-rest take a corpus argument and are run by hand.
+The ones marked as gates run in CTest. `argtype` and `exprcheck` build their
+own `.dsp` files and need no corpus: the cases that matter — a control two
+nodes disagree about, a value list with a hole in it, a `.dsp` overriding its
+plugin — are ones no shipped file contains. `dspgraph`, `dspwrite` and `dspab`
+run over the corpus. `editorcheck` drives a real editor, so it wants a
+display, and skips itself without one. The rest are run by hand.
 
 | Harness | Gate | Covers |
 |---|---|---|
 | `argtype` | yes | a plugin's step, value names, description and default; the pass that carries the type to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; that no drag and no written value can land on a hole in a value list or off the step; that a node written with its plugin's declared defaults, with zeroes, and with neither all render bit-identically; and that every declared default is what a bare node of its plugin loads holding |
 | `exprcheck` | yes | a constant expression still folding to a value and no node, precedence and the unary minus included; an expression rendering bitwise against the nodes it stands for; every box's text re-parsing to the graph behind it; one read-only box per expression with every port attached; `canConnect`, `setValue` and `connect` refusing one and changing no byte; `disconnect` rewriting the whole arg to 0; `removeControl` and `removeNode` replacing the reference and not the arg; a node added beside one and removed again byte for byte |
-| `dspgraph` | no | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
-| `dspwrite` | no | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
+| `editorcheck` | yes | the editor itself, through its handlers and the canvas's gestures: Save's bytes for every file in the corpus held against the same edits made with `NodeEdit::Text`, in the opposite order, and the positions read back out of what was saved; a saved layout opened as saved and kept through a probe; an edit undone by hand leaving nothing to save; a slider or a value the text will not take refused when it is made; a value set on one element of an array reaching every element; a file that fails to open, or no temporary directory, losing nothing |
+| `dspgraph` | yes | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
+| `dspwrite` | yes | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
 | `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |
 | `dsplayout` | no | layer counts against the critical-path floor, and the wrap-mode cut profile |
 | `dsplive` | no | that moving a control changes the sound of a ringing note |
-| `dspab` | no | two renders compared bitwise, for changes meant to be inaudible |
+| `dspab` | yes | two renders compared bitwise, for changes meant to be inaudible |
 
 Three things worth repeating about how these are written:
 
