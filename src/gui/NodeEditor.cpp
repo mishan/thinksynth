@@ -506,12 +506,11 @@ void NodeEditor::clearSelectionStatus (void)
 /* Is there anything the source does not have?
  *
  * Two kinds, and both count. Values and wires are held aside until Save;
- * everything else -- nodes added and removed, positions, probes -- is already
- * in text_, and counts when text_ is not what the source says. */
+ * everything else -- nodes added and removed, controls, positions, probes --
+ * is already in text_, and counts when text_ is not what the source says. */
 bool NodeEditor::dirty (void) const
 {
-    return text_ != saved_ || !pending_.empty() || !wires_.empty() ||
-           !controls_.empty();
+    return text_ != saved_ || !pending_.empty() || !wires_.empty();
 }
 
 void NodeEditor::writeLayout (void)
@@ -597,6 +596,7 @@ const char *NodeEditor::applyControlLive (const string &name, double value)
         return "  (not on the live channel)";
 
     arg->setValue((float)value);
+    liveControls_.insert(name);
 
     return "  (live)";
 }
@@ -753,6 +753,7 @@ bool NodeEditor::open (const string &filename, int chan)
     }
 
     saved_ = text_;
+    liveControls_.clear();
 
     if (!sourceWritable())
         setStatus(status_.get_text() + "  --  read-only; Save will ask where "
@@ -812,7 +813,12 @@ bool NodeEditor::reload (void)
     graph_ = g;
     pending_.clear();
     wires_.clear();
-    controls_.clear();
+
+    ctlText_.clear();
+
+    for (const NodeGraph::Box &b : graph_.boxes())
+        if (b.isControl)
+            ctlText_[b.ctlArg] = b.ctlValue;
 
     canvas_.setGraph(&graph_);
 
@@ -916,7 +922,7 @@ void NodeEditor::onArrange (void)
  * ask unconditionally. */
 bool NodeEditor::flushPending (string &why)
 {
-    if (pending_.empty() && wires_.empty() && controls_.empty())
+    if (pending_.empty() && wires_.empty())
         return true;
 
     return writeAll(why);
@@ -948,23 +954,6 @@ bool NodeEditor::writeAll (string &why)
                 why = string(NodeEdit::resultText(r));
 
             why = e.node + "." + e.arg + ": " + why;
-
-            return false;
-        }
-    }
-
-    for (std::map<std::string, double>::const_iterator i = controls_.begin();
-         i != controls_.end(); ++i)
-    {
-        NodeEdit::Result r =
-            NodeEdit::Text::setChanArg(text_, i->first, i->second, why);
-
-        if (r != NodeEdit::OK)
-        {
-            if (why.empty())
-                why = string(NodeEdit::resultText(r));
-
-            why = "@" + i->first + ": " + why;
 
             return false;
         }
@@ -1005,7 +994,6 @@ void NodeEditor::onSave (void)
 
     const int n = (int)pending_.size();
     const int w = (int)wires_.size();
-    const int c = (int)controls_.size();
 
     string why;
 
@@ -1043,26 +1031,27 @@ void NodeEditor::onSave (void)
         inlineBody_ = body;
         inlineName_ = source_ = name;
 
-        finishSave(n, c, w);
+        finishSave(n, w);
         return;
     }
 
     if (!sourceWritable() || !writeFile(source_, text_))
     {
         saveAsDialog(sigc::bind(sigc::mem_fun(*this, &NodeEditor::finishSave),
-                                n, c, w),
+                                n, w),
                      "Not saved: " + source_ + " cannot be written. "
                      "Use Save As to put it somewhere else.");
         return;
     }
 
-    finishSave(n, c, w);
+    finishSave(n, w);
 }
 
 /* What follows a save that got as far as a file, from either route. */
-void NodeEditor::finishSave (int n, int c, int w)
+void NodeEditor::finishSave (int n, int w)
 {
     saved_ = text_;
+    liveControls_.clear();
 
     /* Reparse rather than trusting the in-memory graph. The file is now the
        truth, and reading it back is the only way to see what it actually says
@@ -1078,14 +1067,11 @@ void NodeEditor::finishSave (int n, int c, int w)
     /* One snprintf per case rather than a format string chosen by a
        conditional. An earlier version handed the same argument list to both
        branches, so the one taking no arguments read an int as a %s. */
-    if (n || c || w)
-        snprintf(buf, sizeof(buf),
-                 "Saved: %d value%s, %d control%s, %d wire change%s, "
-                 "and the layout.",
-                 n, n == 1 ? "" : "s", c, c == 1 ? "" : "s",
-                 w, w == 1 ? "" : "s");
+    if (n || w)
+        snprintf(buf, sizeof(buf), "Saved, with %d value%s and %d wire "
+                 "change%s.", n, n == 1 ? "" : "s", w, w == 1 ? "" : "s");
     else
-        snprintf(buf, sizeof(buf), "Saved: layout only.");
+        snprintf(buf, sizeof(buf), "Saved.");
 
     setStatus(buf);
 }
@@ -1098,11 +1084,7 @@ void NodeEditor::onRevert (void)
 
     /* Remember what was touched before reloading, because reloading is what
        tells us the on-disk values to put back. */
-    vector<string> ctlNames;
-
-    for (std::map<std::string, double>::const_iterator i = controls_.begin();
-         i != controls_.end(); ++i)
-        ctlNames.push_back(i->first);
+    const vector<string> ctlNames(liveControls_.begin(), liveControls_.end());
 
     vector<pair<string, string> > valNames;
 
@@ -1113,7 +1095,6 @@ void NodeEditor::onRevert (void)
 
     pending_.clear();
     wires_.clear();
-    controls_.clear();
 
     /* open(), not reload(): reading the source again is what throws away
        nodes added and deleted since the last save. */
@@ -1152,6 +1133,10 @@ void NodeEditor::onRevert (void)
                 break;
             }
     }
+
+    /* Putting them back went through applyControlLive, which notes each as
+       touched; they are what the file says now. */
+    liveControls_.clear();
 
     char buf[128];
 
@@ -1903,6 +1888,7 @@ void NodeEditor::onSaveAs (void)
 void NodeEditor::finishSaveAs (void)
 {
     saved_ = text_;
+    liveControls_.clear();
 
     if (!reloadKeepingSelection())
         return;
@@ -2418,9 +2404,9 @@ void NodeEditor::onDisconnect (int edge)
 /* A slider moved. `commit' is false while dragging and true on release.
  *
  * The graph has already been updated by the canvas, so this only has to
- * refresh what else is showing the number and, on release, record the edit.
- * Recording only on release means a drag across the track is one change
- * rather than one per pixel. */
+ * refresh what else is showing the number and, on release, write the edit
+ * into text_. Writing only on release means a drag across the track is one
+ * change rather than one per pixel. */
 void NodeEditor::onControlChanged (int box, double value, bool commit)
 {
     if (box < 0 || box >= (int)graph_.boxes().size())
@@ -2442,7 +2428,25 @@ void NodeEditor::onControlChanged (int box, double value, bool commit)
     if (!commit)
         return;
 
-    controls_[b.ctlArg] = value;
+    string text = text_, why;
+
+    if (NodeEdit::Text::setChanArg(text, b.ctlArg, value, why) != NodeEdit::OK)
+    {
+        /* Back to what text_ says, on the canvas and in the sound, rather
+           than holding a value that would fail at Save. */
+        const double was = ctlText_[b.ctlArg];
+
+        graph_.setControlValue(box, (float)was);
+        applyControlLive(b.ctlArg, was);
+        params_.setBox(&graph_, canvas_.selected());
+        canvas_.queue_draw();
+
+        setStatus("@" + b.ctlArg + " not changed: " + why);
+        return;
+    }
+
+    text_ = text;
+    ctlText_[b.ctlArg] = value;
 
     updateDirty();
 }
