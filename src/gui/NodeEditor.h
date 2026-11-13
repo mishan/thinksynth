@@ -458,13 +458,12 @@ private:
 
     int channel_;           /* channel this file is loaded on, or -1 */
 
-    bool layoutDirty_;
+    /* The text as the source has it: read on open, written on save. */
+    string saved_;
 
-    /* True when text_ has structural edits -- nodes or controls added or
-       removed -- that the source does not have. Values and wires are tracked
-       separately below, because those are still held aside; this is for the
-       ones that are already in text_. */
-    bool structuralDirty_;
+    /* Writes where every box is, and the probes, into text_: what a drag,
+       an arrange or a probe changes. */
+    void writeLayout (void);
 
     /* True while the status bar is showing the selection count rather than
        something that happened. */

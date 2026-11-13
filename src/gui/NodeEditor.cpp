@@ -49,8 +49,7 @@
 
 NodeEditor::NodeEditor (thSynth *synth)
     : Gtk::Box(Gtk::Orientation::VERTICAL),
-      synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
-      structuralDirty_(false), selStatus_(false),
+      synth_(synth), tree_(NULL), channel_(-1), selStatus_(false),
       newBtn_("New..."), deleteBtn_("Delete node"),
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), saveAsBtn_("Save As..."),
       revertBtn_("Revert"),
@@ -506,14 +505,19 @@ void NodeEditor::clearSelectionStatus (void)
 
 /* Is there anything the source does not have?
  *
- * Two kinds, and both count. Values, wires and positions are held aside
- * until Save. Added and removed nodes are already in text_, because showing
- * them needed a parse -- but the source has not seen them either, so
- * structuralDirty_ makes them count the same. */
+ * Two kinds, and both count. Values and wires are held aside until Save;
+ * everything else -- nodes added and removed, positions, probes -- is already
+ * in text_, and counts when text_ is not what the source says. */
 bool NodeEditor::dirty (void) const
 {
-    return layoutDirty_ || structuralDirty_ || !pending_.empty() ||
-           !wires_.empty() || !controls_.empty();
+    return text_ != saved_ || !pending_.empty() || !wires_.empty() ||
+           !controls_.empty();
+}
+
+void NodeEditor::writeLayout (void)
+{
+    NodeLayout::Text::write(text_, graph_);
+    updateDirty();
 }
 
 /* The window this is packed into.
@@ -748,7 +752,7 @@ bool NodeEditor::open (const string &filename, int chan)
         return false;
     }
 
-    structuralDirty_ = false;
+    saved_ = text_;
 
     if (!sourceWritable())
         setStatus(status_.get_text() + "  --  read-only; Save will ask where "
@@ -806,7 +810,6 @@ bool NodeEditor::reload (void)
     delete tree_;
     tree_ = tree;
     graph_ = g;
-    layoutDirty_ = false;
     pending_.clear();
     wires_.clear();
     controls_.clear();
@@ -865,7 +868,7 @@ bool NodeEditor::reload (void)
     params_.setBox(NULL, -1);
     palette_.setSensitive(true);
     deleteBtn_.set_sensitive(false);
-    updateDirty();     /* leaves Save insensitive: nothing is pending yet */
+    updateDirty();
 
     char buf[256];
 
@@ -895,17 +898,11 @@ void NodeEditor::onArrange (void)
     canvas_.setGraph(&graph_);
 
     /* Auto-arranging discards hand placement, so it is itself an edit. */
-    layoutDirty_ = true;
-    updateDirty();
+    writeLayout();
 
     setStatus("Auto-arranged.");
 }
 
-/* Writes the pending values first, then the positions.
- *
- * Values first because NodeLayout::write rewrites the whole file to move its
- * comment block, and doing that between two value splices would mean the
- * second splice worked from a file the first had already reflowed. */
 /* Saves anything held in memory, for the operations that work on the file.
  *
  * Adding and deleting both edit the .dsp text and then reopen it, and the
@@ -919,8 +916,7 @@ void NodeEditor::onArrange (void)
  * ask unconditionally. */
 bool NodeEditor::flushPending (string &why)
 {
-    if (pending_.empty() && wires_.empty() && controls_.empty() &&
-        !layoutDirty_)
+    if (pending_.empty() && wires_.empty() && controls_.empty())
         return true;
 
     return writeAll(why);
@@ -1066,7 +1062,7 @@ void NodeEditor::onSave (void)
 /* What follows a save that got as far as a file, from either route. */
 void NodeEditor::finishSave (int n, int c, int w)
 {
-    structuralDirty_ = false;
+    saved_ = text_;
 
     /* Reparse rather than trusting the in-memory graph. The file is now the
        truth, and reading it back is the only way to see what it actually says
@@ -1118,7 +1114,6 @@ void NodeEditor::onRevert (void)
     pending_.clear();
     wires_.clear();
     controls_.clear();
-    layoutDirty_ = false;
 
     /* open(), not reload(): reading the source again is what throws away
        nodes added and deleted since the last save. */
@@ -1174,11 +1169,7 @@ void NodeEditor::onBoxMoved (int box)
 {
     (void)box;
 
-    if (layoutDirty_)
-        return;
-
-    layoutDirty_ = true;
-    updateDirty();
+    writeLayout();
 }
 
 /* One box selected: the panel shows it, and Delete names what it would take.
@@ -1327,8 +1318,6 @@ void NodeEditor::onPaletteAdd (string spelling)
         return;
     }
 
-    structuralDirty_ = true;
-
     /* reload(), emphatically not open(): the node has just been written to
        text_, and open() would read the source over it -- undoing the add in
        the act of displaying it. */
@@ -1346,8 +1335,7 @@ void NodeEditor::onPaletteAdd (string spelling)
         canvas_.setGraph(&graph_);
         canvas_.setSelected(box);
 
-        layoutDirty_ = true;
-        updateDirty();
+        writeLayout();
     }
 
     setStatus("Added " + name + " (" + spelling + ").  Wire it up, then Save.");
@@ -1571,8 +1559,6 @@ void NodeEditor::addControlFromForm (ControlForm *form)
         return;
     }
 
-    structuralDirty_ = true;
-
     if (!reload())
         return;
 
@@ -1585,8 +1571,7 @@ void NodeEditor::addControlFromForm (ControlForm *form)
         canvas_.setGraph(&graph_);
         canvas_.setSelected(box);
 
-        layoutDirty_ = true;
-        updateDirty();
+        writeLayout();
     }
 
     setStatus("Added @" + name +
@@ -1666,8 +1651,6 @@ void NodeEditor::editControlFromForm (ControlForm *form)
        slider can reach, and both come from a parse -- so a range that had
        changed in the file and not on the canvas would be a slider lying about
        where its own ends are. Revert still undoes it. */
-    structuralDirty_ = true;
-
     if (!reload())
         return;
 
@@ -1761,13 +1744,6 @@ void NodeEditor::onDeleteNode (void)
         refs += n;
         done++;
     }
-
-    /* Anything removed at all is a change to text_, including a
-       run that stopped part way. Marking it dirty is what makes Revert able
-       to undo a half-finished delete -- which is the reason this can afford
-       to stop at the first failure rather than trying to unpick itself. */
-    if (done)
-        structuralDirty_ = true;
 
     if (!done)
     {
@@ -1926,7 +1902,7 @@ void NodeEditor::onSaveAs (void)
 
 void NodeEditor::finishSaveAs (void)
 {
-    structuralDirty_ = false;
+    saved_ = text_;
 
     if (!reloadKeepingSelection())
         return;
@@ -2628,14 +2604,13 @@ bool NodeEditor::armProbe (const string &node, const string &arg,
 
     probes_.push_back(p);
 
-    /* A probe is written into the file's layout block, so arming one is an
-       unsaved change like moving a box. Set here rather than in
-       reapplyProbes, which also runs on open -- a patch that came with probes
-       in it is not dirty for having them. */
-    layoutDirty_ = true;
-
     reapplyProbes();
-    updateDirty();
+
+    /* A probe is written into the file's layout block, so arming one is an
+       unsaved change like moving a box. Here rather than in reapplyProbes,
+       which also runs on open -- a patch that came with probes in it is not
+       dirty for having them. */
+    writeLayout();
 
     setStatus("Watching " + node + "." + arg + " with " + visual +
               (attached() ? "" : " -- nothing is playing this patch"));
@@ -2668,10 +2643,8 @@ void NodeEditor::disarmProbe (size_t index)
 
     probes_.erase(probes_.begin() + index);
 
-    layoutDirty_ = true;
-
     reapplyProbes();
-    updateDirty();
+    writeLayout();
 }
 
 void NodeEditor::disarmAllProbes (void)
