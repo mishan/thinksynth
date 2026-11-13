@@ -92,6 +92,10 @@ public:
        piece declares, and the status line saying so. */
     void markGrown (const std::set<string> &names);
 
+    /* True if anything here is not in the source yet -- pending edits, or a
+       structural change already in the working copy. */
+    bool dirty (void) const;
+
 protected:
     void onArrange (void);
     void onSave (void);
@@ -243,10 +247,6 @@ protected:
 
     /* True if channel_ is playing the file this window is showing. */
     bool attached (void) const;
-
-    /* True if anything here is not in the source yet -- pending edits, or a
-       structural change already in the working copy. */
-    bool dirty (void) const;
 
     /* The window this has been packed into, for parenting a dialog on. NULL
        before it is realised, which every caller has to allow for. */
