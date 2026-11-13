@@ -41,13 +41,17 @@
  * carries on, at its own frequency and level, between bins too. At 1 each
  * frame's phases are new and the frames add in power rather than in
  * amplitude, 6 dB down; a gain in `random' (GAIN below, measured) holds the
- * level where it was. Noise frozen at 0 comes out 2.8 dB down, since
- * neighboring bins' phases disagree: the phase vocoder's phasiness.
+ * level where it was, on average. Noise frozen at 0 comes out 2.8 to 3 dB
+ * down, since neighboring bins' phases disagree: the phase vocoder's
+ * phasiness. A sine at a small `random' -- under about 0.2 -- wanders by a
+ * few dB over seconds, its few bins drifting against each other slowly
+ * enough to be heard as a swell; the table holds its mean.
  *
  * A capture's work, two forward transforms and the four inverse ones that
- * fill the overlap-add, would land in one sample; the inverse ones are
- * spread over the hop after the rise instead, at a quarter hop apart, and
- * the frozen sound starts a hop late while the dry plays on. A chord whose
+ * fill the overlap-add, would land in one sample. The two forward ones do,
+ * on the rise, since the frames they read are there only then; the inverse
+ * ones are spread over the hop after it, a quarter hop apart, and the
+ * frozen sound starts a hop late while the dry plays on. A chord whose
  * voices all freeze together then costs no window more than a few of them.
  *
  * WHEN IT CAPTURES. Only on a rise of `freeze' while the output is wholly
@@ -91,6 +95,10 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define BINS (MAXN / 2 + 1)
 #define RING (MAXN + MAXH)
 
+/* The longest fade: g steps by 1 / fade in float, and much past this a step
+   is under half an ulp of g and the fade stops where it is. 95 s at 44.1k. */
+#define FADEMAX 4194304.0f
+
 /* The state, one arg of constant length: thArg zeroes a buffer whose length
    changes, and a zeroed state is a dry one. */
 enum {
@@ -114,7 +122,7 @@ enum { DRY, PRIMING, FROZEN };
    256 and 2048 over three seeds, the two agree from 0.1 up -- any random
    at all soon scrambles a sine's bins against each other, and from then it
    is as noise is -- and these are their mean. At 0 it is 1, where a steady
-   sound carries on exactly and noise is 2.8 dB down. */
+   sound carries on exactly and noise is 2.8 dB down at 2048, 3 at 256. */
 static const float GAIN[11] = { 1, 1.409f, 1.445f, 1.468f, 1.524f, 1.567f,
                                 1.656f, 1.721f, 1.818f, 1.918f, 1.993f };
 
@@ -152,7 +160,8 @@ int module_init (thPlugin *plugin)
 
     args[IN_FREEZE] = plugin->regArg("freeze", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FREEZE],
-                       "Over 0.5 holds; a rise from a wholly dry output captures");
+                       "Over 0.5 holds; a rise from a wholly dry output captures. "
+                       "Not finite, it does not hold");
     plugin->setArgRange(args[IN_FREEZE], 0, 1);
 
     args[IN_SIZE] = plugin->regArg("size", thPlugin::ARG_IN);
@@ -172,7 +181,7 @@ int module_init (thPlugin *plugin)
 
     args[IN_FADE] = plugin->regArg("fade", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FADE],
-                       "The crossfade from dry to frozen and back, at least a hop");
+                       "The crossfade from dry to frozen and back, a hop to 2^22 samples");
     plugin->setArgUnits(args[IN_FADE], "samples");
 
     args[IN_SEED] = plugin->regArg("seed", thPlugin::ARG_IN);
@@ -205,11 +214,11 @@ static int frameSize (float size)
 }
 
 /* The periodic Hann window at j of n, from the FFT's own table. */
-static inline float hann (int j, int n)
+static inline float hann (const thkFftTable &t, int j, int n)
 {
     const int at = (j <= n / 2 ? j : n - j) * (MAXN / n);
 
-    return 0.5f - 0.5f * thkFftTwiddles().c[at];
+    return 0.5f - 0.5f * t.c[at];
 }
 
 /* A uniform angle in turns, -0.5 to 0.5, from a seed, a frame and a bin. */
@@ -262,8 +271,11 @@ static void advance (float *st, int n, float r, uint32_t seed, bool add, float g
         return;
 
     thkFftRealInverse(re, im, x, n);
+
+    const thkFftTable &t = thkFftTwiddles();
+
     for (int j = 0; j < n; j++)
-        acc[j] += gain * (2.0f / 3) * hann(j, n) * x[j];
+        acc[j] += gain * (2.0f / 3) * hann(t, j, n) * x[j];
 }
 
 /* The ring's last n samples ending `back' samples ago, windowed, into a
@@ -272,10 +284,11 @@ static void analyze (const float *st, int n, int back, float *re, float *im)
 {
     const float *ring = st + S_RING;
     const int end = (int)st[S_RINGPOS] - back;
+    const thkFftTable &t = thkFftTwiddles();
     float x[MAXN];
 
     for (int j = 0; j < n; j++)
-        x[j] = hann(j, n) * ring[((end - n + j) % RING + RING) % RING];
+        x[j] = hann(t, j, n) * ring[((end - n + j) % RING + RING) % RING];
     thkFftReal(x, re, im, n);
 }
 
@@ -320,13 +333,22 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *ring = st + S_RING, *acc = st + S_ACC;
 
     /* Only the scalars can go bad, since what goes into the ring is
-       guarded; a bad one starts the node over, dry. */
+       guarded; one that is not a number, or out of its range, starts the
+       node over, dry. */
+    bool bad = false;
+
     for (int s = 0; s < S_SCALARS; s++)
-        if (!thkFinite(st[s]))
-        {
-            memset(st, 0, S_LEN * sizeof(float));
-            break;
-        }
+        bad = bad || !thkFinite(st[s]);
+    if (!bad)
+    {
+        const int sn = (int)st[S_N];
+
+        bad = st[S_RINGPOS] < 0 || st[S_RINGPOS] >= RING || st[S_STAGE] < DRY ||
+              st[S_STAGE] > FROZEN || (sn != 0 && frameSize((float)sn) != sn) ||
+              st[S_HOPPOS] < 0 || st[S_HOPPOS] >= (sn ? sn : 2048) / 4;
+    }
+    if (bad)
+        memset(st, 0, S_LEN * sizeof(float));
 
     int pos = (int)st[S_RINGPOS], stage = (int)st[S_STAGE], hop = (int)st[S_HOPPOS];
     int n = st[S_N] > 0 ? (int)st[S_N] : 2048;
@@ -336,11 +358,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     for (unsigned int i = 0; i < windowlen; i++)
     {
         const float v = in[i], dry = thkFinite(v) ? v : 0;
-        const bool up = freeze[i] > 0.5f && thkFinite(freeze[i]);
+        const bool up = thkClamp(freeze[i], 0, 1) > 0.5f;
         const float r = thkClamp(random[i], 0, 1);
         float seedf = thkFinite(seedArg[i]) ? seedArg[i] : 0;
         uint32_t seed;
 
+        if (seedf == 0)
+            seedf = 0;      /* -0 too */
         memcpy(&seed, &seedf, sizeof(seed));
 
         /* The frames end before this sample, so that the frozen sound a hop
@@ -355,7 +379,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             hop = 0;
         }
         high = up;
-        ring[pos] = dry;
+
+        /* Bounded, so that no finite input can carry a frame's magnitudes
+           past a float. */
+        ring[pos] = thkClampMag(dry, 1e6f);
         pos = (pos + 1) % RING;
 
         const int h = n / 4;
@@ -363,21 +390,26 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (stage == PRIMING)
         {
             /* The four frames that overlap the first frozen hop, a quarter
-               hop apart, each in its place: the one a hop on starts 3 hops
-               before the frozen sound, the last at it. */
+               hop apart, each in its place: two hops past the capture, which
+               starts two hops before the frozen sound, to five, which starts
+               at it. */
             if (hop % (h / 4) == 0)
             {
                 const int m = hop / (h / 4);
 
                 advance(st, n, r, seed, true, gainAt(r));
                 if (m < 3)
-                    memmove(acc, acc + h, (MAXN - h) * sizeof(float)),
-                    memset(acc + MAXN - h, 0, h * sizeof(float));
+                {
+                    memmove(acc, acc + h, (n - h) * sizeof(float));
+                    memset(acc + n - h, 0, h * sizeof(float));
+                }
             }
             out[i] = dry;
+            /* Frozen at g = 0, which a fall meanwhile takes straight back
+               to dry. */
             if (++hop == h)
             {
-                stage = up ? FROZEN : DRY;
+                stage = FROZEN;
                 hop = 0;
             }
             continue;
@@ -385,7 +417,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if (stage == FROZEN)
         {
-            const float f = thkFinite(fade[i]) && fade[i] > (float)h ? fade[i] : (float)h;
+            const float f = thkClamp(fade[i], (float)h, FADEMAX);
 
             g = up ? fminf(1, g + 1 / f) : fmaxf(0, g - 1 / f);
             if (g == 0 && !up)
@@ -401,8 +433,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             out[i] = dryGain * dry + wetGain * acc[hop];
             if (++hop == h)
             {
-                memmove(acc, acc + h, (MAXN - h) * sizeof(float));
-                memset(acc + MAXN - h, 0, h * sizeof(float));
+                memmove(acc, acc + h, (n - h) * sizeof(float));
+                memset(acc + n - h, 0, h * sizeof(float));
                 advance(st, n, r, seed, true, gainAt(r));
                 hop = 0;
             }

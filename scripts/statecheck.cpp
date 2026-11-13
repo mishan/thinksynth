@@ -5594,8 +5594,6 @@ static void checkEq (const string &pluginPath)
 
 static const double FZ_RATE = 44100;
 
-/* `name' steps from 0 to 1 at `at' seconds: a saw a hundred seconds long,
-   taken past its value at that moment and squared off. */
 /* A NodeSpec keeps its names as pointers; these graphs' names are built,
    so each is kept for the life of the check. */
 static const char *fzName (const string &name)
@@ -5603,6 +5601,8 @@ static const char *fzName (const string &name)
     return strdup(name.c_str());
 }
 
+/* `name' steps from 0 to 1 at `at' seconds: a saw a hundred seconds long,
+   taken past its value at that moment and squared off. */
 static void fzStep (vector<NodeSpec> &spec, const string &name, double at)
 {
     const char *saw = fzName(name + "_saw"), *off = fzName(name + "_off");
@@ -5953,6 +5953,43 @@ static void checkFreeze (const string &pluginPath)
                      "fft::freeze: one seed renders the same twice, another differently", "");
     }
 
+    /* ---- a size changed while frozen waits for the next capture, and a
+       fall before the frozen sound starts leaves the input alone ---- */
+    {
+        FzRun run, quick;
+        vector<float> in, a, b;
+        string why;
+
+        run.held = { { 0.3, 9 } };
+        run.silence = 0.31;
+        quick.held = { { 0.3, 0.3 + 100 / FZ_RATE } };
+
+        vector<NodeSpec> moved = fzGraph(run);
+
+        /* size 2048, and 256 from 0.35 s */
+        fzStep(moved, "resize", 0.35);
+        moved.push_back(specNode("sz", "math/mul", { { "in1", -1792 } }, { { "in0", "resize", "out" } }));
+        moved.push_back(specNode("sz2", "math/add", { { "in1", 2048 } }, { { "in0", "sz", "out" } }));
+        for (Value &v : moved[0].values)
+            if (string(v.arg) == "size")
+                v.arg = "unused";
+        moved[0].wires.push_back({ "size", "sz2", "out" });
+
+        if (!render1(pluginPath, moved, "fz", "out", 256, (unsigned)(0.8 * FZ_RATE), a, why) ||
+            !render1(pluginPath, fzGraph(run), "fz", "out", 256, (unsigned)(0.8 * FZ_RATE), b, why))
+            fail("fft::freeze renders a size changed while frozen", why);
+        else
+            okOrFail(same(a, b, 0, a.size()),
+                     "fft::freeze: a size changed while frozen waits for the next capture", "");
+
+        if (!fzRender(pluginPath, quick, (unsigned)(0.5 * FZ_RATE), 256, in, a, why))
+            fail("fft::freeze renders a freeze let go at once", why);
+        else
+            okOrFail(same(in, a, 0, in.size()),
+                     "fft::freeze: let go before the frozen sound starts, the input is "
+                     "untouched", "");
+    }
+
     /* ---- a capture and a release at any window length ---- */
     {
         FzRun run;
@@ -5980,6 +6017,8 @@ static void checkFreeze (const string &pluginPath)
         const auto with = [&](FzRun r, auto set) { set(r); return r; };
 
         cases.push_back({ "a NaN freeze as 0", nanFreeze, zeroFreeze });
+        cases.push_back({ "an infinite freeze as 0",
+                          with(nanFreeze, [](FzRun &r) { r.freezeValue = INFINITY; }), zeroFreeze });
         cases.push_back({ "a NaN random as 0", with(held, [](FzRun &r) { r.random = NAN; }), held });
         cases.push_back({ "a NaN size as 2048", with(held, [](FzRun &r) { r.size = NAN; }),
                           with(held, [](FzRun &r) { r.size = 2048; }) });
