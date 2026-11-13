@@ -5294,6 +5294,302 @@ static void checkUnison (const string &pluginPath)
                  "and at five hundred");
 }
 
+/* ---- filt::eq ----------------------------------------------------------- */
+
+static NodeSpec eqNode (const char *name, const char *spelling,
+                        const vector<Value> &values, const vector<Wire> &wires)
+{
+    NodeSpec n;
+
+    n.name = name;
+    n.spelling = spelling;
+    n.values = values;
+    n.wires = wires;
+
+    return n;
+}
+
+/* The band, fed from `src', with its freq and q either held or moved: a
+   freq swept by `sweep' hertz either side of `freq' at 3 Hz, and a q by
+   half of it at 2. */
+static vector<NodeSpec> eqGraph (vector<NodeSpec> src, float type, float freq,
+                                 float gain, float q, float sweep = 0)
+{
+    vector<NodeSpec> spec = src;
+    vector<Value> v = { { "type", type }, { "gain", gain } };
+    vector<Wire> w = { { "in", "src", "out" } };
+
+    if (sweep == 0)
+    {
+        v.push_back({ "freq", freq });
+        v.push_back({ "q", q });
+    }
+    else
+    {
+        spec.push_back(eqNode("lf", "osc/simple",
+                              { { "freq", 3 }, { "amp", sweep }, { "waveform", 0 } }, {}));
+        spec.push_back(eqNode("f", "math/add", { { "in1", freq } }, { { "in0", "lf", "out" } }));
+        spec.push_back(eqNode("lq", "osc/simple",
+                              { { "freq", 2 }, { "amp", q / 2 }, { "waveform", 0 } }, {}));
+        spec.push_back(eqNode("qq", "math/add", { { "in1", q } }, { { "in0", "lq", "out" } }));
+        w.push_back({ "freq", "f", "out" });
+        w.push_back({ "q", "qq", "out" });
+    }
+    spec.insert(spec.begin(), eqNode("eq", "filt/eq", v, w));
+
+    return spec;
+}
+
+/* White noise times `amp', as the node `src'. */
+static vector<NodeSpec> eqNoise (float amp)
+{
+    return { eqNode("nz", "osc/noise", { { "amp", 1 } }, {}),
+             eqNode("src", "math/mul", { { "in1", amp } }, { { "in0", "nz", "out" } }) };
+}
+
+static vector<NodeSpec> eqSine (float freq, float amp)
+{
+    return { eqNode("src", "osc/simple",
+                    { { "freq", freq }, { "amp", amp }, { "waveform", 0 } }, {}) };
+}
+
+static void checkEq (const string &pluginPath)
+{
+    static const char *const TYPES[] = { "peak", "low shelf", "high shelf" };
+
+    /* ---- at 0 dB a wire, whatever the rest is doing ---- */
+    {
+        bool good = true;
+        string detail;
+
+        /* Four times full scale, so a full-scale clamp on the way in
+           shows. */
+        for (int type = 0; type < 3 && good; type++)
+        {
+            vector<Watch> watch = { { "src", "out" }, { "eq", "out" } };
+            vector< vector<float> > got;
+            string why;
+
+            if (!render(pluginPath, eqGraph(eqNoise(4), type, 2000, 0, 2, 1500), watch,
+                        256, 8192, got, why))
+            {
+                good = false;
+                detail = why;
+                break;
+            }
+            for (size_t i = 0; i < got[0].size(); i++)
+                if (memcmp(&got[0][i], &got[1][i], sizeof(float)))
+                {
+                    good = false;
+                    detail = string(TYPES[type]) + ", sample " + num((double)i) + ": " +
+                             num(got[0][i]) + " in, " + num(got[1][i]) + " out";
+                    break;
+                }
+        }
+        okOrFail(good, "filt::eq: at 0 dB the output is the input, bit for bit, "
+                       "freq and q moving", detail);
+    }
+
+    /* ---- the gain where it is asked for: a peak's whole at its center, a
+       shelf's half at its corner, whatever q is ---- */
+    {
+        double worst = 0;
+        string detail, why;
+        bool rendered = true;
+
+        for (int type = 0; type < 3 && rendered; type++)
+            for (float gain : { -12.0f, 9.0f })
+                for (float q : { 0.707f, 1.8f })
+                {
+                    vector<Watch> watch = { { "src", "out" }, { "eq", "out" } };
+                    vector< vector<float> > got;
+
+                    if (!render(pluginPath, eqGraph(eqSine(1000, 0.1f), type, 1000, gain, q),
+                                watch, 441, 88200, got, why))
+                    {
+                        rendered = false;
+                        break;
+                    }
+
+                    const double want = type == 0 ? gain : gain / 2.0;
+                    const double db = 20 * log10(rms(got[1], 44100) / rms(got[0], 44100));
+
+                    if (fabs(db - want) > worst)
+                    {
+                        worst = fabs(db - want);
+                        detail = string(TYPES[type]) + " at " + num(gain) + " dB, q " +
+                                 num(q) + ": " + num(db) + " dB";
+                    }
+                }
+        if (!rendered)
+            fail("filt::eq renders a sine", why);
+        else
+            okOrFail(worst < 0.02, "filt::eq: a peak's gain at its center, a shelf's "
+                                   "half at its corner", detail);
+    }
+
+    /* ---- what it makes of a value it cannot use: the same as the value it
+       stands for ---- */
+    {
+        struct Case { const char *what; int type; float freq, gain, q; float in;
+                      int asType; float asFreq, asGain, asQ; float asIn; };
+        static const Case CASES[] = {
+            { "a NaN gain as 0 dB", 0, 900, NAN, 2, 1, 0, 900, 0, 2, 1 },
+            { "a gain of 100 as 24", 0, 900, 100, 2, 1, 0, 900, 24, 2, 1 },
+            { "a peak's q of 1000 as 18", 0, 900, 6, 1000, 1, 0, 900, 6, 18, 1 },
+            { "a shelf's q of 1000 as 2", 1, 900, 6, 1000, 1, 1, 900, 6, 2, 1 },
+            { "a NaN q as 0.1", 2, 900, 6, NAN, 1, 2, 900, 6, 0.1f, 1 },
+            { "a NaN type as a peak", -1, 900, 6, 2, 1, 0, 900, 6, 2, 1 },
+            { "a type of 7 as a peak", 7, 900, 6, 2, 1, 0, 900, 6, 2, 1 },
+            { "a NaN freq as 10 Hz", 0, NAN, 6, 2, 1, 0, 10, 6, 2, 1 },
+            { "an infinite freq as 10 Hz", 1, INFINITY, 6, 2, 1, 1, 10, 6, 2, 1 },
+            { "an infinite gain as 0 dB", 2, 900, -INFINITY, 2, 1, 2, 900, 0, 2, 1 },
+            { "a freq of 0 as 10 Hz", 2, 0, 6, 2, 1, 2, 10, 6, 2, 1 },
+            { "an infinite in as 0", 0, 900, 6, 2, INFINITY, 0, 900, 6, 2, 0 },
+        };
+
+        for (const Case &k : CASES)
+        {
+            const float type = k.type == -1 ? NAN : (float)k.type;
+            vector<float> a, b;
+            string why;
+
+            /* `in' scales the noise, so a non-finite one is every sample. */
+            if (!render1(pluginPath, eqGraph(eqNoise(k.in), type, k.freq, k.gain, k.q), "eq",
+                         "out", 256, 4096, a, why) ||
+                !render1(pluginPath, eqGraph(eqNoise(k.asIn), k.asType, k.asFreq, k.asGain,
+                                             k.asQ), "eq", "out", 256, 4096, b, why))
+            {
+                fail(string("filt::eq renders ") + k.what, why);
+                continue;
+            }
+            okOrFail(a.size() == b.size() &&
+                         !memcmp(a.data(), b.data(), a.size() * sizeof(float)),
+                     string("filt::eq takes ") + k.what, "");
+        }
+    }
+
+    /* ---- a q or a gain that moves while freq holds still moves the band:
+       a square stepping it from `at' to three times `at' an eighth of a
+       second in, against the arg held at `at', alike before the step and not
+       after it ---- */
+    for (const char *arg : { "q", "gain" })
+    {
+        const float at = string(arg) == "q" ? 0.5f : 6;
+        vector<NodeSpec> held = eqGraph(eqNoise(1), 0, 1000, 6, 0.5f), moving = held;
+        vector<float> a, b;
+        string why;
+
+        moving[0].values = { { "type", 0 }, { "freq", 1000 },
+                             { string(arg) == "q" ? "gain" : "q", string(arg) == "q" ? 6 : 0.5f } };
+        moving[0].wires.push_back({ arg, "m", "out" });
+        moving.push_back(eqNode("sq", "osc/simple",
+                                { { "freq", 4 }, { "amp", at }, { "waveform", 2 } }, {}));
+        moving.push_back(eqNode("m", "math/add", { { "in1", 2 * at } }, { { "in0", "sq", "out" } }));
+        /* One window, since a window's start works the band out afresh
+           and would hide a step the window's samples missed. */
+        if (!render1(pluginPath, moving, "eq", "out", 11025, 11025, a, why) ||
+            !render1(pluginPath, held, "eq", "out", 11025, 11025, b, why))
+            fail(string("filt::eq renders a moving ") + arg, why);
+        else
+        {
+            const size_t step = 5500;
+
+            okOrFail(!memcmp(a.data(), b.data(), step * sizeof(float)) &&
+                         memcmp(a.data() + step, b.data() + step,
+                                (a.size() - step) * sizeof(float)),
+                     string("filt::eq: a ") + arg + " that moves while freq holds still "
+                     "moves the band", [&] {
+                         size_t i = 0;
+                         while (i < a.size() && !memcmp(&a[i], &b[i], sizeof(float)))
+                             i++;
+                         return "first differs at sample " + num((double)i);
+                     }());
+        }
+    }
+
+    /* ---- a band stopped while it rings lets go ----
+       Noise through a +24 dB peak at 1 kHz for two seconds, then the noise
+       gone and the freq dropped to 0 together: what is left has to die
+       away rather than hold the integrators' last value as an offset. */
+    {
+        vector<NodeSpec> spec = {
+            eqNode("sq", "osc/simple",
+                   { { "freq", 0.25f }, { "amp", 1 }, { "waveform", 2 } }, {}),
+            eqNode("off", "math/sub", { { "in0", 1 } }, { { "in1", "sq", "out" } }),
+            eqNode("on", "math/mul", { { "in1", 0.5f } }, { { "in0", "off", "out" } }),
+            eqNode("fq", "math/mul", { { "in1", 1000 } }, { { "in0", "on", "out" } }),
+            eqNode("nz", "osc/noise", { { "amp", 1 } }, {}),
+            eqNode("src", "math/mul", {}, { { "in0", "nz", "out" }, { "in1", "on", "out" } }),
+            eqNode("eq", "filt/eq", { { "type", 0 }, { "gain", 24 }, { "q", 0.707f } },
+                   { { "in", "src", "out" }, { "freq", "fq", "out" } }),
+        };
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, spec, "eq", "out", 256, 4 * 44100, got, why))
+            fail("filt::eq renders a band stopped while it rings", why);
+        else
+        {
+            vector<float> before(got.begin() + 44100, got.begin() + 2 * 44100);
+            const double was = rms(before, 0), left = rms(got, 4 * 44100 - 4410);
+
+            okOrFail(was > 0.1 && left < was * 1e-3,
+                     "filt::eq: a band stopped while it rings dies away",
+                     "RMS " + num(was) + " ringing, " + num(left) + " two seconds on");
+        }
+    }
+
+    /* ---- every type swept hard at both ends of q stays a number ---- */
+    {
+        bool good = true;
+        string detail;
+
+        for (int type = 0; type < 3; type++)
+            for (float q : { 0.1f, 18.0f })
+            {
+                vector<NodeSpec> spec = eqGraph(eqNoise(1), (float)type, 10, 24, q);
+
+                /* freq from -1 kHz to 0.6 of the rate at 50 Hz, past
+                   both ends of its range, and gain from -24 dB to 24 at
+                   7. */
+                spec[0].values = { { "type", (float)type }, { "q", q } };
+                spec[0].wires = { { "in", "src", "out" }, { "freq", "f", "out" },
+                                  { "gain", "lg", "out" } };
+                spec.push_back(eqNode("lf", "osc/simple",
+                                      { { "freq", 50 }, { "amp", 13730 },
+                                        { "waveform", 0 } }, {}));
+                spec.push_back(eqNode("f", "math/add", { { "in1", 12730 } },
+                                      { { "in0", "lf", "out" } }));
+                spec.push_back(eqNode("lg", "osc/simple",
+                                      { { "freq", 7 }, { "amp", 24 }, { "waveform", 0 } }, {}));
+
+                vector<float> got;
+                string why;
+
+                if (!render1(pluginPath, spec, "eq", "out", 256, 2 * 44100, got, why))
+                {
+                    good = false;
+                    detail = why;
+                    break;
+                }
+                for (size_t i = 0; i < got.size() && good; i++)
+                    if (!thIsFinite(got[i]) || fabsf(got[i]) > 1000)
+                    {
+                        good = false;
+                        detail = string(TYPES[type]) + ", q " + num(q) + ", sample " +
+                                 num((double)i) + ": " + num(got[i]);
+                    }
+                if (type == 2 && q > 1)
+                    windowsAgree(pluginPath, spec, "eq", "out",
+                                 "filt::eq: the same sweep at one sample a window and "
+                                 "at five hundred");
+            }
+        okOrFail(good, "filt::eq: swept across its whole range, finite and bounded",
+                 detail);
+    }
+}
+
 static void checkAdsrGated (const string &pluginPath)
 {
     const float sr = TH_DEFAULT_SAMPLES;
@@ -9753,6 +10049,7 @@ int main (int argc, char **argv)
     checkLoop(pluginPath);
     checkBlep(pluginPath);
     checkUnison(pluginPath);
+    checkEq(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);

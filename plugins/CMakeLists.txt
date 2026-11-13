@@ -39,7 +39,7 @@ think_add_plugin_category(env      adsr adsfr ad dx dynmap follower followavg ma
 
 think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
                                    inkshape rds ds dshape divbuf res1pole
-                                   res2pole res2pole2 resgrav moog svf
+                                   res2pole res2pole2 resgrav moog svf eq
                                    vowel pianostring sympathetic bar bell
                                    plate membrane)
 

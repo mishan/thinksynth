@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "thKernel.h"
 #include "../plugins/delay/allpass.h"
@@ -40,6 +41,7 @@
 #include "../plugins/mixer/pan.h"
 #include "../plugins/dice.h"
 #include "../plugins/dist/saturate.h"
+#include "../plugins/filt/eq.h"
 #include "../plugins/filt/svf.h"
 #include "../plugins/osc/blep.h"
 #include "../plugins/osc/noise.h"
@@ -546,6 +548,84 @@ main ()
                                                   want[o] - 1));
             }
         report("filt::svf's low, band and high, Q and all, around its cutoff", worstRel, 1e-4);
+    }
+
+    /* filt::eq's impulse response, each type over a spread of
+       frequencies, gains and qs at two rates, against the cookbook's
+       biquads (Bristow-Johnson) run in double from the same numbers: the
+       same analog prototypes by another derivation. 4096 samples is the
+       onset of a long high-q response and not all of it, which is enough
+       to catch a coefficient a percent out. */
+    {
+        static const double FREQ[] = { 30, 100, 1000, 5000, -0.45 };
+        static const double GAIN[] = { -24, -6, 6, 24 };
+        static const double PEAKQ[] = { 0.1, 0.707, 4, 18 };
+        static const double SHELFQ[] = { 0.1, 0.707, 1.5, 2 };
+        struct Case { int type; double f, g, q, rate; };
+        std::vector<Case> cases;
+
+        for (int type = thkEq::PEAK; type <= thkEq::HIGHSHELF; type++)
+            for (double rate : { 32000.0, 48000.0 })
+                for (double f : FREQ)
+                    for (double g : GAIN)
+                        for (double q : type == thkEq::PEAK ? PEAKQ : SHELFQ)
+                            cases.push_back({ type, f < 0 ? -f * rate : f, g, q, rate });
+        cases.push_back({ thkEq::HIGHSHELF, 0.49 * 48000, 24, 0.1, 48000 });
+
+        double worstRel = 0;
+
+        for (const Case &k : cases)
+        {
+            const double A = std::pow(10, k.g / 40), w = 2 * M_PI * k.f / k.rate;
+            const double cs = std::cos(w), al = std::sin(w) / (2 * k.q);
+            const double sa = 2 * std::sqrt(A) * al;
+            double b[3], a[3];
+
+            if (k.type == thkEq::PEAK)
+            {
+                b[0] = 1 + al * A; b[1] = -2 * cs; b[2] = 1 - al * A;
+                a[0] = 1 + al / A; a[1] = -2 * cs; a[2] = 1 - al / A;
+            }
+            else if (k.type == thkEq::LOWSHELF)
+            {
+                b[0] = A * ((A + 1) - (A - 1) * cs + sa);
+                b[1] = 2 * A * ((A - 1) - (A + 1) * cs);
+                b[2] = A * ((A + 1) - (A - 1) * cs - sa);
+                a[0] = (A + 1) + (A - 1) * cs + sa;
+                a[1] = -2 * ((A - 1) + (A + 1) * cs);
+                a[2] = (A + 1) + (A - 1) * cs - sa;
+            }
+            else
+            {
+                b[0] = A * ((A + 1) + (A - 1) * cs + sa);
+                b[1] = -2 * A * ((A - 1) + (A + 1) * cs);
+                b[2] = A * ((A + 1) + (A - 1) * cs - sa);
+                a[0] = (A + 1) - (A - 1) * cs + sa;
+                a[1] = 2 * ((A - 1) - (A + 1) * cs);
+                a[2] = (A + 1) - (A - 1) * cs - sa;
+            }
+
+            const thkEq::Ctl c = thkEq::ctl((float)k.type, (float)k.f, (float)k.g,
+                                            (float)k.q, (float)k.rate);
+            thkEq eq;
+            double x1 = 0, x2 = 0, y1 = 0, y2 = 0, peak = 0, worstCase = 0;
+
+            for (int n = 0; n < 4096; n++)
+            {
+                const double x = n == 0;
+                const double y = (b[0] * x + b[1] * x1 + b[2] * x2 - a[1] * y1 - a[2] * y2) /
+                                 a[0];
+
+                x2 = x1; x1 = x; y2 = y1; y1 = y;
+                peak = std::max(peak, std::fabs(y));
+                const double err = std::fabs(eq.tick(c, (float)x) - y);
+
+                /* std::max keeps the old worst against a NaN. */
+                worstCase = std::isfinite(err) ? std::max(worstCase, err) : INFINITY;
+            }
+            worstRel = std::max(worstRel, worstCase / peak);
+        }
+        report("filt::eq's peak and shelves against the cookbook's biquads", worstRel, 2e-5);
     }
 
     /* tanh in float, against the double's. */
