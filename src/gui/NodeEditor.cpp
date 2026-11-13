@@ -2786,7 +2786,35 @@ void NodeEditor::reapplyProbes (void)
         graph_.addProbe(host, p.arg, p.visual, h);
     }
 
+    /* layout() is what sets a panel above its node, and it places every
+       other box from scratch -- so they are put back where they were, the
+       panels moving with them. A panel can then overlap the box above its
+       node, which a drag fixes; one that would go off the top of the
+       canvas, where nothing can scroll, moves its node down instead. */
+    NodeLayout::PosMap kept;
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+        if (graph_.boxes()[b].attachedTo < 0)
+            kept[NodeLayout::keyFor(graph_, (int)b)] =
+                make_pair(graph_.boxes()[b].x, graph_.boxes()[b].y);
+
     graph_.layout();
+    NodeLayout::apply(graph_, kept, graph_);
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+    {
+        double top = graph_.boxes()[b].y;
+
+        for (const NodeGraph::Box &s : graph_.boxes())
+            if (s.attachedTo == (int)b)
+                top = std::min(top, s.y);
+
+        if (graph_.boxes()[b].attachedTo < 0 && top < 0)
+            graph_.moveBox((int)b, graph_.boxes()[b].x,
+                           graph_.boxes()[b].y - top);
+    }
+
+    graph_.refreshExtent();
 
     /* Instances. One per probe, opened at the synth's rate. */
     for (size_t i = 0; i < probes_.size(); i++)
