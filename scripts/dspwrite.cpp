@@ -50,6 +50,11 @@
  *      Separate from (11) because a clamp is one-way: a range widened and put
  *      back leaves the file as it was, and a range narrowed and put back
  *      cannot
+ * And for every node and every control, one at a time, from a fresh copy:
+ *  14. remove it, and confirm what is left still parses. Removing one rewrites
+ *      every reference to it, wherever a statement puts that reference, and
+ *      a reference left behind names something that is not there -- a file
+ *      that no longer loads, in either editor
  *
  * And for every wire:
  *
@@ -505,6 +510,7 @@ int main (int argc, char **argv)
     int wiresCut = 0, wireNoops = 0;
     int controlsMoved = 0, controlNoops = 0, controlsRespelt = 0;
     int metaNoops = 0, metaChanged = 0, metaRestored = 0, metaClamped = 0;
+    int removals = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -1092,6 +1098,40 @@ int main (int argc, char **argv)
             wireNoops++;
         }
 
+        /* 14. every node and every control removed, one at a time */
+        for (size_t b = 0; b < g.boxes().size() && problems < 4; b++)
+        {
+            const NodeGraph::Box &bx = g.boxes()[b];
+
+            /* The io node is not one a file can do without, and an element
+               of an array is the array's block to remove. */
+            if (bx.isIoSource || bx.isIoSink || bx.isExpr || bx.isProbe ||
+                (!bx.isControl && bx.name.find('[') != string::npos))
+                continue;
+
+            string text = original, why;
+            int refs = 0;
+            const NodeEdit::Result r =
+                bx.isControl
+                    ? NodeEdit::Text::removeControl(text, bx.ctlArg, refs, why)
+                    : NodeEdit::Text::removeNode(text, bx.name, refs, why);
+
+            if (r != NodeEdit::OK)
+            { printf("FAIL  %s: removing %s -> %s (%s)\n", argv[f],
+                     bx.name.c_str(), NodeEdit::resultText(r), why.c_str());
+              problems++; continue; }
+
+            thSynthTree *left = synth.parseTreeText(argv[f], text);
+
+            if (left == NULL)
+            { printf("FAIL  %s: removing %s leaves a file that does not "
+                     "parse\n", argv[f], bx.name.c_str());
+              problems++; continue; }
+
+            delete left;
+            removals++;
+        }
+
         if (problems)
             failed++;
         else if (!quiet)
@@ -1121,6 +1161,8 @@ int main (int argc, char **argv)
            "them changed nothing and left the file untouched, and none "
            "left a temporary behind\n", both::checked, both::suppressed);
     printf("  %d values clamped by a range narrowed past them\n", metaClamped);
+    printf("  %d nodes and controls removed, one at a time, each leaving a "
+           "file that parses\n", removals);
 
     if (metaChanged != metaRestored)
         printf("  (%d retyped but not restored)\n", metaChanged - metaRestored);
