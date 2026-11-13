@@ -28,7 +28,7 @@ if(MODE STREQUAL "dsp")
   file(GLOB_RECURSE candidates "${CORPUS}/*.dsp")
 
   # Plugins that compile but are deliberately not in the built set: input/wav,
-  # input/alsa, misc/wlan. Two DSPs reference one of them and cannot load.
+  # input/alsa, misc/wlan, test/. A DSP that references one cannot load.
   # Excluded by what they reference, so the list cannot drift -- build the
   # plugin and its DSPs join the sweep by themselves.
   set(exclude_re "(input::|misc::wlan|test::)")

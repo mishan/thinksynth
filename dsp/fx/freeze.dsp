@@ -8,10 +8,11 @@
 # phases are new every frame, a shimmer. The sides have seeds of their
 # own, so that shimmer is wide rather than one sound in the middle.
 #
-# Size is the trade: 4096 holds a chord's pitches cleanly and smears its
-# attack, 256 keeps a click a click and blurs pitch into a band. A piece
-# turns Freeze on and off from a piece knob bound to it, or from a chain
-# through `sink { instrument = ...; chanarg = "fx.freeze"; }'.
+# Size, rounded to a power of two, is the trade: 4096 holds a chord's
+# pitches cleanly and smears its attack, 256 keeps a click a click and
+# blurs pitch into a band. A piece turns Freeze on and off from a piece
+# knob bound to it, or from a chain through
+# `sink { instrument = ...; chanarg = "fx.freeze"; }'.
 
 name "Freeze";
 author "Misha Nasledov";
@@ -22,7 +23,7 @@ category "Effects";
     @freeze.widget = 1;
     @freeze.min = 0;
     @freeze.max = 1;
-    @freeze.step = 1;
+    @freeze.values = "Off,On";
     @freeze.label = "Freeze";
 
     @size = 2048;
@@ -39,8 +40,8 @@ category "Effects";
 
     @fade = 60 ms;
     @fade.widget = 1;
-    @fade.min = 0;
-    @fade.max = 5000ms;
+    @fade.min = 25 ms;
+    @fade.max = 5000 ms;
     @fade.label = "Fade";
 
 node ionode {
