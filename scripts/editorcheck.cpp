@@ -148,6 +148,7 @@ public:
     using NodeEditor::wiring_;
     using NodeEditor::onDisconnect;
     using NodeEditor::onConnect;
+    using NodeEditor::text;
     using NodeEditor::onBoxMoved;
     using NodeEditor::onParamEdited;
     using NodeEditor::onControlChanged;
@@ -167,9 +168,8 @@ public:
        path, reporting whether it worked. */
     bool save (void)
     {
-        string why;
-
-        return writeAll(why) && writeFile(sourceFile(), text());
+        writeLayout();
+        return writeFile(sourceFile(), text());
     }
 
     const string &sourceFile (void) const { return filename(); }
@@ -1457,6 +1457,110 @@ void checkWireCommit (thSynth &synth)
     std::filesystem::remove(copy);
 }
 
+/* A value typed into the panel goes into the text as it is typed, and the
+   graph says it at once. One the writer cannot spell is refused there and
+   then, and one typed back to what the file says leaves the file's spelling. */
+void checkValueCommit (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-value-");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Value\";\n"
+               "node ionode { channels = 1; out0 = osc->out; "
+               "play = env->play; };\n"
+               "node osc osc::simple { freq = ionode->note; amp = 1.0; };\n"
+               "node env env::adsr { trigger = ionode->trigger; };\n"
+               "io ionode;\n";
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->present();
+
+    pump(0.2);
+
+    ok(ed->open(copy), "an editor opens a graph with a value to set");
+
+    const int osc = ed->graph().boxByName("osc");
+
+    const auto amp = [&] ()
+    {
+        for (const NodeGraph::Param &p : ed->graph().boxes()[osc].params)
+            if (p.name == "amp")
+                return (double)p.value;
+
+        return -1.0;
+    };
+
+    if (osc >= 0)
+    {
+        ed->onParamEdited(osc, "amp", 0.5);
+
+        ok(ed->dirty() && amp() == 0.5,
+           "a value typed in is unsaved, and the graph says it (%g)", amp());
+
+        const string before = ed->text();
+
+        ed->onParamEdited(osc, "amp", 1e31);
+
+        ok(amp() == 0.5 && ed->text() == before,
+           "a value the writer cannot spell is refused, the text and the "
+           "graph as they were (%g)", amp());
+
+        ed->onParamEdited(osc, "amp", 1);
+
+        ok(!ed->dirty(), "a value typed back leaves nothing to save, the "
+           "file's `1.0' spelled as it was");
+    }
+    else
+        ok(false, "osc is a box");
+
+    /* One element of an array is the block that makes them all. */
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Array\";\n"
+               "node ionode { channels = 2; out[] = tone[]->out; "
+               "play = env->play; };\n"
+               "node tone[2] osc::simple { freq = ionode->note; amp = 1; };\n"
+               "node env env::adsr { trigger = ionode->trigger; };\n"
+               "io ionode;\n";
+    }
+
+    const auto ampOf = [&] (const string &name)
+    {
+        const int b = ed->graph().boxByName(name);
+
+        if (b >= 0)
+            for (const NodeGraph::Param &p : ed->graph().boxes()[b].params)
+                if (p.name == "amp")
+                    return (double)p.value;
+
+        return -1.0;
+    };
+
+    const int one = ed->open(copy) ? ed->graph().boxByName("tone[1]") : -1;
+
+    ok(one >= 0, "an editor opens a graph with an array of two");
+
+    if (one >= 0)
+    {
+        ed->onParamEdited(one, "amp", 0.5);
+
+        ok(ampOf("tone[0]") == 0.5 && ampOf("tone[1]") == 0.5,
+           "a value set on one element of an array is every element's "
+           "(%g, %g)", ampOf("tone[0]"), ampOf("tone[1]"));
+    }
+
+    delete w;
+
+    std::filesystem::remove(copy);
+}
+
 /* Opening a graph that will not parse changes nothing: the next Save still
    writes the graph on screen to where it came from. From a file and from a
    piece's text, since a piece's graph carries its own save. */
@@ -2178,6 +2282,7 @@ int run (const string &pluginPath, const char *file)
     checkLayoutUndone(synth, file);
     checkControlCommit(synth);
     checkWireCommit(synth);
+    checkValueCommit(synth);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);

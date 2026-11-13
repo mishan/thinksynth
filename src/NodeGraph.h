@@ -506,6 +506,10 @@ public:
     /* Sets a control's value, for dragging. Does not touch the file. */
     void setControlValue (int box, float value);
 
+    /* Sets the value a node's arg shows, once the text has taken it. Does not
+       touch the file. */
+    void setParamValue (int box, const string &arg, float value);
+
     /* Moves a set of boxes together by (dx, dy), as one rigid thing.
      *
      * The clamp that keeps boxes out of negative space is applied once, to

@@ -205,6 +205,12 @@ public:
                                 const string &arg, double value,
                                 string &why);
 
+        /* With `saved', as setChanArg below: a value that is what `saved'
+           says goes back in `saved''s spelling. */
+        static Result setValue (string &source, const string &node,
+                                const string &arg, double value,
+                                const string &saved, string &why);
+
         static Result connect (string &source, const string &node,
                                const string &arg, const string &srcNode,
                                const string &srcPort, string &why);
