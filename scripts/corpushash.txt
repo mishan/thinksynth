@@ -42,6 +42,7 @@ cf17caabc0235b41  fx/drive.dsp
 232754889e34b29d  fx/dub.dsp
 ceb16009e6c7d42d  fx/echo.dsp
 e42e640fb0793e85  fx/ensemble.dsp
+c4ed38ef5cd6d115  fx/eq.dsp
 02a9eb3d5d6268ed  fx/filter.dsp
 3652dfefcb725c61  fx/flanger.dsp
 837280c41cd2bd49  fx/gate.dsp
