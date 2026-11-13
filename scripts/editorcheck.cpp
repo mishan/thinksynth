@@ -143,6 +143,7 @@ public:
     using NodeEditor::boxList_;
     using NodeEditor::wiring_;
     using NodeEditor::onDisconnect;
+    using NodeEditor::onBoxMoved;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -615,6 +616,67 @@ void checkNodePanel (thSynth &synth, const char *file)
     delete win;
 
     delete tree;
+}
+
+/* Opening a graph that will not parse changes nothing: the next Save still
+   writes the graph on screen to where it came from. From a file and from a
+   piece's text, since a piece's graph carries its own save. */
+void checkFailedOpen (thSynth &synth, const char *file)
+{
+    const string good = thUtil::tempFile("editorcheck-open-");
+    const string bad = thUtil::tempFile("editorcheck-open-bad-");
+
+    std::filesystem::copy_file(file, good,
+        std::filesystem::copy_options::overwrite_existing);
+
+    {
+        ofstream out(bad.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "not a graph\n";
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->present();
+
+    pump(0.2);
+
+    const auto read = [] (const string &path)
+    {
+        ifstream in(path.c_str(), std::ios::binary);
+
+        return string((std::istreambuf_iterator<char>(in)),
+                      std::istreambuf_iterator<char>());
+    };
+
+    bool pieceSaved = false;
+
+    ok(ed->open(good), "an editor opens a copy of %s", file);
+
+    ed->onBoxMoved(0);
+
+    ok(!ed->open(bad), "and refuses a file that does not parse");
+    ok(!ed->openInline("bad#0.dsp", "not a graph\n", -1,
+                       [&pieceSaved](const string &, string &, string &)
+                       {
+                           pieceSaved = true;
+                           return true;
+                       }),
+       "and a piece's graph that does not parse");
+
+    ed->onSave();
+
+    ok(!pieceSaved && read(good).find("not a graph") == string::npos,
+       "and Save after both still writes the graph it shows to its file, "
+       "and nothing to the piece");
+
+    w->set_visible(false);
+    delete w;
+
+    std::filesystem::remove(good);
+    std::filesystem::remove(bad);
 }
 
 /* A save that takes a box out of the graph -- cutting the wire out of an
@@ -1271,6 +1333,7 @@ int run (const string &pluginPath, const char *file)
     delete window;
 
     checkSelectionAfterSave(synth);
+    checkFailedOpen(synth, file);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
     checkPanelViewRows();

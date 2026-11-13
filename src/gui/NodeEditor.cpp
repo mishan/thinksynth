@@ -683,8 +683,8 @@ bool NodeEditor::sourceWritable (void) const
  * author, description, label and group, and no plugin opens a file, so the
  * copy parses exactly as the original does wherever it sits.
  *
- * One scratch file per window, reused for the life of it and removed in the
- * destructor. */
+ * A fresh one for each open, which takes over from the last only once the
+ * file has parsed; the last is removed in the destructor. */
 bool NodeEditor::startWorkingCopy (const string &source)
 {
     if (work_.empty())
@@ -727,11 +727,21 @@ void NodeEditor::markGrown (const std::set<string> &names)
 bool NodeEditor::openInline (const string &name, const string &body,
                              int chan, const InlineSave &save)
 {
+    const string prevName = inlineName_, prevBody = inlineBody_;
+    const InlineSave prevSave = inlineSave_;
+
     inlineName_ = name;
     inlineBody_ = body;
     inlineSave_ = save;
 
-    return open(name, chan);
+    if (open(name, chan))
+        return true;
+
+    inlineName_ = prevName;
+    inlineBody_ = prevBody;
+    inlineSave_ = prevSave;
+
+    return false;
 }
 
 bool NodeEditor::open (const string &filename, int chan)
@@ -744,10 +754,24 @@ bool NodeEditor::open (const string &filename, int chan)
     if (filename != inlineName_)
         inlineSave_ = nullptr;
 
-    /* Take the copy before anything else: from here on the window only ever
-       looks at the copy, so a failure to make one has to stop the open. */
+    /* Into a working copy of its own, taken over only once it parses: the
+       one there now is the graph still on screen, and the next Save writes
+       it to source_. */
+    const string prevWork = work_;
+
+    const auto keepPrevious = [this, &prevWork] ()
+    {
+        if (!work_.empty())
+            ::remove(work_.c_str());
+
+        work_ = prevWork;
+    };
+
+    work_.clear();
+
     if (!startWorkingCopy(filename))
     {
+        keepPrevious();
         inlineSave_ = prevSave;
         setStatus("Could not read " + filename);
         return false;
@@ -761,11 +785,15 @@ bool NodeEditor::open (const string &filename, int chan)
 
     if (!reload())
     {
+        keepPrevious();
         source_ = prevSource;
         channel_ = prevChannel;
         inlineSave_ = prevSave;
         return false;
     }
+
+    if (!prevWork.empty())
+        ::remove(prevWork.c_str());
 
     structuralDirty_ = false;
 
