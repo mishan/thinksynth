@@ -30,6 +30,7 @@ efdde78ef3e99b6d  dx16.dsp
 ae90928d0a4babbd  epiano.dsp
 a63bc3b9805b482d  fircomb.dsp
 e06ae9b0747649d5  fmbass.dsp
+9cbce969d1600815  frost.dsp
 8bc2896a9f9c7a1d  fx/amp.dsp
 91411e048f9c48c1  fx/autopan.dsp
 5250590ad2b77b41  fx/autotune.dsp
