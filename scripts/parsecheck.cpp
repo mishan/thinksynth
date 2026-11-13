@@ -338,7 +338,6 @@ seeds (const fs::path &dir, const char *ext)
 
         if (text.find("input::") != std::string::npos ||
             text.find("misc::wlan") != std::string::npos ||
-            text.find("fft::") != std::string::npos ||
             text.find("test::") != std::string::npos)
             continue;
 

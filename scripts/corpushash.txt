@@ -45,6 +45,7 @@ e42e640fb0793e85  fx/ensemble.dsp
 c4ed38ef5cd6d115  fx/eq.dsp
 02a9eb3d5d6268ed  fx/filter.dsp
 3652dfefcb725c61  fx/flanger.dsp
+c4ed38ef5cd6d115  fx/freeze.dsp
 837280c41cd2bd49  fx/gate.dsp
 452c77609cd12cf1  fx/glue.dsp
 e1edbd2bb5f8a5c9  fx/granular.dsp
