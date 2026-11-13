@@ -483,6 +483,20 @@ Resonant Difference Shaping Filter
 | `res` | in | Scales the step by res squared |  | 0 to 1 |  |  |
 | `factor` | in | How hard a large step is squashed; 0 is not at all |  |  | exponent |  |
 
+### filt::eq
+
+One EQ band: a peak, a low shelf or a high shelf
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `type` | in | Which band; changed mid-note, it clicks |  |  |  | 0 = Peak, 1 = Low shelf, 2 = High shelf |
+| `freq` | in | A peak's center, a shelf's half-gain point; 10 Hz to 0.49 of the sample rate |  |  | Hz |  |
+| `gain` | in | Boost or cut; at 0 the band is a wire |  | -24 to 24 | dB |  |
+| `q` | in | A peak's narrowness, to 18; a shelf's bump at its corner, plain at 0.707, to 2 |  | 0.1 to 18 |  |  |
+| `out` | out | The signal through the band; not clipped |  | -1 to 1 | full scale |  |
+| `last` | state |  |  |  |  |  |
+
 ### filt::ink
 
 `INK Filter`  Gravity-based low pass

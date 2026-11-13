@@ -27,6 +27,7 @@
 
 #include "thKernel.h"
 #include "../plugins/env/adsr.h"
+#include "../plugins/filt/eq.h"
 #include "../plugins/filt/svf.h"
 #include "../plugins/mixer/pan.h"
 #include "../plugins/osc/blep.h"
@@ -108,6 +109,19 @@ main ()
         for (int i = 0; i < 100; i++)
             ok = ok && same(a.tick(c, nan, band, high), b.tick(c, zero - 1, band, high));
         report("filt::svf takes a NaN in as the floor", ok);
+    }
+    report("filt::eq takes a NaN type, freq, gain and q as a peak, its floor, 0 dB "
+           "and the narrowest q",
+           same(thkEq::ctl(nan, nan, nan, nan, 32000),
+                thkEq::ctl(zero, thkEq::FLOOR, zero, thkEq::QMIN, 32000)));
+    {
+        const thkEq::Ctl c = thkEq::ctl(0, 1000, 12, 2, 32000);
+        thkEq a, b;
+        bool ok = true;
+
+        for (int i = 0; i < 100; i++)
+            ok = ok && same(a.tick(c, nan), b.tick(c, zero));
+        report("filt::eq takes a NaN in as 0", ok);
     }
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");
