@@ -6266,7 +6266,8 @@ static void checkBlur (const string &pluginPath)
             {
                 const double rel = blAt(out, 1000, t + d, 0.05) / before / exp(-(d + 0.025) / 0.5);
 
-                lo = std::min(lo, rel);
+                /* A silent output is 0 / 0, which min and max would skip. */
+                lo = std::isfinite(rel) ? std::min(lo, rel) : 0;
                 hi = std::max(hi, rel);
             }
             okOrFail(lo > 0.5 && hi / lo < 1.41,
