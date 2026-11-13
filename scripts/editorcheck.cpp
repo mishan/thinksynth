@@ -60,6 +60,8 @@
 #include <gtkmm.h>
 
 #include "think.h"
+#include "NodeCatalog.h"
+#include "NodeEdit.h"
 #include "NodeGraph.h"
 #include "NodeLayout.h"
 #include "gui/NodeEditor.h"
@@ -146,6 +148,9 @@ public:
     using NodeEditor::wiring_;
     using NodeEditor::onDisconnect;
     using NodeEditor::onBoxMoved;
+    using NodeEditor::onParamEdited;
+    using NodeEditor::onControlChanged;
+    using NodeEditor::onPaletteAdd;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -727,6 +732,338 @@ void checkLayoutRestored (thSynth &synth, const char *file)
 
     w->set_visible(false);
     delete w;
+
+    std::filesystem::remove(copy);
+}
+
+/* What Save writes for edits made through the editor, across the corpus,
+ * held against the same edits applied with NodeEdit's own splices in the
+ * order Save has always applied them: wires, then controls, then values, then
+ * the layout block. The edits are on different args, so their order changes
+ * no byte, and anything the editor does to the file in between -- a working
+ * copy, a buffer, a reparse -- has to come out the same.
+ *
+ * Two runs a file: a wire cut, a control's slider and a value set and a box
+ * dragged; then, over what that saved -- so over a layout block already
+ * there -- a value set, a box dragged and a node added, which has to keep
+ * both. Where the boxes end up is read back out of the saved file, not out
+ * of the editor. */
+void checkSaveCorpus (thSynth &synth, const string &pluginPath)
+{
+    const char *dsps = getenv("THINK_DSP_PATH");
+    std::error_code ec;
+
+    if (dsps == NULL || !std::filesystem::is_directory(dsps, ec))
+    {
+        ok(false, "THINK_DSP_PATH names the corpus");
+        return;
+    }
+
+    vector<string> files;
+
+    for (const auto &e : std::filesystem::recursive_directory_iterator(dsps))
+        if (e.path().extension() == ".dsp")
+            files.push_back(e.path().string());
+
+    std::sort(files.begin(), files.end());
+
+    NodeCatalog catalog;
+    NodeCatalog::Entry simple;
+
+    catalog.scan(pluginPath);
+    catalog.describe("osc::simple", synth.getPluginManager(), simple);
+
+    vector<pair<string, double> > defaults;
+
+    for (const NodeCatalog::Default &d : simple.defaults)
+        defaults.push_back(make_pair(d.name, d.value));
+
+    const string copy = thUtil::tempFile("editorcheck-corpus-");
+
+    const auto read = [] (const string &path)
+    {
+        ifstream in(path.c_str(), std::ios::binary);
+
+        return string((std::istreambuf_iterator<char>(in)),
+                      std::istreambuf_iterator<char>());
+    };
+
+    /* Where a box's position is written: the same rounding as the file. */
+    const auto at = [] (const NodeGraph::Box &b)
+    {
+        return make_pair((double)(long)(b.x + 0.5), (double)(long)(b.y + 0.5));
+    };
+
+    int compared = 0, mismatched = 0;
+    int cuts = 0, sliders = 0, values = 0, drags = 0, adds = 0;
+
+    for (const string &file : files)
+    {
+        /* One editor a file, so nothing one file armed reaches the next. */
+        TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w = new Gtk::Window();
+
+        w->set_child(*ed);
+        w->set_default_size(1000, 600);
+        w->present();
+
+        pump(0.05);
+
+        std::vector<NodeCanvasWidget *> canvases;
+
+        collectWidgets(ed, canvases);
+
+        NodeCanvas *canvas = canvases.empty() ? NULL : canvases[0];
+        string input = read(file);
+
+        /* The presses below are in the graph's own coordinates. */
+        ok(canvas != NULL && canvas->zoom() == 1.0,
+           "%s opens on a canvas at 1:1", file.c_str());
+
+        for (int run = 0; run < 2 && canvas != NULL; run++)
+        {
+            {
+                ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+                out << input;
+            }
+
+            if (!ed->open(copy))
+            {
+                ok(false, "the editor opens %s (run %d)", file.c_str(), run);
+                break;
+            }
+
+            const NodeGraph &g = ed->graph();
+            string want = input, why;
+            pair<string, string> cut;
+
+            /* What the oracle applies, in Save's order: wires, controls,
+               values. The gestures go in the opposite order -- the drag
+               first, the wire last -- so an editor that writes each edit as
+               it is made has to come out the same as one that saves them up. */
+            vector<pair<int, std::function<void (string &)> > > splices;
+            int cutEdge = -1;
+
+            if (run == 0)
+                for (size_t e = 0; e < g.edges().size() && cutEdge < 0; e++)
+                {
+                    const NodeGraph::Edge &x = g.edges()[e];
+                    const NodeGraph::Box &to = g.boxes()[x.toBox];
+                    const string arg = to.ports[x.toPort].name;
+                    string t = want;
+
+                    if (to.isExpr || g.boxes()[x.fromBox].isExpr ||
+                        NodeEdit::Text::disconnect(t, to.name, arg, 0, why) !=
+                            NodeEdit::OK || t == want)
+                        continue;
+
+                    cutEdge = (int)e;
+                    cut = make_pair(to.name, arg);
+                    splices.push_back(make_pair(0, [=] (string &text)
+                        { string w; NodeEdit::Text::disconnect(text, cut.first,
+                                                               cut.second, 0,
+                                                               w); }));
+                }
+
+            /* A box dragged by its title. */
+            string dragged;
+            pair<double, double> draggedTo;
+
+            for (size_t b = 0; b < g.boxes().size(); b++)
+            {
+                const NodeGraph::Box &x = g.boxes()[b];
+
+                if (x.attachedTo >= 0 || x.isProbe || x.isControl)
+                    continue;
+
+                const double px = x.x + 6, py = x.y + 6;
+                const pair<double, double> from = at(x);
+
+                canvas->onPressed(1, px, py);
+                canvas->onMotion(px + 23, py + 11);
+                canvas->onReleased(1, px + 23, py + 11);
+
+                if (at(g.boxes()[b]) == make_pair(from.first + 23,
+                                                  from.second + 11))
+                {
+                    dragged = NodeLayout::keyFor(g, (int)b);
+                    draggedTo = at(g.boxes()[b]);
+                    drags++;
+                }
+                else
+                    ok(false, "%s (run %d): %s moves when dragged by its "
+                       "title", file.c_str(), run, x.name.c_str());
+
+                break;
+            }
+
+            /* A plain value on a node, other than the arg a wire is cut
+               from, that the writer will set to 0.25. */
+            [&] ()
+            {
+                for (size_t b = 0; b < g.boxes().size(); b++)
+                {
+                    const NodeGraph::Box &x = g.boxes()[b];
+
+                    if (x.isIoSource || x.isIoSink || x.isControl ||
+                        x.isExpr || x.isProbe)
+                        continue;
+
+                    for (const NodeGraph::Param &p : x.params)
+                    {
+                        string t = want;
+
+                        if (p.kind != NodeGraph::Param::VALUE ||
+                            !p.hasValue || p.isOutput || p.isExpr ||
+                            p.value == 0.25f ||
+                            make_pair(x.name, p.name) == cut ||
+                            NodeEdit::Text::setValue(t, x.name, p.name, 0.25,
+                                                     why) != NodeEdit::OK ||
+                            t == want)
+                            continue;
+
+                        const string node = x.name, arg = p.name;
+
+                        ed->onParamEdited((int)b, arg, 0.25);
+                        splices.push_back(make_pair(2, [=] (string &text)
+                            { string w; NodeEdit::Text::setValue(text, node,
+                                                                 arg, 0.25,
+                                                                 w); }));
+                        values++;
+                        return;
+                    }
+                }
+            }();
+
+            /* A press on a slider's track and a release, as a hand would --
+               well away from the handle, so that a slider that snaps to whole
+               values still lands on another one. The value is whatever the
+               slider took. */
+            if (run == 0)
+                for (size_t b = 0; b < g.boxes().size(); b++)
+                {
+                    double x0, x1, y, hx;
+
+                    if (!g.boxes()[b].isControl ||
+                        !g.sliderGeometry((int)b, x0, x1, y, hx))
+                        continue;
+
+                    const float was = g.boxes()[b].ctlValue;
+                    const double px = x0 + (x1 - x0) *
+                                      (hx < (x0 + x1) / 2 ? 0.875 : 0.125);
+
+                    canvas->onPressed(1, px, y);
+                    canvas->onReleased(1, px, y);
+
+                    const string ctl = g.boxes()[b].ctlArg;
+                    const double v = g.boxes()[b].ctlValue;
+
+                    if (g.boxes()[b].ctlValue == was)
+                        ok(false, "%s: @%s's slider moves when pressed",
+                           file.c_str(), ctl.c_str());
+                    else
+                    {
+                        splices.push_back(make_pair(1, [=] (string &text)
+                            { string w; NodeEdit::Text::setChanArg(text, ctl,
+                                                                   v, w); }));
+                        sliders++;
+                    }
+
+                    break;
+                }
+
+            if (cutEdge >= 0)
+            {
+                ed->onDisconnect(cutEdge);
+                cuts++;
+            }
+
+            std::stable_sort(splices.begin(), splices.end(),
+                             [] (const auto &a, const auto &b)
+                             { return a.first < b.first; });
+
+            for (const auto &sp : splices)
+                sp.second(want);
+
+            NodeLayout::PosMap before;
+            string added;
+
+            if (run == 1)
+            {
+                for (size_t b = 0; b < g.boxes().size(); b++)
+                    if (g.boxes()[b].attachedTo < 0)
+                        before[NodeLayout::keyFor(g, (int)b)] =
+                            at(g.boxes()[b]);
+
+                std::set<string> names;
+
+                for (const NodeGraph::Box &x : g.boxes())
+                    names.insert(x.name);
+
+                ed->onPaletteAdd("osc::simple");
+
+                for (const NodeGraph::Box &x : ed->graph().boxes())
+                    if (!names.count(x.name))
+                        added = x.name;
+
+                if (added.empty() ||
+                    NodeEdit::Text::addNode(want, added, "osc::simple",
+                                            defaults, why) != NodeEdit::OK)
+                    ok(false, "%s: a node is added from the palette (%s)",
+                       file.c_str(), why.c_str());
+                else
+                    adds++;
+            }
+
+            NodeLayout::Text::write(want, ed->graph());
+
+            ed->onSave();
+
+            const string got = read(copy);
+
+            compared++;
+
+            if (got != want)
+            {
+                mismatched++;
+                ok(false, "Save of %s (run %d) wrote what the same edits make "
+                   "through NodeEdit", file.c_str(), run);
+            }
+
+            NodeLayout::PosMap saved;
+
+            NodeLayout::Text::read(got, saved);
+
+            if (!dragged.empty() &&
+                (!saved.count(dragged) || saved[dragged] != draggedTo))
+                ok(false, "%s (run %d): %s is saved where it was dragged "
+                   "(%g,%g, not %g,%g)", file.c_str(), run, dragged.c_str(),
+                   saved.count(dragged) ? saved[dragged].first : -1.0,
+                   saved.count(dragged) ? saved[dragged].second : -1.0,
+                   draggedTo.first, draggedTo.second);
+
+            for (const auto &k : before)
+                if (!saved.count(k.first) || saved[k.first] != k.second)
+                {
+                    ok(false, "%s: %s is where it was before a node was "
+                       "added", file.c_str(), k.first.c_str());
+                    break;
+                }
+
+            input = got;
+        }
+
+        w->set_visible(false);
+        delete w;
+    }
+
+    ok(compared == 2 * (int)files.size() && mismatched == 0,
+       "Save writes what NodeEdit's own splices make, in %d runs over %d "
+       "files (%d differed)", compared, (int)files.size(), mismatched);
+    ok(cuts > 0 && sliders > 0 && values > 0 && drags > 0 && adds > 0,
+       "...having cut %d wires, moved %d sliders, set %d values, dragged %d "
+       "boxes and added %d nodes", cuts, sliders, values, drags, adds);
 
     std::filesystem::remove(copy);
 }
@@ -1448,6 +1785,7 @@ int run (const string &pluginPath, const char *file)
     checkSelectionAfterSave(synth);
     checkFailedOpen(synth, file);
     checkLayoutRestored(synth, file);
+    checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
     checkPanelViewRows();
