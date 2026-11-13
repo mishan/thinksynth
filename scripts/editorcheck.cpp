@@ -1561,6 +1561,39 @@ void checkValueCommit (thSynth &synth)
     std::filesystem::remove(copy);
 }
 
+/* A structural edit whose result will not parse leaves the text as it was:
+   the canvas still shows the old graph, and Save would otherwise write a file
+   that does not load. A node from a plugin that will not load -- one the
+   palette lists from the directory -- is such an edit. */
+void checkFailedReparse (thSynth &synth, const char *file)
+{
+    const string copy = thUtil::tempFile("editorcheck-reparse-");
+
+    std::filesystem::copy_file(file, copy,
+        std::filesystem::copy_options::overwrite_existing);
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->present();
+
+    pump(0.2);
+
+    ok(ed->open(copy), "an editor opens a copy of %s", file);
+
+    const string before = ed->text();
+
+    ed->onPaletteAdd("osc::notaplugin");
+
+    ok(ed->text() == before && !ed->dirty(),
+       "a node whose plugin will not load leaves the text as it was");
+
+    delete w;
+
+    std::filesystem::remove(copy);
+}
+
 /* Opening a graph that will not parse changes nothing: the next Save still
    writes the graph on screen to where it came from. From a file and from a
    piece's text, since a piece's graph carries its own save. */
@@ -2283,6 +2316,7 @@ int run (const string &pluginPath, const char *file)
     checkControlCommit(synth);
     checkWireCommit(synth);
     checkValueCommit(synth);
+    checkFailedReparse(synth, file);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
