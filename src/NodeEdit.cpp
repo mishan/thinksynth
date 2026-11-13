@@ -647,6 +647,42 @@ static bool substituteRef (const string &rhs, const string &ref,
     return true;
 }
 
+/* A right-hand side that runs on past its line -- arithmetic, since a wire
+   or a number fits on one -- from just after the `=' at `eq' on lines[i] to
+   the `;' that ends it. `ref' is replaced by `with' wherever it appears on
+   those lines, and `i' is left on the last of them. True if any was. */
+static bool substituteAcross (vector<string> &lines, size_t &i,
+                              string::size_type eq, const string &ref,
+                              bool takesPort, const string &with)
+{
+    bool any = false;
+
+    for (size_t k = i; k < lines.size(); k++)
+    {
+        const string code = codeOf(lines[k]);
+        const string::size_type start = (k == i) ? eq + 1 : 0;
+        const string::size_type semi = code.find(';', start);
+        const string::size_type end = semi == string::npos ? code.size()
+                                                            : semi;
+        string cut;
+
+        if (substituteRef(code.substr(start, end - start), ref, takesPort,
+                          with, cut))
+        {
+            lines[k] = lines[k].substr(0, start) + cut + lines[k].substr(end);
+            any = true;
+        }
+
+        if (semi != string::npos || k + 1 == lines.size())
+        {
+            i = k;
+            break;
+        }
+    }
+
+    return any;
+}
+
 static bool findAssign (const vector<string> &lines, size_t open, size_t close,
                         const string &arg, size_t &line,
                         string::size_type &rhsFrom, string::size_type &rhsTo)
@@ -1750,6 +1786,14 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
         if (eq == string::npos)
             continue;
 
+        if (code.find(';', eq) == string::npos)
+        {
+            if (substituteAcross(lines, i, eq, ref, true, "0"))
+                removed++;
+
+            continue;
+        }
+
         const string::size_type at = code.find(ref, eq);
 
         if (at == string::npos)
@@ -2356,6 +2400,17 @@ NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &na
 
         if (eq == string::npos)
             continue;
+
+        /* Over several lines, only the references go: the value stands in
+           where there is one, and 0 where its unit means there is not. */
+        if (code.find(';', eq) == string::npos)
+        {
+            if (substituteAcross(lines, i, eq, ref, false,
+                                 stood.empty() ? "0" : stood))
+                removed++;
+
+            continue;
+        }
 
         const string::size_type at = code.find(ref, eq);
 

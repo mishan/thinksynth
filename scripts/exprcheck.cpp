@@ -1536,6 +1536,59 @@ int main (int argc, char **argv)
         remove(file.c_str());
     }
 
+    /* A right-hand side over several lines. A reference on any of them goes
+       as it would on one: left behind, it names a node or a control that is
+       not there, and the file stops parsing. */
+    {
+        struct Case {
+            const char *what;
+            bool control;
+            const char *name;
+        };
+
+        const Case cases[] = {
+            { "a node read on a statement's first line", false, "a" },
+            { "a node read on a line after it", false, "b" },
+            { "a control read on a line after it", true, "c" },
+        };
+
+        string text =
+            "name \"Lines\";\n"
+            "@c = 0.5;\n"
+            "@c.widget = 1;\n"
+            "@c.min = 0;\n"
+            "@c.max = 1;\n"
+            "node ionode { channels = 1; out0 = mix->out; "
+            "play = env->play; };\n"
+            "node a osc::simple { freq = ionode->note; };\n"
+            "node b osc::simple { freq = ionode->note; };\n"
+            "node env env::adsr { trigger = ionode->trigger; };\n"
+            "node mix mixer::mul {\n"
+            "    in0 = a->out * 0.5 +\n"
+            "          b->out * @c;\n"
+            "    in1 = env->out;\n"
+            "};\n"
+            "io ionode;\n";
+
+        okOrFail(!refused(synth, text), "a statement over two lines parses",
+                 text);
+
+        for (const Case &c : cases)
+        {
+            string why;
+            int removed = 0;
+            const NodeEdit::Result r =
+                c.control
+                    ? NodeEdit::Text::removeControl(text, c.name, removed, why)
+                    : NodeEdit::Text::removeNode(text, c.name, removed, why);
+
+            okOrFail(r == NodeEdit::OK && removed == 1 &&
+                     !refused(synth, text),
+                     string("removing ") + c.what + " leaves a file that "
+                     "parses", text);
+        }
+    }
+
     remove(scratch.c_str());
 
     printf("\n%d failure(s)\n", failed);
