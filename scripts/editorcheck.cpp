@@ -1245,7 +1245,7 @@ void checkControlCommit (thSynth &synth)
                "@lvl.widget = 1;\n"
                "@lvl.min = 0;\n"
                "@lvl.max = 1;\n"
-               "@cut = 0.5;\n"
+               "@cut = 0.50;\n"
                "@cut.widget = 1;\n"
                "@cut.min = 0;\n"
                "@cut.max = 1;\n"
@@ -1315,7 +1315,8 @@ void checkControlCommit (thSynth &synth)
         ed->onControlChanged(cut, was, true);
 
         ok(moved && !ed->dirty(),
-           "a slider moved is unsaved and put back is not");
+           "a slider moved is unsaved and put back is not, the file's "
+           "`0.50' spelled as it was");
     }
     else
         ok(false, "@cut is a box");

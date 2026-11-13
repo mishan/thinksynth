@@ -2430,7 +2430,8 @@ void NodeEditor::onControlChanged (int box, double value, bool commit)
 
     string text = text_, why;
 
-    if (NodeEdit::Text::setChanArg(text, b.ctlArg, value, why) != NodeEdit::OK)
+    if (NodeEdit::Text::setChanArg(text, b.ctlArg, value, saved_, why) !=
+        NodeEdit::OK)
     {
         /* Back to what text_ says, on the canvas and in the sound, rather
            than holding a value that would fail at Save. */

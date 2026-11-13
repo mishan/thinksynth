@@ -220,6 +220,14 @@ public:
         static Result setChanArg (string &source, const string &name,
                                   double value, string &why);
 
+        /* With `saved', the file as it was last read or written: a value
+           that is what `saved' says goes back in `saved''s spelling, so a
+           slider moved and put back leaves `0.50' as it found it rather than
+           as `0.5'. */
+        static Result setChanArg (string &source, const string &name,
+                                  double value, const string &saved,
+                                  string &why);
+
         static Result addNode (string &source, const string &node,
                                const string &plugin,
                                const vector<pair<string, double> > &initial,
