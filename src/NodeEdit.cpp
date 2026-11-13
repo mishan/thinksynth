@@ -982,6 +982,47 @@ static bool writtenPerChannel (const vector<string> &lines, size_t open,
 
 NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
                                      const string &arg, double value,
+                                     const string &saved, string &why)
+{
+    vector<string> was, lines;
+    bool wasNewline = true, endsWithNewline = true;
+    size_t wasOpen = 0, wasClose = 0, open = 0, close = 0;
+    size_t wasLine = 0, line = 0;
+    string::size_type wasFrom = 0, wasTo = 0, from = 0, to = 0;
+    double savedValue;
+
+    splitLines(saved, was, wasNewline);
+    splitLines(source, lines, endsWithNewline);
+
+    if (!findNodeBlock(was, node, wasOpen, wasClose) ||
+        !findAssign(was, wasOpen, wasClose, arg, wasLine, wasFrom, wasTo) ||
+        !findNodeBlock(lines, node, open, close) ||
+        writtenPerChannel(lines, open, close, arg) ||
+        !findAssign(lines, open, close, arg, line, from, to) ||
+        !parseRhs(was[wasLine].substr(wasFrom, wasTo - wasFrom), savedValue) ||
+        !sameValue(savedValue, value))
+        return setValue(source, node, arg, value, why);
+
+    /* Only over a plain number. A wire, an expression or a name does not
+       parse as one, and the plain setValue refuses each with its reason. */
+    double current;
+
+    if (!parseRhs(lines[line].substr(from, to - from), current))
+        return setValue(source, node, arg, value, why);
+
+    why.clear();
+
+    lines[line] = lines[line].substr(0, from) +
+                  was[wasLine].substr(wasFrom, wasTo - wasFrom) +
+                  lines[line].substr(to);
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
+                                     const string &arg, double value,
                                      string &why)
 {
     why.clear();

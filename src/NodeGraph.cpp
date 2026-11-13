@@ -2492,6 +2492,16 @@ float NodeGraph::Box::ctlSnap (float value) const
     return value;
 }
 
+void NodeGraph::setParamValue (int box, const string &arg, float value)
+{
+    if (box < 0 || box >= (int)boxes_.size())
+        return;
+
+    for (Param &p : boxes_[box].params)
+        if (p.name == arg && p.hasValue)
+            p.value = value;
+}
+
 void NodeGraph::setControlValue (int box, float value)
 {
     if (box < 0 || box >= (int)boxes_.size() || !boxes_[box].isControl)

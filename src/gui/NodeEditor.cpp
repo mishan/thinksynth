@@ -503,14 +503,11 @@ void NodeEditor::clearSelectionStatus (void)
     selStatus_ = false;
 }
 
-/* Is there anything the source does not have?
- *
- * Two kinds, and both count. Values and wires are held aside until Save;
- * everything else -- nodes added and removed, controls, positions, probes --
- * is already in text_, and counts when text_ is not what the source says. */
+/* Is there anything the source does not have? Every edit is in text_ as it
+ * is made, so: is text_ what the source says. */
 bool NodeEditor::dirty (void) const
 {
-    return text_ != saved_ || !pending_.empty();
+    return text_ != saved_;
 }
 
 void NodeEditor::writeLayout (void)
@@ -555,14 +552,12 @@ void NodeEditor::updateDirty (void)
 {
     const bool dirty = this->dirty();
 
-    /* Save is offered only when there is something to save. It used to be
-       enabled whenever a file was open, and saving with nothing pending still
-       wrote the layout block -- so opening a .dsp that had never been through
-       the editor and pressing Save added twenty comment lines to a file the
-       user had not edited. */
+    /* Save is offered only when there is something to save: Save writes the
+       layout block, and pressing it on a .dsp that had never been through
+       the editor would add twenty comment lines to a file nobody edited. */
     saveBtn_.set_sensitive(!source_.empty() && dirty);
 
-    /* Save As stays available with nothing pending: "give me my own copy of
+    /* Save As stays available with nothing changed: "give me my own copy of
        this patch" is a reason to use it, and for a read-only source it is the
        only way anything gets written at all. */
     saveAsBtn_.set_sensitive(!source_.empty());
@@ -627,6 +622,7 @@ const char *NodeEditor::applyValueLive (const string &node, const string &arg,
 
     a->setValue((float)value);
     tree->edited();
+    liveValues_.insert(make_pair(node, arg));
 
     return "  (next note)";
 }
@@ -754,6 +750,7 @@ bool NodeEditor::open (const string &filename, int chan)
 
     saved_ = text_;
     liveControls_.clear();
+    liveValues_.clear();
 
     if (!sourceWritable())
         setStatus(status_.get_text() + "  --  read-only; Save will ask where "
@@ -814,8 +811,6 @@ bool NodeEditor::reload (const NodeLayout::PosMap *carry)
     delete tree_;
     tree_ = tree;
     graph_ = g;
-    pending_.clear();
-
     ctlText_.clear();
 
     for (const NodeGraph::Box &b : graph_.boxes())
@@ -911,71 +906,14 @@ void NodeEditor::onArrange (void)
     setStatus("Auto-arranged.");
 }
 
-/* Saves anything held in memory, for the operations that work on the file.
- *
- * Adding and deleting both edit the .dsp text and then reopen it, and the
- * reopen throws away everything pending. So they have to flush first -- and,
- * if the flush fails, not go ahead. Each of the three call sites wrote this
- * out itself and each got it slightly wrong: two ignored the result entirely,
- * and the third reported the failure into a status bar that the success
- * message overwrote a moment later.
- *
- * Says nothing and returns true when there is nothing to write, so callers can
- * ask unconditionally. */
-bool NodeEditor::flushPending (string &why)
-{
-    if (pending_.empty())
-        return true;
-
-    return writeAll(why);
-}
-
-bool NodeEditor::writeAll (string &why)
-{
-    for (std::map<std::pair<std::string, std::string>, double>::const_iterator
-             i = pending_.begin();
-         i != pending_.end(); ++i)
-    {
-        NodeEdit::Result r = NodeEdit::Text::setValue(text_, i->first.first,
-                                                      i->first.second,
-                                                      i->second, why);
-
-        if (r != NodeEdit::OK)
-        {
-            if (why.empty())
-                why = string(NodeEdit::resultText(r));
-
-            why = i->first.first + "." + i->first.second + ": " + why;
-
-            return false;
-        }
-    }
-
-    if (!NodeLayout::Text::write(text_, graph_))
-    {
-        why = "could not write the layout";
-        return false;
-    }
-
-    return true;
-}
-
 void NodeEditor::onSave (void)
 {
     if (source_.empty())
         return;
 
-    const int n = (int)pending_.size();
-
     string why;
 
-    if (!writeAll(why))
-    {
-        showError(topLevel(), "Could not save.", why);
-
-        setStatus("Not saved: " + why);
-        return;
-    }
+    writeLayout();
 
     /* Everything is now in text_. Putting it where the user
        expects is a separate step, and the one that can fail for reasons that
@@ -1003,27 +941,27 @@ void NodeEditor::onSave (void)
         inlineBody_ = body;
         inlineName_ = source_ = name;
 
-        finishSave(n);
+        finishSave();
         return;
     }
 
     if (!sourceWritable() || !writeFile(source_, text_))
     {
-        saveAsDialog(sigc::bind(sigc::mem_fun(*this, &NodeEditor::finishSave),
-                                n),
+        saveAsDialog(sigc::mem_fun(*this, &NodeEditor::finishSave),
                      "Not saved: " + source_ + " cannot be written. "
                      "Use Save As to put it somewhere else.");
         return;
     }
 
-    finishSave(n);
+    finishSave();
 }
 
 /* What follows a save that got as far as a file, from either route. */
-void NodeEditor::finishSave (int n)
+void NodeEditor::finishSave (void)
 {
     saved_ = text_;
     liveControls_.clear();
+    liveValues_.clear();
 
     /* Reparse rather than trusting the in-memory graph. The file is now the
        truth, and reading it back is the only way to see what it actually says
@@ -1034,18 +972,7 @@ void NodeEditor::finishSave (int n)
     if (!reloadKeepingSelection())
         return;
 
-    char buf[160];
-
-    /* One snprintf per case rather than a format string chosen by a
-       conditional. An earlier version handed the same argument list to both
-       branches, so the one taking no arguments read an int as a %s. */
-    if (n)
-        snprintf(buf, sizeof(buf), "Saved, with %d value%s.", n,
-                 n == 1 ? "" : "s");
-    else
-        snprintf(buf, sizeof(buf), "Saved.");
-
-    setStatus(buf);
+    setStatus("Saved.");
 }
 
 
@@ -1058,14 +985,8 @@ void NodeEditor::onRevert (void)
        tells us the on-disk values to put back. */
     const vector<string> ctlNames(liveControls_.begin(), liveControls_.end());
 
-    vector<pair<string, string> > valNames;
-
-    for (std::map<std::pair<std::string, std::string>, double>::const_iterator
-             i = pending_.begin();
-         i != pending_.end(); ++i)
-        valNames.push_back(i->first);
-
-    pending_.clear();
+    const vector<pair<string, string> > valNames(liveValues_.begin(),
+                                                 liveValues_.end());
 
     /* open(), not reload(): reading the source again is what throws away
        nodes added and deleted since the last save. */
@@ -1105,9 +1026,10 @@ void NodeEditor::onRevert (void)
             }
     }
 
-    /* Putting them back went through applyControlLive, which notes each as
-       touched; they are what the file says now. */
+    /* Putting them back went through applyControlLive and applyValueLive,
+       which note each as touched; they are what the file says now. */
     liveControls_.clear();
+    liveValues_.clear();
 
     char buf[128];
 
@@ -1214,9 +1136,9 @@ vector<string> NodeEditor::takenNames (void) const
 
 /* Adds a node of the chosen type, named so it does not collide.
  *
- * Written out at once rather than held with the other pending edits. A node's
- * ports come from its plugin, and the only thing that knows them is a parse --
- * so the honest way to show a new node is to write it and reparse.
+ * A node's ports come from its plugin, and the only thing that knows them is
+ * a parse -- so the honest way to show a new node is to write it into text_
+ * and reparse.
  *
  * What it is written to is text_, not the user's .dsp, so Revert undoes this
  * like anything else, by reading the source again. */
@@ -1233,19 +1155,6 @@ void NodeEditor::onPaletteAdd (string spelling)
                                  takenNames());
 
     string why;
-
-    /* Flush before touching the file, not after. Everything pending lives in
-       memory and the reopen below would drop it, so it has to go out first --
-       and if it cannot, the add must not happen either. Writing the node and
-       then failing to save would leave the file holding the new node and none
-       of the edits, which is a state the user never asked for and cannot
-       undo. */
-    if (!flushPending(why))
-    {
-        setStatus("Not adding " + spelling + ": the pending edits could not be "
-                  "saved first (" + why + ")");
-        return;
-    }
 
     /* Whatever the plugin declares a default for, written into the new block.
      *
@@ -1497,16 +1406,6 @@ void NodeEditor::addControlFromForm (ControlForm *form)
 
     string why;
 
-    /* Same order as adding a node: flush first, and give up if it fails,
-       rather than writing the control into a file that has lost every other
-       edit. */
-    if (!flushPending(why))
-    {
-        setStatus("Not adding @" + name + ": the pending edits could not be "
-                  "saved first (" + why + ")");
-        return;
-    }
-
     if (NodeEdit::Text::addControl(text_, name, value, min, max, label, group,
                                    why)
         != NodeEdit::OK)
@@ -1585,15 +1484,6 @@ void NodeEditor::editControlFromForm (ControlForm *form)
 
     string why;
 
-    /* Same order as adding: flush the pending edits first, so a range change
-       does not land in a file that has lost the wires drawn before it. */
-    if (!flushPending(why))
-    {
-        setStatus("Not retyping @" + name + ": the pending edits could not be "
-                  "saved first (" + why + ")");
-        return;
-    }
-
     if (NodeEdit::Text::setControlMeta(text_, name, min, max, label, group,
                                        why)
         != NodeEdit::OK)
@@ -1666,21 +1556,6 @@ void NodeEditor::onDeleteNode (void)
 
     string why;
     int refs = 0;
-
-    /* Flush first, because remove works on the file and the pending edits are
-       not in it yet.
-
-       If that write fails, stop. Going on would delete from a file missing
-       every edit since the last save, then reopen and report success -- the
-       edits gone and nothing said about it. A delete the user can retry after
-       fixing the disk is much better than one that quietly takes the wrong
-       file with it. */
-    if (!flushPending(why))
-    {
-        setStatus("Not deleting " + name + ": the pending edits could not be "
-                  "saved first (" + why + ")");
-        return;
-    }
 
     int done = 0, failedAt = -1;
 
@@ -1843,16 +1718,6 @@ void NodeEditor::onSaveAs (void)
     if (source_.empty())
         return;
 
-    string why;
-
-    /* Flush first: Save As means "this, as I see it, over there", and the
-       pending values are part of what is on screen. */
-    if (!flushPending(why))
-    {
-        setStatus("Not saved: " + why);
-        return;
-    }
-
     saveAsDialog(sigc::mem_fun(*this, &NodeEditor::finishSaveAs), string());
 }
 
@@ -1860,6 +1725,7 @@ void NodeEditor::finishSaveAs (void)
 {
     saved_ = text_;
     liveControls_.clear();
+    liveValues_.clear();
 
     if (!reloadKeepingSelection())
         return;
@@ -1967,40 +1833,55 @@ void NodeEditor::createFileAt (string path)
 }
 
 
-/* Records an edit. Nothing reaches the file until Save.
- *
- * Keyed by node and arg name rather than by box index so it survives the
- * reparse a save does. */
+/* A value typed in goes into text_ there and then, and the graph and the
+ * running synth take it once the text has. One the text will not take is
+ * refused, and the panel goes back to what the text says; one typed back to
+ * what the file says goes back in the file's spelling, so it leaves nothing
+ * to save. */
 void NodeEditor::onParamEdited (int box, string name, double value)
 {
     if (box < 0 || box >= (int)graph_.boxes().size())
         return;
 
-    const NodeGraph::Box &b = graph_.boxes()[box];
+    const string node = graph_.boxes()[box].name;
+    string text = text_, why;
 
-    /* Typing a value back to what it already was is not an edit, and should
-       not leave the window looking modified. */
-    for (size_t k = 0; k < b.params.size(); k++)
-        if (b.params[k].name == name &&
-            b.params[k].hasValue && (float)b.params[k].value == (float)value)
+    if (NodeEdit::Text::setValue(text, node, name, value, saved_, why) !=
+        NodeEdit::OK)
+    {
+        params_.setBox(&graph_, canvas_.selected());
+        setStatus(node + "." + name + " not changed: " + why);
+        return;
+    }
+
+    /* One element of an array is written by the block that makes every
+       element, so each of them takes it -- on the canvas and in the sound. A
+       reparse would say the same, and would take the panel being typed into
+       or dragged with it. */
+    const bool shared = NodeEdit::Text::shared(text_, node, name);
+    const string base = node.substr(0, node.find('[')) + "[";
+    const char *live = "";
+
+    text_ = text;
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+    {
+        const string &other = graph_.boxes()[b].name;
+
+        if ((int)b == box ||
+            (shared && other.compare(0, base.size(), base) == 0))
         {
-            pending_.erase(make_pair(b.name, name));
-            updateDirty();
-            setStatus("");
-            return;
+            graph_.setParamValue((int)b, name, (float)value);
+            live = applyValueLive(other, name, value);
         }
-
-    pending_[make_pair(b.name, name)] = value;
-
-    const char *live = applyValueLive(b.name, name, value);
+    }
 
     updateDirty();
 
     char buf[256];
 
-    snprintf(buf, sizeof(buf), "%s.%s = %g%s  (%d unsaved change%s)",
-             b.name.c_str(), name.c_str(), value, live,
-             (int)pending_.size(), pending_.size() == 1 ? "" : "s");
+    snprintf(buf, sizeof(buf), "%s.%s = %g%s", node.c_str(), name.c_str(),
+             value, live);
 
     setStatus(buf);
 }
@@ -2019,28 +1900,33 @@ bool NodeEditor::rewire (const std::function<NodeEdit::Result (string &,
                              &edit,
                          const string &done)
 {
-    /* Nothing changes unless the wire goes in: the values held aside are
-       written into a text that goes back if it does not. */
-    const string was = text_;
-    string why;
-
-    if (!flushPending(why))
-    {
-        text_ = was;
-        setStatus("Not changed: the values held aside could not be written "
-                  "first (" + why + ")");
-        return false;
-    }
-
-    string text = text_;
+    string text = text_, why;
 
     if (edit(text, why) != NodeEdit::OK || text == text_)
     {
-        text_ = was;
         setStatus(why.empty() ? "Nothing to change." : "Cannot: " + why);
         return false;
     }
 
+    const string was = text_;
+
+    text_ = text;
+
+    if (!reparse())
+    {
+        text_ = was;
+        return false;
+    }
+
+    setStatus(done);
+    refreshOutline();
+
+    return true;
+}
+
+/* Parses text_ again, every box but the strips put back where it was. */
+bool NodeEditor::reparse (void)
+{
     /* Not the strips, which go where their node does. A control that a wire
        leaves free-standing takes the layout's place for it: where its strip
        was is on top of the node it was on. */
@@ -2051,18 +1937,7 @@ bool NodeEditor::rewire (const std::function<NodeEdit::Result (string &,
             kept[NodeLayout::keyFor(graph_, (int)b)] =
                 make_pair(graph_.boxes()[b].x, graph_.boxes()[b].y);
 
-    text_ = text;
-
-    if (!reloadKeepingSelection(&kept))
-    {
-        text_ = was;
-        return false;
-    }
-
-    setStatus(done);
-    refreshOutline();
-
-    return true;
+    return reloadKeepingSelection(&kept);
 }
 
 void NodeEditor::onConnect (int fromBox, int fromPort, int toBox, int toPort)

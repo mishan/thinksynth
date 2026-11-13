@@ -94,8 +94,7 @@ public:
        piece declares, and the status line saying so. */
     void markGrown (const std::set<string> &names);
 
-    /* True if anything here is not in the source yet -- pending edits, or a
-       structural change already in text_. */
+    /* True if text_ is not what the source says. */
     bool dirty (void) const;
 
 protected:
@@ -219,17 +218,16 @@ protected:
     /* What follows a save that reached a file: reparse, restore the
        selection, say what happened. One per route, because they say
        different things. */
-    void finishSave (int n);
+    void finishSave (void);
     void finishSaveAs (void);
 
     /* Reparses after a save, keeping the selected box selected by its name:
        a reparse renumbers every box after one the save took out. */
     bool reloadKeepingSelection (const NodeLayout::PosMap *carry = NULL);
 
-    /* A wire made or cut: `edit' spliced into text_ in the order it was
-       made, after anything held aside, and the graph parsed again from it,
-       every box staying where it was. False, with the status bar saying
-       why, if the text would not take it. */
+    /* A wire made or cut: `edit' spliced into text_ and the graph parsed
+       again from it, every box staying where it was. False, with the status
+       bar saying why, if the text would not take it. */
     bool rewire (const std::function<NodeEdit::Result (string &, string &)>
                      &edit,
                  const string &done);
@@ -409,13 +407,12 @@ protected:
        Gtk::Popover destroyed while it is up takes the pointer grab with it. */
     Gtk::Popover ctxPopover_;
 
-    /* Positions and pending values, written together. */
-    bool writeAll (string &why);
+    /* Writes where every box is, and the probes, into text_: what a drag,
+       an arrange, a probe and a save change. */
+    void writeLayout (void);
 
-    /* writeAll, but a no-op success when there is nothing pending. What the
-       add and delete paths call before they touch the file: each of them
-       reopens afterwards, and the reopen discards anything still in memory. */
-    bool flushPending (string &why);
+    /* Parses text_ again, every box but the strips put back where it was. */
+    bool reparse (void);
 
     /* The graph as a list, under the canvas (refreshOutline): every box to
        choose, and the chosen one's wires to cut, make and watch, and the
@@ -474,20 +471,13 @@ private:
     /* The text as the source has it: read on open, written on save. */
     string saved_;
 
-    /* Writes where every box is, and the probes, into text_: what a drag,
-       an arrange or a probe changes. */
-    void writeLayout (void);
-
     /* True while the status bar is showing the selection count rather than
        something that happened. */
     bool selStatus_;
 
-    /* Edits typed into the panel but not yet written. Keyed by node name and
-       arg name rather than by box index, so they survive the reparse that
-       follows a save. Nothing touches the file until Save -- an editor that
-       rewrote a .dsp on every focus-out would be alarming to use, however
-       well tested the writer is. */
-    std::map<std::pair<std::string, std::string>, double> pending_;
+    /* Node args pushed into the running synth since the source was read,
+       by node and arg name -- what Revert puts back. */
+    std::set<std::pair<std::string, std::string> > liveValues_;
 
 
     /* Each control's value as text_ has it, by chanarg name: where a slider
@@ -498,14 +488,11 @@ private:
        what Revert puts back. */
     std::set<std::string> liveControls_;
 
-    /* Nodes added and removed. Unlike values and wires these are applied to
-       the file straight away rather than held until Save.
-
-       Adding a node means asking the plugin what ports it has, which means
-       loading it, which is exactly what reparsing the file does anyway -- and
-       a half-added node that exists on the canvas but not on disk is a state
-       with no honest way to draw it. So the file is the record, and Revert is
-       what undoes it. */
+    /* Nodes added and removed. Adding a node means asking the plugin what
+       ports it has, which means loading it, which is exactly what reparsing
+       the file does anyway -- and a half-added node that exists on the
+       canvas but not in the text is a state with no honest way to draw it.
+       So the text is the record, and Revert is what undoes it. */
     Gtk::Button newBtn_;
     Gtk::Button deleteBtn_;
 

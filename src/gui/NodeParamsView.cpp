@@ -79,13 +79,9 @@ void NodeParamsView::onEdited (const string &row, const string &valueText)
     /* Reported even when the value is the one the file already holds, which
      * is the one case the channel panel drops.
      *
-     * Here that case means something. A node's value is not written when it
-     * is typed -- it is kept as a pending edit until Save -- so the panel
-     * still shows the file's number while the window holds another. Typing
-     * the file's number back is then how a person takes an edit back, and
-     * NodeEditor::onParamEdited is what knows that: it erases the pending
-     * edit and clears the dirty mark. Dropped here, the window kept the
-     * edit, stayed modified, and saved a number the panel was not showing.
+     * Here that case means something: typing the file's number back is how
+     * a person takes an edit back, and NodeEditor::onParamEdited puts the
+     * file's own spelling back into the text, which clears the dirty mark.
      *
      * The guard that matters for a panel catching up is PanelView's, which
      * emits nothing at all while it is pushing a value in. */
