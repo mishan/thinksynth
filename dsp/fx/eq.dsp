@@ -3,13 +3,14 @@
 # Each band is a filt::eq, so at 0 dB it passes the channel through bit for
 # bit, and this graph at its defaults is a wire: putting it on a channel
 # changes nothing until a gain is turned. Each band's freq, gain and q are
-# knobs, and the bands overlap so that any one region has two of them to
-# reach it with.
+# knobs, and the bands' ranges overlap from 40 Hz to 16 kHz, so most of
+# the range has two of them to reach it with.
 #
-# A shelf's q above 0.707 steepens its corner and puts a bump either side
-# of it, a peak's narrows it; see plugins/filt/eq.cpp. Nothing here limits
-# the level, so a boost on a loud channel is over full scale, and
-# fx/limiter.dsp on the master is where that is caught.
+# A shelf's q above 0.707 steepens its corner, with a bump on one side of
+# it and a dip on the other, and a peak's narrows it; see
+# plugins/filt/eq.cpp. Nothing here limits the level, so a boost on a
+# loud channel is over full scale, and fx/limiter.dsp on the master is
+# where that is caught.
 
 name "EQ";
 author "Misha Nasledov";
