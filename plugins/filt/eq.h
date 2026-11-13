@@ -43,8 +43,8 @@ struct thkEq
     };
 
     /* tanf, exp2f and sqrtf, once while the args hold still. Past either
-       end of its range an arg is that end, and a type a Peak; not a
-       number, a Peak, a freq of FLOOR, 0 dB and a q of QMIN. */
+       end of its range an arg is that end, and a type a Peak; not
+       finite, a Peak, a freq of FLOOR, 0 dB and a q of QMIN. */
     static Ctl ctl (float type, float freq, float gain, float q, float rate)
     {
         const int t = thkFinite(type) && type >= 0 && type < 3 ? (int)type : PEAK;

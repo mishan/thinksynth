@@ -5467,6 +5467,45 @@ static void checkEq (const string &pluginPath)
         }
     }
 
+    /* ---- a q or a gain that moves while freq holds still moves the band:
+       a square stepping it from `at' to three times `at' a quarter second
+       in, against the arg held at `at', alike before the step and not
+       after it ---- */
+    for (const char *arg : { "q", "gain" })
+    {
+        const float at = string(arg) == "q" ? 0.5f : 6;
+        vector<NodeSpec> held = eqGraph(eqNoise(1), 0, 1000, 6, 0.5f), moving = held;
+        vector<float> a, b;
+        string why;
+
+        moving[0].values = { { "type", 0 }, { "freq", 1000 },
+                             { string(arg) == "q" ? "gain" : "q", string(arg) == "q" ? 6 : 0.5f } };
+        moving[0].wires.push_back({ arg, "m", "out" });
+        moving.push_back(eqNode("sq", "osc/simple",
+                                { { "freq", 2 }, { "amp", at }, { "waveform", 2 } }, {}));
+        moving.push_back(eqNode("m", "math/add", { { "in1", 2 * at } }, { { "in0", "sq", "out" } }));
+        /* One window, since a window's start works the band out afresh
+           and would hide a step the window's samples missed. */
+        if (!render1(pluginPath, moving, "eq", "out", 22050, 22050, a, why) ||
+            !render1(pluginPath, held, "eq", "out", 22050, 22050, b, why))
+            fail(string("filt::eq renders a moving ") + arg, why);
+        else
+        {
+            const size_t step = 11000;
+
+            okOrFail(!memcmp(a.data(), b.data(), step * sizeof(float)) &&
+                         memcmp(a.data() + step, b.data() + step,
+                                (a.size() - step) * sizeof(float)),
+                     string("filt::eq: a ") + arg + " that moves while freq holds still "
+                     "moves the band", [&] {
+                         size_t i = 0;
+                         while (i < a.size() && !memcmp(&a[i], &b[i], sizeof(float)))
+                             i++;
+                         return "first differs at sample " + num((double)i);
+                     }());
+        }
+    }
+
     /* ---- a band stopped while it rings lets go ----
        Noise through a +24 dB peak at 1 kHz for two seconds, then the noise
        gone and the freq dropped to 0 together: what is left has to die

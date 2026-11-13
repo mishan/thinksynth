@@ -39,12 +39,13 @@
  * transposed, can run away.
  *
  * At 0 dB A is exactly 1 and every term but the input's is exactly 0, so
- * the band is a wire, bit for bit, whatever the other args are doing.
+ * the band is a wire, bit for bit (a -0 aside), whatever the other args
+ * are doing.
  *
  * A SHELF'S Q is its pole pair's and its zero pair's, and above 0.707 it
  * does not make the shelf steeper: it overshoots on one side of the corner
- * and dips on the other, 1.1 dB at a q of 1 and 5.9 at 2, and at 18 a
- * +24 dB shelf would carry a +48 dB spike. So a shelf's q stops at 2,
+ * and dips on the other: on a 24 dB shelf, 1.1 dB at a q of 1 and 5.9 at
+ * 2, and at 18 a +48 dB spike. So a shelf's q stops at 2,
  * thkEq::SHELFQMAX, room for the bump a shelf is sometimes wanted with and
  * none for a resonance. A peak's goes to 18.
  *

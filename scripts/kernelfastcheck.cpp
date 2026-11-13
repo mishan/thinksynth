@@ -111,7 +111,7 @@ main ()
         report("filt::svf takes a NaN in as the floor", ok);
     }
     report("filt::eq takes a NaN type, freq, gain and q as a peak, its floor, 0 dB "
-           "and the narrowest q",
+           "and the lowest q",
            same(thkEq::ctl(nan, nan, nan, nan, 32000),
                 thkEq::ctl(zero, thkEq::FLOOR, zero, thkEq::QMIN, 32000)));
     {
