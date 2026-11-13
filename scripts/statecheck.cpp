@@ -71,6 +71,7 @@
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <deque>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -5595,10 +5596,14 @@ static void checkEq (const string &pluginPath)
 static const double FZ_RATE = 44100;
 
 /* A NodeSpec keeps its names as pointers; these graphs' names are built,
-   so each is kept for the life of the check. */
+   so each is kept for the life of the check, in a deque, which moves
+   nothing it already holds as it grows. */
 static const char *fzName (const string &name)
 {
-    return strdup(name.c_str());
+    static std::deque<string> names;
+
+    names.push_back(name);
+    return names.back().c_str();
 }
 
 /* `name' steps from 0 to 1 at `at' seconds: a saw a hundred seconds long,
