@@ -225,6 +225,10 @@ protected:
        a reparse renumbers every box after one the save took out. */
     bool reloadKeepingSelection (const NodeLayout::PosMap *carry = NULL);
 
+    /* reload() after a structural edit, putting text_ back to `was' if the
+       edit made something that will not parse. */
+    bool reloadAfter (const string &was);
+
     /* A wire made or cut: `edit' spliced into text_ and the graph parsed
        again from it, every box staying where it was. False, with the status
        bar saying why, if the text would not take it. */

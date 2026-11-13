@@ -1174,6 +1174,7 @@ void NodeEditor::onPaletteAdd (string spelling)
                                             e.defaults[i].value));
     }
 
+    const string was = text_;
     NodeEdit::Result r =
         NodeEdit::Text::addNode(text_, name, spelling, initial, why);
 
@@ -1186,7 +1187,7 @@ void NodeEditor::onPaletteAdd (string spelling)
     /* reload(), emphatically not open(): the node has just been written to
        text_, and open() would read the source over it -- undoing the add in
        the act of displaying it. */
-    if (!reload())
+    if (!reloadAfter(was))
         return;
 
     /* Put it where there is room rather than on top of layer 0, and select it
@@ -1405,6 +1406,7 @@ void NodeEditor::addControlFromForm (ControlForm *form)
     const double max = form->max->get_value();
 
     string why;
+    const string was = text_;
 
     if (NodeEdit::Text::addControl(text_, name, value, min, max, label, group,
                                    why)
@@ -1414,7 +1416,7 @@ void NodeEditor::addControlFromForm (ControlForm *form)
         return;
     }
 
-    if (!reload())
+    if (!reloadAfter(was))
         return;
 
     const int box = graph_.boxByName("@" + name);
@@ -1483,6 +1485,7 @@ void NodeEditor::editControlFromForm (ControlForm *form)
     const double max = form->max->get_value();
 
     string why;
+    const string was = text_;
 
     if (NodeEdit::Text::setControlMeta(text_, name, min, max, label, group,
                                        why)
@@ -1497,7 +1500,7 @@ void NodeEditor::editControlFromForm (ControlForm *form)
        slider can reach, and both come from a parse -- so a range that had
        changed in the file and not on the canvas would be a slider lying about
        where its own ends are. Revert still undoes it. */
-    if (!reload())
+    if (!reloadAfter(was))
         return;
 
     const int box = graph_.boxByName("@" + name);
@@ -1556,6 +1559,7 @@ void NodeEditor::onDeleteNode (void)
 
     string why;
     int refs = 0;
+    const string was = text_;
 
     int done = 0, failedAt = -1;
 
@@ -1588,7 +1592,7 @@ void NodeEditor::onDeleteNode (void)
         return;
     }
 
-    if (!reload())
+    if (!reloadAfter(was))
         return;
 
     char buf[256];
@@ -1731,6 +1735,20 @@ void NodeEditor::finishSaveAs (void)
         return;
 
     setStatus("Saved as " + source_ + ".");
+}
+
+/* reload() after a structural edit to text_. One whose result will not parse
+   puts `was' back, so the text goes on saying what the canvas -- which
+   reload leaves alone when it fails -- is showing. */
+bool NodeEditor::reloadAfter (const string &was)
+{
+    if (reload())
+        return true;
+
+    text_ = was;
+    updateDirty();
+
+    return false;
 }
 
 bool NodeEditor::reloadKeepingSelection (const NodeLayout::PosMap *carry)
