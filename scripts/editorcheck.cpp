@@ -54,7 +54,11 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <cmath>
 #include <functional>
+#include <map>
+#include <random>
+#include <set>
 #include <vector>
 
 #include <gtkmm.h>
@@ -148,6 +152,7 @@ public:
     using NodeEditor::wiring_;
     using NodeEditor::onDisconnect;
     using NodeEditor::onConnect;
+    using NodeEditor::onDeleteNode;
     using NodeEditor::text;
     using NodeEditor::onBoxMoved;
     using NodeEditor::onParamEdited;
@@ -1594,6 +1599,440 @@ void checkFailedReparse (thSynth &synth, const char *file)
     std::filesystem::remove(copy);
 }
 
+/* What a graph says: its boxes and wires, and every number it shows. Positions
+   and probe panels left out -- the one is where things are drawn and the
+   other is not in the patch. */
+struct GraphSays {
+    std::multiset<string> shape;
+    std::map<string, double> numbers;
+};
+
+GraphSays graphSays (const NodeGraph &g)
+{
+    GraphSays out;
+
+    for (const NodeGraph::Box &b : g.boxes())
+    {
+        if (b.isProbe)
+            continue;
+
+        out.shape.insert("box " + b.name + (b.isIoSource ? "#in" : "") +
+                         (b.isIoSink ? "#out" : "") +
+                         (b.isControl ? " control" : "") +
+                         (b.isExpr ? " expr" : ""));
+
+        if (b.isControl)
+            out.numbers[b.name] = b.ctlValue;
+
+        for (const NodeGraph::Param &p : b.params)
+            if (p.hasValue && p.kind == NodeGraph::Param::VALUE)
+                out.numbers[b.name + "." + p.name] = p.value;
+    }
+
+    for (const NodeGraph::Edge &e : g.edges())
+        out.shape.insert("wire " + g.boxes()[e.fromBox].name + "." +
+                         g.boxes()[e.fromBox].ports[e.fromPort].name + " -> " +
+                         g.boxes()[e.toBox].name + "." +
+                         g.boxes()[e.toBox].ports[e.toPort].name);
+
+    return out;
+}
+
+/* The same graph, or the first thing that differs. Numbers to a part in a
+   hundred thousand: a value written with a unit comes back from the text a
+   float's last bit away from the one typed. */
+bool graphsAgree (const NodeGraph &a, const NodeGraph &b, string &why)
+{
+    const GraphSays x = graphSays(a), y = graphSays(b);
+
+    for (const string &l : x.shape)
+        if (!y.shape.count(l))
+        {
+            why = "only the text has " + l;
+            return false;
+        }
+
+    for (const string &l : y.shape)
+        if (!x.shape.count(l))
+        {
+            why = "only the canvas has " + l;
+            return false;
+        }
+
+    for (const auto &n : x.numbers)
+    {
+        const auto m = y.numbers.find(n.first);
+
+        if (m == y.numbers.end() ||
+            std::fabs(m->second - n.second) >
+                1e-5 * std::max(1.0, std::fabs(n.second)))
+        {
+            char buf[96];
+
+            snprintf(buf, sizeof(buf), " is %g in the text and %g on the "
+                     "canvas", n.second,
+                     m == y.numbers.end() ? 0.0 : m->second);
+            why = n.first + buf;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/* Seeded runs of random edits through the editor's handlers and gestures,
+ * over the corpus. After every edit, two things hold:
+ *
+ *   - the editor's text is what the same edits make applied straight through
+ *     NodeEdit::Text, in the order they were made, each refused one skipped;
+ *   - the graph on the canvas says what a fresh parse of that text says, so
+ *     what is changed in place never drifts from the text.
+ *
+ * And Save writes the text, with the layout block, to the file. */
+void checkRandomEdits (thSynth &synth, const string &pluginPath)
+{
+    const char *dsps = getenv("THINK_DSP_PATH");
+    std::error_code ec;
+
+    if (dsps == NULL || !std::filesystem::is_directory(dsps, ec))
+    {
+        ok(false, "THINK_DSP_PATH names the corpus");
+        return;
+    }
+
+    vector<string> files;
+
+    for (const auto &e : std::filesystem::recursive_directory_iterator(dsps))
+        if (e.path().extension() == ".dsp")
+            files.push_back(e.path().string());
+
+    std::sort(files.begin(), files.end());
+
+    NodeCatalog catalog;
+    NodeCatalog::Entry simple;
+
+    catalog.scan(pluginPath);
+    catalog.describe("osc::simple", synth.getPluginManager(), simple);
+
+    vector<pair<string, double> > defaults;
+
+    for (const NodeCatalog::Default &d : simple.defaults)
+        defaults.push_back(make_pair(d.name, d.value));
+
+    const string copy = thUtil::tempFile("editorcheck-random-");
+
+    const auto read = [] (const string &path)
+    {
+        ifstream in(path.c_str(), std::ios::binary);
+
+        return string((std::istreambuf_iterator<char>(in)),
+                      std::istreambuf_iterator<char>());
+    };
+
+    const double values[] = { 0, 0.25, 0.5, 1, 2, 440, 1e31 };
+    const int STEPS = 24;
+    int runs = 0, made = 0, refused = 0, diverged = 0;
+
+    for (size_t f = 0; f < files.size(); f++)
+    {
+        const string orig = read(files[f]);
+
+        {
+            ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+            out << orig;
+        }
+
+        TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w = new Gtk::Window();
+
+        w->set_child(*ed);
+        w->set_default_size(1000, 600);
+        w->present();
+
+        pump(0.02);
+
+        std::vector<NodeCanvasWidget *> canvases;
+
+        collectWidgets(ed, canvases);
+
+        if (canvases.empty() || !ed->open(copy))
+        {
+            ok(false, "the editor opens %s", files[f].c_str());
+            delete w;
+            continue;
+        }
+
+        NodeCanvas *canvas = canvases[0];
+        std::mt19937 rng((unsigned)(f + 1));
+        string want = orig;
+        string why;
+        bool ok_ = true;
+
+        const auto pick = [&] (size_t n) { return (size_t)(rng() % n); };
+
+        for (int step = 0; step < STEPS && ok_; step++)
+        {
+            const NodeGraph &g = ed->graph();
+            const size_t nb = g.boxes().size();
+            const int op = (int)pick(6);
+            const string prev = want;
+            string what;
+
+            if (op == 0)
+            {
+                /* A value typed into the panel. */
+                const int b = (int)pick(nb);
+                const NodeGraph::Box &x = g.boxes()[b];
+                vector<string> args;
+
+                for (const NodeGraph::Param &p : x.params)
+                    if (p.kind == NodeGraph::Param::VALUE && p.hasValue &&
+                        !p.isOutput && !p.isExpr && !x.isControl &&
+                        !x.isProbe && !x.isExpr)
+                        args.push_back(p.name);
+
+                if (args.empty())
+                    continue;
+
+                const string arg = args[pick(args.size())];
+                const double v = values[pick(7)];
+                const string node = x.name;
+
+                what = "value " + node + "." + arg;
+
+                if (NodeEdit::Text::setValue(want, node, arg, v, orig, why) !=
+                    NodeEdit::OK)
+                    refused++;
+
+                ed->onParamEdited(b, arg, v);
+            }
+            else if (op == 1)
+            {
+                /* A slider pressed somewhere along its track. */
+                vector<int> ctls;
+
+                for (size_t b = 0; b < nb; b++)
+                    if (g.boxes()[b].isControl)
+                        ctls.push_back((int)b);
+
+                if (ctls.empty())
+                    continue;
+
+                const int b = ctls[pick(ctls.size())];
+                double x0, x1, y, hx;
+
+                if (!g.sliderGeometry(b, x0, x1, y, hx))
+                    continue;
+
+                const double px = x0 + (x1 - x0) * (double)pick(9) / 8;
+
+                /* Strips sit close: the slider pressed is whichever the
+                   point is on. */
+                const int hit = g.sliderAt(px, y);
+
+                if (hit < 0)
+                    continue;
+
+                const string ctl = g.boxes()[hit].ctlArg;
+
+                what = "slider @" + ctl;
+
+                canvas->onPressed(1, px, y);
+
+                const double v = g.boxes()[hit].ctlValue;
+
+                canvas->onReleased(1, px, y);
+
+                if (NodeEdit::Text::setChanArg(want, ctl, v, orig, why) !=
+                    NodeEdit::OK)
+                    refused++;
+            }
+            else if (op == 2)
+            {
+                /* A wire drawn from an output to an input. */
+                const int a = (int)pick(nb), z = (int)pick(nb);
+                const NodeGraph::Box &from = g.boxes()[a], &to = g.boxes()[z];
+
+                if (from.ports.empty() || to.ports.empty())
+                    continue;
+
+                const int ap = (int)pick(from.ports.size());
+                const int zp = (int)pick(to.ports.size());
+
+                if (!g.canConnect(a, ap, z, zp, why))
+                    continue;
+
+                const string node = to.name, arg = to.ports[zp].name;
+
+                what = "wire into " + node + "." + arg;
+
+                const NodeEdit::Result r = from.isControl
+                    ? NodeEdit::Text::connectControl(want, node, arg,
+                                                     from.ctlArg, why)
+                    : NodeEdit::Text::connect(want, node, arg, from.name,
+                                              from.ports[ap].name, why);
+
+                if (r != NodeEdit::OK)
+                    refused++;
+
+                ed->onConnect(a, ap, z, zp);
+            }
+            else if (op == 3)
+            {
+                /* A wire cut. */
+                if (g.edges().empty())
+                    continue;
+
+                const int e = (int)pick(g.edges().size());
+                const NodeGraph::Box &to = g.boxes()[g.edges()[e].toBox];
+
+                if (to.isExpr)
+                    continue;
+
+                const string node = to.name;
+                const string arg = to.ports[g.edges()[e].toPort].name;
+
+                what = "cut " + node + "." + arg;
+
+                if (NodeEdit::Text::disconnect(want, node, arg, 0, why) !=
+                    NodeEdit::OK)
+                    refused++;
+
+                ed->onDisconnect(e);
+            }
+            else if (op == 4)
+            {
+                /* A node added from the palette. */
+                std::set<string> names;
+
+                for (const NodeGraph::Box &x : g.boxes())
+                    names.insert(x.name);
+
+                what = "add osc::simple";
+
+                ed->onPaletteAdd("osc::simple");
+
+                string added;
+
+                for (const NodeGraph::Box &x : ed->graph().boxes())
+                    if (!names.count(x.name))
+                        added = x.name;
+
+                if (added.empty() ||
+                    NodeEdit::Text::addNode(want, added, "osc::simple",
+                                            defaults, why) != NodeEdit::OK)
+                    refused++;
+                else
+                    NodeLayout::Text::write(want, ed->graph());
+            }
+            else
+            {
+                /* A plain node selected and deleted. */
+                vector<int> nodes;
+
+                for (size_t b = 0; b < nb; b++)
+                {
+                    const NodeGraph::Box &x = g.boxes()[b];
+
+                    if (!x.isIoSource && !x.isIoSink && !x.isControl &&
+                        !x.isExpr && !x.isProbe && x.name.find('[') ==
+                        string::npos)
+                        nodes.push_back((int)b);
+                }
+
+                if (nodes.empty())
+                    continue;
+
+                const string node = g.boxes()[nodes[pick(nodes.size())]].name;
+                int n = 0;
+
+                what = "delete " + node;
+
+                if (NodeEdit::Text::removeNode(want, node, n, why) !=
+                    NodeEdit::OK)
+                    refused++;
+
+                canvas->setSelected(g.boxByName(node));
+                ed->onDeleteNode();
+            }
+
+            made++;
+
+            /* An edit whose text will not parse is refused, the editor
+               keeping the text it had. */
+            if (want != prev)
+            {
+                thSynthTree *t = synth.parseTreeText(files[f], want);
+
+                if (t == NULL)
+                {
+                    want = prev;
+                    refused++;
+                }
+
+                delete t;
+            }
+
+            /* The drag-less edits leave positions alone, so the text is
+               held without its layout block on both sides. */
+            string have = ed->text(), mine = want;
+
+            NodeLayout::Text::write(have, ed->graph());
+            NodeLayout::Text::write(mine, ed->graph());
+
+            NodeGraph fresh;
+            thSynthTree *tree = synth.parseTreeText(files[f], ed->text());
+            const bool built = tree != NULL && fresh.build(tree);
+
+            delete tree;
+
+            if (have != mine)
+            {
+                ok(false, "%s, seed %d, step %d (%s): the editor's text is "
+                   "what NodeEdit makes of the same edits", files[f].c_str(),
+                   (int)f + 1, step, what.c_str());
+                ok_ = false;
+            }
+            else if (!built || !graphsAgree(fresh, ed->graph(), why))
+            {
+                ok(false, "%s, seed %d, step %d (%s): the canvas says what "
+                   "the text does (%s)", files[f].c_str(), (int)f + 1, step,
+                   what.c_str(), built ? why.c_str() : "it does not parse");
+                ok_ = false;
+            }
+        }
+
+        if (ok_)
+        {
+            string mine = ed->text();
+
+            NodeLayout::Text::write(mine, ed->graph());
+            ed->onSave();
+
+            if (read(copy) != mine)
+            {
+                ok(false, "%s: Save writes the text and its layout",
+                   files[f].c_str());
+                ok_ = false;
+            }
+        }
+
+        diverged += !ok_;
+        runs++;
+
+        delete w;
+    }
+
+    ok(runs == (int)files.size() && diverged == 0 && made > runs * STEPS / 2 &&
+       refused > 0,
+       "%d random edits over %d files keep the text, the canvas and the file "
+       "agreeing (%d refused by the writer, %d files diverged)", made, runs,
+       refused, diverged);
+
+    std::filesystem::remove(copy);
+}
+
 /* Opening a graph that will not parse changes nothing: the next Save still
    writes the graph on screen to where it came from. From a file and from a
    piece's text, since a piece's graph carries its own save. */
@@ -2317,6 +2756,7 @@ int run (const string &pluginPath, const char *file)
     checkWireCommit(synth);
     checkValueCommit(synth);
     checkFailedReparse(synth, file);
+    checkRandomEdits(synth, pluginPath);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
