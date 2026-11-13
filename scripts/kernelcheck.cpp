@@ -41,6 +41,7 @@
 #include "../plugins/mixer/pan.h"
 #include "../plugins/dice.h"
 #include "../plugins/dist/saturate.h"
+#include "../plugins/fft/fft.h"
 #include "../plugins/filt/eq.h"
 #include "../plugins/filt/svf.h"
 #include "../plugins/osc/blep.h"
@@ -626,6 +627,50 @@ main ()
             worstRel = std::max(worstRel, worstCase / peak);
         }
         report("filt::eq's peak and shelves against the cookbook's biquads", worstRel, 2e-5);
+    }
+
+    /* The real FFT against the DFT done the long way in double, at every
+       size, on a noise whose every bin is in use; and the inverse undoing
+       it. */
+    for (int n = 256; n <= THK_FFT_MAX; n *= 2)
+    {
+        std::vector<float> x(n), back(n), re(n / 2 + 1), im(n / 2 + 1), keepRe, keepIm;
+        uint32_t seed = 12345u + (uint32_t)n;
+
+        for (float &v : x)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            v = (float)((double)seed / 4294967296.0 * 2 - 1);
+        }
+        thkFftReal(x.data(), re.data(), im.data(), n);
+        keepRe = re;
+        keepIm = im;
+        thkFftRealInverse(keepRe.data(), keepIm.data(), back.data(), n);
+
+        double worst = 0, top = 0, trip = 0;
+
+        for (int k = 0; k <= n / 2; k++)
+        {
+            double wr = 0, wi = 0;
+
+            for (int i = 0; i < n; i++)
+            {
+                const double a = -2 * M_PI * (double)((long)k * i % n) / n;
+
+                wr += x[i] * std::cos(a);
+                wi += x[i] * std::sin(a);
+            }
+            top = std::max(top, std::hypot(wr, wi));
+            worst = std::max(worst, std::hypot(re[k] - wr, im[k] - wi));
+        }
+        for (int i = 0; i < n; i++)
+            trip = std::max(trip, std::fabs((double)back[i] - x[i]));
+
+        const std::string at = " at " + std::to_string(n);
+
+        report(("the real FFT against the DFT, relative to its largest bin," + at).c_str(),
+               top > 0 ? worst / top : INFINITY, 1e-6);
+        report(("the inverse FFT undoing the forward" + at).c_str(), trip, 1e-6);
     }
 
     /* tanh in float, against the double's. */
