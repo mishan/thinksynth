@@ -387,6 +387,21 @@ Maps a stream to a new value range
 
 ## fft
 
+### fft::blur
+
+Spectral blur: each frequency's level smeared over time
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `size` | in | The frame, read when the node starts, and its latency | 2048 | 256 to 4096 | samples |  |
+| `blur` | in | How long a frequency's level takes to follow; 0 is none |  |  | samples |  |
+| `random` | in | How a fading frequency turns: 0 as it was, 1 at random |  | 0 to 1 |  |  |
+| `mix` | in | 0 the input a frame late, 1 the blurred |  | 0 to 1 |  |  |
+| `seed` | in | Which random turns |  |  |  |  |
+| `out` | out | The blend, a frame late |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### fft::freeze
 
 Spectral freeze: a moment of the input, held
