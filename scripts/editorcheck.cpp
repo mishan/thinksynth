@@ -61,6 +61,7 @@
 
 #include "think.h"
 #include "NodeGraph.h"
+#include "NodeLayout.h"
 #include "gui/NodeEditor.h"
 #include "gui/ArgPanelView.h"
 #include "gui/PanelView.h"
@@ -128,6 +129,7 @@ public:
     using NodeEditor::disarmProbe;
     using NodeEditor::probes_;
     using NodeEditor::visuals_;
+    using NodeEditor::disarmAllProbes;
     using NodeEditor::graph;
     using NodeEditor::reload;
     using NodeEditor::onProbeActivated;
@@ -616,6 +618,117 @@ void checkNodePanel (thSynth &synth, const char *file)
     delete win;
 
     delete tree;
+}
+
+/* A position saved in the file is where the box is drawn: on opening, and
+   after a probe is armed, which lays its panel out above its node. A panel
+   that would go off the top of the canvas moves its node down instead. */
+void checkLayoutRestored (thSynth &synth, const char *file)
+{
+    const string copy = thUtil::tempFile("editorcheck-layout-");
+
+    std::filesystem::copy_file(file, copy,
+        std::filesystem::copy_options::overwrite_existing);
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->present();
+
+    pump(0.2);
+
+    ok(ed->open(copy), "an editor opens a copy of %s", file);
+
+    /* A node with an output. */
+    int box = -1;
+    string out;
+
+    for (size_t b = 0; b < ed->graph().boxes().size() && box < 0; b++)
+    {
+        const NodeGraph::Box &x = ed->graph().boxes()[b];
+
+        if (x.attachedTo >= 0 || x.isControl || x.isExpr || x.isIoSource ||
+            x.isIoSink)
+            continue;
+
+        for (const NodeGraph::Port &p : x.ports)
+            if (!p.isInput)
+            {
+                box = (int)b;
+                out = p.name;
+                break;
+            }
+    }
+
+    ok(box >= 0 && !ed->visuals_.empty(),
+       "%s has a node with an output, and there is a visual to watch it with",
+       file);
+
+    if (box >= 0 && !ed->visuals_.empty())
+    {
+        const string visual = ed->visuals_.begin()->first;
+        const string name = ed->graph().boxes()[box].name;
+        const string key = NodeLayout::keyFor(ed->graph(), box);
+        const double x = ed->graph().boxes()[box].x + 300;
+        const double y = ed->graph().boxes()[box].y + 200;
+
+        const auto placeAt = [&] (double px, double py)
+        {
+            std::filesystem::copy_file(file, copy,
+                std::filesystem::copy_options::overwrite_existing);
+
+            ofstream o(copy.c_str(), std::ios::binary | std::ios::app);
+
+            o << "# @layout " << key << " " << (long)px << " " << (long)py
+              << "\n";
+        };
+
+        const auto where = [&] ()
+        {
+            const int b = ed->graph().boxByName(name);
+
+            return b < 0 ? make_pair(-1.0, -1.0)
+                         : make_pair(ed->graph().boxes()[b].x,
+                                     ed->graph().boxes()[b].y);
+        };
+
+        /* The top of the panel on `name', or 1e9 if it has none. */
+        const auto panelTop = [&] ()
+        {
+            for (const NodeGraph::Box &p : ed->graph().boxes())
+                if (p.isProbe && p.name == name)
+                    return p.y;
+
+            return 1e9;
+        };
+
+        placeAt(x, y);
+
+        ok(ed->open(copy) && where() == make_pair(x, y),
+           "a box opens where the file's layout puts it (%s at %g,%g, not "
+           "%g,%g)", name.c_str(), where().first, where().second, x, y);
+
+        ok(ed->armProbe(name, out, visual) && where() == make_pair(x, y) &&
+           panelTop() < y,
+           "and stays there when a probe is armed on it, the panel above it "
+           "(%s at %g,%g)", name.c_str(), where().first, where().second);
+
+        ed->disarmAllProbes();
+        placeAt(x, 0);
+
+        const bool armed = ed->open(copy) && ed->armProbe(name, out, visual);
+
+        ok(armed && panelTop() >= 0 && where().second > 0,
+           "a probe on a box the file puts at the top keeps its panel on the "
+           "canvas, the box moving down under it (panel at %g, box at %g)",
+           panelTop(), where().second);
+    }
+
+    w->set_visible(false);
+    delete w;
+
+    std::filesystem::remove(copy);
 }
 
 /* Opening a graph that will not parse changes nothing: the next Save still
@@ -1334,6 +1447,7 @@ int run (const string &pluginPath, const char *file)
 
     checkSelectionAfterSave(synth);
     checkFailedOpen(synth, file);
+    checkLayoutRestored(synth, file);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
     checkPanelViewRows();
