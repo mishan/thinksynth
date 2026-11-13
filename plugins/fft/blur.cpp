@@ -76,8 +76,9 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 #define MAXN THK_FFT_MAX
 #define BINS (MAXN / 2 + 1)
 
-/* The longest blur: a step of 1 - exp(-hop / blur) under a float's reach
-   stops the level where it is. 95 s at 44.1k. */
+/* The longest blur, 95 s at 44.1k: longer is a level that never moves
+   enough to hear, and a one-pole's step that would, far past this, round
+   to nothing in float. */
 #define BLURMAX 4194304.0f
 
 /* A bin is falling, and turns on by its rotation rather than taking the
@@ -179,12 +180,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     for (int s = 0; s < S_SCALARS; s++)
         bad = bad || !thkFinite(st[s]);
-    if (!bad && st[S_N] != 0)
+    if (!bad)
     {
-        const int sn = (int)st[S_N];
+        const int sn = st[S_N] != 0 ? (int)st[S_N] : 2048;
 
-        bad = thkStftSize((float)sn) != sn || st[S_POS] < 0 || st[S_POS] >= sn ||
-              st[S_HOP] < 0 || st[S_HOP] >= sn / 4;
+        bad = (st[S_N] != 0 && thkStftSize((float)sn) != sn) || st[S_POS] < 0 ||
+              st[S_POS] >= sn || st[S_HOP] < 0 || st[S_HOP] >= sn / 4;
     }
     if (bad)
         memset(st, 0, S_LEN * sizeof(float));
@@ -244,6 +245,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                         zr[k] = cr / d;
                         zi[k] = ci / d;
                     }
+                    else if (zr[k] == 0 && zi[k] == 0)
+                        zr[k] = 1;      /* a fresh state's turn is none */
                     pr[k] = mk > 0 ? re[k] / mk : 1;
                     pi[k] = mk > 0 ? im[k] / mk : 0;
                 }

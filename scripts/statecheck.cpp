@@ -6218,6 +6218,26 @@ static void checkBlur (const string &pluginPath)
                      "worst " + num(worst));
             okOrFail(exact, "fft::blur: at mix 0, the input a frame late, bit for bit", "");
         }
+
+        /* And between, the blend of the two ends, off the middle so that
+           which end is which shows. */
+        BlRun wet = dry, half = dry;
+        vector<float> in3, out3, in4, out4;
+
+        wet.mix = 1;
+        half.mix = 0.25f;
+        if (!blRender(pluginPath, wet, 1, 256, in3, out3, why) ||
+            !blRender(pluginPath, half, 1, 256, in4, out4, why))
+            fail("fft::blur renders a blend", why);
+        else
+        {
+            double worst = 0;
+
+            for (size_t i = 0; i < out4.size(); i++)
+                worst = std::max(worst, fabs((double)out4[i] - (0.75 * out2[i] + 0.25 * out3[i])));
+            okOrFail(worst < 1e-6, "fft::blur: at mix 0.25, a quarter the blurred and the rest "
+                                   "the input a frame late", "worst " + num(worst));
+        }
     }
 
     /* ---- a sine that stops fades out over `blur', as itself at random 0 ---- */
