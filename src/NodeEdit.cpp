@@ -1493,6 +1493,36 @@ NodeEdit::Result NodeEdit::Text::setChanArg (string &source, const string &name,
     return OK;
 }
 
+NodeEdit::Result NodeEdit::Text::setChanArg (string &source, const string &name,
+                                       double value, const string &saved,
+                                       string &why)
+{
+    vector<string> was, lines;
+    bool wasNewline = true, endsWithNewline = true;
+    size_t wasLine = 0, line = 0;
+    string::size_type wasFrom = 0, wasTo = 0, from = 0, to = 0;
+    double savedValue;
+
+    splitLines(saved, was, wasNewline);
+    splitLines(source, lines, endsWithNewline);
+
+    if (!findChanArg(was, name, wasLine, wasFrom, wasTo) ||
+        !findChanArg(lines, name, line, from, to) ||
+        !parseRhs(was[wasLine].substr(wasFrom, wasTo - wasFrom), savedValue) ||
+        !sameValue(savedValue, value))
+        return setChanArg(source, name, value, why);
+
+    why.clear();
+
+    lines[line] = lines[line].substr(0, from) +
+                  was[wasLine].substr(wasFrom, wasTo - wasFrom) +
+                  lines[line].substr(to);
+
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
 /* ---- adding and removing whole nodes ----------------------------------- */
 
 bool NodeEdit::validName (const string &name)

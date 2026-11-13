@@ -217,7 +217,7 @@ protected:
     /* What follows a save that reached a file: reparse, restore the
        selection, say what happened. One per route, because they say
        different things. */
-    void finishSave (int n, int c, int w);
+    void finishSave (int n, int w);
     void finishSaveAs (void);
 
     /* Reparses after a save, keeping the selected box selected by its name:
@@ -488,8 +488,13 @@ private:
 
     vector<WireEdit> wires_;
 
-    /* Control values changed by dragging a slider, keyed by chanarg name. */
-    std::map<std::string, double> controls_;
+    /* Each control's value as text_ has it, by chanarg name: where a slider
+       goes back to when the text will not take what it was moved to. */
+    std::map<std::string, double> ctlText_;
+
+    /* Controls pushed into the running synth since the source was read --
+       what Revert puts back. */
+    std::set<std::string> liveControls_;
 
     /* Nodes added and removed. Unlike values and wires these are applied to
        the file straight away rather than held until Save.

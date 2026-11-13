@@ -1229,6 +1229,103 @@ void checkLayoutUndone (thSynth &synth, const char *file)
     std::filesystem::remove(copy);
 }
 
+/* A control's slider goes into the text when it is let go. One the file
+   spells as arithmetic cannot be written, and goes back to what the text
+   says rather than waiting to fail at Save; one moved and put back leaves
+   nothing to save. */
+void checkControlCommit (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-control-");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Ctl\";\n"
+               "@lvl = 0.25 + 0.25;\n"
+               "@lvl.widget = 1;\n"
+               "@lvl.min = 0;\n"
+               "@lvl.max = 1;\n"
+               "@cut = 0.50;\n"
+               "@cut.widget = 1;\n"
+               "@cut.min = 0;\n"
+               "@cut.max = 1;\n"
+               "node ionode { channels = 1; out0 = osc->out; "
+               "play = env->play; };\n"
+               "node osc osc::simple { freq = ionode->note; amp = @lvl; "
+               "mul = @cut; };\n"
+               "node env env::adsr { trigger = ionode->trigger; };\n"
+               "io ionode;\n";
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1000, 600);
+    w->present();
+
+    pump(0.2);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    const bool opened = ed->open(copy) && !canvases.empty();
+
+    ok(opened, "an editor opens a graph with two controls");
+
+    const auto control = [&] (const string &name)
+    {
+        for (size_t b = 0; opened && b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].isControl &&
+                ed->graph().boxes()[b].ctlArg == name)
+                return (int)b;
+
+        return -1;
+    };
+
+    const int lvl = control("lvl");
+    const int cut = control("cut");
+    double x0, x1, y, hx;
+
+    if (lvl >= 0 && ed->graph().sliderGeometry(lvl, x0, x1, y, hx))
+    {
+        const float was = ed->graph().boxes()[lvl].ctlValue;
+        const double px = x0 + (x1 - x0) * (hx < (x0 + x1) / 2 ? 0.875 : 0.125);
+
+        canvases[0]->onPressed(1, px, y);
+        canvases[0]->onReleased(1, px, y);
+
+        ok(ed->graph().boxes()[lvl].ctlValue == was && !ed->dirty(),
+           "a slider the file spells as arithmetic goes back when let go "
+           "(%g, not %g), with nothing to save",
+           ed->graph().boxes()[lvl].ctlValue, was);
+    }
+    else
+        ok(false, "@lvl has a slider");
+
+    if (cut >= 0)
+    {
+        const double was = ed->graph().boxes()[cut].ctlValue;
+
+        ed->onControlChanged(cut, 0.75, true);
+
+        const bool moved = ed->dirty();
+
+        ed->onControlChanged(cut, was, true);
+
+        ok(moved && !ed->dirty(),
+           "a slider moved is unsaved and put back is not, the file's "
+           "`0.50' spelled as it was");
+    }
+    else
+        ok(false, "@cut is a box");
+
+    delete w;
+
+    std::filesystem::remove(copy);
+}
+
 /* Opening a graph that will not parse changes nothing: the next Save still
    writes the graph on screen to where it came from. From a file and from a
    piece's text, since a piece's graph carries its own save. */
@@ -1948,6 +2045,7 @@ int run (const string &pluginPath, const char *file)
     checkLayoutRestored(synth, file);
     checkNoScratchFile(synth, file);
     checkLayoutUndone(synth, file);
+    checkControlCommit(synth);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
