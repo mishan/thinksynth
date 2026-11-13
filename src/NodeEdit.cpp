@@ -1780,49 +1780,48 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
         if (i >= open && i <= close)
             continue;                   /* the block itself, going away */
 
-        const string code = codeOf(lines[i]);
-        const string::size_type eq = code.find('=');
-
-        if (eq == string::npos)
-            continue;
-
-        if (code.find(';', eq) == string::npos)
+        /* Every statement on the line, not only the first: a block written
+           on one line holds several. */
+        for (string::size_type pos = 0;;)
         {
-            if (substituteAcross(lines, i, eq, ref, true, "0"))
-                removed++;
+            const string code = codeOf(lines[i]);
+            const string::size_type eq = code.find('=', pos);
 
-            continue;
+            if (eq == string::npos)
+                break;
+
+            const string::size_type semi = code.find(';', eq);
+
+            if (semi == string::npos)
+            {
+                if (substituteAcross(lines, i, eq, ref, true, "0"))
+                    removed++;
+
+                break;
+            }
+
+            pos = semi + 1;
+
+            string::size_type from = code.find_first_not_of(" \t", eq + 1);
+            string::size_type to = semi;
+
+            while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
+                to--;
+
+            const string oldRhs = code.substr(from, to - from);
+            string cut;
+
+            /* `osc->out' and not `myosc->out', wherever it is. */
+            if (!substituteRef(oldRhs, ref, true, "0", cut))
+                continue;
+
+            if (!isExpressionRhs(oldRhs))
+                cut = "0";
+
+            lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
+            pos = from + cut.size() + (semi - to) + 1;
+            removed++;
         }
-
-        const string::size_type at = code.find(ref, eq);
-
-        if (at == string::npos)
-            continue;
-
-        /* `osc->out' and not `myosc->out' */
-        if (at > 0 && isWordChar(code[at - 1]))
-            continue;
-
-        const string::size_type semi = code.find(';', eq);
-
-        if (semi == string::npos || at > semi)
-            continue;
-
-        string::size_type from = code.find_first_not_of(" \t", eq + 1);
-        string::size_type to = semi;
-
-        while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
-            to--;
-
-        const string oldRhs = code.substr(from, to - from);
-        string cut;
-
-        if (!isExpressionRhs(oldRhs) ||
-            !substituteRef(oldRhs, ref, true, "0", cut))
-            cut = "0";
-
-        lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
-        removed++;
     }
 
     /* Take a blank line after the block with it, so deleting nodes does not
@@ -2395,54 +2394,53 @@ NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &na
 
     for (size_t i = 0; i < lines.size(); i++)
     {
-        const string code = codeOf(lines[i]);
-        const string::size_type eq = code.find('=');
-
-        if (eq == string::npos)
-            continue;
-
-        /* Over several lines, only the references go: the value stands in
-           where there is one, and 0 where its unit means there is not. */
-        if (code.find(';', eq) == string::npos)
+        /* Every statement on the line, not only the first: a block written
+           on one line holds several. */
+        for (string::size_type pos = 0;;)
         {
-            if (substituteAcross(lines, i, eq, ref, false,
-                                 stood.empty() ? "0" : stood))
-                removed++;
+            const string code = codeOf(lines[i]);
+            const string::size_type eq = code.find('=', pos);
 
-            continue;
+            if (eq == string::npos)
+                break;
+
+            /* Over several lines, only the references go: the value stands
+               in where there is one, and 0 where its unit means there is
+               not. */
+            const string::size_type semi = code.find(';', eq);
+
+            if (semi == string::npos)
+            {
+                if (substituteAcross(lines, i, eq, ref, false,
+                                     stood.empty() ? "0" : stood))
+                    removed++;
+
+                break;
+            }
+
+            pos = semi + 1;
+
+            string::size_type from = code.find_first_not_of(" \t", eq + 1);
+            string::size_type to = semi;
+
+            while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
+                to--;
+
+            const string oldRhs = code.substr(from, to - from);
+            string cut;
+
+            /* `@blim' and not `@blim2', wherever it is. */
+            if (!substituteRef(oldRhs, ref, false, stood.empty() ? "0" : stood,
+                               cut))
+                continue;
+
+            if (stood.empty() || !isExpressionRhs(oldRhs))
+                cut = "0";
+
+            lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
+            pos = from + cut.size() + (semi - to) + 1;
+            removed++;
         }
-
-        const string::size_type at = code.find(ref, eq);
-
-        if (at == string::npos)
-            continue;
-
-        /* `@blim' and not `@blim2'. */
-        const string::size_type after = at + ref.size();
-
-        if (after < code.size() && isWordChar(code[after]))
-            continue;
-
-        const string::size_type semi = code.find(';', eq);
-
-        if (semi == string::npos || at > semi)
-            continue;
-
-        string::size_type from = code.find_first_not_of(" \t", eq + 1);
-        string::size_type to = semi;
-
-        while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
-            to--;
-
-        const string oldRhs = code.substr(from, to - from);
-        string cut;
-
-        if (stood.empty() || !isExpressionRhs(oldRhs) ||
-            !substituteRef(oldRhs, ref, false, stood, cut))
-            cut = "0";
-
-        lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
-        removed++;
     }
 
     /* The block itself: `@name = ...' and every `@name.something = ...'.

@@ -1550,6 +1550,8 @@ int main (int argc, char **argv)
             { "a node read on a statement's first line", false, "a" },
             { "a node read on a line after it", false, "b" },
             { "a control read on a line after it", true, "c" },
+            { "a node read by a line's second statement", false, "d" },
+            { "a control read by a line's second statement", true, "e" },
         };
 
         string text =
@@ -1558,15 +1560,21 @@ int main (int argc, char **argv)
             "@c.widget = 1;\n"
             "@c.min = 0;\n"
             "@c.max = 1;\n"
+            "@e = 0.5;\n"
+            "@e.widget = 1;\n"
+            "@e.min = 0;\n"
+            "@e.max = 1;\n"
             "node ionode { channels = 1; out0 = mix->out; "
             "play = env->play; };\n"
             "node a osc::simple { freq = ionode->note; };\n"
             "node b osc::simple { freq = ionode->note; };\n"
             "node env env::adsr { trigger = ionode->trigger; };\n"
+            "node d osc::simple { freq = ionode->note; };\n"
+            "node one mixer::mul { in0 = env->out; in1 = d->out * @e; };\n"
             "node mix mixer::mul {\n"
             "    in0 = a->out * 0.5 +\n"
             "          b->out * @c;\n"
-            "    in1 = env->out;\n"
+            "    in1 = one->out;\n"
             "};\n"
             "io ionode;\n";
 
