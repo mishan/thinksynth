@@ -60,10 +60,12 @@ compiled patch plays are then the same arithmetic.
   signal's over a longer render (`scripts/dspbench -o`) before calling it
   a change in the sound.
 
-A kernel included by more than one plugin's source goes in the static
-build's prelude, `plugins/thinkstatic.h`, as `thKernel.h` does: the
-static build wraps each plugin in a namespace of its own, and a header's
-guard would otherwise keep it out of every namespace but the first.
+The static build wraps each plugin in a namespace of its own, one
+translation unit apiece, so a kernel header several plugins include
+(`osc/blep.h`, `fft/fft.h`) is a copy in each, guard and all: what it
+needs is that every standard header it includes is already in the
+prelude, `plugins/thinkstatic.h`, since one first included inside a
+plugin's namespace breaks there.
 
 ## Compiled voices
 

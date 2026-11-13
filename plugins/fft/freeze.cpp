@@ -77,7 +77,7 @@
 #include "think.h"
 
 #include "thKernel.h"
-#include "fft.h"
+#include "stft.h"
 
 #include "thArg.h"
 #include "thPlugin.h"
@@ -204,28 +204,6 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
-/* `size' to the power of two nearest it in octaves, 256 to MAXN; 0 or not a
-   number is 2048. */
-static int frameSize (float size)
-{
-    if (!thkFinite(size) || size == 0)
-        return 2048;
-
-    int n = 256;
-
-    while (n < MAXN && size > (float)n * 1.41421356f)
-        n *= 2;
-    return n;
-}
-
-/* The periodic Hann window at j of n, from the FFT's own table. */
-static inline float hann (const thkFftTable &t, int j, int n)
-{
-    const int at = (j <= n / 2 ? j : n - j) * (MAXN / n);
-
-    return 0.5f - 0.5f * t.c[at];
-}
-
 /* A uniform angle in turns, -0.5 to 0.5, from a seed, a frame and a bin. */
 static inline float jitter (uint32_t seed, uint32_t frame, uint32_t k)
 {
@@ -280,7 +258,7 @@ static void advance (float *st, int n, float r, uint32_t seed, bool add, float g
     const thkFftTable &t = thkFftTwiddles();
 
     for (int j = 0; j < n; j++)
-        acc[j] += gain * (2.0f / 3) * hann(t, j, n) * x[j];
+        acc[j] += gain * (2.0f / 3) * thkStftHann(t, j, n) * x[j];
 }
 
 /* The ring's last n samples ending `back' samples ago, windowed, into a
@@ -293,7 +271,7 @@ static void analyze (const float *st, int n, int back, float *re, float *im)
     float x[MAXN];
 
     for (int j = 0; j < n; j++)
-        x[j] = hann(t, j, n) * ring[((end - n + j) % RING + RING) % RING];
+        x[j] = thkStftHann(t, j, n) * ring[((end - n + j) % RING + RING) % RING];
     thkFftReal(x, re, im, n);
 }
 
@@ -349,7 +327,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const int sn = (int)st[S_N];
 
         bad = st[S_RINGPOS] < 0 || st[S_RINGPOS] >= RING || st[S_STAGE] < DRY ||
-              st[S_STAGE] > FROZEN || (sn != 0 && frameSize((float)sn) != sn) ||
+              st[S_STAGE] > FROZEN || (sn != 0 && thkStftSize((float)sn) != sn) ||
               st[S_HOPPOS] < 0 || st[S_HOPPOS] >= (sn ? sn : 2048) / 4 ||
               st[S_WAIT] < 0 || st[S_WAIT] > MAXH;
     }
@@ -383,7 +361,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (stage == DRY && armed && wait == 0)
         {
             st[S_RINGPOS] = (float)pos;
-            n = frameSize(size[i]);
+            n = thkStftSize(size[i]);
             capture(st, n);
             advance(st, n, r, seed, false, 1);      /* the frame a hop on */
             stage = PRIMING;

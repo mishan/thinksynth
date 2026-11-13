@@ -42,6 +42,7 @@
 #include "../plugins/dice.h"
 #include "../plugins/dist/saturate.h"
 #include "../plugins/fft/fft.h"
+#include "../plugins/fft/stft.h"
 #include "../plugins/filt/eq.h"
 #include "../plugins/filt/svf.h"
 #include "../plugins/osc/blep.h"
@@ -685,6 +686,87 @@ main ()
         thkFftRealInverse(withRe.data(), withIm.data(), back.data(), n);
         report(("the inverse FFT ignoring DC's and Nyquist's imaginary parts" + at).c_str(),
                back == without ? 0 : 1, 0);
+    }
+
+    /* The running transform, changing nothing: the input back a frame
+       late, to float error, and the dry signal it hands back the input a
+       frame late exactly; an impulse comes out at the frame and nowhere
+       else. */
+    for (int n = 256; n <= THK_FFT_MAX; n *= 2)
+    {
+        std::vector<float> ring(n), acc(n), x(6 * n);
+        thkStft s = { ring.data(), acc.data(), n, 0, 0 };
+        uint32_t seed = 777u + (uint32_t)n;
+        double worst = 0, dryOff = 0;
+
+        for (float &v : x)
+        {
+            seed = seed * 1664525u + 1013904223u;
+            v = (float)((double)seed / 4294967296.0 - 0.5);
+        }
+        for (int i = 0; i < (int)x.size(); i++)
+        {
+            float dry;
+            const float y = s.tick(x[i], dry, [](float *, float *, int) {});
+            const float want = i >= n ? x[i - n] : 0;
+
+            if (i >= n)
+                worst = std::max(worst, std::fabs((double)y - want));
+            dryOff += dry == want ? 0 : 1;
+        }
+
+        std::vector<float> ring2(n), acc2(n);
+        thkStft im = { ring2.data(), acc2.data(), n, 0, 0 };
+        int at = -1, peaks = 0;
+        double stray = 0;
+
+        for (int i = 0; i < 3 * n; i++)
+        {
+            float dry;
+            const float y = im.tick(i == 0 ? 1.0f : 0.0f, dry, [](float *, float *, int) {});
+
+            if (std::fabs(y) > 0.5f)
+            {
+                at = i;
+                peaks++;
+            }
+            else
+                stray = std::max(stray, (double)std::fabs(y));
+        }
+
+        /* And what the node does to the spectrum is what comes out: every
+           bin doubled is the input doubled, a frame late. */
+        std::vector<float> ring3(n), acc3(n);
+        thkStft twice = { ring3.data(), acc3.data(), n, 0, 0 };
+        double doubled = 0;
+
+        for (int i = 0; i < (int)x.size(); i++)
+        {
+            float dry;
+            const float y = twice.tick(x[i], dry, [n](float *re, float *im, int size) {
+                for (int b = 0; b <= size / 2; b++)
+                {
+                    re[b] *= 2;
+                    im[b] *= 2;
+                }
+                if (size != n)
+                    re[0] = INFINITY;
+            });
+
+            if (i >= n)
+                doubled = std::max(doubled, std::fabs((double)y - 2 * x[i - n]));
+        }
+
+        const std::string sz = " at " + std::to_string(n);
+
+        report(("the running transform giving its input back a frame late" + sz).c_str(),
+               worst, 1e-6);
+        report(("the running transform's dry signal, the input a frame late exactly" + sz).c_str(),
+               dryOff, 0);
+        report(("an impulse through the running transform, a frame late and alone" + sz).c_str(),
+               at == n && peaks == 1 ? stray : INFINITY, 1e-6);
+        report(("the running transform's spectrum doubled, its input doubled" + sz).c_str(),
+               doubled, 2e-6);
     }
 
     /* A size it cannot do writes zeros rather than running off its arrays. */
