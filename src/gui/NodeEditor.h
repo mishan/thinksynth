@@ -226,6 +226,10 @@ protected:
     void finishSave (int n, int c, int w);
     void finishSaveAs (void);
 
+    /* Reparses after a save, keeping the selected box selected by its name:
+       a reparse renumbers every box after one the save took out. */
+    bool reloadKeepingSelection (void);
+
     /* True if the file this was opened from can be written. A .dsp installed
        with the package is typically not, and that must not stop anyone
        editing it -- it only decides whether Save can put it back. */
