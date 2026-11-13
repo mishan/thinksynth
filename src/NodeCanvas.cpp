@@ -159,6 +159,7 @@ static string fitText (const Cairo::RefPtr<Cairo::Context> &cr,
 
 NodeCanvas::NodeCanvas (void)
     : graph_(NULL), dragBox_(-1), dragDX_(0), dragDY_(0),
+      dragX0_(0), dragY0_(0),
       hoverBox_(-1), hoverPort_(-1), selBox_(-1),
       bandOn_(false), bandX0_(0), bandY0_(0), bandX1_(0), bandY1_(0),
       wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
@@ -384,8 +385,10 @@ void NodeCanvas::onPressed (int nPress, double x, double y)
     }
 
     dragBox_ = hit;
-    dragDX_ = gx - graph_->boxes()[hit].x;
-    dragDY_ = gy - graph_->boxes()[hit].y;
+    dragX0_ = graph_->boxes()[hit].x;
+    dragY0_ = graph_->boxes()[hit].y;
+    dragDX_ = gx - dragX0_;
+    dragDY_ = gy - dragY0_;
 
     return;
 }
@@ -477,7 +480,13 @@ void NodeCanvas::onReleased (int nPress, double x, double y)
         graph_->refreshExtent();
         contentResized();
 
-        m_signal_box_moved_(dragBox_);
+        /* A press and release that left the box where it was is a click,
+           not an edit: on the desktop a move marks the file changed, and in
+           a room it is a splice into everyone's document. */
+        if (graph_->boxes()[dragBox_].x != dragX0_ ||
+            graph_->boxes()[dragBox_].y != dragY0_)
+            m_signal_box_moved_(dragBox_);
+
         dragBox_ = -1;
     }
 

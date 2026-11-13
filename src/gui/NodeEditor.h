@@ -92,6 +92,10 @@ public:
        piece declares, and the status line saying so. */
     void markGrown (const std::set<string> &names);
 
+    /* True if anything here is not in the source yet -- pending edits, or a
+       structural change already in the working copy. */
+    bool dirty (void) const;
+
 protected:
     void onArrange (void);
     void onSave (void);
@@ -222,6 +226,10 @@ protected:
     void finishSave (int n, int c, int w);
     void finishSaveAs (void);
 
+    /* Reparses after a save, keeping the selected box selected by its name:
+       a reparse renumbers every box after one the save took out. */
+    bool reloadKeepingSelection (void);
+
     /* True if the file this was opened from can be written. A .dsp installed
        with the package is typically not, and that must not stop anyone
        editing it -- it only decides whether Save can put it back. */
@@ -243,10 +251,6 @@ protected:
 
     /* True if channel_ is playing the file this window is showing. */
     bool attached (void) const;
-
-    /* True if anything here is not in the source yet -- pending edits, or a
-       structural change already in the working copy. */
-    bool dirty (void) const;
 
     /* The window this has been packed into, for parenting a dialog on. NULL
        before it is realised, which every caller has to allow for. */

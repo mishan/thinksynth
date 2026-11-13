@@ -277,6 +277,7 @@ MainSynthWindow::~MainSynthWindow (void)
        tearingDown_ keeps anything from building more of. */
     delete panes_;
     panes_ = NULL;
+    releaseKept();
     patchSel_ = NULL;
     midiMap_ = NULL;
     controller_ = NULL;
@@ -2030,6 +2031,29 @@ void MainSynthWindow::ensureEditor (int chan)
     gthPatchManager::PatchFile *patch =
         gthPatchManager::instance()->getPatch(chan);
 
+    std::map<int, NodeEditor *>::iterator k = kept_.find(chan);
+
+    if (k != kept_.end())
+    {
+        NodeEditor *kept = k->second;
+
+        kept_.erase(k);
+
+        /* Anything else on the channel now was put there on purpose, and
+           replaces the graph these edits were to. */
+        if (patch != NULL && (kept->filename() == patch->doc.dsp ||
+                              kept->filename() ==
+                                  resolveDspPath(patch->doc.dsp)))
+        {
+            editors_[chan] = kept;
+            holders_[chan]->append(*kept);
+            kept->unreference();
+            return;
+        }
+
+        kept->unreference();
+    }
+
     /* An empty channel's holder says so already. */
     if (patch == NULL)
         return;
@@ -2205,6 +2229,16 @@ void MainSynthWindow::clearPages (void)
     while (Gtk::Widget *w = paramStack_.get_first_child())
         paramStack_.remove(*w);
 
+    /* Loading or saving a patch on any channel rebuilds every page, and an
+       editor holding edits not yet in its file would go with its page. */
+    for (const std::pair<const int, NodeEditor *> &e : editors_)
+        if (e.second->dirty())
+        {
+            e.second->reference();
+            holders_[e.first]->remove(*e.second);
+            kept_[e.first] = e.second;
+        }
+
     while (Gtk::Widget *w = nodeStack_.get_first_child())
         nodeStack_.remove(*w);
 
@@ -2212,6 +2246,14 @@ void MainSynthWindow::clearPages (void)
     editors_.clear();
 
     tearingDown_ = false;
+}
+
+void MainSynthWindow::releaseKept (void)
+{
+    for (const std::pair<const int, NodeEditor *> &k : kept_)
+        k.second->unreference();
+
+    kept_.clear();
 }
 
 void MainSynthWindow::onPatchesChanged (void)

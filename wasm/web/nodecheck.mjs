@@ -406,6 +406,38 @@ process.stdout.write(
     else
         fail(`a press on the first box selected ` +
              `${M._tw_node_canvas_selected()} and said [${said}]`);
+
+    /* A click is not a move: a box-moved signal marks the layout edited,
+       which is a dirty file on the desktop and a splice into the room's
+       document here. A drag of the same box is one. */
+    const movedBy = (dx) =>
+    {
+        const x = M._tw_graph_box_x(0) + 6, y = M._tw_graph_box_y(0) + 6;
+
+        M._tw_node_signals_clear();
+        M._tw_node_canvas_press(x, y, 1, 1);
+        M._tw_node_canvas_motion(x + dx, y);
+        M._tw_node_canvas_release(x + dx, y, 1);
+
+        let moved = 0;
+
+        for (let i = 0; i < M._tw_node_signal_count(); i++)
+            moved += M._tw_node_signal_kind(i) === 0;
+
+        return moved;
+    };
+
+    for (const [dx, want] of [[0, 0], [40, 1]])
+    {
+        const moved = movedBy(dx);
+
+        if (moved === want)
+            process.stdout.write(`ok    a box pressed and let go ${dx} ` +
+                                 `pixels over says it moved ${want} times\n`);
+        else
+            fail(`a box pressed and let go ${dx} pixels over said it ` +
+                 `moved ${moved} times, not ${want}`);
+    }
 }
 
 /* ---- a new patch, and a node added to it -------------------------------- */

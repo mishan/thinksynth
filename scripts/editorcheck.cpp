@@ -142,6 +142,7 @@ public:
     using NodeEditor::listed_;
     using NodeEditor::boxList_;
     using NodeEditor::wiring_;
+    using NodeEditor::onDisconnect;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -614,6 +615,97 @@ void checkNodePanel (thSynth &synth, const char *file)
     delete win;
 
     delete tree;
+}
+
+/* A save that takes a box out of the graph -- cutting the wire out of an
+   expression removes the whole expression -- keeps the box that was selected
+   selected, though the reparse moves every box after the one removed. */
+void checkSelectionAfterSave (thSynth &synth)
+{
+    const string body =
+        "name \"Sel\";\n"
+        "node ionode { channels = 1; out0 = out->out; play = env->play; };\n"
+        "node osc osc::simple { freq = ionode->note; };\n"
+        "node env env::adsr { trigger = ionode->trigger; };\n"
+        "node out mixer::mul {\n"
+        "    in0 = osc->out;\n"
+        "    in1 = env->out * ionode->velocity;\n"
+        "};\n"
+        "node tail math::min { in0 = osc->out * ionode->velocity; };\n"
+        "io ionode;\n";
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1000, 600);
+    w->present();
+
+    pump(0.2);
+
+    const NodeEditor::InlineSave save =
+        [](const string &, string &name, string &)
+        {
+            name = "sel#0.dsp";
+            return true;
+        };
+
+    ok(ed->openInline("sel#0.dsp", body, -1, save),
+       "an editor opens a graph with an expression in it");
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    NodeCanvas *canvas = canvases.empty() ? NULL : canvases[0];
+
+    ok(canvas != NULL, "the editor has a canvas");
+
+    if (canvas == NULL)
+        return;
+
+    const NodeGraph &g = ed->graph();
+    int cut = -1;
+
+    for (size_t e = 0; e < g.edges().size(); e++)
+        if (g.boxes()[g.edges()[e].fromBox].name == "out.in1")
+            cut = (int)e;
+
+    std::vector<string> names;
+
+    for (const NodeGraph::Box &b : g.boxes())
+        names.push_back(b.name);
+
+    ok(cut >= 0, "out.in1's expression has a wire out of it");
+
+    for (const string &want : names)
+    {
+        if (want == "out.in1")
+            continue;
+
+        if (!ed->openInline("sel#0.dsp", body, -1, save))
+            continue;
+
+        int box = -1;
+
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].name == want)
+                box = (int)b;
+
+        canvas->setSelected(box);
+        ed->onDisconnect(cut);
+        ed->onSave();
+
+        const int sel = canvas->selected();
+
+        ok(sel >= 0 && ed->graph().boxes()[sel].name == want,
+           "%s is still the box selected after a save takes the expression "
+           "out (selected: %s)", want.c_str(),
+           sel >= 0 ? ed->graph().boxes()[sel].name.c_str() : "nothing");
+    }
+
+    w->set_visible(false);
+    delete w;
 }
 
 int run (const string &pluginPath, const char *file)
@@ -1178,6 +1270,7 @@ int run (const string &pluginPath, const char *file)
        Gtk::manage means the editor goes with the window. */
     delete window;
 
+    checkSelectionAfterSave(synth);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
     checkPanelViewRows();

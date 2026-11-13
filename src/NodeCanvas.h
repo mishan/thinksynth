@@ -45,6 +45,7 @@ public:
 
     /* The canvas does not own the graph. */
     void setGraph (NodeGraph *graph);
+    const NodeGraph *graph (void) const { return graph_; }
 
     /* zoom(), setZoom() and zoomToFit() come from CanvasContent, which is
        where the view transform went when the composer's canvas turned out
@@ -224,6 +225,7 @@ private:
 
     int dragBox_;             /* box being dragged, or -1        */
     double dragDX_, dragDY_;  /* grab point within that box      */
+    double dragX0_, dragY0_;  /* where that box was on the press */
 
     int hoverBox_, hoverPort_;
 

@@ -1097,13 +1097,8 @@ void NodeEditor::finishSave (int n, int c, int w)
 
        reload(), not open(): the working copy is what was just written and the
        source is now a copy of it, so there is nothing to fetch. */
-    const int sel = canvas_.selected();
-
-    if (!reload())
+    if (!reloadKeepingSelection())
         return;
-
-    if (sel >= 0 && sel < (int)graph_.boxes().size())
-        canvas_.setSelected(sel);
 
     char buf[160];
 
@@ -1955,15 +1950,34 @@ void NodeEditor::finishSaveAs (void)
 {
     structuralDirty_ = false;
 
-    const int sel = canvas_.selected();
-
-    if (!reload())
+    if (!reloadKeepingSelection())
         return;
 
-    if (sel >= 0 && sel < (int)graph_.boxes().size())
-        canvas_.setSelected(sel);
-
     setStatus("Saved as " + source_ + ".");
+}
+
+bool NodeEditor::reloadKeepingSelection (void)
+{
+    const int sel = canvas_.selected();
+    const string name = sel >= 0 ? graph_.boxes()[sel].name : string();
+
+    if (!reload())
+        return false;
+
+    const vector<NodeGraph::Box> &boxes = graph_.boxes();
+
+    /* Where it was first: the io node's two halves share a name. */
+    if (sel >= 0 && sel < (int)boxes.size() && boxes[sel].name == name)
+        canvas_.setSelected(sel);
+    else if (!name.empty())
+        for (size_t b = 0; b < boxes.size(); b++)
+            if (boxes[b].name == name)
+            {
+                canvas_.setSelected((int)b);
+                break;
+            }
+
+    return true;
 }
 
 

@@ -58,6 +58,8 @@
 #include "gui/Composer.h"
 #include "gui/Keyboard.h"
 #include "gui/MainSynthWindow.h"
+#include "gui/NodeCanvasWidget.h"
+#include "gui/NodeEditor.h"
 #include "gui/Panes.h"
 
 /* The application-wide signals gthSignal.h declares, defined here because
@@ -119,6 +121,21 @@ check (bool cond, const char *what)
         ok(what);
     else
         fail(what);
+}
+
+/* The graph's canvas, somewhere inside its editor. */
+static NodeCanvasWidget *
+findCanvas (Gtk::Widget *w)
+{
+    if (NodeCanvasWidget *c = dynamic_cast<NodeCanvasWidget *>(w))
+        return c;
+
+    for (Gtk::Widget *k = w->get_first_child(); k != NULL;
+         k = k->get_next_sibling())
+        if (NodeCanvasWidget *c = findCanvas(k))
+            return c;
+
+    return NULL;
 }
 
 /* Bounded rather than "until idle", as in composercheck: a window with a
@@ -421,11 +438,39 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->editors_.count(2) == 1,
           "...and its graph is built, since the graph is in view");
 
+    /* A click on a box is not an edit; a drag is. */
+    NodeEditor *edited = win->editors_[2];
+    NodeCanvasWidget *canvas = findCanvas(edited);
+
+    if (canvas != NULL && canvas->graph() != NULL &&
+        !canvas->graph()->boxes().empty())
+    {
+        const double x = canvas->graph()->boxes()[0].x + 6;
+        const double y = canvas->graph()->boxes()[0].y + 6;
+
+        canvas->onPressed(1, x, y);
+        canvas->onMotion(x, y);
+        canvas->onReleased(1, x, y);
+
+        check(!edited->dirty(), "a click on a box in the graph is not an edit");
+
+        canvas->onPressed(1, x, y);
+        canvas->onMotion(x + 40, y);
+        canvas->onReleased(1, x + 40, y);
+
+        check(edited->dirty(), "...and dragging it is");
+    }
+    else
+        fail("the graph on channel 3 has a canvas with boxes on it");
+
     /* A reload rebuilds every page; the channel has to survive it. */
     patchMgr->newPatch(dsp, 5);
     pump(4);
 
     check(win->chan_ == 2, "loading a patch elsewhere keeps the channel");
+    check(win->editors_.count(2) == 1 && win->editors_[2] == edited &&
+          edited->dirty(),
+          "...and the graph on it, with the edits not saved yet");
 
     /* A graph with no patch file saved for it -- as every instrument a
        piece carries is -- goes by the graph's name. */
