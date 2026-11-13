@@ -5059,8 +5059,8 @@ static vector<NodeSpec> adsrGraph (const char *trigger, float a, float d,
 }
 
 /* osc::unison against osc::blep saws built beside it: voice k's pitch
-   from the same math nodes supersaw.dsp spells it with, so each side's
-   mean is checked bit for bit. `f' and `d' are the frequency and the
+   from math nodes, multiplied by exp2 of the steps going up and divided
+   going down, so each side's mean is checked bit for bit. `f' and `d' are the frequency and the
    detune, each an add node so a check can move either with an LFO. */
 static const char *const unisonNames[][5] = {
     { "b0", "e0", "s0", "o0", "m0" }, { "b1", "e1", "s1", "o1", "m1" },

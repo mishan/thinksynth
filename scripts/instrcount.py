@@ -73,14 +73,16 @@ LIMIT = 1.10
 FLOOR = 0.98
 
 # dspbench's arguments for each instrument: a delay-line comb, a piano's
-# waveguides, an FM voice and a modeled drum, at a few voices and a few
-# dozen windows each. Sized so that the whole set is seconds under Valgrind;
-# a startup's fixed cost is in every count, and that is a cost too.
+# waveguides, an FM voice, a modeled drum and a stack of saws, at a few
+# voices and a few dozen windows each. Sized so that the whole set is
+# seconds under Valgrind; a startup's fixed cost is in every count, and that
+# is a cost too.
 WORKLOADS = {
     'fircomb': ['-n', '4', '-w', '10'],
     'grand': ['-n', '8', '-w', '20'],
     'dx5': ['-n', '8', '-w', '16'],
     'kit_snare': ['-n', '8', '-w', '40'],
+    'supersaw': ['-n', '8', '-w', '20'],
 }
 
 

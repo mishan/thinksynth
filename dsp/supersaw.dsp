@@ -3,12 +3,11 @@
 # The chord sound of every trance record: not one oscillator but a
 # spread of them, each a few cents off the last, so the beating between
 # them is a slow shimmer rather than a pitch. Seven here, three above
-# and three below the center, each `Detune' cents from its neighbor,
-# and the detune is an expression -- exp2 of cents over twelve hundred
-# -- so it is the same interval at every pitch, which is what amb01's
-# detune in hertz could never be.
+# and three below the center, each `Detune' cents from its neighbor:
+# cents, so it is the same interval at every pitch, which is what
+# amb01's detune in hertz could never be.
 #
-# The odd saws go left and the even ones right, which is width for free:
+# The saws above go left and the ones below right, which is width for free:
 # the two sides beat differently, and the center saw is in both.
 #
 # A filt::svf lowpass with its own envelope opens on the attack and sits
@@ -18,7 +17,7 @@
 
 name "Supersaw";
 author "Misha Nasledov";
-description "Seven detuned saws, odd ones left and even ones right, through a filter with an envelope.";
+description "Seven detuned saws, the ones above left and below right, through a filter with an envelope.";
 category "Leads and stabs";
 
     @detune = 12;
@@ -142,15 +141,13 @@ node vib misc::vibrato {
     rise = @vibdelay * 0.5;
 };
 
-# The spread: three steps of `Detune' cents each way, as ratios -- the
-# ones below divide by the ratio the ones above multiply by.
-node s0 osc::simple { freq = vib->out;                                waveform = 1; };
-node s1 osc::simple { freq = vib->out * exp2(@detune / 1200);         waveform = 1; };
-node s2 osc::simple { freq = vib->out / exp2(@detune / 1200);         waveform = 1; };
-node s3 osc::simple { freq = vib->out * exp2(@detune * 2 / 1200);     waveform = 1; };
-node s4 osc::simple { freq = vib->out / exp2(@detune * 2 / 1200);     waveform = 1; };
-node s5 osc::simple { freq = vib->out * exp2(@detune * 3 / 1200);     waveform = 1; };
-node s6 osc::simple { freq = vib->out / exp2(@detune * 3 / 1200);     waveform = 1; };
+# The spread: three steps of `Detune' cents each way, band-limited, so
+# a high note does not fold seven saws' harmonics back down as noise.
+node saws osc::unison {
+    freq = vib->out;
+    voices = 7;
+    detune = @detune;
+};
 
 node fenv env::adsr {
     a = @fa;
@@ -170,14 +167,14 @@ node fenv env::adsr {
 # xform::vary's `tone' writes. A note that carries none is 2^0 = 1 times
 # the cutoff, which is the filter it always was.
 node filtl filt::svf {
-    in = (s0->out + s1->out + s3->out + s5->out) * 0.25;
+    in = saws->out_left;
     cutoff = (@cutoff + fenv->out * @depth * ionode->velocity) *
              exp2(ionode->aux1);
     res = @res;
 };
 
 node filtr filt::svf {
-    in = (s0->out + s2->out + s4->out + s6->out) * 0.25;
+    in = saws->out_right;
     cutoff = (@cutoff + fenv->out * @depth * ionode->velocity) *
              exp2(ionode->aux1);
     res = @res;

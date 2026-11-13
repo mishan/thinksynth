@@ -224,7 +224,7 @@ instrument brass {
 # channel's sum -- the sweep is on the chord and not on each note.
 instrument arp {
     dsp  "supersaw.dsp";
-    amp  = 13;
+    amp  = 18;
 
     detune = 14;
     cutoff = 1400;

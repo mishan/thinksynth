@@ -1481,9 +1481,9 @@ if(Python3_Interpreter_FOUND AND NOT THINK_SANITIZE)
                   --toolchain "${_toolchain}")
   add_test(NAME instrcount COMMAND ${_instrcount} "${PROJECT_BINARY_DIR}")
 
-  # Four Valgrinds at once, one a workload.
+  # Five Valgrinds at once, one a workload.
   set_tests_properties(instrcount PROPERTIES SKIP_RETURN_CODE 77
-                       PROCESSORS 4)
+                       PROCESSORS 5)
 
   # A target and not a test, because it writes a baseline; this build's
   # key is the one thing it needs and nobody should have to type.
