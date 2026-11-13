@@ -5442,6 +5442,8 @@ static void checkEq (const string &pluginPath)
             { "a NaN type as a peak", -1, 900, 6, 2, 1, 0, 900, 6, 2, 1 },
             { "a type of 7 as a peak", 7, 900, 6, 2, 1, 0, 900, 6, 2, 1 },
             { "a NaN freq as 10 Hz", 0, NAN, 6, 2, 1, 0, 10, 6, 2, 1 },
+            { "an infinite freq as 10 Hz", 1, INFINITY, 6, 2, 1, 1, 10, 6, 2, 1 },
+            { "an infinite gain as 0 dB", 2, 900, -INFINITY, 2, 1, 2, 900, 0, 2, 1 },
             { "a freq of 0 as 10 Hz", 2, 0, 6, 2, 1, 2, 10, 6, 2, 1 },
             { "an infinite in as 0", 0, 900, 6, 2, INFINITY, 0, 900, 6, 2, 0 },
         };
@@ -5468,8 +5470,8 @@ static void checkEq (const string &pluginPath)
     }
 
     /* ---- a q or a gain that moves while freq holds still moves the band:
-       a square stepping it from `at' to three times `at' a quarter second
-       in, against the arg held at `at', alike before the step and not
+       a square stepping it from `at' to three times `at' an eighth of a
+       second in, against the arg held at `at', alike before the step and not
        after it ---- */
     for (const char *arg : { "q", "gain" })
     {
@@ -5482,16 +5484,16 @@ static void checkEq (const string &pluginPath)
                              { string(arg) == "q" ? "gain" : "q", string(arg) == "q" ? 6 : 0.5f } };
         moving[0].wires.push_back({ arg, "m", "out" });
         moving.push_back(eqNode("sq", "osc/simple",
-                                { { "freq", 2 }, { "amp", at }, { "waveform", 2 } }, {}));
+                                { { "freq", 4 }, { "amp", at }, { "waveform", 2 } }, {}));
         moving.push_back(eqNode("m", "math/add", { { "in1", 2 * at } }, { { "in0", "sq", "out" } }));
         /* One window, since a window's start works the band out afresh
            and would hide a step the window's samples missed. */
-        if (!render1(pluginPath, moving, "eq", "out", 22050, 22050, a, why) ||
-            !render1(pluginPath, held, "eq", "out", 22050, 22050, b, why))
+        if (!render1(pluginPath, moving, "eq", "out", 11025, 11025, a, why) ||
+            !render1(pluginPath, held, "eq", "out", 11025, 11025, b, why))
             fail(string("filt::eq renders a moving ") + arg, why);
         else
         {
-            const size_t step = 11000;
+            const size_t step = 5500;
 
             okOrFail(!memcmp(a.data(), b.data(), step * sizeof(float)) &&
                          memcmp(a.data() + step, b.data() + step,

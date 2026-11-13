@@ -42,10 +42,10 @@
  * the band is a wire, bit for bit (a -0 aside), whatever the other args
  * are doing.
  *
- * A SHELF'S Q is its pole pair's and its zero pair's, and above 0.707 it
- * does not make the shelf steeper: it overshoots on one side of the corner
- * and dips on the other: on a 24 dB shelf, 1.1 dB at a q of 1 and 5.9 at
- * 2, and at 18 a +48 dB spike. So a shelf's q stops at 2,
+ * A SHELF'S Q is its pole pair's and its zero pair's. Above 0.707 it
+ * steepens the turn through the corner and pays for it with a bump on one
+ * side and a dip on the other: on a 24 dB shelf, each 1.1 dB at a q of 1,
+ * 5.9 at 2 and 24.5 at 18. So a shelf's q stops at 2,
  * thkEq::SHELFQMAX, room for the bump a shelf is sometimes wanted with and
  * none for a resonance. A peak's goes to 18.
  *
@@ -110,8 +110,9 @@ int module_init (thPlugin *plugin)
     args[IN_Q] = plugin->regArg("q", thPlugin::ARG_IN);
     plugin->setArgSmooth(args[IN_Q], TH_SMOOTH_MS);
     plugin->setArgDesc(args[IN_Q],
-                       "A peak's narrowness, to 18; a shelf's bump at its "
-                       "corner, plain at 0.707, to 2");
+                       "A peak's narrowness, to 18; a shelf's steepness "
+                       "and the bump either side of its corner, plain at "
+                       "0.707, to 2");
     plugin->setArgRange(args[IN_Q], thkEq::QMIN, thkEq::QMAX);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);

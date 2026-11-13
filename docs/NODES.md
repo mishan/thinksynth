@@ -493,7 +493,7 @@ One EQ band: a peak, a low shelf or a high shelf
 | `type` | in | Which band; changed mid-note, it clicks |  |  |  | 0 = Peak, 1 = Low shelf, 2 = High shelf |
 | `freq` | in | A peak's center, a shelf's half-gain point; 10 Hz to 0.49 of the sample rate |  |  | Hz |  |
 | `gain` | in | Boost or cut; at 0 the band is a wire |  | -24 to 24 | dB |  |
-| `q` | in | A peak's narrowness, to 18; a shelf's bump at its corner, plain at 0.707, to 2 |  | 0.1 to 18 |  |  |
+| `q` | in | A peak's narrowness, to 18; a shelf's steepness and the bump either side of its corner, plain at 0.707, to 2 |  | 0.1 to 18 |  |  |
 | `out` | out | The signal through the band; not clipped |  | -1 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
 
