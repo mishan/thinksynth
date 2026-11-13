@@ -5296,7 +5296,7 @@ static void checkUnison (const string &pluginPath)
 
 /* ---- filt::eq ----------------------------------------------------------- */
 
-static NodeSpec eqNode (const char *name, const char *spelling,
+static NodeSpec specNode (const char *name, const char *spelling,
                         const vector<Value> &values, const vector<Wire> &wires)
 {
     NodeSpec n;
@@ -5326,16 +5326,16 @@ static vector<NodeSpec> eqGraph (vector<NodeSpec> src, float type, float freq,
     }
     else
     {
-        spec.push_back(eqNode("lf", "osc/simple",
+        spec.push_back(specNode("lf", "osc/simple",
                               { { "freq", 3 }, { "amp", sweep }, { "waveform", 0 } }, {}));
-        spec.push_back(eqNode("f", "math/add", { { "in1", freq } }, { { "in0", "lf", "out" } }));
-        spec.push_back(eqNode("lq", "osc/simple",
+        spec.push_back(specNode("f", "math/add", { { "in1", freq } }, { { "in0", "lf", "out" } }));
+        spec.push_back(specNode("lq", "osc/simple",
                               { { "freq", 2 }, { "amp", q / 2 }, { "waveform", 0 } }, {}));
-        spec.push_back(eqNode("qq", "math/add", { { "in1", q } }, { { "in0", "lq", "out" } }));
+        spec.push_back(specNode("qq", "math/add", { { "in1", q } }, { { "in0", "lq", "out" } }));
         w.push_back({ "freq", "f", "out" });
         w.push_back({ "q", "qq", "out" });
     }
-    spec.insert(spec.begin(), eqNode("eq", "filt/eq", v, w));
+    spec.insert(spec.begin(), specNode("eq", "filt/eq", v, w));
 
     return spec;
 }
@@ -5343,13 +5343,13 @@ static vector<NodeSpec> eqGraph (vector<NodeSpec> src, float type, float freq,
 /* White noise times `amp', as the node `src'. */
 static vector<NodeSpec> eqNoise (float amp)
 {
-    return { eqNode("nz", "osc/noise", { { "amp", 1 } }, {}),
-             eqNode("src", "math/mul", { { "in1", amp } }, { { "in0", "nz", "out" } }) };
+    return { specNode("nz", "osc/noise", { { "amp", 1 } }, {}),
+             specNode("src", "math/mul", { { "in1", amp } }, { { "in0", "nz", "out" } }) };
 }
 
 static vector<NodeSpec> eqSine (float freq, float amp)
 {
-    return { eqNode("src", "osc/simple",
+    return { specNode("src", "osc/simple",
                     { { "freq", freq }, { "amp", amp }, { "waveform", 0 } }, {}) };
 }
 
@@ -5483,9 +5483,9 @@ static void checkEq (const string &pluginPath)
         moving[0].values = { { "type", 0 }, { "freq", 1000 },
                              { string(arg) == "q" ? "gain" : "q", string(arg) == "q" ? 6 : 0.5f } };
         moving[0].wires.push_back({ arg, "m", "out" });
-        moving.push_back(eqNode("sq", "osc/simple",
+        moving.push_back(specNode("sq", "osc/simple",
                                 { { "freq", 4 }, { "amp", at }, { "waveform", 2 } }, {}));
-        moving.push_back(eqNode("m", "math/add", { { "in1", 2 * at } }, { { "in0", "sq", "out" } }));
+        moving.push_back(specNode("m", "math/add", { { "in1", 2 * at } }, { { "in0", "sq", "out" } }));
         /* One window, since a window's start works the band out afresh
            and would hide a step the window's samples missed. */
         if (!render1(pluginPath, moving, "eq", "out", 11025, 11025, a, why) ||
@@ -5514,14 +5514,14 @@ static void checkEq (const string &pluginPath)
        away rather than hold the integrators' last value as an offset. */
     {
         vector<NodeSpec> spec = {
-            eqNode("sq", "osc/simple",
+            specNode("sq", "osc/simple",
                    { { "freq", 0.25f }, { "amp", 1 }, { "waveform", 2 } }, {}),
-            eqNode("off", "math/sub", { { "in0", 1 } }, { { "in1", "sq", "out" } }),
-            eqNode("on", "math/mul", { { "in1", 0.5f } }, { { "in0", "off", "out" } }),
-            eqNode("fq", "math/mul", { { "in1", 1000 } }, { { "in0", "on", "out" } }),
-            eqNode("nz", "osc/noise", { { "amp", 1 } }, {}),
-            eqNode("src", "math/mul", {}, { { "in0", "nz", "out" }, { "in1", "on", "out" } }),
-            eqNode("eq", "filt/eq", { { "type", 0 }, { "gain", 24 }, { "q", 0.707f } },
+            specNode("off", "math/sub", { { "in0", 1 } }, { { "in1", "sq", "out" } }),
+            specNode("on", "math/mul", { { "in1", 0.5f } }, { { "in0", "off", "out" } }),
+            specNode("fq", "math/mul", { { "in1", 1000 } }, { { "in0", "on", "out" } }),
+            specNode("nz", "osc/noise", { { "amp", 1 } }, {}),
+            specNode("src", "math/mul", {}, { { "in0", "nz", "out" }, { "in1", "on", "out" } }),
+            specNode("eq", "filt/eq", { { "type", 0 }, { "gain", 24 }, { "q", 0.707f } },
                    { { "in", "src", "out" }, { "freq", "fq", "out" } }),
         };
         vector<float> got;
@@ -5556,12 +5556,12 @@ static void checkEq (const string &pluginPath)
                 spec[0].values = { { "type", (float)type }, { "q", q } };
                 spec[0].wires = { { "in", "src", "out" }, { "freq", "f", "out" },
                                   { "gain", "lg", "out" } };
-                spec.push_back(eqNode("lf", "osc/simple",
+                spec.push_back(specNode("lf", "osc/simple",
                                       { { "freq", 50 }, { "amp", 13730 },
                                         { "waveform", 0 } }, {}));
-                spec.push_back(eqNode("f", "math/add", { { "in1", 12730 } },
+                spec.push_back(specNode("f", "math/add", { { "in1", 12730 } },
                                       { { "in0", "lf", "out" } }));
-                spec.push_back(eqNode("lg", "osc/simple",
+                spec.push_back(specNode("lg", "osc/simple",
                                       { { "freq", 7 }, { "amp", 24 }, { "waveform", 0 } }, {}));
 
                 vector<float> got;
@@ -5587,6 +5587,445 @@ static void checkEq (const string &pluginPath)
             }
         okOrFail(good, "filt::eq: swept across its whole range, finite and bounded",
                  detail);
+    }
+}
+
+/* ---- fft::freeze -------------------------------------------------------- */
+
+static const double FZ_RATE = 44100;
+
+/* `name' steps from 0 to 1 at `at' seconds: a saw a hundred seconds long,
+   taken past its value at that moment and squared off. */
+/* A NodeSpec keeps its names as pointers; these graphs' names are built,
+   so each is kept for the life of the check. */
+static const char *fzName (const string &name)
+{
+    return strdup(name.c_str());
+}
+
+static void fzStep (vector<NodeSpec> &spec, const string &name, double at)
+{
+    const char *saw = fzName(name + "_saw"), *off = fzName(name + "_off");
+    const char *x = fzName(name + "_x"), *step = fzName(name);
+
+    spec.push_back(specNode(saw, "osc/simple",
+                            { { "freq", 0.01f }, { "amp", 1 }, { "waveform", 1 } }, {}));
+    spec.push_back(specNode(off, "math/sub", { { "in1", (float)(2 * at / 100 - 1) } },
+                            { { "in0", saw, "out" } }));
+    spec.push_back(specNode(x, "math/mul", { { "in1", 1e6f } }, { { "in0", off, "out" } }));
+    spec.push_back(specNode(step, "math/clamp", { { "lo", 0 }, { "hi", 1 } },
+                            { { "in", x, "out" } }));
+}
+
+struct FzRun
+{
+    float freq = 1000, freq2 = 0;   /* the sine, and what it turns to at `turn' */
+    double turn = 0;
+    double silence = 0;             /* the sine stops then, if not 0 */
+    std::vector<std::pair<double, double>> held;    /* freeze up from, to */
+    float size = 2048, random = 0, fade = 0.03f * 44100, seed = 0;
+    bool fixed = false;             /* `freeze' the number freezeValue, not the steps */
+    float freezeValue = 0;
+    bool noise = false;
+    bool constant = false;          /* the input the number `level' */
+    float level = 0;
+};
+
+static vector<NodeSpec> fzGraph (const FzRun &run)
+{
+    vector<NodeSpec> spec;
+
+    if (run.constant)
+        spec.push_back(specNode("src0", "math/add", { { "in0", run.level }, { "in1", 0 } }, {}));
+    else if (run.noise)
+        spec.push_back(specNode("src0", "osc/noise", { { "amp", 0.5f } }, {}));
+    else
+        spec.push_back(specNode("src0", "osc/simple",
+                                { { "freq", run.freq }, { "amp", 0.5f }, { "waveform", 0 } }, {}));
+    string src = "src0";
+
+    if (run.freq2 > 0)
+    {
+        spec.push_back(specNode("src2", "osc/simple",
+                                { { "freq", run.freq2 }, { "amp", 0.5f }, { "waveform", 0 } }, {}));
+        fzStep(spec, "turn", run.turn);
+        spec.push_back(specNode("a", "math/sub", { { "in0", 1 } }, { { "in1", "turn", "out" } }));
+        spec.push_back(specNode("a1", "math/mul", {}, { { "in0", "src0", "out" }, { "in1", "a", "out" } }));
+        spec.push_back(specNode("a2", "math/mul", {}, { { "in0", "src2", "out" }, { "in1", "turn", "out" } }));
+        spec.push_back(specNode("mixed", "math/add", {}, { { "in0", "a1", "out" }, { "in1", "a2", "out" } }));
+        src = "mixed";
+    }
+    if (run.silence > 0)
+    {
+        fzStep(spec, "quiet", run.silence);
+        spec.push_back(specNode("left", "math/sub", { { "in0", 1 } }, { { "in1", "quiet", "out" } }));
+        spec.push_back(specNode("src", "math/mul", {}, { { "in0", fzName(src), "out" }, { "in1", "left", "out" } }));
+    }
+    else
+        spec.push_back(specNode("src", "math/add", { { "in1", 0 } }, { { "in0", fzName(src), "out" } }));
+
+    vector<Value> v = { { "size", run.size }, { "random", run.random }, { "fade", run.fade },
+                        { "seed", run.seed } };
+    vector<Wire> w = { { "in", "src", "out" } };
+
+    if (run.fixed || run.held.empty())
+        v.push_back({ "freeze", run.freezeValue });
+    else
+    {
+        string sum;
+
+        for (size_t k = 0; k < run.held.size(); k++)
+        {
+            const string on = "on" + std::to_string(k), off = "off" + std::to_string(k);
+            const string up = "up" + std::to_string(k);
+
+            fzStep(spec, on, run.held[k].first);
+            fzStep(spec, off, run.held[k].second);
+            spec.push_back(specNode(fzName(up), "math/sub", {},
+                                    { { "in0", fzName(on), "out" }, { "in1", fzName(off), "out" } }));
+            if (k == 0)
+                sum = up;
+            else
+            {
+                const string next = "sum" + std::to_string(k);
+
+                spec.push_back(specNode(fzName(next), "math/add", {},
+                                        { { "in0", fzName(sum), "out" }, { "in1", fzName(up), "out" } }));
+                sum = next;
+            }
+        }
+        w.push_back({ "freeze", fzName(sum), "out" });
+    }
+    spec.insert(spec.begin(), specNode("fz", "fft/freeze", v, w));
+    return spec;
+}
+
+/* The input and the freeze's output for `run', `samples' long. */
+static bool fzRender (const string &pluginPath, const FzRun &run, unsigned samples,
+                      unsigned windowlen, vector<float> &in, vector<float> &out, string &why)
+{
+    vector<Watch> watch = { { "src", "out" }, { "fz", "out" } };
+    vector< vector<float> > got;
+
+    if (!render(pluginPath, fzGraph(run), watch, windowlen, samples, got, why))
+        return false;
+    in = got[0];
+    out = got[1];
+    return true;
+}
+
+static double fzRms (const vector<float> &v, double from, double to)
+{
+    double sum = 0;
+    size_t a = (size_t)(from * FZ_RATE), b = std::min(v.size(), (size_t)(to * FZ_RATE));
+
+    for (size_t i = a; i < b; i++)
+        sum += (double)v[i] * v[i];
+    return b > a ? sqrt(sum / (double)(b - a)) : 0;
+}
+
+/* The frequency from rising zero crossings, with the fraction between
+   samples, from `from' to `to' seconds. */
+static double fzFreq (const vector<float> &v, double from, double to)
+{
+    size_t a = (size_t)(from * FZ_RATE), b = std::min(v.size(), (size_t)(to * FZ_RATE));
+    double first = -1, last = -1;
+    int count = 0;
+
+    for (size_t i = a + 1; i < b; i++)
+        if (v[i - 1] < 0 && v[i] >= 0)
+        {
+            const double t = (double)(i - 1) + v[i - 1] / (v[i - 1] - v[i]);
+
+            if (first < 0)
+                first = t;
+            else
+                count++;
+            last = t;
+        }
+    return count > 0 ? count / ((last - first) / FZ_RATE) : 0;
+}
+
+static void checkFreeze (const string &pluginPath)
+{
+    const double sineRms = 0.5 / sqrt(2.0);
+
+    /* ---- not frozen, a wire ---- */
+    {
+        FzRun run;
+        vector<float> in, out;
+        string why;
+
+        run.noise = true;
+        if (!fzRender(pluginPath, run, 20000, 256, in, out, why))
+            fail("fft::freeze renders", why);
+        else
+            okOrFail(in.size() == out.size() &&
+                         !memcmp(in.data(), out.data(), in.size() * sizeof(float)),
+                     "fft::freeze: not frozen, the output is the input, bit for bit", "");
+    }
+
+    /* ---- frozen while the sine goes on: the held sound continues it ---- */
+    for (float size : { 256.0f, 2048.0f })
+    {
+        FzRun run;
+        vector<float> in, out;
+        string why;
+
+        run.size = size;
+        run.held = { { 0.3, 9 } };
+        if (!fzRender(pluginPath, run, (unsigned)(1.0 * FZ_RATE), 256, in, out, why))
+        {
+            fail("fft::freeze renders a held sine", why);
+            continue;
+        }
+
+        double worst = 0;
+
+        for (size_t i = (size_t)(0.3 * FZ_RATE); i < out.size(); i++)
+            worst = std::max(worst, fabs((double)out[i] - in[i]));
+        /* A 256-point frame leaks a 1 kHz sine's negative frequency into its
+           own bins, 0.06 dB of it; a frame a sample out of place is 0.07
+           out. */
+        okOrFail(worst < (size < 1000 ? 1e-2 : 1e-3),
+                 "fft::freeze at " + num(size) + ": a steady sine frozen goes on as "
+                 "itself, through the fade and after",
+                 "worst " + num(worst));
+    }
+
+    /* ---- frozen and then silenced: the level held, at each random ---- */
+    for (float size : { 256.0f, 2048.0f })
+        for (float r : { 0.0f, 0.5f, 1.0f })
+        {
+            FzRun run;
+            vector<float> in, out;
+            string why;
+
+            run.size = size;
+            run.random = r;
+            run.held = { { 0.3, 9 } };
+            run.silence = 0.31;
+            if (!fzRender(pluginPath, run, (unsigned)(2.6 * FZ_RATE), 256, in, out, why))
+            {
+                fail("fft::freeze renders a held sine silenced", why);
+                continue;
+            }
+
+            const double db = 20 * log10(fzRms(out, 0.5, 2.5) / sineRms);
+            const double f = fzFreq(out, 0.5, 2.5);
+            const bool good = fabs(db) < (r == 0 ? 0.5 : 1.5) &&
+                              (r > 0 || fabs(f / 1000 - 1) < 1e-3);
+
+            okOrFail(good, "fft::freeze at " + num(size) + ", random " + num(r) +
+                               ": the sine held at its level" +
+                               (r == 0 ? " and its frequency" : ""),
+                     num(db) + " dB, " + num(f) + " Hz");
+        }
+
+    /* ---- noise at random 1 held at its level too ---- */
+    {
+        FzRun run;
+        vector<float> in, out;
+        string why;
+
+        run.noise = true;
+        run.random = 1;
+        run.held = { { 0.3, 9 } };
+        run.silence = 0.31;
+        if (!fzRender(pluginPath, run, (unsigned)(2.6 * FZ_RATE), 256, in, out, why))
+            fail("fft::freeze renders held noise", why);
+        else
+        {
+            const double db = 20 * log10(fzRms(out, 0.5, 2.5) / fzRms(in, 0, 0.3));
+
+            okOrFail(fabs(db) < 1.5, "fft::freeze at random 1: noise held at its level",
+                     num(db) + " dB");
+        }
+    }
+
+    const auto same = [](const vector<float> &a, const vector<float> &b, size_t from, size_t to) {
+        to = std::min(to, std::min(a.size(), b.size()));
+        return from < to && !memcmp(a.data() + from, b.data() + from, (to - from) * sizeof(float));
+    };
+
+    /* ---- held a minute, as it was held at first ---- */
+    {
+        FzRun run;
+        vector<float> in, out;
+        string why;
+
+        run.held = { { 0.3, 99 } };
+        run.silence = 0.31;
+        if (!fzRender(pluginPath, run, (unsigned)(60 * FZ_RATE), 256, in, out, why))
+            fail("fft::freeze renders a minute", why);
+        else
+        {
+            const double db = 20 * log10(fzRms(out, 59, 60) / fzRms(out, 1, 2));
+
+            okOrFail(fabs(db) < 0.1, "fft::freeze: a minute's freeze ends at the level it began",
+                     num(db) + " dB");
+        }
+    }
+
+    /* ---- released, the input again, bit for bit ---- */
+    {
+        FzRun run;
+        vector<float> in, out;
+        string why;
+
+        run.held = { { 0.3, 0.8 } };
+        if (!fzRender(pluginPath, run, (unsigned)(1.2 * FZ_RATE), 256, in, out, why))
+            fail("fft::freeze renders a release", why);
+        else
+            okOrFail(same(in, out, (size_t)(0.84 * FZ_RATE), out.size()),
+                     "fft::freeze: once the fade back is done, the output is the input, bit "
+                     "for bit", "");
+    }
+
+    /* ---- a second capture holds what played then; a fall and a rise in
+       the fade in keep what is held ---- */
+    {
+        FzRun again, flick;
+        vector<float> in, out, in2, out2;
+        string why;
+
+        again.freq2 = 1500;
+        again.turn = 0.9;
+        again.held = { { 0.3, 0.6 }, { 1.3, 9 } };
+        again.silence = 1.31;
+        /* Up at 0.3 s and the fade a fifth in by 0.33, down then and up
+           again at 0.335, well before the fade back reaches dry; the sine
+           is 1.5 kHz from 0.305, so a second capture would hold that. */
+        flick.freq2 = 1500;
+        flick.turn = 0.305;
+        flick.fade = 0.1f * (float)FZ_RATE;
+        flick.held = { { 0.3, 0.33 }, { 0.335, 9 } };
+        flick.silence = 0.34;
+        if (!fzRender(pluginPath, again, (unsigned)(2.6 * FZ_RATE), 256, in, out, why) ||
+            !fzRender(pluginPath, flick, (unsigned)(2.6 * FZ_RATE), 256, in2, out2, why))
+            fail("fft::freeze renders two captures", why);
+        else
+        {
+            const double f = fzFreq(out, 1.6, 2.5), f2 = fzFreq(out2, 0.6, 2.5);
+
+            okOrFail(fabs(f / 1500 - 1) < 1e-3,
+                     "fft::freeze: frozen again after a release, it holds the new sound",
+                     num(f) + " Hz");
+            okOrFail(fabs(f2 / 1000 - 1) < 1e-3,
+                     "fft::freeze: let go and frozen again inside the fade, it keeps what it "
+                     "held", num(f2) + " Hz");
+        }
+    }
+
+    /* ---- frozen from the first sample: a silence, held ---- */
+    {
+        FzRun run;
+        vector<float> in, out;
+        string why;
+
+        run.fixed = true;
+        run.freezeValue = 1;
+        if (!fzRender(pluginPath, run, (unsigned)(0.5 * FZ_RATE), 256, in, out, why))
+            fail("fft::freeze renders a freeze from the first sample", why);
+        else
+            okOrFail(fzRms(out, 0.1, 0.5) == 0 && fzRms(in, 0.1, 0.5) > 0.3,
+                     "fft::freeze: frozen from the first sample, it holds the silence there "
+                     "was", "");
+    }
+
+    /* ---- a seed is its own shimmer, and the same one twice ---- */
+    {
+        FzRun run;
+        vector<float> in, a, b, c;
+        string why;
+
+        run.random = 1;
+        run.held = { { 0.3, 9 } };
+        bool good = fzRender(pluginPath, run, (unsigned)(1.0 * FZ_RATE), 256, in, a, why) &&
+                    fzRender(pluginPath, run, (unsigned)(1.0 * FZ_RATE), 256, in, b, why);
+
+        run.seed = 1;
+        good = good && fzRender(pluginPath, run, (unsigned)(1.0 * FZ_RATE), 256, in, c, why);
+        if (!good)
+            fail("fft::freeze renders its seeds", why);
+        else
+            okOrFail(same(a, b, 0, a.size()) && !same(a, c, (size_t)(0.5 * FZ_RATE), a.size()),
+                     "fft::freeze: one seed renders the same twice, another differently", "");
+    }
+
+    /* ---- a capture and a release at any window length ---- */
+    {
+        FzRun run;
+
+        run.size = 256;
+        run.random = 0.5f;
+        run.fade = 100;
+        run.held = { { 500 / FZ_RATE, 1500 / FZ_RATE } };
+        windowsAgree(pluginPath, fzGraph(run), "fz", "out",
+                     "fft::freeze: a capture and a release the same at one sample a window and "
+                     "at five hundred");
+    }
+
+    /* ---- what it makes of a value it cannot use: the value it stands
+       for ---- */
+    {
+        struct Case { const char *what; FzRun a, b; };
+        FzRun held, nanFreeze, zeroFreeze;
+
+        held.held = { { 0.1, 9 } };
+        nanFreeze.fixed = zeroFreeze.fixed = true;
+        nanFreeze.freezeValue = NAN;
+
+        vector<Case> cases;
+        const auto with = [&](FzRun r, auto set) { set(r); return r; };
+
+        cases.push_back({ "a NaN freeze as 0", nanFreeze, zeroFreeze });
+        cases.push_back({ "a NaN random as 0", with(held, [](FzRun &r) { r.random = NAN; }), held });
+        cases.push_back({ "a NaN size as 2048", with(held, [](FzRun &r) { r.size = NAN; }),
+                          with(held, [](FzRun &r) { r.size = 2048; }) });
+        cases.push_back({ "a size of 0 as 2048", with(held, [](FzRun &r) { r.size = 0; }),
+                          with(held, [](FzRun &r) { r.size = 2048; }) });
+        cases.push_back({ "a size of 100000 as 4096", with(held, [](FzRun &r) { r.size = 100000; }),
+                          with(held, [](FzRun &r) { r.size = 4096; }) });
+        cases.push_back({ "a size of 300 as 256", with(held, [](FzRun &r) { r.size = 300; }),
+                          with(held, [](FzRun &r) { r.size = 256; }) });
+        cases.push_back({ "a NaN fade as a hop", with(held, [](FzRun &r) { r.fade = NAN; }),
+                          with(held, [](FzRun &r) { r.fade = 512; }) });
+        cases.push_back({ "a NaN seed as 0", with(held, [](FzRun &r) { r.seed = NAN; r.random = 1; }),
+                          with(held, [](FzRun &r) { r.random = 1; }) });
+        cases.push_back({ "an infinite in as 0",
+                          with(held, [](FzRun &r) { r.constant = true; r.level = INFINITY; }),
+                          with(held, [](FzRun &r) { r.constant = true; r.level = 0; }) });
+
+        /* And the ends of the range are sizes of their own, not 2048 again. */
+        for (float size : { 256.0f, 4096.0f })
+        {
+            vector<float> in, a, b;
+            string why;
+            FzRun at = held, mid = held;
+
+            at.size = size;
+            mid.size = 2048;
+            at.silence = mid.silence = 0.11;
+            if (!fzRender(pluginPath, at, (unsigned)(0.4 * FZ_RATE), 256, in, a, why) ||
+                !fzRender(pluginPath, mid, (unsigned)(0.4 * FZ_RATE), 256, in, b, why))
+                fail("fft::freeze renders its sizes", why);
+            else
+                okOrFail(!same(a, b, (size_t)(0.2 * FZ_RATE), a.size()),
+                         "fft::freeze: a size of " + num(size) + " is its own, not 2048", "");
+        }
+
+        for (const Case &k : cases)
+        {
+            vector<float> in, a, b;
+            string why;
+
+            if (!fzRender(pluginPath, k.a, (unsigned)(0.4 * FZ_RATE), 256, in, a, why) ||
+                !fzRender(pluginPath, k.b, (unsigned)(0.4 * FZ_RATE), 256, in, b, why))
+                fail(string("fft::freeze renders ") + k.what, why);
+            else
+                okOrFail(same(a, b, 0, a.size()), string("fft::freeze takes ") + k.what, "");
+        }
     }
 }
 
@@ -10050,6 +10489,7 @@ int main (int argc, char **argv)
     checkBlep(pluginPath);
     checkUnison(pluginPath);
     checkEq(pluginPath);
+    checkFreeze(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);
