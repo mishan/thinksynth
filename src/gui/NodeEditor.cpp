@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <functional>
 #include <fstream>
+#include <sstream>
 
 #include <gtkmm.h>
 
@@ -468,13 +469,8 @@ NodeEditor::~NodeEditor (void)
     if (ctxPopover_.get_parent())
         ctxPopover_.unparent();
 
-    /* parseTree() handed us a tree nobody else tracks. */
+    /* parseTreeText() handed us a tree nobody else tracks. */
     delete tree_;
-
-    /* The scratch copy is this window's alone and means nothing without it.
-       Anything worth keeping went to the source on Save. */
-    if (!work_.empty())
-        ::remove(work_.c_str());
 }
 
 void NodeEditor::setStatus (const string &text)
@@ -510,12 +506,10 @@ void NodeEditor::clearSelectionStatus (void)
 
 /* Is there anything the source does not have?
  *
- * Two kinds, and both count. Values, wires and positions are held in memory
- * until Save. Added and removed nodes are already in the working copy, because
- * showing them needed a parse -- but the source has not seen them either, so
- * structuralDirty_ makes them count the same. Before the working copy they
- * were in the user's file the moment they happened, so there was nothing to
- * track and Save could not be offered for them. */
+ * Two kinds, and both count. Values, wires and positions are held aside
+ * until Save. Added and removed nodes are already in text_, because showing
+ * them needed a parse -- but the source has not seen them either, so
+ * structuralDirty_ makes them count the same. */
 bool NodeEditor::dirty (void) const
 {
     return layoutDirty_ || structuralDirty_ || !pending_.empty() ||
@@ -563,12 +557,12 @@ void NodeEditor::updateDirty (void)
        wrote the layout block -- so opening a .dsp that had never been through
        the editor and pressing Save added twenty comment lines to a file the
        user had not edited. */
-    saveBtn_.set_sensitive(!work_.empty() && dirty);
+    saveBtn_.set_sensitive(!source_.empty() && dirty);
 
     /* Save As stays available with nothing pending: "give me my own copy of
        this patch" is a reason to use it, and for a read-only source it is the
        only way anything gets written at all. */
-    saveAsBtn_.set_sensitive(!work_.empty());
+    saveAsBtn_.set_sensitive(!source_.empty());
     revertBtn_.set_sensitive(dirty);
 
     updateTitle();
@@ -633,34 +627,42 @@ const char *NodeEditor::applyValueLive (const string &node, const string &arg,
     return "  (next note)";
 }
 
-bool NodeEditor::copyFile (const string &from, const string &to)
+/* The whole of a file, or false if reading it failed part way -- a disk
+ * giving up, a file on a network mount that went away -- since taking what
+ * had arrived by then as the patch is how one gets silently truncated on the
+ * next Save.
+ *
+ * read() rather than `<< rdbuf()': copying the buffer swallows a read error
+ * into failbit on the stream written to, so the one read from never says. An
+ * empty file reads as an empty patch, which is a file like any other. */
+static bool readFile (const string &path, string &out)
 {
-    ifstream in(from.c_str(), ios::binary);
+    ifstream in(path.c_str(), ios::binary);
 
     if (!in)
         return false;
 
-    ofstream out(to.c_str(), ios::binary | ios::trunc);
+    char buf[65536];
+
+    out.clear();
+
+    while (in.read(buf, sizeof(buf)) || in.gcount() > 0)
+        out.append(buf, (size_t)in.gcount());
+
+    return !in.bad();
+}
+
+bool NodeEditor::writeFile (const string &path, const string &text)
+{
+    ofstream out(path.c_str(), ios::binary | ios::trunc);
 
     if (!out)
         return false;
 
-    out << in.rdbuf();
-
-    /* Both ends checked, and for badbit rather than goodness.
-     *
-     * failbit is not an error here: an empty source sets it on the insert
-     * because rdbuf() extracted no characters, and an empty .dsp is a file
-     * like any other. badbit is the one that means the stream broke.
-     *
-     * The read side matters as much as the write side and was not being
-     * looked at. A source that fails part way through -- a disk giving up, a
-     * file on a network mount that went away -- leaves a short but perfectly
-     * well-formed working copy, and saying "copied" about it is how a patch
-     * gets silently truncated on the next Save. */
+    out << text;
     out.flush();
 
-    return !in.bad() && !out.bad();
+    return !out.bad();
 }
 
 bool NodeEditor::sourceWritable (void) const
@@ -672,44 +674,6 @@ bool NodeEditor::sourceWritable (void) const
         return true;
 
     return access(source_.c_str(), W_OK) == 0;
-}
-
-/* A scratch .dsp holding a copy of the source.
- *
- * In the temp directory rather than beside the original, because the whole
- * point is that the original's directory may not be writable -- an installed
- * patch lives somewhere root owns. Nothing is lost by moving it: a .dsp
- * resolves no paths relative to itself. Strings in the grammar are only name,
- * author, description, label and group, and no plugin opens a file, so the
- * copy parses exactly as the original does wherever it sits.
- *
- * A fresh one for each open, which takes over from the last only once the
- * file has parsed; the last is removed in the destructor. */
-bool NodeEditor::startWorkingCopy (const string &source)
-{
-    if (work_.empty())
-    {
-        /* The name has to be unguessable and the directory has to be the one
-           this platform actually uses -- see thUtil::tempFile, which is where
-           both of those live now. It used to be built here from TMPDIR with
-           "/tmp" as the fallback, which is how Windows ended up looking for a
-           directory it does not have and reporting that it could not read a
-           file it had never opened. */
-        work_ = thUtil::tempFile("thinksynth-edit-");
-
-        if (work_.empty())
-            return false;
-    }
-
-    if (inlineSave_)
-    {
-        std::ofstream out(work_.c_str(), std::ios::binary | std::ios::trunc);
-
-        out << inlineBody_;
-        return out.good();
-    }
-
-    return copyFile(source, work_);
 }
 
 void NodeEditor::markGrown (const std::set<string> &names)
@@ -754,46 +718,35 @@ bool NodeEditor::open (const string &filename, int chan)
     if (filename != inlineName_)
         inlineSave_ = nullptr;
 
-    /* Into a working copy of its own, taken over only once it parses: the
-       one there now is the graph still on screen, and the next Save writes
-       it to source_. */
-    const string prevWork = work_;
+    /* Taken over only once it parses: the text there now is the graph still
+       on screen, and the next Save writes it to source_. */
+    string text;
 
-    const auto keepPrevious = [this, &prevWork] ()
+    if (inlineSave_)
+        text = inlineBody_;
+    else if (!readFile(filename, text))
     {
-        if (!work_.empty())
-            ::remove(work_.c_str());
-
-        work_ = prevWork;
-    };
-
-    work_.clear();
-
-    if (!startWorkingCopy(filename))
-    {
-        keepPrevious();
         inlineSave_ = prevSave;
         setStatus("Could not read " + filename);
         return false;
     }
 
+    const string prevText = text_;
     const string prevSource = source_;
     const int prevChannel = channel_;
 
+    text_ = text;
     source_ = filename;
     channel_ = chan;
 
     if (!reload())
     {
-        keepPrevious();
+        text_ = prevText;
         source_ = prevSource;
         channel_ = prevChannel;
         inlineSave_ = prevSave;
         return false;
     }
-
-    if (!prevWork.empty())
-        ::remove(prevWork.c_str());
 
     structuralDirty_ = false;
 
@@ -808,8 +761,6 @@ bool NodeEditor::open (const string &filename, int chan)
 
 bool NodeEditor::reload (void)
 {
-    const string filename = work_;
-
     /* The constructor already allows for this when it fills the palette; the
        rest of the class did not, and a NULL synth reached parseTree as a NULL
        `this' and a lock on a mutex at address 0x120b8. Nothing here works
@@ -821,7 +772,7 @@ bool NodeEditor::reload (void)
         return false;
     }
 
-    thSynthTree *tree = synth_->parseTree(filename);
+    thSynthTree *tree = synth_->parseTreeText(source_, text_);
 
     if (tree == NULL)
     {
@@ -847,7 +798,7 @@ bool NodeEditor::reload (void)
     NodeLayout::PosMap pos;
     int restored = 0;
 
-    if (NodeLayout::read(filename, pos) && !pos.empty())
+    if (NodeLayout::Text::read(text_, pos) && !pos.empty())
         restored = NodeLayout::apply(g, pos, g);
 
     /* Swap in only once everything above has succeeded, so a failed open
@@ -872,7 +823,7 @@ bool NodeEditor::reload (void)
     {
         vector<NodeLayout::ProbeRef> saved;
 
-        if (NodeLayout::readProbes(filename, saved))
+        if (NodeLayout::Text::readProbes(text_, saved))
             for (size_t i = 0; i < saved.size(); i++)
             {
                 if (visuals_.find(saved[i].visual) == visuals_.end())
@@ -987,13 +938,13 @@ bool NodeEditor::writeAll (string &why)
         NodeEdit::Result r;
 
         if (!e.srcControl.empty())
-            r = NodeEdit::connectControl(work_, e.node, e.arg,
-                                         e.srcControl, why);
+            r = NodeEdit::Text::connectControl(text_, e.node, e.arg,
+                                               e.srcControl, why);
         else if (e.srcNode.empty())
-            r = NodeEdit::disconnect(work_, e.node, e.arg, 0, why);
+            r = NodeEdit::Text::disconnect(text_, e.node, e.arg, 0, why);
         else
-            r = NodeEdit::connect(work_, e.node, e.arg,
-                                  e.srcNode, e.srcPort, why);
+            r = NodeEdit::Text::connect(text_, e.node, e.arg,
+                                        e.srcNode, e.srcPort, why);
 
         if (r != NodeEdit::OK)
         {
@@ -1010,7 +961,7 @@ bool NodeEditor::writeAll (string &why)
          i != controls_.end(); ++i)
     {
         NodeEdit::Result r =
-            NodeEdit::setChanArg(work_, i->first, i->second, why);
+            NodeEdit::Text::setChanArg(text_, i->first, i->second, why);
 
         if (r != NodeEdit::OK)
         {
@@ -1027,9 +978,9 @@ bool NodeEditor::writeAll (string &why)
              i = pending_.begin();
          i != pending_.end(); ++i)
     {
-        NodeEdit::Result r = NodeEdit::setValue(work_, i->first.first,
-                                                i->first.second, i->second,
-                                                why);
+        NodeEdit::Result r = NodeEdit::Text::setValue(text_, i->first.first,
+                                                      i->first.second,
+                                                      i->second, why);
 
         if (r != NodeEdit::OK)
         {
@@ -1042,7 +993,7 @@ bool NodeEditor::writeAll (string &why)
         }
     }
 
-    if (!NodeLayout::write(work_, graph_))
+    if (!NodeLayout::Text::write(text_, graph_))
     {
         why = "could not write the layout";
         return false;
@@ -1053,7 +1004,7 @@ bool NodeEditor::writeAll (string &why)
 
 void NodeEditor::onSave (void)
 {
-    if (work_.empty())
+    if (source_.empty())
         return;
 
     const int n = (int)pending_.size();
@@ -1070,7 +1021,7 @@ void NodeEditor::onSave (void)
         return;
     }
 
-    /* Everything is now in the working copy. Putting it where the user
+    /* Everything is now in text_. Putting it where the user
        expects is a separate step, and the one that can fail for reasons that
        have nothing to do with the edits -- an installed patch, a read-only
        medium, someone else's file.
@@ -1083,9 +1034,7 @@ void NodeEditor::onSave (void)
        save is handed over as something to do afterwards. */
     if (inlineSave_)
     {
-        std::ifstream in(work_.c_str(), std::ios::binary);
-        const string body((std::istreambuf_iterator<char>(in)),
-                          std::istreambuf_iterator<char>());
+        const string body = text_;
         string name;
 
         if (!inlineSave_(body, name, why))
@@ -1102,7 +1051,7 @@ void NodeEditor::onSave (void)
         return;
     }
 
-    if (!sourceWritable() || !copyFile(work_, source_))
+    if (!sourceWritable() || !writeFile(source_, text_))
     {
         saveAsDialog(sigc::bind(sigc::mem_fun(*this, &NodeEditor::finishSave),
                                 n, c, w),
@@ -1123,8 +1072,8 @@ void NodeEditor::finishSave (int n, int c, int w)
        truth, and reading it back is the only way to see what it actually says
        -- including a value the writer had to round to something spellable.
 
-       reload(), not open(): the working copy is what was just written and the
-       source is now a copy of it, so there is nothing to fetch. */
+       reload(), not open(): text_ is what was just written, so there is
+       nothing to fetch. */
     if (!reloadKeepingSelection())
         return;
 
@@ -1148,7 +1097,7 @@ void NodeEditor::finishSave (int n, int c, int w)
 
 void NodeEditor::onRevert (void)
 {
-    if (work_.empty())
+    if (source_.empty())
         return;
 
     /* Remember what was touched before reloading, because reloading is what
@@ -1171,10 +1120,8 @@ void NodeEditor::onRevert (void)
     controls_.clear();
     layoutDirty_ = false;
 
-    /* open(), not reload(): re-copying the source over the working file is
-       what throws away nodes added and deleted since the last save. Until the
-       working copy existed there was nothing to throw them away with, and
-       Revert quietly left them in place. */
+    /* open(), not reload(): reading the source again is what throws away
+       nodes added and deleted since the last save. */
     if (!open(source_, channel_))
         return;
 
@@ -1324,12 +1271,11 @@ vector<string> NodeEditor::takenNames (void) const
  * ports come from its plugin, and the only thing that knows them is a parse --
  * so the honest way to show a new node is to write it and reparse.
  *
- * What it is written to is the working copy, not the user's .dsp. That is what
- * makes the claim in the next sentence true, which it was not before: Revert
- * undoes this like anything else, by taking a fresh copy of the source. */
+ * What it is written to is text_, not the user's .dsp, so Revert undoes this
+ * like anything else, by reading the source again. */
 void NodeEditor::onPaletteAdd (string spelling)
 {
-    if (work_.empty())
+    if (source_.empty())
     {
         setStatus("Open or create a .dsp first.");
         return;
@@ -1372,7 +1318,8 @@ void NodeEditor::onPaletteAdd (string spelling)
                                             e.defaults[i].value));
     }
 
-    NodeEdit::Result r = NodeEdit::addNode(work_, name, spelling, initial, why);
+    NodeEdit::Result r =
+        NodeEdit::Text::addNode(text_, name, spelling, initial, why);
 
     if (r != NodeEdit::OK)
     {
@@ -1383,8 +1330,8 @@ void NodeEditor::onPaletteAdd (string spelling)
     structuralDirty_ = true;
 
     /* reload(), emphatically not open(): the node has just been written to
-       the working copy, and open() would replace that copy with a fresh one
-       taken from the source -- undoing the add in the act of displaying it. */
+       text_, and open() would read the source over it -- undoing the add in
+       the act of displaying it. */
     if (!reload())
         return;
 
@@ -1568,7 +1515,7 @@ void NodeEditor::onAskControlResponse (int response, ControlForm *form)
 
 void NodeEditor::onPaletteAddControl (void)
 {
-    if (work_.empty())
+    if (source_.empty())
     {
         setStatus("Open or create a .dsp first.");
         return;
@@ -1616,7 +1563,8 @@ void NodeEditor::addControlFromForm (ControlForm *form)
         return;
     }
 
-    if (NodeEdit::addControl(work_, name, value, min, max, label, group, why)
+    if (NodeEdit::Text::addControl(text_, name, value, min, max, label, group,
+                                   why)
         != NodeEdit::OK)
     {
         setStatus("Could not add @" + name + ": " + why);
@@ -1705,7 +1653,8 @@ void NodeEditor::editControlFromForm (ControlForm *form)
         return;
     }
 
-    if (NodeEdit::setControlMeta(work_, name, min, max, label, group, why)
+    if (NodeEdit::Text::setControlMeta(text_, name, min, max, label, group,
+                                       why)
         != NodeEdit::OK)
     {
         setStatus("Could not retype @" + name + ": " + why);
@@ -1748,7 +1697,7 @@ void NodeEditor::editControlFromForm (ControlForm *form)
  * so it simply stays. */
 void NodeEditor::onDeleteNode (void)
 {
-    if (work_.empty())
+    if (source_.empty())
         return;
 
     vector<pair<string, bool> > victims;   /* name, isControl */
@@ -1802,8 +1751,9 @@ void NodeEditor::onDeleteNode (void)
 
         const NodeEdit::Result r =
             victims[i].second
-                ? NodeEdit::removeControl(work_, victims[i].first, n, why)
-                : NodeEdit::removeNode(work_, victims[i].first, n, why);
+                ? NodeEdit::Text::removeControl(text_, victims[i].first, n,
+                                                why)
+                : NodeEdit::Text::removeNode(text_, victims[i].first, n, why);
 
         if (r != NodeEdit::OK)
         { failedAt = (int)i; break; }
@@ -1812,7 +1762,7 @@ void NodeEditor::onDeleteNode (void)
         done++;
     }
 
-    /* Anything removed at all is a change to the working copy, including a
+    /* Anything removed at all is a change to text_, including a
        run that stopped part way. Marking it dirty is what makes Revert able
        to undo a half-finished delete -- which is the reason this can afford
        to stop at the first failure rather than trying to unpick itself. */
@@ -1869,9 +1819,9 @@ void NodeEditor::onDeleteNode (void)
 /* A new .dsp: ask where, write the smallest file that loads, open it. */
 /* Where should this go? Asks, writes there, and adopts it as the source.
  *
- * The working copy is already complete by the time this runs -- Save flushes
- * everything into it before deciding where to put it -- so this is a file copy
- * and a change of address, nothing more.
+ * text_ is already complete by the time this runs -- Save flushes everything
+ * into it before deciding where to put it -- so this is a write and a change
+ * of address, nothing more.
  *
  * Adopting the new path matters: after saving a read-only patch somewhere of
  * your own, the next Save should go there without asking again. */
@@ -1937,7 +1887,7 @@ void NodeEditor::onSaveAsResponse (int response, Gtk::FileChooserDialog *dlg,
 void NodeEditor::saveAsConfirmed (string path, sigc::slot<void ()> done,
                                   string ifRefused)
 {
-    if (!copyFile(work_, path))
+    if (!writeFile(path, text_))
     {
         showError(topLevel(), "Could not save there.", path);
 
@@ -1958,7 +1908,7 @@ void NodeEditor::saveAsConfirmed (string path, sigc::slot<void ()> done,
 
 void NodeEditor::onSaveAs (void)
 {
-    if (work_.empty())
+    if (source_.empty())
         return;
 
     string why;

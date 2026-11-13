@@ -24,7 +24,7 @@ behaviour and layout.
 | Parameter panel: the gtk widget | `src/gui/NodeParamsView.{h,cpp}` over `src/gui/PanelView.{h,cpp}` |
 | Plugin palette | `NodeCatalog`, `src/gui/NodePalette.{h,cpp}` |
 
-`NodeWindow` parses its own tree through `thSynth::parseTree()`, which neither
+`NodeEditor` parses its own tree through `thSynth::parseTreeText()`, which neither
 registers nor owns the result, so looking at a DSP cannot disturb the tree a
 channel is playing.
 

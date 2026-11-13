@@ -73,8 +73,12 @@ public:
        name collision deletes whatever was registered before -- possibly the
        tree a channel is playing right now. That risk is acceptable when
        loading a patch and absurd when merely looking at one, so the node
-       editor uses this instead. */
+       editor uses parseTreeText instead. */
     thSynthTree *parseTree(const string &filename);
+
+    /* parseTree over text in memory: an editor holding the patch it is
+       changing. `name' is what a log line calls it. */
+    thSynthTree *parseTreeText (const string &name, const string &text);
 
     void listTrees (void);
     thPluginManager *getPluginManager (void) { return pluginmanager_; };
