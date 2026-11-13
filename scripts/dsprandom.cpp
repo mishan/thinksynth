@@ -142,6 +142,8 @@ static const Kind KINDS[] = {
     { "misc::latch", { { "in", "" }, { "latch", "" } }, { "out" } },
     { "filt::svf", { { "in", "" }, { "cutoff", "~" }, { "res", "~" } },
       { "out_low", "out_band", "out_high" } },
+    { "filt::eq", { { "in", "" }, { "type", "0|1|2" }, { "freq", "~" }, { "gain", "~" },
+                    { "q", "~" } }, { "out" } },
     { "delay::allpass", { { "in", "" }, { "delay", "1|7|40" }, { "gain", "-1:1" } },
       { "out" } },
     { "delay::echo", { { "in", "" }, { "size", "64|300" }, { "delay", "1|20|60" },

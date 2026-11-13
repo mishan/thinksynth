@@ -112,6 +112,7 @@ static const Kernel KERNELS[] = {
       false, "thkBlep" },
     { "osc/noise", { "color", "amp" }, "thkNoise::ctl", false, {}, false, "thkNoise" },
     { "filt/svf", { "cutoff", "res" }, "thkSvf::ctl", true, { "in" }, false, "thkSvf" },
+    { "filt/eq", { "type", "freq", "gain", "q" }, "thkEq::ctl", true, { "in" }, false, "thkEq" },
     { "dist/saturate", {}, NULL, false, { "in", "factor" }, true, NULL },
     { "math/exp2", {}, NULL, false, { "in" }, true, NULL },
     { "math/pow", {}, NULL, false, { "base", "exp" }, true, NULL },
@@ -574,6 +575,9 @@ struct Compiler
               << ", runRate);\n";
         else if (p == "misc/latch")
             s << "        const float " << out << " = " << self << ".tick(" << args(0) << ");\n";
+        else if (p == "filt/eq")
+            s << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
+              << ", " << args(0) << ");\n";
         else if (p == "misc/midi2freq")
             s << "        const float " << out << " = thkMidi2freq(" << v[0].text << ", runRate);\n";
         else
