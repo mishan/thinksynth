@@ -1552,6 +1552,7 @@ int main (int argc, char **argv)
             { "a control read on a line after it", true, "c" },
             { "a node read by a line's second statement", false, "d" },
             { "a control read by a line's second statement", true, "e" },
+            { "a node read after a statement's last line", false, "f" },
         };
 
         string text =
@@ -1570,11 +1571,11 @@ int main (int argc, char **argv)
             "node b osc::simple { freq = ionode->note; };\n"
             "node env env::adsr { trigger = ionode->trigger; };\n"
             "node d osc::simple { freq = ionode->note; };\n"
+            "node f osc::simple { freq = ionode->note; };\n"
             "node one mixer::mul { in0 = env->out; in1 = d->out * @e; };\n"
             "node mix mixer::mul {\n"
             "    in0 = a->out * 0.5 +\n"
-            "          b->out * @c;\n"
-            "    in1 = one->out;\n"
+            "          b->out * @c; in1 = one->out * f->out;\n"
             "};\n"
             "io ionode;\n";
 
@@ -1594,6 +1595,100 @@ int main (int argc, char **argv)
                      !refused(synth, text),
                      string("removing ") + c.what + " leaves a file that "
                      "parses", text);
+        }
+    }
+
+    /* Line breaks inside a right-hand side change nothing a removal does:
+       where the whole arg would fall back to 0 on one line, it does over
+       several. */
+    {
+        struct Case {
+            const char *what;
+            bool control;
+            const char *name;
+            const char *joined;
+            const char *split;
+        };
+
+        const Case cases[] = {
+            { "a plain binding to a control", true, "c",
+              "    in1 = @c;\n", "    in1 =\n          @c;\n" },
+            { "a control with a unit in arithmetic", true, "slow",
+              "    in1 = 100 + @slow;\n",
+              "    in1 = 100 +\n          @slow;\n" },
+            { "a plain binding to a node", false, "d",
+              "    in1 = d->out;\n", "    in1 =\n          d->out;\n" },
+        };
+
+        for (const Case &c : cases)
+        {
+            string forms[2];
+
+            for (int k = 0; k < 2; k++)
+            {
+                string why;
+                int removed = 0;
+
+                /* d after what reads it, so joining lines above its block
+                   moves the block. */
+                forms[k] = wrap("@c = 0.5;\n@slow = 4 ms;\n",
+                                "node m mixer::mul {\n" +
+                                string(k ? c.split : c.joined) +
+                                "};\n"
+                                "node d osc::simple "
+                                "{ freq = ionode->note; };\n");
+
+                if ((c.control ? NodeEdit::Text::removeControl(forms[k],
+                                     c.name, removed, why)
+                               : NodeEdit::Text::removeNode(forms[k], c.name,
+                                     removed, why)) != NodeEdit::OK ||
+                    removed != 1)
+                    forms[k] = "removal failed: " + why;
+            }
+
+            okOrFail(forms[0] == forms[1] &&
+                     forms[0].find("in1 = 0;") != string::npos,
+                     string("removing ") + c.what + " over two lines gives "
+                     "what it does on one", forms[0] + "---\n" + forms[1]);
+        }
+    }
+
+    /* What a join must not take with it: a comment on any line of the
+       statement, and, where the `;' is missing, the statements after it. */
+    {
+        struct Case {
+            const char *what;
+            const char *body;
+            const char *kept[2];
+        };
+
+        const Case cases[] = {
+            { "a comment on each line of the statement",
+              "    in1 = 100 +   # gate in\n"
+              "          # was + 3\n"
+              "          @slow;  # slow tail\n",
+              { "# gate in", "# was + 3" } },
+            { "the statement after one missing its `;'",
+              "    in1 = 100 +\n"
+              "          @slow\n"
+              "    in0 = 2;\n",
+              { "in0 = 2;", "};" } },
+        };
+
+        for (const Case &c : cases)
+        {
+            string text = wrap("@slow = 4 ms;\n",
+                               string("node m mixer::mul {\n") + c.body +
+                               "};\n");
+            string why;
+            int removed = 0;
+
+            okOrFail(NodeEdit::Text::removeControl(text, "slow", removed,
+                                                   why) == NodeEdit::OK &&
+                     text.find(c.kept[0]) != string::npos &&
+                     text.find(c.kept[1]) != string::npos &&
+                     text.find("@slow") == string::npos,
+                     string("removing a control keeps ") + c.what, text);
         }
     }
 

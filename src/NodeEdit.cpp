@@ -649,36 +649,83 @@ static bool substituteRef (const string &rhs, const string &ref,
 
 /* A right-hand side that runs on past its line -- arithmetic, since a wire
    or a number fits on one -- from just after the `=' at `eq' on lines[i] to
-   the `;' that ends it. `ref' is replaced by `with' wherever it appears on
-   those lines, and `i' is left on the last of them. True if any was. */
+   the `;' that ends it. True if `ref' appears on those lines.
+
+   It goes as it would on one line: each `ref' becomes `with', or the whole
+   right-hand side `0' when it is a plain binding or nothing can stand in
+   (`with' empty), the statement then joined onto one line and `gone' the
+   lines that joining removed. `i' is left on the statement's last line and
+   `pos' just past its `;' there, npos without one. */
 static bool substituteAcross (vector<string> &lines, size_t &i,
                               string::size_type eq, const string &ref,
-                              bool takesPort, const string &with)
+                              bool takesPort, const string &with,
+                              string::size_type &pos, size_t &gone)
 {
+    const size_t first = i;
+    string::size_type semi = string::npos;
+    string rhs;
     bool any = false;
 
-    for (size_t k = i; k < lines.size(); k++)
+    gone = 0;
+
+    for (size_t k = first; k < lines.size(); k++)
     {
         const string code = codeOf(lines[k]);
-        const string::size_type start = (k == i) ? eq + 1 : 0;
-        const string::size_type semi = code.find(';', start);
+        const string::size_type start = (k == first) ? eq + 1 : 0;
+        semi = code.find(';', start);
         const string::size_type end = semi == string::npos ? code.size()
                                                             : semi;
+        const string part = code.substr(start, end - start);
         string cut;
 
-        if (substituteRef(code.substr(start, end - start), ref, takesPort,
-                          with, cut))
+        rhs += " " + part;
+
+        if (substituteRef(part, ref, takesPort, with.empty() ? "0" : with,
+                          cut))
         {
             lines[k] = lines[k].substr(0, start) + cut + lines[k].substr(end);
             any = true;
+
+            if (semi != string::npos)
+                semi = start + cut.size();
         }
 
-        if (semi != string::npos || k + 1 == lines.size())
-        {
-            i = k;
+        i = k;
+
+        if (semi != string::npos)
             break;
-        }
     }
+
+    /* No `;', or one past a `=' or a brace, is not one statement: it is
+       text still being typed, and joining would swallow what follows. */
+    if (any && semi != string::npos && rhs.find_first_of("={}") ==
+        string::npos && (with.empty() || !isExpressionRhs(rhs)))
+    {
+        /* The statement takes its last line's place, that line's comment
+           with it; the comments of the lines before stay above it. */
+        lines[i] = lines[first].substr(0, eq + 1) + " 0" +
+                   lines[i].substr(semi);
+
+        for (size_t k = i; k-- > first;)
+        {
+            const string::size_type hash = codeOf(lines[k]).size();
+
+            if (hash < lines[k].size())
+                lines[k] = lines[k].substr(0,
+                               lines[k].find_first_not_of(" \t")) +
+                           lines[k].substr(hash);
+            else
+            {
+                lines.erase(lines.begin() + k);
+                gone++;
+            }
+        }
+
+        i -= gone;
+        semi = eq + 3;
+    }
+
+    pos = semi == string::npos ? string::npos : semi + 1;
 
     return any;
 }
@@ -1794,10 +1841,22 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
 
             if (semi == string::npos)
             {
-                if (substituteAcross(lines, i, eq, ref, true, "0"))
+                const size_t first = i;
+                size_t gone = 0;
+
+                if (substituteAcross(lines, i, eq, ref, true, "0", pos, gone))
                     removed++;
 
-                break;
+                if (first < open)
+                {
+                    open -= gone;
+                    close -= gone;
+                }
+
+                if (pos == string::npos)
+                    break;
+
+                continue;
             }
 
             pos = semi + 1;
@@ -2404,18 +2463,20 @@ NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &na
             if (eq == string::npos)
                 break;
 
-            /* Over several lines, only the references go: the value stands
-               in where there is one, and 0 where its unit means there is
-               not. */
             const string::size_type semi = code.find(';', eq);
 
             if (semi == string::npos)
             {
-                if (substituteAcross(lines, i, eq, ref, false,
-                                     stood.empty() ? "0" : stood))
+                size_t gone = 0;
+
+                if (substituteAcross(lines, i, eq, ref, false, stood, pos,
+                                     gone))
                     removed++;
 
-                break;
+                if (pos == string::npos)
+                    break;
+
+                continue;
             }
 
             pos = semi + 1;
