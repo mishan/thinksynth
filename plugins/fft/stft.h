@@ -34,7 +34,11 @@
  * nothing.
  *
  * The ring and the accumulator are the caller's, a frame long each, in a
- * plugin's state; this keeps only pointers and positions. */
+ * plugin's state; this keeps only pointers and positions. The caller
+ * answers for what it hands over: n a size thkStftSize gives, pos in [0,
+ * n), hop in [0, n/4), and a finite input -- a state restored out of
+ * range reads off the accumulator, and a NaN let in comes back as the dry
+ * signal a frame later and spoils every frame it is in. */
 
 #include <string.h>
 
@@ -78,7 +82,7 @@ struct thkStft
 
         dry = ring[pos];
         ring[pos] = in;
-        pos = (pos + 1) % n;
+        pos = (pos + 1) & (n - 1);
 
         const float out = acc[hop];
 
@@ -88,7 +92,7 @@ struct thkStft
             float x[THK_FFT_MAX], re[THK_FFT_MAX / 2 + 1], im[THK_FFT_MAX / 2 + 1];
 
             for (int j = 0; j < n; j++)
-                x[j] = thkStftHann(t, j, n) * ring[(pos + j) % n];
+                x[j] = thkStftHann(t, j, n) * ring[(pos + j) & (n - 1)];
             thkFftReal(x, re, im, n);
             process(re, im, n);
             thkFftRealInverse(re, im, x, n);

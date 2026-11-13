@@ -717,7 +717,7 @@ main ()
 
         std::vector<float> ring2(n), acc2(n);
         thkStft im = { ring2.data(), acc2.data(), n, 0, 0 };
-        int at = -1;
+        int at = -1, peaks = 0;
         double stray = 0;
 
         for (int i = 0; i < 3 * n; i++)
@@ -726,9 +726,35 @@ main ()
             const float y = im.tick(i == 0 ? 1.0f : 0.0f, dry, [](float *, float *, int) {});
 
             if (std::fabs(y) > 0.5f)
+            {
                 at = i;
+                peaks++;
+            }
             else
                 stray = std::max(stray, (double)std::fabs(y));
+        }
+
+        /* And what the node does to the spectrum is what comes out: every
+           bin doubled is the input doubled, a frame late. */
+        std::vector<float> ring3(n), acc3(n);
+        thkStft twice = { ring3.data(), acc3.data(), n, 0, 0 };
+        double doubled = 0;
+
+        for (int i = 0; i < (int)x.size(); i++)
+        {
+            float dry;
+            const float y = twice.tick(x[i], dry, [n](float *re, float *im, int size) {
+                for (int b = 0; b <= size / 2; b++)
+                {
+                    re[b] *= 2;
+                    im[b] *= 2;
+                }
+                if (size != n)
+                    re[0] = INFINITY;
+            });
+
+            if (i >= n)
+                doubled = std::max(doubled, std::fabs((double)y - 2 * x[i - n]));
         }
 
         const std::string sz = " at " + std::to_string(n);
@@ -738,7 +764,9 @@ main ()
         report(("the running transform's dry signal, the input a frame late exactly" + sz).c_str(),
                dryOff, 0);
         report(("an impulse through the running transform, a frame late and alone" + sz).c_str(),
-               at == n ? stray : INFINITY, 1e-6);
+               at == n && peaks == 1 ? stray : INFINITY, 1e-6);
+        report(("the running transform's spectrum doubled, its input doubled" + sz).c_str(),
+               doubled, 2e-6);
     }
 
     /* A size it cannot do writes zeros rather than running off its arrays. */
