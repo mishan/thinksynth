@@ -61,8 +61,8 @@ public:
      * channel playing this same .dsp, edits are applied to the live graph as
      * well as recorded for the save, so they can be heard.
      *
-     * The file itself is not edited. It is copied to a scratch .dsp, and that
-     * is what everything here writes to -- see work_. */
+     * The file itself is not edited. Its text is read into text_, and that
+     * is what everything here edits until Save. */
     bool open (const string &filename, int chan = -1);
 
     /* Puts an inline graph -- `dsp { ... }' inside a piece -- where its
@@ -93,7 +93,7 @@ public:
     void markGrown (const std::set<string> &names);
 
     /* True if anything here is not in the source yet -- pending edits, or a
-       structural change already in the working copy. */
+       structural change already in text_. */
     bool dirty (void) const;
 
 protected:
@@ -187,21 +187,15 @@ protected:
     void onDeleteNode (void);
     void onSaveAs (void);
 
-    /* Copies `from' over `to', whole. Used to take the source into the
-       working copy on open, and to put it back on save. */
-    static bool copyFile (const string &from, const string &to);
+    /* Writes `text' over the file at `path', whole. */
+    static bool writeFile (const string &path, const string &text);
 
-    /* Points work_ at a fresh scratch .dsp holding a copy of `source'. False
-       if the copy could not be made, which is the one way opening a readable
-       file can still fail. */
-    bool startWorkingCopy (const string &source);
+    /* Reparses text_ and rebuilds the display from it. What a structural
+       edit calls: add and delete splice text_ and then need the ports a
+       parse gives them.
 
-    /* Reparses work_ and rebuilds the display from it, without touching the
-       working copy. What a structural edit calls: add and delete write to
-       work_ and then need the ports a parse gives them.
-
-       open() is this plus taking a fresh copy of the source first, which is
-       why Revert can be open() and a structural edit cannot. */
+       open() is this plus reading the source again first, which is why
+       Revert can be open() and a structural edit cannot. */
     bool reload (void);
 
     /* Asks where to put it, saves there, adopts it as the source, and then
@@ -235,10 +229,9 @@ protected:
        editing it -- it only decides whether Save can put it back. */
     bool sourceWritable (void) const;
 
-    /* The scratch file everything is written to before a save puts it back.
-       Protected so scripts/editorcheck can drive the same save path the
-       button does. */
-    const string &work (void) const { return work_; }
+    /* The text every edit goes to before a save puts it back. Protected so
+       scripts/editorcheck can drive the same save path the button does. */
+    const string &text (void) const { return text_; }
 
     /* Every node name the file uses, so a new one can avoid them. */
     vector<string> takenNames (void) const;
@@ -441,7 +434,7 @@ private:
        open and written on save; never edited in place. */
     string source_;
 
-    /* The scratch copy every edit actually goes to.
+    /* The patch's text, which every edit goes to.
      *
      * A new node's ports exist only after a parse, so adding one means writing
      * it out and reparsing -- there is no way to show it otherwise. That used
@@ -450,10 +443,10 @@ private:
      * undone, because Revert reloads the file the add had already gone into.
      * Both were the same mistake, which was editing the original.
      *
-     * So the original is copied here on open and everything writes to the
-     * copy. Save puts it back; Revert takes a fresh copy; and a read-only
-     * source is now just a source that Save has to send somewhere else. */
-    string work_;
+     * So the original is read here on open and everything edits this. Save
+     * writes it back; Revert reads the source again; and a read-only source
+     * is just a source that Save has to send somewhere else. */
+    string text_;
 
     /* An inline graph's text and where Save sends it; inlineSave_ is empty
        for a file. inlineName_ is the source_ they belong to, so opening
@@ -467,10 +460,10 @@ private:
 
     bool layoutDirty_;
 
-    /* True when the working copy has structural edits -- nodes or controls
-       added or removed -- that the source does not have. Values and wires are
-       tracked separately below, because those are still held in memory; this
-       is for the ones that are already in the working file. */
+    /* True when text_ has structural edits -- nodes or controls added or
+       removed -- that the source does not have. Values and wires are tracked
+       separately below, because those are still held aside; this is for the
+       ones that are already in text_. */
     bool structuralDirty_;
 
     /* True while the status bar is showing the selection count rather than

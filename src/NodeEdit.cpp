@@ -807,8 +807,8 @@ static bool writeText (const string &filename, const string &all)
      * strip the meaning off a read-only bit, so this puts that back.
      *
      * The node editor never reaches this on a read-only patch anyway -- it
-     * edits a scratch copy and offers Save As -- but NodeEdit is not only
-     * called by the node editor, and "the file said no" is the answer here. */
+     * edits the text and offers Save As -- but NodeEdit is not only called
+     * by the node editor, and "the file said no" is the answer here. */
     if (access(filename.c_str(), F_OK) == 0 &&
         access(filename.c_str(), W_OK) != 0)
         return false;

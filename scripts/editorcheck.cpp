@@ -168,11 +168,10 @@ public:
     {
         string why;
 
-        return writeAll(why) && copyFile(workFile(), sourceFile());
+        return writeAll(why) && writeFile(sourceFile(), text());
     }
 
     const string &sourceFile (void) const { return filename(); }
-    string workFile (void) const { return work(); }
 
     /* How many panels the graph is carrying. */
     int panels (void) const
@@ -1068,6 +1067,70 @@ void checkSaveCorpus (thSynth &synth, const string &pluginPath)
     std::filesystem::remove(copy);
 }
 
+/* The editor holds the patch in memory and writes only the file it saves to,
+   so it works with no temporary directory to write in: opening, editing,
+   adding a node and saving. */
+void checkNoScratchFile (thSynth &synth, const char *file)
+{
+    const string copy = thUtil::tempFile("editorcheck-scratch-");
+
+    std::filesystem::copy_file(file, copy,
+        std::filesystem::copy_options::overwrite_existing);
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->present();
+
+    pump(0.2);
+
+    /* TMPDIR on POSIX, TMP and TEMP on Windows: none of them anywhere. */
+    const char *vars[] = { "TMPDIR", "TMP", "TEMP" };
+    std::vector<std::pair<bool, string> > was;
+
+    for (const char *v : vars)
+    {
+        bool set = false;
+        const string value = Glib::getenv(v, set);
+
+        was.push_back(std::make_pair(set, value));
+        Glib::setenv(v, "/nonexistent/editorcheck");
+    }
+
+    const bool opened = ed->open(copy);
+    size_t boxes = 0;
+
+    if (opened)
+    {
+        boxes = ed->graph().boxes().size();
+        ed->onPaletteAdd("osc::simple");
+        ed->onSave();
+    }
+
+    for (size_t i = 0; i < was.size(); i++)
+        if (was[i].first)
+            Glib::setenv(vars[i], was[i].second);
+        else
+            Glib::unsetenv(vars[i]);
+
+    TestEditor *again = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w2 = new Gtk::Window();
+
+    w2->set_child(*again);
+
+    ok(opened && again->open(copy) &&
+       again->graph().boxes().size() == boxes + 1,
+       "with no temporary directory, a graph opens, takes a node and saves "
+       "it (%d boxes, then %d)", (int)boxes,
+       (int)again->graph().boxes().size());
+
+    delete w;
+    delete w2;
+
+    std::filesystem::remove(copy);
+}
+
 /* Opening a graph that will not parse changes nothing: the next Save still
    writes the graph on screen to where it came from. From a file and from a
    piece's text, since a piece's graph carries its own save. */
@@ -1785,6 +1848,7 @@ int run (const string &pluginPath, const char *file)
     checkSelectionAfterSave(synth);
     checkFailedOpen(synth, file);
     checkLayoutRestored(synth, file);
+    checkNoScratchFile(synth, file);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);

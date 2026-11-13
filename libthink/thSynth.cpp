@@ -1488,17 +1488,21 @@ thSynthTree * thSynth::loadTree (const string &filename)
     return tree;
 }
 
+/* GUI thread, and pure, for parseTree's reasons below. */
+thSynthTree * thSynth::parseTreeText (const string &name, const string &text)
+{
+    thSynthTree *raw = NULL;
+    int parseResult = thParseDspText(this, text, &raw);
+
+    return finishParse(name, raw, parseResult, false);
+}
+
 thSynthTree * thSynth::parseTree (const string &filename)
 {
     string graph;
 
     if (thUtil::findGraphText(filename, graph))
-    {
-        thSynthTree *raw = NULL;
-        int parseResult = thParseDspText(this, graph, &raw);
-
-        return finishParse(filename, raw, parseResult, false);
-    }
+        return parseTreeText(filename, graph);
 
     std::error_code ec;
 
