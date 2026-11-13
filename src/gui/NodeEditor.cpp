@@ -510,7 +510,7 @@ void NodeEditor::clearSelectionStatus (void)
  * is already in text_, and counts when text_ is not what the source says. */
 bool NodeEditor::dirty (void) const
 {
-    return text_ != saved_ || !pending_.empty() || !wires_.empty();
+    return text_ != saved_ || !pending_.empty();
 }
 
 void NodeEditor::writeLayout (void)
@@ -764,7 +764,7 @@ bool NodeEditor::open (const string &filename, int chan)
     return true;
 }
 
-bool NodeEditor::reload (void)
+bool NodeEditor::reload (const NodeLayout::PosMap *carry)
 {
     /* The constructor already allows for this when it fills the palette; the
        rest of the class did not, and a NULL synth reached parseTree as a NULL
@@ -806,13 +806,15 @@ bool NodeEditor::reload (void)
     if (NodeLayout::Text::read(text_, pos) && !pos.empty())
         restored = NodeLayout::apply(g, pos, g);
 
+    if (carry != NULL)
+        NodeLayout::apply(g, *carry, g);
+
     /* Swap in only once everything above has succeeded, so a failed open
        leaves the previous file on screen rather than a blank canvas. */
     delete tree_;
     tree_ = tree;
     graph_ = g;
     pending_.clear();
-    wires_.clear();
 
     ctlText_.clear();
 
@@ -922,7 +924,7 @@ void NodeEditor::onArrange (void)
  * ask unconditionally. */
 bool NodeEditor::flushPending (string &why)
 {
-    if (pending_.empty() && wires_.empty())
+    if (pending_.empty())
         return true;
 
     return writeAll(why);
@@ -930,35 +932,6 @@ bool NodeEditor::flushPending (string &why)
 
 bool NodeEditor::writeAll (string &why)
 {
-    /* Wires before values: disconnecting puts a plain number in place of the
-       connection, and a value edit on that same arg should land on top of it
-       rather than being overwritten by it. */
-    for (size_t w = 0; w < wires_.size(); w++)
-    {
-        const WireEdit &e = wires_[w];
-
-        NodeEdit::Result r;
-
-        if (!e.srcControl.empty())
-            r = NodeEdit::Text::connectControl(text_, e.node, e.arg,
-                                               e.srcControl, why);
-        else if (e.srcNode.empty())
-            r = NodeEdit::Text::disconnect(text_, e.node, e.arg, 0, why);
-        else
-            r = NodeEdit::Text::connect(text_, e.node, e.arg,
-                                        e.srcNode, e.srcPort, why);
-
-        if (r != NodeEdit::OK)
-        {
-            if (why.empty())
-                why = string(NodeEdit::resultText(r));
-
-            why = e.node + "." + e.arg + ": " + why;
-
-            return false;
-        }
-    }
-
     for (std::map<std::pair<std::string, std::string>, double>::const_iterator
              i = pending_.begin();
          i != pending_.end(); ++i)
@@ -993,7 +966,6 @@ void NodeEditor::onSave (void)
         return;
 
     const int n = (int)pending_.size();
-    const int w = (int)wires_.size();
 
     string why;
 
@@ -1031,24 +1003,24 @@ void NodeEditor::onSave (void)
         inlineBody_ = body;
         inlineName_ = source_ = name;
 
-        finishSave(n, w);
+        finishSave(n);
         return;
     }
 
     if (!sourceWritable() || !writeFile(source_, text_))
     {
         saveAsDialog(sigc::bind(sigc::mem_fun(*this, &NodeEditor::finishSave),
-                                n, w),
+                                n),
                      "Not saved: " + source_ + " cannot be written. "
                      "Use Save As to put it somewhere else.");
         return;
     }
 
-    finishSave(n, w);
+    finishSave(n);
 }
 
 /* What follows a save that got as far as a file, from either route. */
-void NodeEditor::finishSave (int n, int w)
+void NodeEditor::finishSave (int n)
 {
     saved_ = text_;
     liveControls_.clear();
@@ -1067,9 +1039,9 @@ void NodeEditor::finishSave (int n, int w)
     /* One snprintf per case rather than a format string chosen by a
        conditional. An earlier version handed the same argument list to both
        branches, so the one taking no arguments read an int as a %s. */
-    if (n || w)
-        snprintf(buf, sizeof(buf), "Saved, with %d value%s and %d wire "
-                 "change%s.", n, n == 1 ? "" : "s", w, w == 1 ? "" : "s");
+    if (n)
+        snprintf(buf, sizeof(buf), "Saved, with %d value%s.", n,
+                 n == 1 ? "" : "s");
     else
         snprintf(buf, sizeof(buf), "Saved.");
 
@@ -1094,7 +1066,6 @@ void NodeEditor::onRevert (void)
         valNames.push_back(i->first);
 
     pending_.clear();
-    wires_.clear();
 
     /* open(), not reload(): reading the source again is what throws away
        nodes added and deleted since the last save. */
@@ -1896,12 +1867,12 @@ void NodeEditor::finishSaveAs (void)
     setStatus("Saved as " + source_ + ".");
 }
 
-bool NodeEditor::reloadKeepingSelection (void)
+bool NodeEditor::reloadKeepingSelection (const NodeLayout::PosMap *carry)
 {
     const int sel = canvas_.selected();
     const string name = sel >= 0 ? graph_.boxes()[sel].name : string();
 
-    if (!reload())
+    if (!reload(carry))
         return false;
 
     const vector<NodeGraph::Box> &boxes = graph_.boxes();
@@ -2034,43 +2005,101 @@ void NodeEditor::onParamEdited (int box, string name, double value)
     setStatus(buf);
 }
 
-/* Applies a wire to the graph on screen and records it for the save.
+/* A wire made or cut goes into text_ there and then, after anything held
+ * aside, and the graph is parsed again from it -- as the browser's editor
+ * does. Changing the graph in place instead let it drift from the text: an
+ * expression cut out of an arg stayed on the canvas, and a control wired to
+ * a second node kept being drawn as if it had one.
  *
- * Applied immediately rather than only on Save so the canvas shows what was
- * just drawn -- a wiring gesture that produced no visible wire until a save
- * would be unusable. The file is still untouched until Save. */
+ * Every box is put back where it was, whether or not the text says where:
+ * the wiring decides the layout's columns, and a wire is not a reason for
+ * the rest of the graph to move. */
+bool NodeEditor::rewire (const std::function<NodeEdit::Result (string &,
+                                                               string &)>
+                             &edit,
+                         const string &done)
+{
+    /* Nothing changes unless the wire goes in: the values held aside are
+       written into a text that goes back if it does not. */
+    const string was = text_;
+    string why;
+
+    if (!flushPending(why))
+    {
+        text_ = was;
+        setStatus("Not changed: the values held aside could not be written "
+                  "first (" + why + ")");
+        return false;
+    }
+
+    string text = text_;
+
+    if (edit(text, why) != NodeEdit::OK || text == text_)
+    {
+        text_ = was;
+        setStatus(why.empty() ? "Nothing to change." : "Cannot: " + why);
+        return false;
+    }
+
+    /* Not the strips, which go where their node does. A control that a wire
+       leaves free-standing takes the layout's place for it: where its strip
+       was is on top of the node it was on. */
+    NodeLayout::PosMap kept;
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+        if (graph_.boxes()[b].attachedTo < 0)
+            kept[NodeLayout::keyFor(graph_, (int)b)] =
+                make_pair(graph_.boxes()[b].x, graph_.boxes()[b].y);
+
+    text_ = text;
+
+    if (!reloadKeepingSelection(&kept))
+    {
+        text_ = was;
+        return false;
+    }
+
+    setStatus(done);
+    refreshOutline();
+
+    return true;
+}
+
 void NodeEditor::onConnect (int fromBox, int fromPort, int toBox, int toPort)
+{
+    connectPorts(fromBox, fromPort, toBox, toPort);
+}
+
+bool NodeEditor::connectPorts (int fromBox, int fromPort, int toBox,
+                               int toPort)
 {
     string why;
 
-    if (!graph_.connect(fromBox, fromPort, toBox, toPort, why))
+    if (!graph_.canConnect(fromBox, fromPort, toBox, toPort, why))
     {
         setStatus("Cannot connect: " + why);
-        return;
+        return false;
     }
 
-    WireEdit e;
+    const NodeGraph::Box &from = graph_.boxes()[fromBox];
+    const string node = graph_.boxes()[toBox].name;
+    const string arg = graph_.boxes()[toBox].ports[toPort].name;
 
-    e.node = graph_.boxes()[toBox].name;
-    e.arg = graph_.boxes()[toBox].ports[toPort].name;
-    if (graph_.boxes()[fromBox].isControl)
-        e.srcControl = graph_.boxes()[fromBox].ctlArg;
-    else
+    if (from.isControl)
     {
-        e.srcNode = graph_.boxes()[fromBox].name;
-        e.srcPort = graph_.boxes()[fromBox].ports[fromPort].name;
+        const string ctl = from.ctlArg;
+
+        return rewire([&] (string &text, string &w)
+            { return NodeEdit::Text::connectControl(text, node, arg, ctl,
+                                                    w); },
+            node + "." + arg + " <- @" + ctl);
     }
 
-    wires_.push_back(e);
+    const string src = from.name, port = from.ports[fromPort].name;
 
-    canvas_.queue_draw();
-    params_.setBox(&graph_, canvas_.selected());
-    updateDirty();
-
-    setStatus(e.node + "." + e.arg + " <- " +
-              (e.srcControl.empty() ? e.srcNode + "->" + e.srcPort
-                                    : "@" + e.srcControl));
-    refreshOutline();
+    return rewire([&] (string &text, string &w)
+        { return NodeEdit::Text::connect(text, node, arg, src, port, w); },
+        node + "." + arg + " <- " + src + "->" + port);
 }
 
 /* ---- the graph as a list ----
@@ -2256,11 +2285,7 @@ void NodeEditor::showWiring (int b)
 
             later([this, b, src, in]
             {
-                const size_t was = wires_.size();
-
-                onConnect(src.first, src.second, b, in);
-
-                if (wires_.size() != was)
+                if (connectPorts(src.first, src.second, b, in))
                     outlineHome();
             });
         });
@@ -2384,21 +2409,12 @@ void NodeEditor::onDisconnect (int edge)
         return;
     }
 
-    WireEdit e;
+    const string node = graph_.boxes()[ed.toBox].name;
+    const string arg = graph_.boxes()[ed.toBox].ports[ed.toPort].name;
 
-    e.node = graph_.boxes()[ed.toBox].name;
-    e.arg = graph_.boxes()[ed.toBox].ports[ed.toPort].name;
-
-    graph_.removeEdge(edge);
-
-    wires_.push_back(e);
-
-    canvas_.queue_draw();
-    params_.setBox(&graph_, canvas_.selected());
-    updateDirty();
-
-    setStatus("Disconnected " + e.node + "." + e.arg + ".  Revert undoes it.");
-    refreshOutline();
+    rewire([&] (string &text, string &why)
+        { return NodeEdit::Text::disconnect(text, node, arg, 0, why); },
+        "Disconnected " + node + "." + arg + ".  Revert undoes it.");
 }
 
 /* A slider moved. `commit' is false while dragging and true on release.

@@ -147,6 +147,7 @@ public:
     using NodeEditor::boxList_;
     using NodeEditor::wiring_;
     using NodeEditor::onDisconnect;
+    using NodeEditor::onConnect;
     using NodeEditor::onBoxMoved;
     using NodeEditor::onParamEdited;
     using NodeEditor::onControlChanged;
@@ -837,10 +838,10 @@ void checkSaveCorpus (thSynth &synth, const string &pluginPath)
             string want = input, why;
             pair<string, string> cut;
 
-            /* What the oracle applies, in Save's order: wires, controls,
-               values. The gestures go in the opposite order -- the drag
-               first, the wire last -- so an editor that writes each edit as
-               it is made has to come out the same as one that saves them up. */
+            /* What the oracle applies, in the order Save once applied them:
+               wires, controls, values. The gestures go in the opposite order
+               -- the drag first, the wire last -- and the editor writes each
+               as it is made, so the bytes cannot depend on the order. */
             vector<pair<int, std::function<void (string &)> > > splices;
             int cutEdge = -1;
 
@@ -1320,6 +1321,136 @@ void checkControlCommit (thSynth &synth)
     }
     else
         ok(false, "@cut is a box");
+
+    delete w;
+
+    std::filesystem::remove(copy);
+}
+
+/* A wire goes into the text when it is made, in the order things were done:
+   a value set and then wired over saves as the wire, where it used to fail at
+   Save. And cutting the wire out of an expression takes the expression off
+   the canvas there and then. */
+void checkWireCommit (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-wire-");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Wire\";\n"
+               "node ionode { channels = 1; out0 = mix->out; "
+               "play = env->play; };\n"
+               "node lfo osc::simple { freq = 2; };\n"
+               "node osc osc::simple { freq = ionode->note; amp = 1; };\n"
+               "node env env::adsr { trigger = ionode->trigger; };\n"
+               "node mix mixer::mul { in0 = osc->out; "
+               "in1 = env->out * ionode->velocity; };\n"
+               "io ionode;\n";
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->present();
+
+    pump(0.2);
+
+    ok(ed->open(copy), "an editor opens a graph with a wire to make");
+
+    const auto port = [&] (const string &box, const string &name, bool in,
+                           int &b, int &p)
+    {
+        b = ed->graph().boxByName(box);
+        p = -1;
+
+        if (b >= 0)
+            for (size_t k = 0; k < ed->graph().boxes()[b].ports.size(); k++)
+                if (ed->graph().boxes()[b].ports[k].name == name &&
+                    ed->graph().boxes()[b].ports[k].isInput == in)
+                    p = (int)k;
+
+        return b >= 0 && p >= 0;
+    };
+
+    int lfo, lfoOut, osc, oscAmp;
+
+    if (port("lfo", "out", false, lfo, lfoOut) &&
+        port("osc", "amp", true, osc, oscAmp))
+    {
+        /* The file says nowhere where its boxes go, and the wire moves lfo
+           a column -- but none of them moves on the canvas. */
+        NodeLayout::PosMap before;
+
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].attachedTo < 0)
+                before[NodeLayout::keyFor(ed->graph(), (int)b)] =
+                    make_pair(ed->graph().boxes()[b].x,
+                              ed->graph().boxes()[b].y);
+
+        ed->onParamEdited(osc, "amp", 0.5);
+        ed->onConnect(lfo, lfoOut, osc, oscAmp);
+
+        string moved;
+
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+        {
+            const string key = NodeLayout::keyFor(ed->graph(), (int)b);
+
+            if (before.count(key) &&
+                before[key] != make_pair(ed->graph().boxes()[b].x,
+                                         ed->graph().boxes()[b].y))
+                moved += " " + key;
+        }
+
+        ok(moved.empty(), "wiring moves no box on the canvas (moved:%s)",
+           moved.c_str());
+
+        ed->onSave();
+
+        string saved;
+
+        {
+            ifstream in(copy.c_str(), std::ios::binary);
+
+            saved.assign((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+        }
+
+        ok(!ed->dirty() && saved.find("amp = lfo->out") != string::npos,
+           "a value set and then wired over saves as the wire");
+    }
+    else
+        ok(false, "lfo has an output and osc an amp input");
+
+    int expr = -1;
+
+    for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+        if (ed->graph().boxes()[b].isExpr)
+            expr = (int)b;
+
+    int cut = -1;
+
+    for (size_t e = 0; expr >= 0 && e < ed->graph().edges().size(); e++)
+        if (ed->graph().edges()[e].fromBox == expr)
+            cut = (int)e;
+
+    ok(cut >= 0, "the graph has an expression with a wire out of it");
+
+    if (cut >= 0)
+    {
+        ed->onDisconnect(cut);
+
+        bool gone = true;
+
+        for (const NodeGraph::Box &b : ed->graph().boxes())
+            if (b.isExpr)
+                gone = false;
+
+        ok(gone, "cutting the wire out of an expression takes it off the "
+           "canvas at once");
+    }
 
     delete w;
 
@@ -2046,6 +2177,7 @@ int run (const string &pluginPath, const char *file)
     checkNoScratchFile(synth, file);
     checkLayoutUndone(synth, file);
     checkControlCommit(synth);
+    checkWireCommit(synth);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
