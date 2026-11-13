@@ -34,6 +34,7 @@ e06ae9b0747649d5  fmbass.dsp
 8bc2896a9f9c7a1d  fx/amp.dsp
 91411e048f9c48c1  fx/autopan.dsp
 5250590ad2b77b41  fx/autotune.dsp
+d4e9cd0cdea59b7d  fx/blur.dsp
 68acbb9050364119  fx/cassette.dsp
 1360a483c68cbf61  fx/chorus.dsp
 43d77bc7ff04ed05  fx/comp.dsp
@@ -58,6 +59,7 @@ d733bc1dfbc1bc9d  fx/resynth.dsp
 bac03487cddb15f1  fx/reverse.dsp
 7692d0cd88b54aed  fx/rotary.dsp
 c145615318854d8d  fx/shimmer.dsp
+e5d65e95739f0219  fx/sieve.dsp
 a09f71327d2e4571  fx/space.dsp
 6c9a88f4dfb10a3d  fx/spring.dsp
 c4ed38ef5cd6d115  fx/stutter.dsp
