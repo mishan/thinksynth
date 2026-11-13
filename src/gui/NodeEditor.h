@@ -21,7 +21,9 @@
 
 #include <functional>
 
+#include "../NodeEdit.h"
 #include "../NodeGraph.h"
+#include "../NodeLayout.h"
 #include "../thVisual.h"
 #include "NodeCanvasWidget.h"
 #include "NodeParamsView.h"
@@ -196,7 +198,7 @@ protected:
 
        open() is this plus reading the source again first, which is why
        Revert can be open() and a structural edit cannot. */
-    bool reload (void);
+    bool reload (const NodeLayout::PosMap *carry = NULL);
 
     /* Asks where to put it, saves there, adopts it as the source, and then
        runs `done'. Asynchronous: a GTK4 chooser is answered after this has
@@ -217,12 +219,23 @@ protected:
     /* What follows a save that reached a file: reparse, restore the
        selection, say what happened. One per route, because they say
        different things. */
-    void finishSave (int n, int w);
+    void finishSave (int n);
     void finishSaveAs (void);
 
     /* Reparses after a save, keeping the selected box selected by its name:
        a reparse renumbers every box after one the save took out. */
-    bool reloadKeepingSelection (void);
+    bool reloadKeepingSelection (const NodeLayout::PosMap *carry = NULL);
+
+    /* A wire made or cut: `edit' spliced into text_ in the order it was
+       made, after anything held aside, and the graph parsed again from it,
+       every box staying where it was. False, with the status bar saying
+       why, if the text would not take it. */
+    bool rewire (const std::function<NodeEdit::Result (string &, string &)>
+                     &edit,
+                 const string &done);
+
+    /* onConnect, saying whether the wire went in. */
+    bool connectPorts (int fromBox, int fromPort, int toBox, int toPort);
 
     /* True if the file this was opened from can be written. A .dsp installed
        with the package is typically not, and that must not stop anyone
@@ -476,17 +489,6 @@ private:
        well tested the writer is. */
     std::map<std::pair<std::string, std::string>, double> pending_;
 
-    /* Wire edits, in the order they were made. Order matters: connecting an
-       input and then disconnecting it must end up disconnected, and a map
-       keyed by target would be enough for that, but replaying them in order
-       is easier to reason about and there are never many. */
-    struct WireEdit {
-        string node, arg;       /* the input end                     */
-        string srcNode, srcPort;/* empty for a disconnect            */
-        string srcControl;      /* set instead, for a control source */
-    };
-
-    vector<WireEdit> wires_;
 
     /* Each control's value as text_ has it, by chanarg name: where a slider
        goes back to when the text will not take what it was moved to. */
