@@ -468,6 +468,9 @@ run (const std::string &pluginPath, const std::string &dsp)
     pump(4);
 
     check(win->chan_ == 2, "loading a patch elsewhere keeps the channel");
+    check(win->editors_.count(2) == 1 && win->editors_[2] == edited &&
+          edited->dirty(),
+          "...and the graph on it, with the edits not saved yet");
 
     /* A graph with no patch file saved for it -- as every instrument a
        piece carries is -- goes by the graph's name. */

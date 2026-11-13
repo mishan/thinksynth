@@ -343,6 +343,12 @@ protected:
        one you wanted. */
     std::map<int, NodeEditor *> editors_;
 
+    /* Editors with unsaved edits, held across a rebuild of the pages and
+       put back by ensureEditor if their channel still plays the same graph.
+       Each holds a reference. */
+    std::map<int, NodeEditor *> kept_;
+    void releaseKept (void);
+
     /* The amplitude slider on each patch page, and its subscription to the
        arg behind it.
      *
