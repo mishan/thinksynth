@@ -7,9 +7,9 @@ patch compiled to a program inlines it. What plays live and what a
 compiled patch plays are then the same arithmetic.
 
 `osc::fmop`, `osc::simple`, `osc::blep`, `osc::noise`, `env::ad`,
-`env::adsr`, `filt::svf`, `dist::saturate`, `mixer::pan`, `math::sin`,
-`misc::midi2freq`, `misc::latch`, `delay::allpass` and `delay::echo`
-have kernels, and the pattern is theirs:
+`env::adsr`, `filt::svf`, `filt::eq`, `dist::saturate`, `mixer::pan`,
+`math::sin`, `misc::midi2freq`, `misc::latch`, `delay::allpass` and
+`delay::echo` have kernels, and the pattern is theirs:
 
 - **`plugins/<category>/<name>.h`** holds the kernel, `struct thk<Name>`.
   It includes `libthink/thKernel.h` and nothing else of the engine's: no
@@ -111,8 +111,8 @@ envelope's release and `scripts/compiled/names.dsp` for knobs named for
 C++'s words -- to what the engine renders of the same note, bit for bit,
 at their knobs' defaults and with the knobs turned. The knobs hold still
 there: where a knob turned while a note sounds reaches `mixer::pan`'s
-`pan`, `mixer::mul`'s inputs or `filt::svf`'s cutoff and resonance, the
-engine glides it over 5 ms, and a compiled voice steps to it at its next
+`pan`, `mixer::mul`'s inputs, `filt::svf`'s cutoff and resonance or
+`filt::eq`'s freq, gain and q, the engine glides it over 5 ms, and a compiled voice steps to it at its next
 call. Nor is a voice's noise the engine's stream, which comes from the
 synth's: `index` is held to the bit with its Air, all of its noise, at
 0, and `scripts/compiled/noise.dsp`'s compiled noise to the engine's by

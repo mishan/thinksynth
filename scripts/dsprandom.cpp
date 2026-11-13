@@ -123,7 +123,9 @@ struct Kind
    something held to 0..1.
 
    "" is an expression; "~" one no knob reaches, for an arg the engine
-   glides when one does, which dspcompile refuses; "u" a number times
+   glides when one does, which dspcompile refuses; "~hz" one of those
+   in kilohertz, for a frequency a filter floors far above what an
+   expression comes to; "u" a number times
    something held to 0..1; "ms" a time; anything
    else a range lo:hi of numbers, or a list a|b|c to choose one from. */
 static const Kind KINDS[] = {
@@ -142,6 +144,8 @@ static const Kind KINDS[] = {
     { "misc::latch", { { "in", "" }, { "latch", "" } }, { "out" } },
     { "filt::svf", { { "in", "" }, { "cutoff", "~" }, { "res", "~" } },
       { "out_low", "out_band", "out_high" } },
+    { "filt::eq", { { "in", "" }, { "type", "" }, { "freq", "~hz" }, { "gain", "~" },
+                    { "q", "~" } }, { "out" } },
     { "delay::allpass", { { "in", "" }, { "delay", "1|7|40" }, { "gain", "-1:1" } },
       { "out" } },
     { "delay::echo", { { "in", "" }, { "size", "64|300" }, { "delay", "1|20|60" },
@@ -168,6 +172,8 @@ given (const char *how)
         return expr(2);
     if (h == "~")
         return expr(2, false);
+    if (h == "~hz")
+        return "(" + expr(2, false) + ") * 1000";
     if (h == "u")
     {
         const string by = number(-4, 4);
