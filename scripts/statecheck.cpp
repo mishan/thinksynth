@@ -6371,6 +6371,325 @@ static void checkBlur (const string &pluginPath)
     }
 }
 
+/* ---- fft::gate ---------------------------------------------------------- */
+
+struct GtRun
+{
+    float sine = 0.5f, noise = 0.06f;   /* a 1 kHz sine, and white noise 20 dB under it */
+    float sine2 = 0;                    /* a 3 kHz sine */
+    double onset = 0;                   /* silence until then, in seconds */
+    double stop = 0;                    /* the 1 kHz sine stops then, if not 0 */
+    float size = 2048, thresh = -30, invert = 0, smooth = 0, mix = 1;
+    bool constant = false;              /* the input the number `level' */
+    float level = 0;
+    bool resize = false;                /* size 2048, then 256 from 0.1 s */
+};
+
+static vector<NodeSpec> gtGraph (const GtRun &run)
+{
+    vector<NodeSpec> spec;
+
+    if (run.constant)
+        spec.push_back(specNode("src", "math/add", { { "in0", run.level }, { "in1", 0 } }, {}));
+    else
+    {
+        spec.push_back(specNode("sn", "osc/simple",
+                                { { "freq", 1000 }, { "amp", run.sine }, { "waveform", 0 } }, {}));
+        if (run.stop > 0)
+        {
+            spec.back().name = "sn0";
+            fzStep(spec, "off", run.stop);
+            spec.push_back(specNode("left", "math/sub", { { "in0", 1 } }, { { "in1", "off", "out" } }));
+            spec.push_back(specNode("sn", "math/mul", {}, { { "in0", "sn0", "out" }, { "in1", "left", "out" } }));
+        }
+
+        /* Each only when asked for: an osc's amp of 0 is its default, full scale. */
+        string sum = "sn";
+
+        if (run.sine2 != 0)
+        {
+            spec.push_back(specNode("sn2", "osc/simple",
+                                    { { "freq", 3000 }, { "amp", run.sine2 }, { "waveform", 0 } }, {}));
+            spec.push_back(specNode("s3", "math/add", {}, { { "in0", "sn", "out" }, { "in1", "sn2", "out" } }));
+            sum = "s3";
+        }
+        if (run.noise != 0)
+        {
+            spec.push_back(specNode("nz", "osc/noise", { { "amp", run.noise } }, {}));
+            spec.push_back(specNode("src", "math/add", {},
+                                    { { "in0", fzName(sum), "out" }, { "in1", "nz", "out" } }));
+        }
+        else
+            spec.push_back(specNode("src", "math/add", { { "in1", 0 } }, { { "in0", fzName(sum), "out" } }));
+        if (run.onset > 0)
+        {
+            spec.back().name = "loud";
+            fzStep(spec, "on", run.onset);
+            spec.push_back(specNode("src", "math/mul", {}, { { "in0", "loud", "out" }, { "in1", "on", "out" } }));
+        }
+    }
+
+    vector<Value> v = { { "thresh", run.thresh }, { "invert", run.invert }, { "smooth", run.smooth },
+                        { "mix", run.mix } };
+    vector<Wire> w = { { "in", "src", "out" } };
+
+    if (run.resize)
+    {
+        fzStep(spec, "resize", 0.1);
+        spec.push_back(specNode("sz", "math/mul", { { "in1", -1792 } }, { { "in0", "resize", "out" } }));
+        spec.push_back(specNode("sz2", "math/add", { { "in1", 2048 } }, { { "in0", "sz", "out" } }));
+        w.push_back({ "size", "sz2", "out" });
+    }
+    else
+        v.push_back({ "size", run.size });
+    spec.insert(spec.begin(), specNode("gt", "fft/gate", v, w));
+    return spec;
+}
+
+static bool gtRender (const string &pluginPath, const GtRun &run, double seconds,
+                      unsigned windowlen, vector<float> &in, vector<float> &out, string &why)
+{
+    vector<Watch> watch = { { "src", "out" }, { "gt", "out" } };
+    vector< vector<float> > got;
+
+    if (!render(pluginPath, gtGraph(run), watch, windowlen, (unsigned)(seconds * FZ_RATE), got,
+                why))
+        return false;
+    in = got[0];
+    out = got[1];
+    return true;
+}
+
+/* The 1 kHz sine's level and everything else's, in dB, from `from' to `to'
+   seconds: the power at 1 kHz, and the rest of the power. */
+static void gtLevels (const vector<float> &v, double from, double to, double &sine, double &rest)
+{
+    const double amp = blAt(v, 1000, from, to - from), all = fzRms(v, from, to);
+    const double p = amp * amp / 2;
+
+    sine = 10 * log10(p);
+    rest = 10 * log10(std::max(all * all - p, 1e-20));
+}
+
+static void checkGate (const string &pluginPath)
+{
+    const auto same = [](const vector<float> &a, const vector<float> &b, size_t from, size_t to) {
+        to = std::min(to, std::min(a.size(), b.size()));
+        return from < to && !memcmp(a.data() + from, b.data() + from, (to - from) * sizeof(float));
+    };
+    const double late = 2048 / FZ_RATE;
+
+    /* ---- at -90 dB the input a frame late, and at mix 0 the input a frame
+       late exactly ---- */
+    {
+        GtRun run, dry;
+        vector<float> in, out, in2, out2;
+        string why;
+
+        run.thresh = -90;
+        dry.mix = 0;
+        if (!gtRender(pluginPath, run, 1, 256, in, out, why) ||
+            !gtRender(pluginPath, dry, 1, 256, in2, out2, why))
+            fail("fft::gate renders", why);
+        else
+        {
+            double worst = 0;
+            bool exact = true;
+
+            for (size_t i = 2048; i < out.size(); i++)
+            {
+                worst = std::max(worst, fabs((double)out[i] - in[i - 2048]));
+                exact = exact && !memcmp(&out2[i], &in2[i - 2048], sizeof(float));
+            }
+            okOrFail(worst < 1e-5, "fft::gate: at -90 dB, the input a frame late",
+                     "worst " + num(worst));
+            okOrFail(exact, "fft::gate: at mix 0, the input a frame late, bit for bit", "");
+        }
+
+        /* And between, the blend of the two ends, off the middle so that
+           which end is which shows. */
+        GtRun wet = dry, part = dry;
+        vector<float> in3, out3, in4, out4;
+
+        wet.mix = 1;
+        part.mix = 0.25f;
+        if (!gtRender(pluginPath, wet, 1, 256, in3, out3, why) ||
+            !gtRender(pluginPath, part, 1, 256, in4, out4, why))
+            fail("fft::gate renders a blend", why);
+        else
+        {
+            double worst = 0;
+
+            for (size_t i = 0; i < out4.size(); i++)
+                worst = std::max(worst, fabs((double)out4[i] - (0.75 * out2[i] + 0.25 * out3[i])));
+            okOrFail(worst < 1e-6, "fft::gate: at mix 0.25, a quarter the gated and the rest "
+                                   "the input a frame late", "worst " + num(worst));
+        }
+    }
+
+    /* ---- a sine over noise: the gate keeps the sine and takes the noise,
+       and inverted takes the sine and keeps the noise ---- */
+    for (float inv : { 0.0f, 1.0f })
+    {
+        GtRun run;
+        vector<float> in, out;
+        string why;
+
+        run.invert = inv;
+        if (!gtRender(pluginPath, run, 2, 256, in, out, why))
+            fail("fft::gate renders a sine over noise", why);
+        else
+        {
+            double si, ri, so, ro;
+
+            gtLevels(in, 0.5, 1.5, si, ri);
+            gtLevels(out, 0.5 + late, 1.5 + late, so, ro);
+            if (inv == 0)
+                okOrFail(fabs(so - si) < 1 && ro < ri - 15,
+                         "fft::gate at -30 dB: a sine over noise keeps the sine and loses the "
+                         "noise",
+                         "sine " + num(so - si) + " dB, noise " + num(ro - ri) + " dB");
+            else
+                okOrFail(so < si - 30 && fabs(ro - ri) < 2,
+                         "fft::gate inverted: a sine over noise loses the sine and keeps the "
+                         "noise",
+                         "sine " + num(so - si) + " dB, noise " + num(ro - ri) + " dB");
+        }
+    }
+
+    /* ---- thresh in dB: a partial 20 dB under the loudest passes at -30
+       and not at -10 ---- */
+    for (float t : { -30.0f, -10.0f })
+    {
+        GtRun run;
+        vector<float> in, out;
+        string why;
+
+        run.noise = 0;
+        run.sine2 = 0.05f;
+        run.thresh = t;
+        if (!gtRender(pluginPath, run, 2, 256, in, out, why))
+            fail("fft::gate renders two sines", why);
+        else
+        {
+            const double db = 20 * log10(blAt(out, 3000, 0.5 + late, 1) / blAt(in, 3000, 0.5, 1));
+
+            okOrFail(t == -30 ? fabs(db) < 1 : db < -30,
+                     "fft::gate at " + num(t) + " dB: a partial 20 dB under the loudest " +
+                         (t == -30 ? "passes" : "does not"),
+                     num(db) + " dB");
+        }
+    }
+
+    /* ---- a gain moves over `smooth' as a one-pole: shutting, a bin's
+       noise one time constant on is 1/e of it, -8.7 dB. From open at the
+       start, after silence, and after silence inverted, where a silent
+       frame shutting every bin would show. ---- */
+    struct Smoothed { const char *what; double onset; float invert; };
+
+    for (const Smoothed &c : { Smoothed { "from a fresh state", 0, 0 },
+                               Smoothed { "after silence", 1, 0 },
+                               Smoothed { "after silence, inverted", 1, 1 } })
+    {
+        GtRun run;
+        vector<float> in, out;
+        string why;
+
+        run.smooth = 0.5f * (float)FZ_RATE;
+        run.onset = c.onset;
+        run.invert = c.invert;
+        if (!gtRender(pluginPath, run, c.onset + 4, 256, in, out, why))
+            fail("fft::gate renders a smoothed gate", why);
+        else
+        {
+            const double t = c.onset + late;
+            double si, ri, s1, r1, s2, r2, s3, r3;
+
+            gtLevels(in, c.onset + 0.5, c.onset + 3.5, si, ri);
+            gtLevels(out, t, t + 0.1, s1, r1);
+            gtLevels(out, t + 0.475, t + 0.525, s2, r2);
+            gtLevels(out, t + 3, t + 3.5, s3, r3);
+            okOrFail(fabs(r1 - ri) < 3 &&
+                     (c.invert ? fabs(r3 - ri) < 2 : fabs(r2 - ri + 8.7) < 2 && r3 < ri - 15),
+                     string("fft::gate: a smoothed gate starts open ") + c.what +
+                         (c.invert ? ", and the noise stays" : ", and shuts over `smooth'"),
+                     "noise " + num(r1 - ri) + " dB at first, " + num(r2 - ri) + " dB at 0.5 s, " +
+                         num(r3 - ri) + " dB 3 s on");
+        }
+    }
+
+    /* ---- and opens over it: once the sine stops, the noise is the
+       loudest, and its bins come back to 1 - 1/e, -4 dB, one time
+       constant on ---- */
+    {
+        GtRun run;
+        vector<float> in, out;
+        string why;
+
+        run.smooth = 0.5f * (float)FZ_RATE;
+        run.stop = 3;
+        if (!gtRender(pluginPath, run, 5, 256, in, out, why))
+            fail("fft::gate renders a sine that stops", why);
+        else
+        {
+            const double t = 3 + late;
+            double si, ri, s1, r1, s2, r2;
+
+            gtLevels(in, 3.5, 5, si, ri);
+            gtLevels(out, t + 0.05, t + 0.1, s1, r1);
+            gtLevels(out, t + 0.475, t + 0.525, s2, r2);
+            okOrFail(r1 < ri - 8 && fabs(r2 - ri + 4) < 2,
+                     "fft::gate: shut bins open over `smooth' when the loudest stops",
+                     "noise " + num(r1 - ri) + " dB at first, " + num(r2 - ri) + " dB at 0.5 s");
+        }
+    }
+
+    /* ---- at any window length ---- */
+    {
+        GtRun run;
+
+        run.size = 256;
+        run.smooth = 1000;
+        windowsAgree(pluginPath, gtGraph(run), "gt", "out",
+                     "fft::gate: the same at one sample a window and at five hundred");
+    }
+
+    /* ---- what it makes of a value it cannot use ---- */
+    {
+        struct Case { const char *what; GtRun a, b; };
+        GtRun base;
+        const auto with = [&](GtRun r, auto set) { set(r); return r; };
+
+        base.smooth = 0.05f * (float)FZ_RATE;
+        const vector<Case> cases = {
+            { "a NaN thresh as -30", with(base, [](GtRun &r) { r.thresh = NAN; }), base },
+            { "a thresh of 0 as -30", with(base, [](GtRun &r) { r.thresh = 0; }), base },
+            { "a NaN invert as off", with(base, [](GtRun &r) { r.invert = NAN; }), base },
+            { "a NaN smooth as 0", with(base, [](GtRun &r) { r.smooth = NAN; }),
+              with(base, [](GtRun &r) { r.smooth = 0; }) },
+            { "a NaN mix as 0", with(base, [](GtRun &r) { r.mix = NAN; }),
+              with(base, [](GtRun &r) { r.mix = 0; }) },
+            { "a NaN size as 2048", with(base, [](GtRun &r) { r.size = NAN; }), base },
+            { "a size changed while it runs as the size it started with",
+              with(base, [](GtRun &r) { r.resize = true; }), base },
+            { "an infinite in as 0", with(base, [](GtRun &r) { r.constant = true; r.level = INFINITY; }),
+              with(base, [](GtRun &r) { r.constant = true; r.level = 0; }) },
+        };
+
+        for (const Case &k : cases)
+        {
+            vector<float> in, a, b;
+            string why;
+
+            if (!gtRender(pluginPath, k.a, 0.5, 256, in, a, why) ||
+                !gtRender(pluginPath, k.b, 0.5, 256, in, b, why))
+                fail(string("fft::gate renders ") + k.what, why);
+            else
+                okOrFail(same(a, b, 0, a.size()), string("fft::gate takes ") + k.what, "");
+        }
+    }
+}
+
 static void checkAdsrGated (const string &pluginPath)
 {
     const float sr = TH_DEFAULT_SAMPLES;
@@ -10833,6 +11152,7 @@ int main (int argc, char **argv)
     checkEq(pluginPath);
     checkFreeze(pluginPath);
     checkBlur(pluginPath);
+    checkGate(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);

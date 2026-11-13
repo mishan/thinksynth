@@ -417,6 +417,21 @@ Spectral freeze: a moment of the input, held
 | `out` | out | The input, or what is held, or a fade between |  | -1 to 1 | full scale |  |
 | `state` | state |  |  |  |  |  |
 
+### fft::gate
+
+Spectral gate: each frequency passed by its level against the loudest
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `size` | in | The frame, read when the node starts, and its latency | 2048 | 256 to 4096 | samples |  |
+| `thresh` | in | How far under the loudest frequency one still passes; 0 is -30 | -30 | -90 to 0 | dB |  |
+| `invert` | in | On passes what the gate would take away |  |  |  | 0 = Off, 1 = On |
+| `smooth` | in | How long a frequency takes to open or shut; 0 at once |  |  | samples |  |
+| `mix` | in | 0 the input a frame late, 1 the gated |  | 0 to 1 |  |  |
+| `out` | out | The blend, a frame late |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ## filt
 
 ### filt::allpass
