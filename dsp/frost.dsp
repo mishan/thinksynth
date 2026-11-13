@@ -13,8 +13,10 @@
 # Size.
 #
 # The catch is timed by a saw a hundred seconds long, which starts at -1
-# with every note: a note held past a hundred seconds lets go and
-# catches again.
+# with every note. A note held past a hundred seconds goes quiet: the saw
+# comes round, the freeze lets go of the strike, long over by then, and
+# catches the silence after it. A slower saw would run under the
+# slowest wave osc::simple will play at 44.1k.
 
 name "Frost";
 author "Misha Nasledov";
@@ -136,13 +138,14 @@ node fzr fft::freeze {
     seed = ionode->note + 0.5;
 };
 
-# The key: held, the pad goes on; let go, it falls over `Release'.
+# The key: held, the pad goes on at a level set by the velocity; let go,
+# it falls over `Release'. With no attack or decay the envelope is at its
+# sustain from the first sample, so that is where the velocity goes.
 node env env::adsr {
     a = 0;
     d = 0;
-    s = 1;
+    s = 0.55 + ionode->velocity * 0.45;
     r = @r;
-    p = 0.55 + ionode->velocity * 0.45;
     trigger = ionode->trigger;
 };
 
