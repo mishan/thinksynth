@@ -374,6 +374,14 @@ add_test(NAME icon-stamp
                  "-DTHINK_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
                  -P "${PROJECT_SOURCE_DIR}/cmake/CheckIconStamp.cmake")
 
+# Beside it for the same reasons: a read of the sources, on every platform.
+# A setenv the Windows build cannot compile is otherwise found by the
+# Windows job alone.
+add_test(NAME posix-env
+         COMMAND "${CMAKE_COMMAND}"
+                 "-DTHINK_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+                 -P "${PROJECT_SOURCE_DIR}/cmake/CheckPosixEnv.cmake")
+
 add_subdirectory(libthink)
 add_subdirectory(plugins)
 
