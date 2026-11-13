@@ -6,7 +6,7 @@
 #   - input/ (wav, alsa) and test/ were excluded by the old build too, and
 #     stay excluded here. wav.cpp's own description string reads "Wav Input
 #     (BROKEN)", and test.cpp still calls SetState/SetDesc, renamed years ago.
-#   - fft/ holds one .c file that is not a plugin: no module_init, no
+#   - fft/dsp.c is not a plugin: no module_init, no
 #     module_callback, just fir_filter/iir_filter/gaussian/fft lifted from
 #     Embree & Kimble's C Language Algorithms for DSP. Nothing in the tree
 #     builds it; osc::pad carries its own copy of the fft, with the two
@@ -36,6 +36,8 @@ think_add_plugin_category(dist     clip saturate waveman inksat crush)
 think_add_plugin_category(dyn      compressor)
 
 think_add_plugin_category(env      adsr adsfr ad dx dynmap follower followavg map)
+
+think_add_plugin_category(fft      freeze)
 
 think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
                                    inkshape rds ds dshape divbuf res1pole

@@ -385,6 +385,23 @@ Maps a stream to a new value range
 | `in` | in | Signal in |  |  |  |  |
 | `out` | out | The input on the new scale, not clamped to it |  |  |  |  |
 
+## fft
+
+### fft::freeze
+
+Spectral freeze: a moment of the input, held
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `freeze` | in | Over 0.5 holds; a rise from a wholly dry output captures. Not finite, it does not hold |  | 0 to 1 |  |  |
+| `size` | in | The frame, read at each capture: larger holds pitch cleaner and smears the attack | 2048 | 256 to 4096 | samples |  |
+| `random` | in | 0 carries the held sound on as itself; 1 new phases every frame, a shimmer |  | 0 to 1 |  |  |
+| `fade` | in | The crossfade from dry to frozen and back, a hop to 2^22 samples |  |  | samples |  |
+| `seed` | in | Which random phases: two sides or voices with different seeds shimmer apart |  |  |  |  |
+| `out` | out | The input, or what is held, or a fade between |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ## filt
 
 ### filt::allpass
