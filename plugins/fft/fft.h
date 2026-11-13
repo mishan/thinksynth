@@ -30,12 +30,12 @@
  * pass either side, half the work of a complex transform of the samples.
  *
  * The twiddles are one table at THK_FFT_MAX, strided for the smaller sizes,
- * each (float)sin(double) and (float)cos(double) as osc::pad's are. It is a
- * function-local static const: built once, on first use, by whichever thread
- * gets there, which C++ makes safe. A plugin's module_init asks for it so
- * that the first use is not on the audio thread; a table rebuilt there
- * instead would race, since module_init runs again for every synth that
- * loads the plugin. */
+ * each worked out in double and rounded to float. It is a function-local
+ * static const, as osc::pad's tables are: built once, on first use, by
+ * whichever thread gets there, which C++ makes safe. A plugin's module_init
+ * should call thkFftTwiddles() so that the first use is not on the audio
+ * thread; a table rebuilt there instead would race, since module_init runs
+ * again for every synth that loads the plugin. */
 
 #include <math.h>
 
@@ -58,6 +58,14 @@ struct thkFftTable
         }
     }
 };
+
+/* A size the transforms can do: a power of two from 4 to THK_FFT_MAX. Any
+   other would run the bit reversal past the arrays or read a stride of 0,
+   so the transforms do nothing with one but write zeros. */
+static inline bool thkFftSize (int n)
+{
+    return n >= 4 && n <= THK_FFT_MAX && (n & (n - 1)) == 0;
+}
 
 static inline const thkFftTable &thkFftTwiddles ()
 {
@@ -104,13 +112,23 @@ static inline void thkFftComplex (float *re, float *im, int n, bool inverse)
     }
 }
 
-/* n real samples to n/2 + 1 bins, re and im each n/2 + 1 long, unscaled:
-   the even samples the real part and the odd the imaginary of an n/2-point
-   transform, then the two pulled apart. re and im need n/2 + 1 floats. */
+/* n real samples to n/2 + 1 bins, unscaled: the even samples the real part
+   and the odd the imaginary of an n/2-point transform, then the two pulled
+   apart. re and im are n/2 + 1 long and apart from x; the imaginary parts
+   of DC and Nyquist come out exactly 0. */
 static inline void thkFftReal (const float *x, float *re, float *im, int n)
 {
+    const int h = n / 2;
+
+    if (!thkFftSize(n))
+    {
+        for (int k = 0; k <= h; k++)
+            re[k] = im[k] = 0;
+        return;
+    }
+
     const thkFftTable &t = thkFftTwiddles();
-    const int h = n / 2, stride = THK_FFT_MAX / n;
+    const int stride = THK_FFT_MAX / n;
 
     for (int m = 0; m < h; m++)
     {
@@ -142,11 +160,25 @@ static inline void thkFftReal (const float *x, float *re, float *im, int n)
 }
 
 /* The inverse: n/2 + 1 bins to n real samples, scaled so that it undoes
-   thkFftReal. re and im are worked in place. */
+   thkFftReal. re and im are overwritten, and x is apart from both. The
+   imaginary parts of DC and Nyquist are taken as 0, whatever they hold, as
+   a real signal's are: a spectral node that turns bins by a phase may leave
+   something there, and it must not come out as a tone at Nyquist. */
 static inline void thkFftRealInverse (float *re, float *im, float *x, int n)
 {
+    const int h = n / 2;
+
+    if (!thkFftSize(n))
+    {
+        for (int i = 0; i < n; i++)
+            x[i] = 0;
+        return;
+    }
+
     const thkFftTable &t = thkFftTwiddles();
-    const int h = n / 2, stride = THK_FFT_MAX / n;
+    const int stride = THK_FFT_MAX / n;
+
+    im[0] = im[h] = 0;
 
     for (int k = 0; k <= h / 2; k++)
     {

@@ -671,6 +671,38 @@ main ()
         report(("the real FFT against the DFT, relative to its largest bin," + at).c_str(),
                top > 0 ? worst / top : INFINITY, 1e-6);
         report(("the inverse FFT undoing the forward" + at).c_str(), trip, 1e-6);
+        report(("the FFT's DC and Nyquist with no imaginary part" + at).c_str(),
+               std::fabs(im[0]) + std::fabs(im[n / 2]), 0);
+
+        /* Something left in those imaginary parts comes out as nothing. */
+        std::vector<float> withRe = re, withIm = im, without(n);
+
+        withIm[0] = 1;
+        withIm[n / 2] = -1;
+        keepRe = re;
+        keepIm = im;
+        thkFftRealInverse(keepRe.data(), keepIm.data(), without.data(), n);
+        thkFftRealInverse(withRe.data(), withIm.data(), back.data(), n);
+        report(("the inverse FFT ignoring DC's and Nyquist's imaginary parts" + at).c_str(),
+               back == without ? 0 : 1, 0);
+    }
+
+    /* A size it cannot do writes zeros rather than running off its arrays. */
+    {
+        double worst = 0;
+
+        for (int n : { 0, 2, 384, 1000, 8192 })
+        {
+            std::vector<float> x(n > 0 ? n : 1, 1), re(n / 2 + 1, 1), im(n / 2 + 1, 1);
+
+            thkFftReal(x.data(), re.data(), im.data(), n);
+            for (int i = 0; i <= n / 2; i++)
+                worst += std::fabs(re[i]) + std::fabs(im[i]);
+            thkFftRealInverse(re.data(), im.data(), x.data(), n);
+            for (int i = 0; i < n; i++)
+                worst += std::fabs(x[i]);
+        }
+        report("the FFT at a size it cannot do writes zeros", worst, 0);
     }
 
     /* tanh in float, against the double's. */
