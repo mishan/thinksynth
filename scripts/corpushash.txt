@@ -68,6 +68,7 @@ c4ed38ef5cd6d115  fx/tapestop.dsp
 82bc7246204d8e89  fx/vocoder-mic.dsp
 fdba79c4761789a5  fx/vocoder.dsp
 c25fd5a4341a2759  fx/wah.dsp
+9cbce969d1600815  frost.dsp
 851a43f80d04be5d  glass.dsp
 3594af2bd8eca3bd  grab.dsp
 21d0ccfb41e07a61  grand.dsp
