@@ -1293,7 +1293,8 @@ add_test(NAME fxcheck
                  "${PROJECT_SOURCE_DIR}/dsp/fx/detune.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/granular.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/tapeloop.dsp"
-                 "${PROJECT_SOURCE_DIR}/dsp/fx/autotune.dsp")
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/autotune.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/eq.dsp")
 
 if(THINK_GUI)
   # Needs no corpus and no display -- it draws to an image surface.
