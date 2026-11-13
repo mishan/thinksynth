@@ -1,0 +1,122 @@
+# thaw.gen -- moments held: chords made of a strike, and a tune that stops
+# on its last bar and hangs there.
+#
+# Two ways of keeping a sound past its time, both fft::freeze. The chords
+# are frost.dsp: a bell struck, and sixty milliseconds in its strike is
+# caught and held as a pad for as long as the chord lasts. The tune is
+# rhodes.dsp through fx/freeze.dsp on its channel, and a row from
+# gen::steps turns the freeze on for the last bar of every four: the tune
+# stops on whatever it was playing as that bar begins, and that instant
+# hangs over the bar, the tune going on under it unheard, until the
+# freeze lets go and the next phrase starts where the tune has got to.
+#
+# ONE KNOB, Shimmer, is both freezes' `random', and each section sets it.
+# At 0 a held sound is itself, a chord or a note carried on; up from
+# there its phases turn a little more every frame, and the held sounds
+# shimmer rather than ring. Still begins clear, Thaw lets it move, and
+# Drift lets it go most of the way to noise before Thaw comes round
+# again.
+#
+# D lydian, at sixty-six: D, B minor, G and A under a tune that leans on
+# the raised fourth.
+#
+# The tune's chance rolls dice; the seed is pinned for it.
+# Self-contained: open it and press Play.
+
+name "Thaw";
+author "Misha Nasledov";
+description "Chords made of a bell's frozen strike, and a tune that freezes on the last bar of every phrase.";
+category "Timbre as material";
+
+tempo 66;
+seed 1213;
+meter 4;
+
+@shimmer = 0;
+@shimmer.widget = 1;
+@shimmer.min = 0;
+@shimmer.max = 1;
+@shimmer.label = "Shimmer";
+
+section still  8 bars { @shimmer = 0;    tune = 0;  hold = 0;  bass = 0; };
+section thaw  16 bars { @shimmer = 0.25; };
+section drift  8 bars { @shimmer = 0.8; };
+section loop thaw;
+
+scale dlyd  "D3 E3 F#3 G#3 A3 B3 C#4";
+scale roots "D3 B2 G2 A2";
+
+effect "fx/space.dsp" {
+    mix   = 0;
+    decay = 6;
+    size  = 1.6;
+};
+
+instrument frost {
+    dsp    "frost.dsp";
+    amp    = 23;
+    send   = 0.45;
+    random = @shimmer;
+    fade   = 300 ms;
+    r      = 1500 ms;
+};
+
+instrument tune {
+    dsp  "rhodes.dsp";
+    amp  = 39;
+    send = 0.35;
+
+    effect "fx/freeze.dsp" {
+        size   = 4096;
+        random = @shimmer;
+        fade   = 250 ms;
+    };
+};
+
+instrument bass {
+    dsp  "sub.dsp";
+    amp  = 20;
+};
+
+# A chord every two bars, each of its notes a frost voice: each strike
+# caught and held, and each note shimmering with its own seed.
+chain frost {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F";  depth = 0;  notes = roots;
+        step = 8 beats;  hold = 7.8 beats;  vel = 76;
+    };
+    stage chord xform::harmonize {
+        scale = dlyd;  voices = 3;  step = 2;  spread = 0.03 s;
+        taper = 0.85;  root = 1;  below = 0;  lead = 1;  span = 12;
+    };
+    sink { instrument = frost; };
+};
+
+# Eighths, five of every eight, cycling a tune of thirty notes over the
+# changes; a few left out, so no two times round are quite the same.
+chain tune {
+    stage src gen::euclid {
+        steps = 8;  fills = 5;  rotate = 0;
+        notes = "A4 C#5 E5 F#5 G#5  E5 F#5 A5 G#5 F#5  B4 D5 F#5 A5 G#5  F#5 D5 B4 C#5 D5  G4 B4 D5 G#5 F#5  E5 A4 C#5 E5 A5";
+        period = 0.5 beats;  hold = 0.45 beats;  vel = 72;
+    };
+    stage c xform::chance { prob = 0.9; };
+    sink { instrument = tune; };
+};
+
+# The freeze: off for three bars, on for the fourth.
+chain hold {
+    stage src gen::steps {
+        values = "0 0 0 1";
+        period = 4 beats;
+    };
+    sink { instrument = tune; chanarg = "fx.freeze"; };
+};
+
+chain bass {
+    stage src gen::lsystem {
+        axiom = "F+F+F+F";  depth = 0;  notes = "D2 B1 G1 A1";
+        step = 8 beats;  hold = 7.5 beats;  vel = 70;
+    };
+    sink { instrument = bass; };
+};

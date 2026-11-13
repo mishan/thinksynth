@@ -22,7 +22,7 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
 `anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `nightdrive.gen`, `transmission.gen`, `pearl.gen`,
-`riviera.gen`, `cumulus.gen`, `kodachrome.gen`, `lighthouse.gen`, `lantern.gen`, `tide.gen`, `scratch.gen`, `seq.gen`, `cloud.gen` and `free.gen` need nothing
+`riviera.gen`, `cumulus.gen`, `kodachrome.gen`, `lighthouse.gen`, `lantern.gen`, `tide.gen`, `scratch.gen`, `seq.gen`, `cloud.gen`, `thaw.gen` and `free.gen` need nothing
 else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -154,6 +154,7 @@ typo in it.
 | [`tide.gen`](tide.gen) | **Presets, and the line between two.** `gen::morph` travels between two named chanarg vectors — as a generator on its own clock, and as a transformer where each note schedules its own sweep. |
 | [`bloom.gen`](bloom.gen) | **Genetic algorithms over timbre.** `gen::breed` searches the corridor the piece's own presets declare. A component neither preset names cannot be invented, which is the reach limit stated as arithmetic. |
 | [`cloud.gen`](cloud.gen) | **A recording as a texture.** `cloud.dsp` holds the tree's own orchestra hit and ride cymbal as grain clouds (`osc::grain`) sustained for as long as a note is down, three `eno_line` loops of long notes hold chords of them, and two `gen::walk`s move where in the recordings the grains come from and lean the cloud from the hit to the ride. Under it `bed.dsp`, three colors of noise through wandering bands; once a minute, when `xform::chance` allows, a singing bowl. Every channel is in one `fx/space.dsp` on the mix by its `send`. Ten minutes, arranged in seconds. |
+| [`thaw.gen`](thaw.gen) | **A sound held past its time.** Chords of `frost.dsp`, a bell whose strike is caught sixty milliseconds in and held as a pad by `fft::freeze`; a tune on `rhodes.dsp` through `fx/freeze.dsp`, which a `gen::steps` row on `fx.freeze` turns on for the last bar of every four, so each phrase stops on an instant and hangs there. One `Shimmer` knob, set by each section, is both freezes' `random`: clear in Still, moving in Thaw, nearly noise in Drift. |
 
 ## Pieces
 
