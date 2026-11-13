@@ -204,19 +204,6 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
-/* A uniform angle in turns, -0.5 to 0.5, from a seed, a frame and a bin. */
-static inline float jitter (uint32_t seed, uint32_t frame, uint32_t k)
-{
-    uint32_t h = seed * 0x9e3779b1u ^ frame * 0x85ebca77u ^ k * 0xc2b2ae3du;
-
-    h ^= h >> 16;
-    h *= 0x7feb352du;
-    h ^= h >> 15;
-    h *= 0x846ca68bu;
-    h ^= h >> 16;
-    return (float)(h >> 8) * (1.0f / 16777216.0f) - 0.5f;
-}
-
 /* One frame of the held sound: every phasor turned a hop and by `random' of
    a jitter, and, when `add', M P through the inverse transform, windowed and
    added to the accumulator at its start. */
@@ -234,7 +221,7 @@ static void advance (float *st, int n, float r, uint32_t seed, bool add, float g
 
         if (r > 0)
         {
-            const float t = r * jitter(seed, frame, (uint32_t)k);
+            const float t = r * thkStftJitter(seed, frame, (uint32_t)k);
             const float c = thkSin2pi(t + 0.25f), s = thkSin2pi(t);
             const float a2 = a * c - b * s;
 

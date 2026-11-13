@@ -67,6 +67,19 @@ static inline float thkStftHann (const thkFftTable &t, int j, int n)
     return 0.5f - 0.5f * t.c[at];
 }
 
+/* A uniform angle in turns, -0.5 to 0.5, from a seed, a frame and a bin. */
+static inline float thkStftJitter (uint32_t seed, uint32_t frame, uint32_t k)
+{
+    uint32_t h = seed * 0x9e3779b1u ^ frame * 0x85ebca77u ^ k * 0xc2b2ae3du;
+
+    h ^= h >> 16;
+    h *= 0x7feb352du;
+    h ^= h >> 15;
+    h *= 0x846ca68bu;
+    h ^= h >> 16;
+    return (float)(h >> 8) * (1.0f / 16777216.0f) - 0.5f;
+}
+
 struct thkStft
 {
     float *ring, *acc;          /* n each */

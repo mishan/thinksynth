@@ -6094,6 +6094,262 @@ static void checkFreeze (const string &pluginPath)
     }
 }
 
+/* ---- fft::blur ---------------------------------------------------------- */
+
+struct BlRun
+{
+    enum { SINE, SWITCH, NOISE, CLICK } source = NOISE;
+    double at = 2;                  /* the switch or the click, in seconds */
+    float size = 2048, blur = 0, random = 0, mix = 1, seed = 0;
+    float level = 0;                /* for a constant input */
+    bool constant = false;
+    bool resize = false;            /* size 2048, then 256 from 0.1 s */
+};
+
+static vector<NodeSpec> blGraph (const BlRun &run)
+{
+    vector<NodeSpec> spec;
+
+    if (run.constant)
+        spec.push_back(specNode("src", "math/add", { { "in0", run.level }, { "in1", 0 } }, {}));
+    else if (run.source == BlRun::NOISE)
+    {
+        spec.push_back(specNode("nz", "osc/noise", { { "amp", 0.5f } }, {}));
+        spec.push_back(specNode("src", "math/add", { { "in1", 0 } }, { { "in0", "nz", "out" } }));
+    }
+    else if (run.source == BlRun::CLICK)
+    {
+        /* Twenty samples of full scale at `at', in silence. */
+        fzStep(spec, "clickon", run.at);
+        fzStep(spec, "clickoff", run.at + 20 / FZ_RATE);
+        spec.push_back(specNode("src", "math/sub", {},
+                                { { "in0", "clickon", "out" }, { "in1", "clickoff", "out" } }));
+    }
+    else
+    {
+        FzRun sine;
+
+        sine.freq = 1000;
+        sine.freq2 = run.source == BlRun::SWITCH ? 1500 : 0;
+        sine.turn = run.at;
+        for (NodeSpec &n : fzGraph(sine))
+            if (string(n.name) != "fz")
+                spec.push_back(n);
+    }
+
+    vector<Value> v = { { "blur", run.blur }, { "random", run.random }, { "mix", run.mix },
+                        { "seed", run.seed } };
+    vector<Wire> w = { { "in", "src", "out" } };
+
+    if (run.resize)
+    {
+        fzStep(spec, "resize", 0.1);
+        spec.push_back(specNode("sz", "math/mul", { { "in1", -1792 } }, { { "in0", "resize", "out" } }));
+        spec.push_back(specNode("sz2", "math/add", { { "in1", 2048 } }, { { "in0", "sz", "out" } }));
+        w.push_back({ "size", "sz2", "out" });
+    }
+    else
+        v.push_back({ "size", run.size });
+    spec.insert(spec.begin(), specNode("bl", "fft/blur", v, w));
+    return spec;
+}
+
+static bool blRender (const string &pluginPath, const BlRun &run, double seconds,
+                      unsigned windowlen, vector<float> &in, vector<float> &out, string &why)
+{
+    vector<Watch> watch = { { "src", "out" }, { "bl", "out" } };
+    vector< vector<float> > got;
+
+    if (!render(pluginPath, blGraph(run), watch, windowlen, (unsigned)(seconds * FZ_RATE), got,
+                why))
+        return false;
+    in = got[0];
+    out = got[1];
+    return true;
+}
+
+/* A sine's amplitude at `freq' over `len' seconds from `from'. */
+static double blAt (const vector<float> &v, double freq, double from, double len)
+{
+    const size_t a = (size_t)(from * FZ_RATE), b = std::min(v.size(), (size_t)((from + len) * FZ_RATE));
+    double c = 0, s = 0;
+
+    for (size_t i = a; i < b; i++)
+    {
+        const double ph = 2 * M_PI * freq * (double)i / FZ_RATE;
+
+        c += v[i] * cos(ph);
+        s += v[i] * sin(ph);
+    }
+    return b > a ? 2 * hypot(c, s) / (double)(b - a) : 0;
+}
+
+static void checkBlur (const string &pluginPath)
+{
+    const auto same = [](const vector<float> &a, const vector<float> &b, size_t from, size_t to) {
+        to = std::min(to, std::min(a.size(), b.size()));
+        return from < to && !memcmp(a.data() + from, b.data() + from, (to - from) * sizeof(float));
+    };
+    const double late = 2048 / FZ_RATE;
+
+    /* ---- at blur 0 the input a frame late, and at mix 0 the input a
+       frame late exactly ---- */
+    {
+        BlRun run, dry;
+        vector<float> in, out, in2, out2;
+        string why;
+
+        dry.blur = 0.3f * (float)FZ_RATE;
+        dry.mix = 0;
+        if (!blRender(pluginPath, run, 1, 256, in, out, why) ||
+            !blRender(pluginPath, dry, 1, 256, in2, out2, why))
+            fail("fft::blur renders", why);
+        else
+        {
+            double worst = 0;
+            bool exact = true;
+
+            for (size_t i = 2048; i < out.size(); i++)
+            {
+                worst = std::max(worst, fabs((double)out[i] - in[i - 2048]));
+                exact = exact && !memcmp(&out2[i], &in2[i - 2048], sizeof(float));
+            }
+            okOrFail(worst < 1e-5, "fft::blur: at blur 0, the input a frame late",
+                     "worst " + num(worst));
+            okOrFail(exact, "fft::blur: at mix 0, the input a frame late, bit for bit", "");
+        }
+    }
+
+    /* ---- a sine that stops fades out over `blur', as itself at random 0 ---- */
+    {
+        BlRun run;
+        vector<float> in, out;
+        string why;
+
+        run.source = BlRun::SWITCH;
+        run.at = 2;
+        run.blur = 0.5f * (float)FZ_RATE;
+        if (!blRender(pluginPath, run, 3.2 + 0.1, 256, in, out, why))
+            fail("fft::blur renders a sine that stops", why);
+        else
+        {
+            /* From a little under the sine -- the edges of its lobe learn
+               their turns in the frames where it stops -- and then at the
+               blur's time constant. */
+            /* Every tenth of a second for a second, against e^(-t / blur):
+               a partial whose bins turned each their own way would beat,
+               dipping and coming back, rather than fall. */
+            const double t = 2 + late, before = blAt(out, 1000, t - 0.15, 0.05);
+            double lo = 1e9, hi = 0;
+
+            for (double d = 0.1; d < 1.05; d += 0.1)
+            {
+                const double rel = blAt(out, 1000, t + d, 0.05) / before / exp(-(d + 0.025) / 0.5);
+
+                lo = std::min(lo, rel);
+                hi = std::max(hi, rel);
+            }
+            okOrFail(lo > 0.5 && hi / lo < 1.41,
+                     "fft::blur at random 0: a sine that stops fades over blur's time "
+                     "constant, steadily",
+                     "against e^(-t/blur), from " + num(lo) + " to " + num(hi) + " of the sine");
+        }
+    }
+
+    /* ---- a click leaves a tail at random 1 ---- */
+    {
+        BlRun run;
+        vector<float> in, out;
+        string why;
+
+        run.source = BlRun::CLICK;
+        run.at = 1;
+        run.blur = 0.3f * (float)FZ_RATE;
+        run.random = 1;
+        if (!blRender(pluginPath, run, 2, 256, in, out, why))
+            fail("fft::blur renders a click", why);
+        else
+        {
+            const double t = 1 + late, first = fzRms(out, t, t + 0.05);
+            const double then = fzRms(out, t + 0.1, t + 0.2);
+
+            okOrFail(first > 0 && then > 0.2 * first,
+                     "fft::blur at random 1: a click leaves a tail",
+                     "RMS " + num(then) + " a tenth of a second on, against " + num(first) +
+                         " in the first twentieth");
+        }
+    }
+
+    /* ---- steady noise under a long blur keeps its level ---- */
+    for (float r : { 0.0f, 0.5f, 1.0f })
+    {
+        BlRun run;
+        vector<float> in, out;
+        string why;
+
+        run.blur = 0.5f * (float)FZ_RATE;
+        run.random = r;
+        if (!blRender(pluginPath, run, 5, 256, in, out, why))
+            fail("fft::blur renders noise", why);
+        else
+        {
+            const double db = 20 * log10(fzRms(out, 3, 5) / fzRms(in, 3, 5));
+
+            okOrFail(fabs(db) < 2, "fft::blur at random " + num(r) +
+                                       ": steady noise under a long blur keeps its level",
+                     num(db) + " dB");
+        }
+    }
+
+    /* ---- at any window length ---- */
+    {
+        BlRun run;
+
+        run.size = 256;
+        run.blur = 1000;
+        run.random = 0.5f;
+        windowsAgree(pluginPath, blGraph(run), "bl", "out",
+                     "fft::blur: the same at one sample a window and at five hundred");
+    }
+
+    /* ---- what it makes of a value it cannot use ---- */
+    {
+        struct Case { const char *what; BlRun a, b; };
+        BlRun base;
+        const auto with = [&](BlRun r, auto set) { set(r); return r; };
+
+        base.blur = 0.2f * (float)FZ_RATE;
+        base.random = 0.5f;
+        const vector<Case> cases = {
+            { "a NaN blur as 0", with(base, [](BlRun &r) { r.blur = NAN; }),
+              with(base, [](BlRun &r) { r.blur = 0; }) },
+            { "a NaN random as 0", with(base, [](BlRun &r) { r.random = NAN; }),
+              with(base, [](BlRun &r) { r.random = 0; }) },
+            { "a NaN mix as 0", with(base, [](BlRun &r) { r.mix = NAN; }),
+              with(base, [](BlRun &r) { r.mix = 0; }) },
+            { "a NaN size as 2048", with(base, [](BlRun &r) { r.size = NAN; }),
+              with(base, [](BlRun &r) { r.size = 2048; }) },
+            { "a size changed while it runs as the size it started with",
+              with(base, [](BlRun &r) { r.resize = true; }), base },
+            { "a NaN seed as 0", with(base, [](BlRun &r) { r.seed = NAN; }), base },
+            { "an infinite in as 0", with(base, [](BlRun &r) { r.constant = true; r.level = INFINITY; }),
+              with(base, [](BlRun &r) { r.constant = true; r.level = 0; }) },
+        };
+
+        for (const Case &k : cases)
+        {
+            vector<float> in, a, b;
+            string why;
+
+            if (!blRender(pluginPath, k.a, 0.5, 256, in, a, why) ||
+                !blRender(pluginPath, k.b, 0.5, 256, in, b, why))
+                fail(string("fft::blur renders ") + k.what, why);
+            else
+                okOrFail(same(a, b, 0, a.size()), string("fft::blur takes ") + k.what, "");
+        }
+    }
+}
+
 static void checkAdsrGated (const string &pluginPath)
 {
     const float sr = TH_DEFAULT_SAMPLES;
@@ -10555,6 +10811,7 @@ int main (int argc, char **argv)
     checkUnison(pluginPath);
     checkEq(pluginPath);
     checkFreeze(pluginPath);
+    checkBlur(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);
