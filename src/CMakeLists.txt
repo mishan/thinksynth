@@ -12,6 +12,7 @@ add_library(think_nodemodel OBJECT
     NodeGraph.cpp
     NodeEdit.cpp
     NodeLayout.cpp
+    NodeHistory.cpp
     NodeCatalog.cpp
     NodeMutate.cpp
     NodeEvolve.cpp
