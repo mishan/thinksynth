@@ -246,6 +246,7 @@ think_harness(dspbench)
 # cases is in the corpus and the first two are equivalences rather than
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
+think_harness(historycheck NODEMODEL)
 
 # A .dsp compiled to a voice of kernels, run a sample at a time.
 think_harness(dspcompile COMPOSERHOST HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgMarbles.cpp"
@@ -1244,6 +1245,8 @@ add_test(NAME compilecheck
                  "${PROJECT_SOURCE_DIR}/dsp")
 add_test(NAME exprcheck
          COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME historycheck
+         COMMAND historycheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME motioncheck COMMAND motioncheck)
 if(TARGET think_camera)
   add_test(NAME cameracheck COMMAND cameracheck)
