@@ -24,6 +24,7 @@
 #include <unistd.h>   /* access -- can the source be written back? */
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <fstream>
@@ -56,7 +57,8 @@ NodeEditor::NodeEditor (thSynth *synth)
       zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1"),
       zoomFitBtn_("Fit"),
       paletteBtn_("Palette"), paramsBtn_("Parameters"),
-      paletteWidth_(210), paramsWidth_(240), pendingParams_(-1)
+      paletteWidth_(210), paramsWidth_(240), pendingParams_(-1),
+      gestures_(0)
 {
     toolbar_.set_spacing(4);
     toolbar_.set_margin_start(4);
@@ -90,6 +92,8 @@ NodeEditor::NodeEditor (thSynth *synth)
     toolbar_.append(saveBtn_);
     toolbar_.append(saveAsBtn_);
     toolbar_.append(revertBtn_);
+    toolbar_.append(undoBtn_);
+    toolbar_.append(redoBtn_);
 
     {
         Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
@@ -231,6 +235,14 @@ NodeEditor::NodeEditor (thSynth *synth)
         sigc::mem_fun(*this, &NodeEditor::onSaveAs));
     revertBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onRevert));
+    undoBtn_.set_icon_name("edit-undo-symbolic");
+    redoBtn_.set_icon_name("edit-redo-symbolic");
+    undoBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &NodeEditor::onUndo));
+    redoBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &NodeEditor::onRedo));
+    nameAs(undoBtn_, "Undo");
+    nameAs(redoBtn_, "Redo");
     /* Read out as "plus", "minus" and "one colon one" otherwise. */
     nameAs(zoomInBtn_, "Zoom in");
     nameAs(zoomOutBtn_, "Zoom out");
@@ -563,6 +575,13 @@ void NodeEditor::updateDirty (void)
     saveAsBtn_.set_sensitive(!source_.empty());
     revertBtn_.set_sensitive(dirty);
 
+    undoBtn_.set_sensitive(history_.canUndo());
+    redoBtn_.set_sensitive(history_.canRedo());
+    undoBtn_.set_tooltip_text(history_.canUndo()
+                              ? "Undo " + history_.undoName() : "Undo");
+    redoBtn_.set_tooltip_text(history_.canRedo()
+                              ? "Redo " + history_.redoName() : "Redo");
+
     updateTitle();
 }
 
@@ -591,7 +610,6 @@ const char *NodeEditor::applyControlLive (const string &name, double value)
         return "  (not on the live channel)";
 
     arg->setValue((float)value);
-    liveControls_.insert(name);
 
     return "  (live)";
 }
@@ -622,7 +640,6 @@ const char *NodeEditor::applyValueLive (const string &node, const string &arg,
 
     a->setValue((float)value);
     tree->edited();
-    liveValues_.insert(make_pair(node, arg));
 
     return "  (next note)";
 }
@@ -749,8 +766,8 @@ bool NodeEditor::open (const string &filename, int chan)
     }
 
     saved_ = text_;
-    liveControls_.clear();
-    liveValues_.clear();
+    history_.clear();
+    settle();
 
     if (!sourceWritable())
         setStatus(status_.get_text() + "  --  read-only; Save will ask where "
@@ -897,6 +914,8 @@ void NodeEditor::onArrange (void)
     if (tree_ == NULL)
         return;
 
+    Gesture gesture(*this, "auto-arrange");
+
     graph_.layout();
     canvas_.setGraph(&graph_);
 
@@ -960,8 +979,6 @@ void NodeEditor::onSave (void)
 void NodeEditor::finishSave (void)
 {
     saved_ = text_;
-    liveControls_.clear();
-    liveValues_.clear();
 
     /* Reparse rather than trusting the in-memory graph. The file is now the
        truth, and reading it back is the only way to see what it actually says
@@ -972,6 +989,8 @@ void NodeEditor::finishSave (void)
     if (!reloadKeepingSelection())
         return;
 
+    settle();
+
     setStatus("Saved.");
 }
 
@@ -981,13 +1000,6 @@ void NodeEditor::onRevert (void)
     if (source_.empty())
         return;
 
-    /* Remember what was touched before reloading, because reloading is what
-       tells us the on-disk values to put back. */
-    const vector<string> ctlNames(liveControls_.begin(), liveControls_.end());
-
-    const vector<pair<string, string> > valNames(liveValues_.begin(),
-                                                 liveValues_.end());
-
     /* open(), not reload(): reading the source again is what throws away
        nodes added and deleted since the last save. */
     if (!open(source_, channel_))
@@ -996,56 +1008,16 @@ void NodeEditor::onRevert (void)
     /* Put the running synth back as well. Reverting the file and leaving the
        sound wherever the sliders were left would be worse than not offering
        Revert at all. */
-    int restored = 0;
+    putBackAll();
 
-    for (size_t i = 0; i < ctlNames.size(); i++)
-        for (size_t q = 0; q < graph_.boxes().size(); q++)
-            if (graph_.boxes()[q].isControl &&
-                graph_.boxes()[q].ctlArg == ctlNames[i])
-            {
-                applyControlLive(ctlNames[i], graph_.boxes()[q].ctlValue);
-                restored++;
-                break;
-            }
-
-    for (size_t i = 0; i < valNames.size(); i++)
-    {
-        const int b = graph_.boxByName(valNames[i].first);
-
-        if (b < 0)
-            continue;
-
-        for (size_t k = 0; k < graph_.boxes()[b].params.size(); k++)
-            if (graph_.boxes()[b].params[k].name == valNames[i].second &&
-                graph_.boxes()[b].params[k].hasValue)
-            {
-                applyValueLive(valNames[i].first, valNames[i].second,
-                               graph_.boxes()[b].params[k].value);
-                restored++;
-                break;
-            }
-    }
-
-    /* Putting them back went through applyControlLive and applyValueLive,
-       which note each as touched; they are what the file says now. */
-    liveControls_.clear();
-    liveValues_.clear();
-
-    char buf[128];
-
-    if (attached() && restored)
-        snprintf(buf, sizeof(buf),
-                 "Reverted to what is on disk; %d value%s put back live.",
-                 restored, restored == 1 ? "" : "s");
-    else
-        snprintf(buf, sizeof(buf), "Reverted to what is on disk.");
-
-    setStatus(buf);
+    setStatus(attached() ? "Reverted to what is on disk, and the running "
+                           "synth with it."
+                         : "Reverted to what is on disk.");
 }
 
 void NodeEditor::onBoxMoved (int box)
 {
-    (void)box;
+    Gesture gesture(*this, "move " + graph_.boxes()[box].name);
 
     writeLayout();
 }
@@ -1153,6 +1125,7 @@ void NodeEditor::onPaletteAdd (string spelling)
     const string name =
         NodeCatalog::suggestName(spelling.substr(spelling.find("::") + 2),
                                  takenNames());
+    Gesture gesture(*this, "add " + name);
 
     string why;
 
@@ -1399,6 +1372,7 @@ void NodeEditor::onPaletteAddControl (void)
 void NodeEditor::addControlFromForm (ControlForm *form)
 {
     const string name = form->name->get_text();
+    Gesture gesture(*this, "add @" + name);
     const string label = form->label->get_text();
     const string group = form->group->get_text();
     const double value = form->value->get_value();
@@ -1479,6 +1453,7 @@ void NodeEditor::onEditControl (int box)
 void NodeEditor::editControlFromForm (ControlForm *form)
 {
     const string name = form->name->get_text();
+    Gesture gesture(*this, "retype @" + name);
     const string label = form->label->get_text();
     const string group = form->group->get_text();
     const double min = form->min->get_value();
@@ -1556,6 +1531,8 @@ void NodeEditor::onDeleteNode (void)
 
     const bool isControl = victims[0].second;
     const string name = victims[0].first;
+    Gesture gesture(*this, "delete " + string(isControl ? "@" : "") + name +
+                           (victims.size() > 1 ? " and the rest" : ""));
 
     string why;
     int refs = 0;
@@ -1604,8 +1581,8 @@ void NodeEditor::onDeleteNode (void)
        "Node x not found" and read zero. */
     if (failedAt >= 0)
         snprintf(buf, sizeof(buf),
-                 "Deleted %d of %d, then stopped at %s: %s.  Revert undoes "
-                 "the rest.",
+                 "Deleted %d of %d, then stopped at %s: %s.  Undo puts "
+                 "them back.",
                  done, (int)victims.size(),
                  (string(victims[failedAt].second ? "@" : "") +
                   victims[failedAt].first).c_str(),
@@ -1728,13 +1705,173 @@ void NodeEditor::onSaveAs (void)
 void NodeEditor::finishSaveAs (void)
 {
     saved_ = text_;
-    liveControls_.clear();
-    liveValues_.clear();
 
     if (!reloadKeepingSelection())
         return;
 
+    settle();
+
     setStatus("Saved as " + source_ + ".");
+}
+
+NodeEditor::Gesture::Gesture (NodeEditor &ed, const string &what,
+                              const string &join)
+    : ed_(ed), outer_(ed.gestures_++ == 0), what_(what), join_(join)
+{
+    if (outer_)
+    {
+        was_.text = ed.text_;
+        was_.positions = ed.settled_;
+    }
+}
+
+NodeEditor::Gesture::~Gesture (void)
+{
+    ed_.gestures_--;
+
+    if (!outer_)
+        return;
+
+    ed_.settle();
+
+    if (ed_.text_ == was_.text)
+        return;
+
+    const double now = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    ed_.history_.record(was_, what_, join_, now);
+    ed_.updateDirty();
+}
+
+NodeHistory::Snapshot NodeEditor::snapshot (void) const
+{
+    NodeHistory::Snapshot s;
+
+    s.text = text_;
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+        if (graph_.boxes()[b].attachedTo < 0)
+            s.positions[NodeLayout::keyFor(graph_, (int)b)] =
+                make_pair(graph_.boxes()[b].x, graph_.boxes()[b].y);
+
+    return s;
+}
+
+int NodeEditor::putBackLive (const NodeGraph &before, bool &complete)
+{
+    int told = 0;
+
+    for (const NodeHistory::LiveChange &c :
+             NodeHistory::liveChanges(before, graph_, complete))
+    {
+        if (c.control)
+            applyControlLive(c.arg, c.value);
+        else
+            applyValueLive(c.node, c.arg, c.value);
+
+        told++;
+    }
+
+    return told;
+}
+
+void NodeEditor::putBackAll (void)
+{
+    for (const NodeGraph::Box &b : graph_.boxes())
+    {
+        if (b.isControl)
+        {
+            applyControlLive(b.ctlArg, b.ctlValue);
+            continue;
+        }
+
+        if (b.isExpr || b.isProbe)
+            continue;
+
+        for (const NodeGraph::Param &p : b.params)
+            if (p.kind == NodeGraph::Param::VALUE && p.hasValue)
+                applyValueLive(b.name, p.name, p.value);
+    }
+}
+
+/* The positions are the step's, not where the boxes are now: undoing a drag
+   is moving the box back. The probes are rebuilt only when the step changed
+   which there are, so an Undo of something else leaves their traces be. */
+bool NodeEditor::restore (const NodeHistory::Snapshot &s, const string &done)
+{
+    const NodeGraph before = graph_;
+    const string was = text_;
+    vector<NodeLayout::ProbeRef> had, has;
+
+    NodeLayout::Text::readProbes(text_, had);
+    NodeLayout::Text::readProbes(s.text, has);
+
+    bool probes = had.size() != has.size();
+
+    for (size_t i = 0; !probes && i < had.size(); i++)
+        probes = had[i].node != has[i].node || had[i].arg != has[i].arg ||
+                 had[i].visual != has[i].visual;
+
+    if (probes)
+        disarmAllProbes();
+
+    text_ = s.text;
+
+    if (!reloadKeepingSelection(&s.positions))
+    {
+        text_ = was;
+
+        if (probes)
+            reload(&settled_);
+
+        return false;
+    }
+
+    bool complete = true;
+
+    settle();
+    putBackLive(before, complete);
+    updateDirty();
+
+    setStatus(done + (attached() && !complete
+                      ? "  -- the rest is heard once the patch is loaded "
+                        "again"
+                      : ""));
+
+    return true;
+}
+
+void NodeEditor::onUndo (void)
+{
+    const string what = history_.undoName();
+    NodeHistory::Snapshot s, back;
+
+    if (!history_.undo(snapshot(), s))
+        return;
+
+    if (!restore(s, "Undid " + what + "."))
+    {
+        history_.redo(s, back);
+        updateDirty();
+        setStatus("Could not undo " + what + ": that text does not parse.");
+    }
+}
+
+void NodeEditor::onRedo (void)
+{
+    const string what = history_.redoName();
+    NodeHistory::Snapshot s, back;
+
+    if (!history_.redo(snapshot(), s))
+        return;
+
+    if (!restore(s, "Redid " + what + "."))
+    {
+        history_.undo(s, back);
+        updateDirty();
+        setStatus("Could not redo " + what + ": that text does not parse.");
+    }
 }
 
 /* reload() after a structural edit to text_. One whose result will not parse
@@ -1862,6 +1999,7 @@ void NodeEditor::onParamEdited (int box, string name, double value)
         return;
 
     const string node = graph_.boxes()[box].name;
+    Gesture gesture(*this, "set " + node + "." + name, node + "." + name);
     string text = text_, why;
 
     if (NodeEdit::Text::setValue(text, node, name, value, saved_, why) !=
@@ -1977,6 +2115,7 @@ bool NodeEditor::connectPorts (int fromBox, int fromPort, int toBox,
     const NodeGraph::Box &from = graph_.boxes()[fromBox];
     const string node = graph_.boxes()[toBox].name;
     const string arg = graph_.boxes()[toBox].ports[toPort].name;
+    Gesture gesture(*this, "wire into " + node + "." + arg);
 
     if (from.isControl)
     {
@@ -2304,10 +2443,11 @@ void NodeEditor::onDisconnect (int edge)
 
     const string node = graph_.boxes()[ed.toBox].name;
     const string arg = graph_.boxes()[ed.toBox].ports[ed.toPort].name;
+    Gesture gesture(*this, "cut " + node + "." + arg);
 
     rewire([&] (string &text, string &why)
         { return NodeEdit::Text::disconnect(text, node, arg, 0, why); },
-        "Disconnected " + node + "." + arg + ".  Revert undoes it.");
+        "Disconnected " + node + "." + arg + ".");
 }
 
 /* A slider moved. `commit' is false while dragging and true on release.
@@ -2337,6 +2477,7 @@ void NodeEditor::onControlChanged (int box, double value, bool commit)
     if (!commit)
         return;
 
+    Gesture gesture(*this, "set @" + b.ctlArg);
     string text = text_, why;
 
     if (NodeEdit::Text::setChanArg(text, b.ctlArg, value, saved_, why) !=
@@ -2477,6 +2618,8 @@ int NodeEditor::probeForBox (int box) const
 bool NodeEditor::armProbe (const string &node, const string &arg,
                            const string &visual)
 {
+    Gesture gesture(*this, "watch " + node + "." + arg);
+
     std::map<std::string, thVisual *>::iterator m = visuals_.find(visual);
 
     if (m == visuals_.end())
@@ -2552,6 +2695,9 @@ void NodeEditor::disarmProbe (size_t index)
 {
     if (index >= probes_.size())
         return;
+
+    Gesture gesture(*this, "stop watching " + probes_[index].node + "." +
+                           probes_[index].arg);
 
     releaseProbe(probes_[index]);
 
