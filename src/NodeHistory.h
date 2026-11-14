@@ -79,9 +79,9 @@ public:
 
        Only values a note can take without the graph being rebuilt, and
        `complete' says whether that is all that differs. It is false for a
-       node, a control or a wire added or removed, an expression's text, and
-       a @name with no slider read as a value -- there being no control to
-       tell. Not seen at all: a @name with no slider read only inside
+       node, a control or a wire added or removed, a node's plugin, a text
+       arg, an expression's text, and a @name with no slider read as a value
+       -- there being no control to tell. Not seen at all: a @name with no slider read only inside
        arithmetic, which the graph holds nowhere, and an arg's elements past
        its first. */
     struct LiveChange {

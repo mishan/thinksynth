@@ -117,18 +117,27 @@ void NodeHistory::clear (void)
     future_.clear();
 }
 
-/* Every box but the panels, by what it is; every wire, by its ends. Two
-   graphs that differ here differ by more than values. */
+/* Every box but the panels, by what it is and its plugin; every text arg,
+   by what it says; every wire, by its ends. Two graphs that differ here
+   differ by more than values. */
 static std::multiset<string> shapeOf (const NodeGraph &g)
 {
     std::multiset<string> out;
 
     for (const NodeGraph::Box &b : g.boxes())
-        if (!b.isProbe)
-            out.insert(b.name + (b.isIoSource ? "#in" : "") +
-                       (b.isIoSink ? "#out" : "") +
-                       (b.isControl ? " control" : "") +
-                       (b.isExpr ? " = " + b.exprText : ""));
+    {
+        if (b.isProbe)
+            continue;
+
+        out.insert(b.name + " " + b.plugin + (b.isIoSource ? "#in" : "") +
+                   (b.isIoSink ? "#out" : "") +
+                   (b.isControl ? " control" : "") +
+                   (b.isExpr ? " = " + b.exprText : ""));
+
+        for (const NodeGraph::Param &p : b.params)
+            if (p.kind == NodeGraph::Param::TEXT)
+                out.insert(b.name + "." + p.name + " = " + p.source);
+    }
 
     for (const NodeGraph::Edge &e : g.edges())
         out.insert(g.boxes()[e.fromBox].name + "." +

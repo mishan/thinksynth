@@ -300,6 +300,42 @@ int main (int argc, char **argv)
         NodeHistory::liveChanges(after, fewer, complete);
 
         check(!complete, "nor can it add a node");
+
+        /* Two more no value can make: a node's plugin swapped under the
+           same name and wires, and a text arg. */
+        const string small =
+            "name \"Swap\";\n"
+            "node ionode { channels = 1; out0 = s->out; play = env->play; };\n"
+            "node s %PLUGIN% { file = \"%FILE%\"; freq = ionode->note; };\n"
+            "node env env::adsr { trigger = ionode->trigger; };\n"
+            "io ionode;\n";
+
+        const auto smallText = [&] (const string &plugin, const string &file)
+        {
+            string t = small;
+
+            t.replace(t.find("%PLUGIN%"), 8, plugin);
+            t.replace(t.find("%FILE%"), 6, file);
+
+            return t;
+        };
+
+        NodeGraph a, swapped, refiled;
+
+        const bool small3 =
+            graphOf(synth, smallText("osc::sample", "a.wav"), a) &&
+            graphOf(synth, smallText("osc::simple", "a.wav"), swapped) &&
+            graphOf(synth, smallText("osc::sample", "b.wav"), refiled);
+
+        check(small3, "graphs with a text arg build");
+
+        NodeHistory::liveChanges(a, swapped, complete);
+
+        check(!complete, "nor swap a node's plugin");
+
+        NodeHistory::liveChanges(a, refiled, complete);
+
+        check(!complete, "nor change a text arg");
     }
 
     printf("\n%d failure(s)\n", failed);
