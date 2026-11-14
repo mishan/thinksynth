@@ -1,21 +1,26 @@
-# thaw.gen -- moments held: chords made of a strike, and a tune that stops
-# on its last bar and hangs there.
+# thaw.gen -- the spectral nodes, one part each: chords sieved, a tune
+# that freezes, and plucks smeared into a wash.
 #
-# Two ways of keeping a sound past its time, both fft::freeze. The chords
-# are frost.dsp: a bell struck, and sixty milliseconds in its strike is
-# caught and held as a pad for as long as the chord lasts. The tune is
-# rhodes.dsp through fx/freeze.dsp on its channel, and a row from
-# gen::steps turns the freeze on for the last bar of every four: the tune
-# stops on whatever it was playing as that bar begins, and that instant
-# hangs over the bar, the tune going on under it unheard, until the
-# freeze lets go and the next phrase starts where the tune has got to.
+# The chords are frost.dsp, a bell whose strike is caught sixty
+# milliseconds in by fft::freeze and held as a pad for as long as the
+# chord lasts. They go through fx/sieve.dsp, fft::gate on the channel:
+# open in Still and Thaw, it thins them in Sieve until only the
+# strongest partials whistle, and in Hollow it is inverted, so the notes
+# are taken out and the shimmer between them is all that is left.
 #
-# ONE KNOB, Shimmer, is both freezes' `random', and each section sets it.
-# At 0 a held sound is itself, a chord or a note carried on; up from
-# there its phases turn a little more every frame, and the held sounds
-# shimmer rather than ring. Still begins clear, Thaw lets it move, and
-# Drift lets it go most of the way to noise before Thaw comes round
-# again.
+# The tune is rhodes.dsp through fx/freeze.dsp, and a row from gen::steps
+# turns the freeze on for the last bar of every four: the tune stops on
+# whatever it was playing as that bar begins, and that instant hangs over
+# the bar until the freeze lets go.
+#
+# The plucks are pluck.dsp through fx/blur.dsp. Each note's level is
+# smeared over Smear: short, they are plucks; in Smear, two and a half
+# seconds, every attack swells in and every note lingers, and the
+# arpeggio is a wash of the chord rather than a line.
+#
+# FOUR KNOBS, each set by every section, so the loop comes round to Thaw
+# as it was: Shimmer is both freezes' `random', Smear the blur, Thin
+# the sieve's threshold, and Hollow inverts it.
 #
 # D lydian, at sixty-six: D, B minor, G and A under a tune that leans on
 # the raised fourth.
@@ -25,7 +30,7 @@
 
 name "Thaw";
 author "Misha Nasledov";
-description "Chords made of a bell's frozen strike, and a tune that freezes on the last bar of every phrase.";
+description "The spectral nodes, one part each: frozen bell chords sieved thin and hollow, a tune that freezes on each phrase's last bar, and plucks blurred into a wash.";
 category "Timbre as material";
 
 tempo 66;
@@ -38,9 +43,34 @@ meter 4;
 @shimmer.max = 1;
 @shimmer.label = "Shimmer";
 
-section still  8 bars { @shimmer = 0;    tune = 0;  hold = 0;  bass = 0; };
-section thaw  16 bars { @shimmer = 0.25; };
-section drift  8 bars { @shimmer = 0.8; };
+@smear = 40;
+@smear.widget = 1;
+@smear.min = 0;
+@smear.max = 4000;
+@smear.label = "Smear (ms)";
+
+@thin = -90;
+@thin.widget = 1;
+@thin.min = -90;
+@thin.max = -6;
+@thin.label = "Thin (dB)";
+
+@hollow = 0;
+@hollow.widget = 1;
+@hollow.min = 0;
+@hollow.max = 1;
+@hollow.values = "Off,On";
+@hollow.label = "Hollow";
+
+section still   8 bars { @shimmer = 0;    @smear = 40;   @thin = -90; @hollow = 0;
+                         tune = 0;  hold = 0;  bass = 0;  pluck = 0; };
+section thaw    8 bars { @shimmer = 0.25; @smear = 40;   @thin = -90; @hollow = 0;
+                         pluck = 0; };
+section smear   8 bars { @shimmer = 0.25; @smear = 2500; @thin = -90; @hollow = 0;
+                         tune = 0; };
+section sieve   8 bars { @shimmer = 0.25; @smear = 300;  @thin = -10; @hollow = 0; };
+section hollow  8 bars { @shimmer = 0.8;  @smear = 600;  @thin = -12; @hollow = 1;
+                         frost = 2; };
 section loop thaw;
 
 scale dlyd  "D3 E3 F#3 G#3 A3 B3 C#4";
@@ -59,6 +89,12 @@ instrument frost {
     random = @shimmer;
     fade   = 300 ms;
     r      = 1500 ms;
+
+    effect "fx/sieve.dsp" {
+        thresh = @thin;
+        invert = @hollow;
+        smooth = 80 ms;
+    };
 };
 
 instrument tune {
@@ -70,6 +106,17 @@ instrument tune {
         size   = 4096;
         random = @shimmer;
         fade   = 250 ms;
+    };
+};
+
+instrument pluck {
+    dsp  "pluck.dsp";
+    amp  = 25;
+    send = 0.4;
+
+    effect "fx/blur.dsp" {
+        blur   = @smear ms;
+        random = 0.3;
     };
 };
 
@@ -111,6 +158,17 @@ chain hold {
         period = 4 beats;
     };
     sink { instrument = tune; chanarg = "fx.freeze"; };
+};
+
+# Sixteenths, six of every eight, up and down each chord of the changes,
+# two bars on each: a chord's six notes four times over.
+chain pluck {
+    stage src gen::euclid {
+        steps = 8;  fills = 6;  rotate = 1;
+        notes = "D5 F#5 A5 C#6 A5 F#5 D5 F#5 A5 C#6 A5 F#5 D5 F#5 A5 C#6 A5 F#5 D5 F#5 A5 C#6 A5 F#5  B4 D5 F#5 A5 F#5 D5 B4 D5 F#5 A5 F#5 D5 B4 D5 F#5 A5 F#5 D5 B4 D5 F#5 A5 F#5 D5  G4 B4 D5 F#5 D5 B4 G4 B4 D5 F#5 D5 B4 G4 B4 D5 F#5 D5 B4 G4 B4 D5 F#5 D5 B4  A4 C#5 E5 G#5 E5 C#5 A4 C#5 E5 G#5 E5 C#5 A4 C#5 E5 G#5 E5 C#5 A4 C#5 E5 G#5 E5 C#5";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 64;
+    };
+    sink { instrument = pluck; };
 };
 
 chain bass {
