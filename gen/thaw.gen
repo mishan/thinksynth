@@ -4,7 +4,7 @@
 # The chords are frost.dsp, a bell whose strike is caught sixty
 # milliseconds in by fft::freeze and held as a pad for as long as the
 # chord lasts. They go through fx/sieve.dsp, fft::gate on the channel:
-# open in Still and Thaw, it thins them in Sieve until only the
+# open until Sieve, it thins them there until only the
 # strongest partials whistle, and in Hollow it is inverted, so the notes
 # are taken out and the shimmer between them is all that is left.
 #
@@ -13,10 +13,11 @@
 # whatever it was playing as that bar begins, and that instant hangs over
 # the bar until the freeze lets go.
 #
-# The plucks are pluck.dsp through fx/blur.dsp. Each note's level is
-# smeared over Smear: short, they are plucks; in Smear, two and a half
-# seconds, every attack swells in and every note lingers, and the
-# arpeggio is a wash of the chord rather than a line.
+# The plucks are pluck.dsp through fx/blur.dsp, which smears each
+# frequency's level over Smear. In Smear, two and a half seconds, every
+# attack swells in and every note lingers into the next, and the
+# arpeggio is a wash of the chord rather than a line; in Sieve and
+# Hollow, at 300 and 600 ms, they are plucks again with a soft edge.
 #
 # FOUR KNOBS, each set by every section, so the loop comes round to Thaw
 # as it was: Shimmer is both freezes' `random', Smear the blur, Thin
@@ -160,8 +161,9 @@ chain hold {
     sink { instrument = tune; chanarg = "fx.freeze"; };
 };
 
-# Sixteenths, six of every eight, up and down each chord of the changes,
-# two bars on each: a chord's six notes four times over.
+# Sixteenths, six of every eight, up and down a seventh chord on each
+# root of the changes, two bars on each: its six-note figure four times
+# over.
 chain pluck {
     stage src gen::euclid {
         steps = 8;  fills = 6;  rotate = 1;
