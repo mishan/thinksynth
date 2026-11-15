@@ -647,6 +647,67 @@ static bool substituteRef (const string &rhs, const string &ref,
     return true;
 }
 
+/* Puts `text' in place of a right-hand side running from `from' on
+   lines[line] to `to' on lines[last]. Over several lines the statement is
+   joined onto one, in its last line's place and with that line's comment;
+   the comments of the lines before it stay above it. Returns how many lines
+   joining took out. */
+static size_t setRhs (vector<string> &lines, size_t line, string::size_type from,
+                      size_t last, string::size_type to, const string &text)
+{
+    if (line == last)
+    {
+        lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
+        return 0;
+    }
+
+    string head = lines[line].substr(0, from);
+
+    head.erase(head.find_last_not_of(" \t") + 1);
+    lines[last] = head + " " + text + lines[last].substr(to);
+
+    size_t gone = 0;
+
+    for (size_t k = last; k-- > line;)
+    {
+        const string::size_type hash = codeOf(lines[k]).size();
+
+        if (hash < lines[k].size())
+            lines[k] = lines[k].substr(0, lines[k].find_first_not_of(" \t")) +
+                       lines[k].substr(hash);
+        else
+        {
+            lines.erase(lines.begin() + k);
+            gone++;
+        }
+    }
+
+    return gone;
+}
+
+/* The right-hand side setRhs would replace, its lines' code joined by
+   single spaces. */
+static string rhsOf (const vector<string> &lines, size_t line,
+                     string::size_type from, size_t last, string::size_type to)
+{
+    if (line == last)
+        return lines[line].substr(from, to - from);
+
+    string rhs;
+
+    for (size_t k = line; k <= last; k++)
+    {
+        const string::size_type a = k == line ? from : 0;
+        const string::size_type b = k == last ? to : codeOf(lines[k]).size();
+        const string part = trim(lines[k].substr(a, b - a));
+
+        if (!part.empty())
+            rhs += (rhs.empty() ? "" : " ") + part;
+    }
+
+    return rhs;
+}
+
 /* A right-hand side that runs on past its line -- arithmetic, since a wire
    or a number fits on one -- from just after the `=' at `eq' on lines[i] to
    the `;' that ends it. True if `ref' appears on those lines.
@@ -701,26 +762,7 @@ static bool substituteAcross (vector<string> &lines, size_t &i,
     if (any && semi != string::npos && rhs.find_first_of("={}") ==
         string::npos && (with.empty() || !isExpressionRhs(rhs)))
     {
-        /* The statement takes its last line's place, that line's comment
-           with it; the comments of the lines before stay above it. */
-        lines[i] = lines[first].substr(0, eq + 1) + " 0" +
-                   lines[i].substr(semi);
-
-        for (size_t k = i; k-- > first;)
-        {
-            const string::size_type hash = codeOf(lines[k]).size();
-
-            if (hash < lines[k].size())
-                lines[k] = lines[k].substr(0,
-                               lines[k].find_first_not_of(" \t")) +
-                           lines[k].substr(hash);
-            else
-            {
-                lines.erase(lines.begin() + k);
-                gone++;
-            }
-        }
-
+        gone = setRhs(lines, first, eq + 1, i, semi, "0");
         i -= gone;
         semi = eq + 3;
     }
@@ -730,9 +772,13 @@ static bool substituteAcross (vector<string> &lines, size_t &i,
     return any;
 }
 
+/* An assignment to `arg' in the block from `open' to `close': its
+   right-hand side from `rhsFrom' on lines[line] to `rhsTo' on lines[last],
+   the same line unless the statement runs on past it. */
 static bool findAssign (const vector<string> &lines, size_t open, size_t close,
                         const string &arg, size_t &line,
-                        string::size_type &rhsFrom, string::size_type &rhsTo)
+                        string::size_type &rhsFrom, size_t &last,
+                        string::size_type &rhsTo)
 {
     for (size_t i = open; i <= close && i < lines.size(); i++)
     {
@@ -763,10 +809,10 @@ static bool findAssign (const vector<string> &lines, size_t open, size_t close,
                  * there.
                  */
                 const string before = trim(code.substr(0, p));
-                const char last = before.empty() ? '\0'
+                const char prev = before.empty() ? '\0'
                                                  : before[before.size() - 1];
 
-                if (before.empty() || last == '{' || last == ';')
+                if (before.empty() || prev == '{' || prev == ';')
                 {
                     string::size_type eq = code.find('=', after);
 
@@ -775,11 +821,42 @@ static bool findAssign (const vector<string> &lines, size_t open, size_t close,
                     {
                         string::size_type semi = code.find(';', eq);
 
-                        if (semi == string::npos)
-                            return false;   /* spans lines; not handled */
-
                         string::size_type s = code.find_first_not_of(" \t",
                                                                     eq + 1);
+
+                        /* On to the `;' that ends it. A `=' or a brace
+                           first is the next statement, not more of this
+                           one, which is then text still being typed. */
+                        for (size_t k = i + 1;
+                             semi == string::npos && k <= close &&
+                             k < lines.size(); k++)
+                        {
+                            const string next = codeOf(lines[k]);
+                            const string::size_type sc = next.find(';');
+
+                            if (next.substr(0, sc).find_first_of("={}") !=
+                                string::npos)
+                                return false;
+                            if (sc == string::npos)
+                                continue;
+
+                            const string::size_type indent =
+                                next.find_first_not_of(" \t");
+                            string::size_type e = sc;
+
+                            while (e > indent && (next[e - 1] == ' ' ||
+                                                  next[e - 1] == '\t'))
+                                e--;
+
+                            line = i;
+                            rhsFrom = s == string::npos ? code.size() : s;
+                            last = k;
+                            rhsTo = e;
+
+                            return true;
+                        }
+                        if (semi == string::npos)
+                            return false;
 
                         if (s == string::npos || s > semi)
                             return false;
@@ -791,6 +868,7 @@ static bool findAssign (const vector<string> &lines, size_t open, size_t close,
 
                         line = i;
                         rhsFrom = s;
+                        last = i;
                         rhsTo = e;
 
                         return true;
@@ -1056,11 +1134,11 @@ static bool writtenPerChannel (const vector<string> &lines, size_t open,
     if (d == 0 || d == arg.size())
         return false;
 
-    size_t line = 0;
+    size_t line = 0, last = 0;
     string::size_type from = 0, to = 0;
 
     return findAssign(lines, open, close, arg.substr(0, d) + "[]", line, from,
-                      to);
+                      last, to);
 }
 
 NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
@@ -1070,7 +1148,7 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
     vector<string> was, lines;
     bool wasNewline = true, endsWithNewline = true;
     size_t wasOpen = 0, wasClose = 0, open = 0, close = 0;
-    size_t wasLine = 0, line = 0;
+    size_t wasLine = 0, wasLast = 0, line = 0, last = 0;
     string::size_type wasFrom = 0, wasTo = 0, from = 0, to = 0;
     double savedValue;
 
@@ -1078,11 +1156,12 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
     splitLines(source, lines, endsWithNewline);
 
     if (!findNodeBlock(was, node, wasOpen, wasClose) ||
-        !findAssign(was, wasOpen, wasClose, arg, wasLine, wasFrom, wasTo) ||
+        !findAssign(was, wasOpen, wasClose, arg, wasLine, wasFrom, wasLast, wasTo) ||
         !findNodeBlock(lines, node, open, close) ||
         writtenPerChannel(lines, open, close, arg) ||
-        !findAssign(lines, open, close, arg, line, from, to) ||
-        !parseRhs(was[wasLine].substr(wasFrom, wasTo - wasFrom), savedValue) ||
+        !findAssign(lines, open, close, arg, line, from, last, to) ||
+        wasLine != wasLast || line != last ||
+        !parseRhs(rhsOf(was, wasLine, wasFrom, wasLast, wasTo), savedValue) ||
         !sameValue(savedValue, value))
         return setValue(source, node, arg, value, why);
 
@@ -1090,14 +1169,12 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
        parse as one, and the plain setValue refuses each with its reason. */
     double current;
 
-    if (!parseRhs(lines[line].substr(from, to - from), current))
+    if (!parseRhs(rhsOf(lines, line, from, last, to), current))
         return setValue(source, node, arg, value, why);
 
     why.clear();
 
-    lines[line] = lines[line].substr(0, from) +
-                  was[wasLine].substr(wasFrom, wasTo - wasFrom) +
-                  lines[line].substr(to);
+    setRhs(lines, line, from, last, to, rhsOf(was, wasLine, wasFrom, wasLast, wasTo));
 
     source = joinLines(lines, endsWithNewline);
 
@@ -1134,12 +1211,12 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
         return REFUSED;
     }
 
-    size_t line = 0;
+    size_t line = 0, last = 0;
     string::size_type from = 0, to = 0;
 
-    if (findAssign(lines, open, close, arg, line, from, to))
+    if (findAssign(lines, open, close, arg, line, from, last, to))
     {
-        const string oldRhs = lines[line].substr(from, to - from);
+        const string oldRhs = rhsOf(lines, line, from, last, to);
 
         /* An expression is a graph, not a number with a spelling. Typing
            over one would drop the author's arithmetic; removing it is
@@ -1201,8 +1278,7 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
             return UNWRITABLE;
         }
 
-        lines[line] = lines[line].substr(0, from) + text +
-                      suffixTextOf(oldRhs) + lines[line].substr(to);
+        setRhs(lines, line, from, last, to, text + suffixTextOf(oldRhs));
     }
     else
     {
@@ -1275,34 +1351,35 @@ static NodeEdit::Result bindArg (string &source, const string &node,
         return NodeEdit::REFUSED;
     }
 
-    size_t line = 0;
+    size_t line = 0, last = 0;
     string::size_type from = 0, to = 0;
 
-    if (findAssign(lines, open, close, arg, line, from, to))
+    if (findAssign(lines, open, close, arg, line, from, last, to))
     {
         /* Already says exactly this: leave the file alone. Same reasoning as
            setValue -- connecting something to where it already is connected
            must not produce a diff. */
-        if (trim(lines[line].substr(from, to - from)) == text)
+        const string oldRhs = rhsOf(lines, line, from, last, to);
+
+        if (trim(oldRhs) == text)
             return NodeEdit::OK;
 
         /* Wiring into an expression would keep one term of the author's
            arithmetic and silently drop the rest. Removing the whole thing is
            a gesture that exists -- disconnect rewrites the arg to `= 0'. */
-        if (isTextRhs(lines[line].substr(from, to - from)))
+        if (isTextRhs(oldRhs))
         {
             why = arg + " is a name, and nothing can be wired to one";
             return NodeEdit::REFUSED;
         }
 
-        if (isExpressionRhs(lines[line].substr(from, to - from)))
+        if (isExpressionRhs(oldRhs))
         {
             why = arg + " is an expression; disconnect it first";
             return NodeEdit::REFUSED;
         }
 
-        lines[line] = lines[line].substr(0, from) + text +
-                      lines[line].substr(to);
+        setRhs(lines, line, from, last, to, text);
     }
     else if (!insertAssign(lines, open, close, arg, text))
     {
@@ -1397,13 +1474,13 @@ NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
         return REFUSED;
     }
 
-    size_t line = 0;
+    size_t line = 0, last = 0;
     string::size_type from = 0, to = 0;
 
-    if (!findAssign(lines, open, close, arg, line, from, to))
+    if (!findAssign(lines, open, close, arg, line, from, last, to))
         return OK;      /* nothing there to disconnect */
 
-    const string oldRhs = trim(lines[line].substr(from, to - from));
+    const string oldRhs = trim(rhsOf(lines, line, from, last, to));
 
     /* Three things count as connected: a node's output, a control, and an
        expression. Controls became nodes on the canvas, so `a = @a' is a wire
@@ -1435,7 +1512,7 @@ NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
         return UNWRITABLE;
     }
 
-    lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
+    setRhs(lines, line, from, last, to, text);
 
     source = joinLines(lines, endsWithNewline);
 
@@ -1471,10 +1548,10 @@ NodeEdit::Result NodeEdit::Text::find (const string &source,
     if (!findNodeBlock(lines, node, open, close))
         return NO_NODE;
 
-    size_t line = 0;
+    size_t line = 0, last = 0;
     string::size_type from = 0, to = 0;
 
-    if (!findAssign(lines, open, close, arg, line, from, to))
+    if (!findAssign(lines, open, close, arg, line, from, last, to))
         return NOT_A_VALUE;
 
     return OK;
