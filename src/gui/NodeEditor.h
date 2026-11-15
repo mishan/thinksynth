@@ -230,13 +230,24 @@ protected:
     void finishSave (void);
     void finishSaveAs (void);
 
-    /* Reparses after a save, keeping the selected box selected by its name:
-       a reparse renumbers every box after one the save took out. */
+    /* What is selected, by name, and which of it the panel shows: a parse
+       renumbers the boxes. */
+    struct Selection {
+        vector<string> keys;
+        string shown;
+    };
+
+    Selection selection (void) const;
+
+    /* Selects again what is still there of `s'. */
+    void reselect (const Selection &s);
+
     bool reloadKeepingSelection (const NodeLayout::PosMap *carry = NULL);
 
     /* reload() after a structural edit, putting text_ back to `was' if the
-       edit made something that will not parse. */
-    bool reloadAfter (const string &was);
+       edit made something that will not parse. `keep' is false for an edit
+       that chooses what is selected after it. */
+    bool reloadAfter (const string &was, bool keep = true);
 
     /* A wire made or cut: `edit' spliced into text_ and the graph parsed
        again from it, every box staying where it was. False, with the status

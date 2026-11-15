@@ -75,6 +75,10 @@ public:
     int selected (void) const { return selBox_; }
     void setSelected (int box);
 
+    /* `boxes' held, as a band leaves them, with `shown' -- one of them, or
+       -1 for none unless there is only one -- the box whose parameters show. */
+    void setSelection (const std::vector<int> &boxes, int shown);
+
     /* Every selected box, `selected()' among them. Empty or a single entry
        for all the ordinary cases; more after a rubber band. */
     const std::vector<int> &selection (void) const { return sel_; }
