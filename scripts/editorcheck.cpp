@@ -2853,6 +2853,57 @@ void checkFailedOpen (thSynth &synth, const char *file)
 /* A save that takes a box out of the graph -- cutting the wire out of an
    expression removes the whole expression -- keeps the box that was selected
    selected, though the reparse moves every box after the one removed. */
+/* A click on the graph gives it the focus, and a viewport scrolls to what
+   has the focus -- which for a canvas the size of the graph is its top-left
+   corner. The view stays where it was. */
+void checkScrollKept (thSynth &synth, const char *file)
+{
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(500, 300);
+    w->present();
+
+    pump(0.05);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    Gtk::ScrolledWindow *scroller = NULL;
+
+    for (Gtk::Widget *a = canvases.empty() ? NULL : canvases[0]; a != NULL &&
+         scroller == NULL; a = a->get_parent())
+        scroller = dynamic_cast<Gtk::ScrolledWindow *>(a);
+
+    const bool opened = scroller != NULL && ed->open(file);
+
+    pump(0.2);
+
+    Glib::RefPtr<Gtk::Adjustment> v =
+        scroller != NULL ? scroller->get_vadjustment() : nullptr;
+    const bool scrolls = opened && v->get_upper() - v->get_page_size() > 50;
+
+    if (scrolls)
+        v->set_value(v->get_upper() - v->get_page_size());
+
+    pump(0.05);
+
+    const double at = scrolls ? v->get_value() : 0;
+
+    if (scrolls)
+        canvases[0]->grab_focus();
+
+    pump(0.2);
+
+    ok(scrolls && at > 0 && v->get_value() == at,
+       "the graph taking the focus leaves the view where it was (%g, %g)",
+       at, scrolls ? v->get_value() : 0.0);
+
+    delete w;
+}
+
 void checkSelectionAfterSave (thSynth &synth)
 {
     const string body =
@@ -3504,6 +3555,7 @@ int run (const string &pluginPath, const char *file)
     delete window;
 
     checkSelectionAfterSave(synth);
+    checkScrollKept(synth, file);
     checkFailedOpen(synth, file);
     checkLayoutRestored(synth, file);
     checkNoScratchFile(synth, file);
