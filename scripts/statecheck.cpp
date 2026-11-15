@@ -6917,7 +6917,7 @@ static void checkFftPlay (const string &pluginPath)
 
 struct ShRun
 {
-    enum Source { SINE, NOISE, CHIRP, VIBRATO, TRIAD, PAIR, RESONANT, CLICK } source = SINE;
+    enum Source { SINE, NOISE, CHIRP, VIBRATO, TRIAD, PAIR, RESONANT, CLICK, STEEP } source = SINE;
     float freq = 440;
     float size = 2048, ratio = 1, offset = 0, formant = 0, mix = 1;
     bool constant = false;          /* the input the number `level' */
@@ -6985,6 +6985,13 @@ static vector<NodeSpec> shGraph (const ShRun &run)
             spec.push_back(specNode("floor", "osc/noise", { { "amp", 1e-5f } }, {}));
             spec.push_back(specNode("src", "math/add", {}, { { "in0", "res", "out_band" }, { "in1", "floor", "out" } }));
             break;
+        case ShRun::STEEP:
+            /* 440 Hz and, 38 dB under it, 1000: an envelope falling 30 dB
+               from 440 to 880. */
+            shSine(spec, "p1", 440, 0.3f);
+            shSine(spec, "p2", 1000, 0.3f * 0.0126f);
+            sum("src", "p1", "p2");
+            break;
         case ShRun::CLICK:
             fzStep(spec, "clickon", 1);
             fzStep(spec, "clickoff", 1 + 20 / FZ_RATE);
@@ -7011,12 +7018,12 @@ static vector<NodeSpec> shGraph (const ShRun &run)
 }
 
 static bool shRender (const string &pluginPath, const ShRun &run, double seconds, unsigned windowlen,
-                      vector<float> &in, vector<float> &out, string &why)
+                      vector<float> &in, vector<float> &out, string &why, int rate = TH_DEFAULT_SAMPLES)
 {
     vector< vector<float> > got;
 
     if (!render(pluginPath, shGraph(run), { { "src", "out" }, { "sh", "out" } }, windowlen,
-                (unsigned)(seconds * FZ_RATE), got, why))
+                (unsigned)(seconds * rate), got, why, rate))
         return false;
     in = got[0];
     out = got[1];
@@ -7096,6 +7103,7 @@ static void checkShift (const string &pluginPath)
         const double hopRate = FZ_RATE / 512;
 
         for (const Case &c : { Case { 1.5f, 0, 660 }, Case { 0.5f, 0, 220 }, Case { 2, 0, 880 },
+                               Case { 4, 0, 1760 }, Case { 0.25f, 0, 110 },
                                Case { 1, 100, 540 }, Case { 1, -500, 60 } })
         {
             ShRun run;
@@ -7190,7 +7198,7 @@ static void checkShift (const string &pluginPath)
        formant 1, and carries it up at 0; and keeping it, up or down,
        lifts no noise ---- */
     {
-        vector<float> in, kept, moved, downKept, downMoved;
+        vector<float> in, kept, moved, half, downKept, downMoved;
         string why;
         ShRun run;
 
@@ -7198,15 +7206,17 @@ static void checkShift (const string &pluginPath)
         run.freq = 220;
         run.ratio = 1.5f;
         run.formant = 1;
-        ShRun up = run, down = run, downUp = run;
+        ShRun up = run, down = run, downUp = run, mid = run;
 
         /* Down, sparser: 440 Hz by 0.7, the floor's peaks far between its
            harmonics. */
         up.formant = 0;
+        mid.formant = 0.5f;
         down.freq = downUp.freq = 440;
         down.ratio = downUp.ratio = 0.7f;
         downUp.formant = 0;
         if (!shRender(pluginPath, run, 2, 256, in, kept, why) || !shRender(pluginPath, up, 2, 256, in, moved, why) ||
+            !shRender(pluginPath, mid, 2, 256, in, half, why) ||
             !shRender(pluginPath, down, 2, 256, in, downKept, why) ||
             !shRender(pluginPath, downUp, 2, 256, in, downMoved, why))
             fail("fft::shift renders a resonant tone", why);
@@ -7248,12 +7258,60 @@ static void checkShift (const string &pluginPath)
                31 dB down, no longer meeting. Keeping the formants must not
                add to it, as it did through a noise floor's peaks, which
                shows most going down. */
+            /* Half way, half the envelope's tilt: the resonance's two
+               harmonics balance between where 0 and 1 put them. */
+            const auto tilt = [&](const vector<float> &v) {
+                return shDb(blAt(v, 990, 0.5 + late, 1), blAt(v, 1320, 0.5 + late, 1));
+            };
+            const double t0 = tilt(moved), t5 = tilt(half), t1 = tilt(kept);
+
+            okOrFail(t5 > std::min(t0, t1) + 1 && t5 < std::max(t0, t1) - 1,
+                     "fft::shift: formant 0.5 tilts the resonance half way",
+                     "990 against 1320 Hz: " + num(t0) + " dB at 0, " + num(t5) + " at 0.5, " + num(t1) +
+                         " at 1");
             okOrFail(k == 990 && m == 1320 && jm < -30 && jk < jm + 3 && jdk < jdm + 3,
                      "fft::shift: up a fifth, the resonance stays at formant 1 and moves at 0, and "
                      "keeping it lifts nothing between the partials, up or down",
                      "loudest " + num(k) + " and " + num(m) + " Hz; between the partials " + num(jk) +
                          " dB kept, " + num(jm) + " moved; down " + num(jdk) + " kept, " + num(jdm) +
                          " moved");
+        }
+    }
+
+    /* ---- the offset is hertz at any rate; the formant gain is held to
+       24 dB; a partial sent over Nyquist is dropped ---- */
+    {
+        ShRun at48, steep, high;
+        vector<float> in, a, b, c;
+        string why;
+
+        at48.offset = 100;
+        steep.source = ShRun::STEEP;
+        steep.ratio = 2;
+        steep.formant = 1;
+        high.freq = 15000;
+        high.ratio = 2;
+        if (!shRender(pluginPath, at48, 2, 256, in, a, why, 48000) ||
+            !shRender(pluginPath, steep, 2, 256, in, b, why) || !shRender(pluginPath, high, 2, 256, in, c, why))
+            fail("fft::shift renders at 48 kHz, a steep envelope and a high sine", why);
+        else
+        {
+            /* Rising zero crossings over a second at 48 kHz. */
+            int rising = 0;
+
+            for (size_t i = 24000 + 1; i < 72000 && i < a.size(); i++)
+                rising += a[i - 1] < 0 && a[i] >= 0;
+
+            const double clamped = shDb(blAt(b, 880, 0.5 + late, 1), 0.3);
+            float over = 0;
+
+            for (size_t i = 2 * 2048; i < c.size(); i++)
+                over = fmaxf(over, fabsf(c[i]));
+            okOrFail(abs(rising - 540) <= 1, "fft::shift: 100 Hz is 100 Hz at 48 kHz too",
+                     num(rising) + " Hz for 440 plus 100");
+            okOrFail(fabs(clamped + 24) < 1, "fft::shift: a formant's gain is held to 24 dB",
+                     num(clamped) + " dB where the envelope falls 30");
+            okOrFail(over < 1e-4f, "fft::shift: 15 kHz doubled, over Nyquist, is dropped", num(over));
         }
     }
 
@@ -7307,6 +7365,9 @@ static void checkShift (const string &pluginPath)
         const vector<Case> cases = {
             { "a NaN ratio as 1", with(base, [](ShRun &r) { r.ratio = NAN; }), with(base, [](ShRun &r) { r.ratio = 1; }) },
             { "a ratio of 0 as 1", with(base, [](ShRun &r) { r.ratio = 0; }), with(base, [](ShRun &r) { r.ratio = 1; }) },
+            { "a ratio of 8 as 4", with(base, [](ShRun &r) { r.ratio = 8; }), with(base, [](ShRun &r) { r.ratio = 4; }) },
+            { "a ratio of 0.1 as 0.25", with(base, [](ShRun &r) { r.ratio = 0.1f; }),
+              with(base, [](ShRun &r) { r.ratio = 0.25f; }) },
             { "a NaN offset as 0", with(base, [](ShRun &r) { r.offset = NAN; }), base },
             { "a NaN formant as 0", with(base, [](ShRun &r) { r.formant = NAN; }),
               with(base, [](ShRun &r) { r.formant = 0; }) },
