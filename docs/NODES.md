@@ -1165,6 +1165,21 @@ Pan (constant power)
 | `out0` | out | The left side |  |  | full scale |  |
 | `out1` | out | The right side |  |  | full scale |  |
 
+### mixer::widen
+
+Widener (mono-safe stereo from one signal)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `width` | in | How loud the side is against the middle: 0 is mono, 1 the widest |  | 0 to 1 |  |  |
+| `time` | in | How late the side is, up to 30 ms; 0 is 12 ms |  |  | samples |  |
+| `low` | in | Under this the sound stays in the middle; 0 is 250 Hz | 250 |  | Hz |  |
+| `out0` | out | The left side |  |  | full scale |  |
+| `out1` | out | The right side |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ## osc
 
 ### osc::bandosc

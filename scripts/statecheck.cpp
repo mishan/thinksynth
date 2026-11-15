@@ -209,9 +209,10 @@ buildGraph (thSynth &synth, thSynthTree &tree, const vector<NodeSpec> &spec,
 static bool
 render (const string &pluginPath, const vector<NodeSpec> &spec,
         const vector<Watch> &watch, unsigned windowlen, unsigned samples,
-        vector< vector<float> > &out, string &why)
+        vector< vector<float> > &out, string &why,
+        int rate = TH_DEFAULT_SAMPLES)
 {
-    thSynth synth(pluginPath, (int)windowlen, TH_DEFAULT_SAMPLES);
+    thSynth synth(pluginPath, (int)windowlen, rate);
     thSynthTree tree("statecheck", &synth);
 
     if (!buildGraph(synth, tree, spec, why))
@@ -10239,6 +10240,335 @@ static void checkPan (const string &pluginPath)
                    "the two equal", detail);
 }
 
+/* ---- mixer::widen -------------------------------------------------------
+ *
+ * One promise above the rest: summed to mono the side cancels and what is
+ * left is the input. Then what the side is: above `low' and not below it,
+ * `time' late, unlike the input, and a `time' that steps does not click.
+ */
+
+/* `src' into the widener, the three watched: the input and the two sides. */
+static vector<NodeSpec> widenGraph (vector<NodeSpec> src, const vector<Value> &values,
+                                    const vector<Wire> &wires = {})
+{
+    vector<Wire> w = wires;
+
+    w.push_back({ "in", "src", "out" });
+    src.push_back(specNode("w", "mixer/widen", values, w));
+
+    return src;
+}
+
+static bool widenRender (const string &pluginPath, const vector<NodeSpec> &spec,
+                         unsigned windowlen, unsigned samples,
+                         vector< vector<float> > &got, string &why,
+                         int rate = TH_DEFAULT_SAMPLES)
+{
+    return render(pluginPath, spec, { { "src", "out" }, { "w", "out0" }, { "w", "out1" } },
+                  windowlen, samples, got, why, rate);
+}
+
+/* `amp' scales the noise after it is made, so a non-finite one reaches the
+   widener: osc::noise holds its own `amp' to full scale. */
+static vector<NodeSpec> widenNoise (float amp)
+{
+    return { specNode("nz", "osc/noise", { { "amp", 1 } }, {}),
+             specNode("src", "math/mul", { { "in1", amp } }, { { "in0", "nz", "out" } }) };
+}
+
+static vector<NodeSpec> widenSine (float hz, float amp)
+{
+    return { specNode("src", "osc/simple", { { "freq", hz }, { "amp", amp }, { "waveform", 0 } }, {}) };
+}
+
+static void checkWiden (const string &pluginPath)
+{
+    const double rate = TH_DEFAULT_SAMPLES;
+
+    /* ---- mono is the input, at every setting, and the side sounds ---- */
+    {
+        bool exact = true, wide = true;
+        string detail;
+
+        for (float width : { 0.25f, 1.0f, NAN })
+            for (float time : { 0.0f, 1.0f, 600.0f, 4000.0f })
+                for (float low : { 0.0f, 20.0f, 2000.0f, 5000.0f })
+                {
+                    vector< vector<float> > got;
+                    string why;
+                    double side = 0;
+
+                    if (!widenRender(pluginPath,
+                                     widenGraph(widenNoise(0.5f),
+                                                { { "width", width }, { "time", time }, { "low", low } }),
+                                     256, 8192, got, why))
+                    {
+                        fail("mixer::widen renders noise", why);
+                        return;
+                    }
+
+                    for (size_t i = 0; i < got[0].size(); i++)
+                    {
+                        const double in = got[0][i], l = got[1][i], r = got[2][i];
+
+                        /* Written so that a NaN fails it. */
+                        if (exact && !(fabs(l + r - 2 * in) <= 1e-6))
+                        {
+                            exact = false;
+                            detail = "width " + num(width) + ", time " + num(time) + ", low " +
+                                     num(low) + ", sample " + num((double)i) + ": " +
+                                     num(l + r) + " against " + num(2 * in);
+                        }
+                        side += fabs(l - r);
+                    }
+
+                    /* A NaN width is mono; any other is not. */
+                    if (wide && (width == width) != (side > 0))
+                    {
+                        wide = false;
+                        detail = "width " + num(width) + ", time " + num(time) + ", low " +
+                                 num(low) + ": the sides differ by " + num(side) + " in all";
+                    }
+                }
+
+        okOrFail(exact, "mixer::widen: the two sides sum to twice the input at every setting",
+                 detail);
+        okOrFail(wide, "mixer::widen: the sides differ wherever `width' is above 0, and a NaN "
+                       "`width' is mono", detail);
+    }
+
+    /* ---- `width = 0' is a wire ---- */
+    {
+        vector< vector<float> > got;
+        string why;
+
+        if (!widenRender(pluginPath, widenGraph(widenNoise(0.5f), { { "width", 0 } }), 256, 4096,
+                         got, why))
+            fail("mixer::widen renders at width 0", why);
+        else
+            okOrFail(!memcmp(got[0].data(), got[1].data(), got[0].size() * sizeof(float)) &&
+                         !memcmp(got[0].data(), got[2].data(), got[0].size() * sizeof(float)),
+                     "mixer::widen: at `width = 0' both sides are the input, bit for bit", "");
+    }
+
+    /* ---- the side is above `low' and not under it: a 60 Hz sine's side
+       20 dB under the middle, a 4 kHz sine's within a decibel of the input,
+       measured after a tenth of a second has settled the filters ---- */
+    {
+        struct Band { float hz; double lo, hi; const char *what; };
+        bool all = true;
+        string detail;
+
+        for (const Band &b : { Band { 60, -400, -20, "a 60 Hz sine's side is 20 dB under" },
+                               Band { 4000, -1, 1, "a 4 kHz sine's side is the input's level" } })
+        {
+            vector< vector<float> > got;
+            string why;
+            double in2 = 0, side2 = 0;
+
+            if (!widenRender(pluginPath, widenGraph(widenSine(b.hz, 0.5f),
+                                                    { { "width", 1 }, { "low", 250 } }),
+                             256, 22050, got, why))
+            {
+                fail("mixer::widen renders a sine", why);
+                return;
+            }
+
+            for (size_t i = 4410; i < got[0].size(); i++)
+            {
+                const double side = (got[1][i] - got[2][i]) / 2;
+
+                in2 += (double)got[0][i] * got[0][i];
+                side2 += side * side;
+            }
+
+            const double db = 10 * log10(side2 / in2);
+
+            if (!(db >= b.lo && db <= b.hi))
+            {
+                all = false;
+                detail = string(b.what) + ": " + num(db) + " dB";
+            }
+        }
+
+        okOrFail(all, "mixer::widen: two poles at `low' keep the bass in the middle and pass "
+                      "what is above", detail);
+    }
+
+    /* ---- where the side is: an impulse's side starts `time' samples on,
+       and `time = 0' is 12 ms, at both rates ---- */
+    {
+        bool all = true;
+        string detail;
+
+        for (int at : { 44100, 96000 })
+            for (float time : { 600.0f, 0.0f })
+            {
+                NodeSpec click = specNode("src", "env/ad",
+                                          { { "a", 0 }, { "d", 1 }, { "p", TH_MAX } }, {});
+                vector< vector<float> > got;
+                string why;
+                const size_t want = time > 0 ? (size_t)time : (size_t)(0.012 * at);
+                size_t first = 0;
+
+                if (!widenRender(pluginPath, widenGraph({ click }, { { "width", 1 }, { "time", time } }),
+                                 256, 4096, got, why, at))
+                {
+                    fail("mixer::widen renders an impulse", why);
+                    return;
+                }
+
+                while (first < got[1].size() && got[1][first] == got[2][first])
+                    first++;
+
+                if (first != want)
+                {
+                    all = false;
+                    detail = "at " + num(at) + " Hz, time " + num(time) + ": the side starts at " +
+                             num((double)first) + ", not " + num((double)want);
+                }
+            }
+
+        okOrFail(all, "mixer::widen: the side starts `time' samples after the input, 12 ms when "
+                      "`time' is 0", detail);
+    }
+
+    /* ---- the side is unlike the input: their correlation over noise ---- */
+    {
+        vector< vector<float> > got;
+        string why;
+
+        if (!widenRender(pluginPath, widenGraph(widenNoise(0.5f), { { "width", 1 } }), 256, 44100,
+                         got, why))
+            fail("mixer::widen renders noise", why);
+        else
+        {
+            double xy = 0, xx = 0, yy = 0;
+
+            for (size_t i = 0; i < got[0].size(); i++)
+            {
+                const double x = got[0][i], y = (got[1][i] - got[2][i]) / 2;
+
+                xy += x * y;
+                xx += x * x;
+                yy += y * y;
+            }
+
+            const double corr = xy / sqrt(xx * yy);
+
+            okOrFail(fabs(corr) < 0.3, "mixer::widen: the side's correlation with the input is "
+                                       "under 0.3", num(corr));
+        }
+    }
+
+    /* ---- a `time' that steps does not click: a square moving it from 200
+       to 800 samples and back under a sine, against the same sine with
+       `time' held. The sine is 997 Hz and the square 37, so the steps land
+       all over its cycle, and some of them where a jump would be steep. The
+       read head slides to where it is sent, so the side's steepest sample is
+       no steeper than twice the held one's ---- */
+    {
+        vector<NodeSpec> held = widenGraph(widenSine(997, 0.5f), { { "width", 1 }, { "time", 500 } });
+        vector<NodeSpec> moving = widenGraph(widenSine(997, 0.5f), { { "width", 1 } },
+                                             { { "time", "m", "out" } });
+        vector< vector<float> > a, b;
+        string why;
+
+        /* osc::simple's `amp' stops at 1, so the 300 is a multiply. */
+        moving.push_back(specNode("sq", "osc/simple", { { "freq", 37 }, { "waveform", 2 } }, {}));
+        moving.push_back(specNode("big", "mixer/mul", { { "in1", 300 } }, { { "in0", "sq", "out" } }));
+        moving.push_back(specNode("m", "math/add", { { "in1", 500 } }, { { "in0", "big", "out" } }));
+
+        if (!widenRender(pluginPath, moving, 256, 44100, a, why) ||
+            !widenRender(pluginPath, held, 256, 44100, b, why))
+            fail("mixer::widen renders a moving `time'", why);
+        else
+        {
+            auto steepest = [] (const vector< vector<float> > &g) {
+                double most = 0;
+
+                for (size_t i = 1; i < g[1].size(); i++)
+                    most = fmax(most, fabs((g[1][i] - g[2][i]) - (g[1][i - 1] - g[2][i - 1])) / 2);
+                return most;
+            };
+
+            okOrFail(steepest(a) <= 2 * steepest(b),
+                     "mixer::widen: a step in `time' slides the side rather than clicking it",
+                     num(steepest(a)) + " against " + num(steepest(b)) + " held");
+        }
+    }
+
+    /* ---- a 0 is the default, and what it cannot use is what it stands for ---- */
+    {
+        struct Case { const char *what; vector<Value> given, as; float in, asIn; };
+        const Case CASES[] = {
+            { "`time = 0' as 12 ms", { { "width", 1 }, { "time", 0 } },
+              { { "width", 1 }, { "time", (float)(0.012 * rate) } }, 0.5f, 0.5f },
+            { "`low = 0' as 250 Hz", { { "width", 1 }, { "low", 0 } },
+              { { "width", 1 }, { "low", 250 } }, 0.5f, 0.5f },
+            { "the args left out as their defaults", { { "width", 1 } },
+              { { "width", 1 }, { "time", (float)(0.012 * rate) }, { "low", 250 } }, 0.5f, 0.5f },
+            { "a NaN `time' as 12 ms", { { "width", 1 }, { "time", NAN } },
+              { { "width", 1 }, { "time", (float)(0.012 * rate) } }, 0.5f, 0.5f },
+            { "an infinite in as 0", { { "width", 1 } }, { { "width", 1 } }, INFINITY, 0 },
+        };
+
+        for (const Case &k : CASES)
+        {
+            vector< vector<float> > a, b;
+            string why;
+
+            if (!widenRender(pluginPath, widenGraph(widenNoise(k.in), k.given), 256, 4096, a, why) ||
+                !widenRender(pluginPath, widenGraph(widenNoise(k.asIn), k.as), 256, 4096, b, why))
+            {
+                fail(string("mixer::widen renders ") + k.what, why);
+                continue;
+            }
+
+            /* By value: a noise times 0 is -0 where the noise is negative. */
+            okOrFail(a[1] == b[1] && a[2] == b[2], string("mixer::widen takes ") + k.what, "");
+        }
+    }
+
+    windowsAgree(pluginPath, widenGraph(widenNoise(0.5f), { { "width", 1 } }), "w", "out1",
+                 "mixer::widen: the same at one sample a window as at five hundred");
+
+    /* ---- and across a silence long enough to empty the lines: noise gated
+       by a 0.8 Hz square, so 0.6 s of sound, 0.6 of nothing, and sound
+       again, one sample a window against five hundred, both sides ---- */
+    {
+        vector<NodeSpec> gated = { specNode("nz", "osc/noise", { { "amp", 0.25f } }, {}),
+                                   specNode("sq", "osc/simple", { { "freq", 0.8f }, { "waveform", 2 } }, {}),
+                                   specNode("gate", "math/add", { { "in1", 1 } }, { { "in0", "sq", "out" } }),
+                                   specNode("src", "mixer/mul", {},
+                                            { { "in0", "nz", "out" }, { "in1", "gate", "out" } }) };
+        vector<NodeSpec> spec = widenGraph(gated, { { "width", 1 } });
+        vector< vector<float> > one, many;
+        string why;
+
+        if (!widenRender(pluginPath, spec, 1, 88200, one, why) ||
+            !widenRender(pluginPath, spec, 500, 88200, many, why))
+            fail("mixer::widen renders gated noise", why);
+        else
+        {
+            size_t quiet = 0, run = 0;
+
+            for (float x : one[0])
+            {
+                run = x == 0 ? run + 1 : 0;
+                quiet = run > quiet ? run : quiet;
+            }
+
+            okOrFail(quiet > TH_DEFAULT_SAMPLES / 2 &&
+                         !memcmp(one[1].data(), many[1].data(), one[1].size() * sizeof(float)) &&
+                         !memcmp(one[2].data(), many[2].data(), one[2].size() * sizeof(float)),
+                     "mixer::widen: the same at one sample a window as at five hundred, across "
+                     "a silence and out of it", "the longest silence in is " + num((double)quiet) +
+                     " samples");
+        }
+    }
+}
+
 /* ---- dyn::compressor ----------------------------------------------------
  *
  * Three things a compressor has to be true about, and they are three
@@ -11390,6 +11720,7 @@ int main (int argc, char **argv)
     checkPad(pluginPath);
     checkVowel(pluginPath);
     checkPan(pluginPath);
+    checkWiden(pluginPath);
     checkCompressor(pluginPath);
     checkMoog(pluginPath);
 
