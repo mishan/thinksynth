@@ -752,12 +752,18 @@ bool NodeEditor::open (const string &filename, int chan)
     const string prevSource = source_;
     const int prevChannel = channel_;
 
-    /* reload reads a file's probes only when none are armed. Those armed are
-       in prevText, to be read back from it if this one does not open. */
-    const bool probes = !probes_.empty();
+    /* reload reads a file's probes only when none are armed. Put back as they
+       are if this one does not open: a probe whose node is gone is in no
+       text to read them back from. */
+    vector<Probe> armed = probes_;
 
-    if (probes)
-        disarmAllProbes();
+    for (Probe &p : armed)
+    {
+        p.inst = NULL;
+        p.slot = -1;
+    }
+
+    disarmAllProbes();
 
     text_ = text;
     source_ = filename;
@@ -770,13 +776,8 @@ bool NodeEditor::open (const string &filename, int chan)
         channel_ = prevChannel;
         inlineSave_ = prevSave;
 
-        if (probes)
-        {
-            const string why = status_.get_text();
-
-            reload(&settled_);
-            setStatus(why);
-        }
+        probes_ = armed;
+        reapplyProbes();
 
         return false;
     }

@@ -2011,10 +2011,17 @@ void checkUndo (thSynth &synth)
         const bool kept = !ed->open(bad) && ed->probes_.size() == 1 &&
                           panels() == 1;
 
-        ::remove(bad.c_str());
         ok(kept && ed->status().find("Could not parse") == 0,
            "a file that does not parse leaves the probe on screen, and says "
            "it did not parse");
+
+        canvas->setSelected(box("lfo"));
+        ed->onDeleteNode();
+        drag("osc", 40, 25);
+        ed->open(bad);
+        ::remove(bad.c_str());
+        ok(ed->probes_.size() == 1 && panels() == 0,
+           "...and a probe whose node is gone, and so not in the text, armed");
 
         reopen();
         ok(ed->probes_.empty() && panels() == 0,
