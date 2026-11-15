@@ -10089,7 +10089,8 @@ static void checkWiden (const string &pluginPath)
                     {
                         const double in = got[0][i], l = got[1][i], r = got[2][i];
 
-                        if (exact && fabs(l + r - 2 * in) > 1e-6)
+                        /* Written so that a NaN fails it. */
+                        if (exact && !(fabs(l + r - 2 * in) <= 1e-6))
                         {
                             exact = false;
                             detail = "width " + num(width) + ", time " + num(time) + ", low " +
@@ -10161,7 +10162,7 @@ static void checkWiden (const string &pluginPath)
 
             const double db = 10 * log10(side2 / in2);
 
-            if (db < b.lo || db > b.hi)
+            if (!(db >= b.lo && db <= b.hi))
             {
                 all = false;
                 detail = string(b.what) + ": " + num(db) + " dB";
