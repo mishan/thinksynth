@@ -400,6 +400,7 @@ Spectral blur: each frequency's level smeared over time
 | `mix` | in | 0 the input a frame late, 1 the blurred |  | 0 to 1 |  |  |
 | `seed` | in | Which random turns |  |  |  |  |
 | `out` | out | The blend, a frame late |  | -1 to 1 | full scale |  |
+| `play` | out | 1 while there is sound still to come out, for the io node's play |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
 
 ### fft::freeze
@@ -415,6 +416,7 @@ Spectral freeze: a moment of the input, held
 | `fade` | in | The crossfade from dry to frozen and back, a hop to 2^22 samples |  |  | samples |  |
 | `seed` | in | Which random phases: two sides or voices with different seeds shimmer apart |  |  |  |  |
 | `out` | out | The input, or what is held, or a fade between |  | -1 to 1 | full scale |  |
+| `play` | out | 1 while there is sound still to come out, for the io node's play |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
 
 ### fft::gate
@@ -430,6 +432,7 @@ Spectral gate: each frequency passed by its level against the loudest
 | `smooth` | in | How long a frequency takes to open or shut; 0 at once |  |  | samples |  |
 | `mix` | in | 0 the input a frame late, 1 the gated |  | 0 to 1 |  |  |
 | `out` | out | The blend, a frame late |  | -1 to 1 | full scale |  |
+| `play` | out | 1 while there is sound still to come out, for the io node's play |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
 
 ## filt

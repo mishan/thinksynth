@@ -6099,7 +6099,7 @@ static void checkFreeze (const string &pluginPath)
 
 struct BlRun
 {
-    enum { SINE, SWITCH, NOISE, CLICK } source = NOISE;
+    enum Source { SINE, SWITCH, NOISE, CLICK } source = NOISE;
     double at = 2;                  /* the switch or the click, in seconds */
     float size = 2048, blur = 0, random = 0, mix = 1, seed = 0;
     float level = 0;                /* for a constant input */
@@ -6688,6 +6688,228 @@ static void checkGate (const string &pluginPath)
             else
                 okOrFail(same(a, b, 0, a.size()), string("fft::gate takes ") + k.what, "");
         }
+    }
+}
+
+/* ---- the fft nodes' `play' --------------------------------------------- */
+
+/* `spec''s source, `src', scaled by `gain' and, from `stop' seconds if
+   not 0, silent. */
+static void fpQuiet (vector<NodeSpec> &spec, float gain, double stop)
+{
+    for (NodeSpec &n : spec)
+        if (string(n.name) == "src")
+            n.name = "loud";
+
+    string from = "loud";
+
+    if (stop > 0)
+    {
+        fzStep(spec, "fpstop", stop);
+        spec.push_back(specNode("fpleft", "math/sub", { { "in0", 1 } }, { { "in1", "fpstop", "out" } }));
+        spec.push_back(specNode("fpcut", "math/mul", {}, { { "in0", "loud", "out" }, { "in1", "fpleft", "out" } }));
+        from = "fpcut";
+    }
+    spec.push_back(specNode("src", "math/mul", { { "in1", gain } }, { { "in0", fzName(from), "out" } }));
+}
+
+/* Samples heard, over 1e-4, while `play' is 0. */
+static long fpUnheld (const vector<float> &out, const vector<float> &play)
+{
+    long n = 0;
+
+    for (size_t i = 0; i < out.size(); i++)
+        if (play[i] == 0 && fabsf(out[i]) > 1e-4f)
+            n++;
+    return n;
+}
+
+/* The last sample `play' is 1 in, or -1. */
+static long fpLast (const vector<float> &play)
+{
+    for (size_t i = play.size(); i-- > 0;)
+        if (play[i] != 0)
+            return (long)i;
+    return -1;
+}
+
+static void checkFftPlay (const string &pluginPath)
+{
+    const long n = 2048;
+
+    /* ---- blur: a click's tail keeps it up until the tail is under the
+       floor, and then lets go ---- */
+    {
+        BlRun run;
+        vector< vector<float> > got;
+        string why;
+
+        run.source = BlRun::CLICK;
+        run.at = 1;
+        run.blur = 0.5f * (float)FZ_RATE;
+        if (!render(pluginPath, blGraph(run), { { "bl", "out" }, { "bl", "play" } }, 256,
+                    (unsigned)(8 * FZ_RATE), got, why))
+            fail("fft::blur renders a click for play", why);
+        else
+        {
+            const vector<float> &out = got[0], &play = got[1];
+            const long click = (long)(run.at * FZ_RATE), end = fpLast(play);
+            long heard = -1;
+            float after = 0;
+
+            for (size_t i = 0; i < out.size(); i++)
+                if (fabsf(out[i]) > 1e-4f)
+                    heard = (long)i;
+            for (size_t i = end + 1; i < out.size(); i++)
+                after = fmaxf(after, fabsf(out[i]));
+            /* Over, but not at once: the levels' power is what the frames
+               hold, and a click's frames partly cancel as they overlap, so
+               play outlasts what is heard by up to a few time constants. */
+            okOrFail(play[click - 1] == 0 && play[click] == 1 && end >= heard &&
+                         end <= heard + (long)(4 * run.blur) && after < 1e-4f,
+                     "fft::blur: play is 1 from a click until its tail is under the floor, then 0",
+                     "play from " + num((double)click) + " to " + num((double)end) +
+                         ", heard to " + num((double)heard) + ", " + num(after) + " after");
+        }
+    }
+
+    /* ---- gate: within two frames of the input stopping, then silence ---- */
+    {
+        GtRun run;
+        vector< vector<float> > got;
+        string why;
+
+        run.noise = 0;
+        run.stop = 1;
+        if (!render(pluginPath, gtGraph(run), { { "gt", "out" }, { "gt", "play" } }, 256,
+                    (unsigned)(2 * FZ_RATE), got, why))
+            fail("fft::gate renders a sine that stops for play", why);
+        else
+        {
+            const vector<float> &out = got[0], &play = got[1];
+            const long stop = (long)(run.stop * FZ_RATE), end = fpLast(play);
+            float after = 0;
+
+            for (size_t i = end + 1; i < out.size(); i++)
+                after = fmaxf(after, fabsf(out[i]));
+            okOrFail(play[0] == 1 && end <= stop + 2 * n && after == 0,
+                     "fft::gate: play ends within two frames of the input, and then it is "
+                     "silent",
+                     "play to " + num((double)end) + " for an input stopping at " +
+                         num((double)stop) + ", " + num(after) + " after");
+        }
+    }
+
+    /* ---- freeze: up while what is held is sounding, input or none; not
+       for a held silence, even one held after a sound was ---- */
+    {
+        FzRun loud, quiet;
+        vector< vector<float> > a, b;
+        string why;
+
+        loud.silence = 1;
+        loud.held = { { 0.5, 2 } };
+        quiet.silence = 0.5;
+        quiet.held = { { 0.3, 0.4 }, { 1, 2 } };
+        if (!render(pluginPath, fzGraph(loud), { { "fz", "play" } }, 256, (unsigned)(3 * FZ_RATE), a,
+                    why) ||
+            !render(pluginPath, fzGraph(quiet), { { "fz", "play" } }, 256, (unsigned)(3 * FZ_RATE), b,
+                    why))
+            fail("fft::freeze renders for play", why);
+        else
+        {
+            const double faded = 2 + loud.fade / FZ_RATE + 0.01;
+            const long endA = fpLast(a[0]), endB = fpLast(b[0]);
+
+            okOrFail(a[0][(size_t)(1.5 * FZ_RATE)] == 1 && endA < (long)(faded * FZ_RATE) &&
+                         endA > (long)(2 * FZ_RATE) &&
+                         endB < (long)(quiet.held[1].first * FZ_RATE),
+                     "fft::freeze: play holds while a sound is held and the input is silent, "
+                     "until the fade back, and not for a held silence",
+                     "last at " + num(endA / FZ_RATE) + " s, and " + num(endB / FZ_RATE) +
+                         " s for the silence");
+        }
+    }
+
+    /* ---- quiet and dense: a tail whose every frequency is under the
+       floor while their sum is heard still holds it ---- */
+    {
+        struct Case { const char *what; bool freeze; BlRun bl; FzRun fz; float gain; double stop; };
+        const auto bl = [](BlRun::Source source, float size, float random) {
+            BlRun r;
+
+            r.source = source;
+            r.at = 0.2;
+            r.size = size;
+            r.blur = 0.5f * (float)FZ_RATE;
+            r.random = random;
+            return r;
+        };
+        const auto fz = [](bool noise, float freq, float size, float random) {
+            FzRun r;
+
+            r.noise = noise;
+            r.freq = freq;
+            r.size = size;
+            r.random = random;
+            r.silence = 1;
+            r.held = { { 0.5, 2 } };
+            return r;
+        };
+        const vector<Case> cases = {
+            { "fft::blur: a quiet noise's tail", false, bl(BlRun::NOISE, 2048, 0), {}, 0.01f, 0.5 },
+            { "fft::blur: a quiet noise's tail at 256", false, bl(BlRun::NOISE, 256, 0), {}, 0.01f, 0.5 },
+            { "fft::blur: a quiet noise's tail at 4096", false, bl(BlRun::NOISE, 4096, 0), {}, 0.01f, 0.5 },
+            { "fft::blur: a click's tail at random 1", false, bl(BlRun::CLICK, 2048, 1), {}, 1, 0 },
+            { "fft::freeze: a quiet noise held", true, {}, fz(true, 1000, 2048, 0), 0.001f, 0 },
+            { "fft::freeze: a quiet noise held at random 1, 4096", true, {}, fz(true, 1000, 4096, 1), 0.002f, 0 },
+            { "fft::freeze: a sine near the floor, between two bins", true, {}, fz(false, 1001.5f, 2048, 0),
+              2.3e-4f, 0 },
+        };
+
+        for (const Case &c : cases)
+        {
+            vector<NodeSpec> spec = c.freeze ? fzGraph(c.fz) : blGraph(c.bl);
+            const char *node = c.freeze ? "fz" : "bl";
+            vector< vector<float> > got;
+            string why;
+
+            fpQuiet(spec, c.gain, c.stop);
+            if (!render(pluginPath, spec, { { node, "out" }, { node, "play" } }, 256, (unsigned)(4 * FZ_RATE),
+                        got, why))
+                fail(string(c.what) + " renders", why);
+            else
+            {
+                const long unheld = fpUnheld(got[0], got[1]);
+
+                okOrFail(unheld == 0, string(c.what) + " holds play while it is heard",
+                         num((double)unheld) + " samples heard with play at 0");
+            }
+        }
+
+        /* And a sine held a quarter under the floor does not. */
+        vector<NodeSpec> spec = fzGraph(fz(false, 1001.5f, 2048, 0));
+        vector< vector<float> > got;
+        string why;
+
+        fpQuiet(spec, 0.25e-4f / 0.5f, 0);
+        if (!render(pluginPath, spec, { { "fz", "play" } }, 256, (unsigned)(2 * FZ_RATE), got, why))
+            fail("fft::freeze renders a sine under the floor", why);
+        else
+            okOrFail(got[0][(size_t)(1.5 * FZ_RATE)] == 0,
+                     "fft::freeze: a sine held under the floor does not hold play", "");
+    }
+
+    /* ---- at any window length ---- */
+    {
+        BlRun run;
+
+        run.source = BlRun::CLICK;
+        run.at = 0.2;
+        run.size = 256;
+        run.blur = 1000;
+        windowsAgree(pluginPath, blGraph(run), "bl", "play",
+                     "fft::blur: play the same at one sample a window and at five hundred");
     }
 }
 
@@ -11483,6 +11705,7 @@ int main (int argc, char **argv)
     checkFreeze(pluginPath);
     checkBlur(pluginPath);
     checkGate(pluginPath);
+    checkFftPlay(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);

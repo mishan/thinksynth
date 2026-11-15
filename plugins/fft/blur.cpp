@@ -66,7 +66,7 @@
 #include "thSynthTree.h"
 #include "thSynth.h"
 
-enum {IN_ARG, IN_SIZE, IN_BLUR, IN_RANDOM, IN_MIX, IN_SEED, OUT_ARG, INOUT_STATE};
+enum {IN_ARG, IN_SIZE, IN_BLUR, IN_RANDOM, IN_MIX, IN_SEED, OUT_ARG, OUT_PLAY, INOUT_STATE};
 
 std::atomic<int> args[INOUT_STATE + 1];
 
@@ -89,6 +89,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum {
     S_N, S_POS, S_HOP, S_FRAME,
+    S_HOLD,         /* samples of `play' left */
     S_SCALARS = 8,
     S_RING = S_SCALARS,
     S_ACC = S_RING + MAXN,
@@ -156,6 +157,10 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[OUT_ARG], "full scale");
 
+    args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_PLAY], "1 while there is sound still to come out, for the io node's play");
+    plugin->setArgRange(args[OUT_PLAY], 0, 1);
+
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     return 0;
@@ -172,6 +177,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                       seedArg(mod->getArg(node, args[IN_SEED]));
     float *st = mod->getArg(node, args[INOUT_STATE])->allocate(S_LEN);
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
+    float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
 
     /* A fresh state, or one that is not a number or out of range, starts
        over: the size taken now, and kept, since a new size is a new
@@ -185,7 +191,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const int sn = st[S_N] != 0 ? (int)st[S_N] : 2048;
 
         bad = (st[S_N] != 0 && thkStftSize((float)sn) != sn) || st[S_POS] < 0 ||
-              st[S_POS] >= sn || st[S_HOP] < 0 || st[S_HOP] >= sn / 4;
+              st[S_POS] >= sn || st[S_HOP] < 0 || st[S_HOP] >= sn / 4 ||
+              st[S_HOLD] < 0 || st[S_HOLD] > 2 * MAXN;
     }
     if (bad)
         memset(st, 0, S_LEN * sizeof(float));
@@ -196,6 +203,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *level = st + S_LEVEL, *xr = st + S_XR, *xi = st + S_XI;
     float *zr = st + S_ZR, *zi = st + S_ZI, *pr = st + S_PR, *pi = st + S_PI;
     const int h = f.n / 4;
+    int hold = (int)st[S_HOLD];
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
@@ -212,6 +220,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
            past a float. */
         const float v = thkClampMag(in[i], 1e6f);
         float dry;
+
+        /* A sample is in every frame for a frame after it arrives, and
+           each of those frames comes out over the frame after it; and a
+           frame whose levels are still heard does, over the next. */
+        if (fabsf(v) > THK_STFT_PLAY_FLOOR)
+            hold = 2 * f.n;
         const float wet = f.tick(v, dry, [&](float *re, float *im, int n) {
             /* The level is a power's one-pole -- its square follows the
                magnitude's square -- so steady noise keeps its RMS rather
@@ -229,6 +243,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                 mag[k] = sqrtf(m2);
                 level[k] = s < 1e-30f ? 0 : s;
             }
+            if (thkStftHeard(level, n))
+                hold = hold > n ? hold : n;
             for (int k = 0; k <= n / 2; k++)
             {
                 const float mk = mag[k], s = level[k];
@@ -291,8 +307,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         });
 
         out[i] = m == 0 ? dry : m == 1 ? wet : (1 - m) * dry + m * wet;
+        play[i] = hold > 0 ? 1 : 0;
+        if (hold > 0)
+            hold--;
     }
 
+    st[S_HOLD] = (float)hold;
     st[S_POS] = (float)f.pos;
     st[S_HOP] = (float)f.hop;
 
