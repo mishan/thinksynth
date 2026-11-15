@@ -45,6 +45,11 @@
 #include "thKernel.h"
 #include "fft.h"
 
+/* Under this a node's sound is over, for its `play': the floor the modal
+   resonators' `play' uses. A sine of this amplitude has a frame's loudest
+   bin at THK_STFT_PLAY_FLOOR n / 4 under a periodic Hann window. */
+#define THK_STFT_PLAY_FLOOR 1e-4f
+
 /* `size' to the power of two nearest it in octaves, 256 to THK_FFT_MAX;
    0 or not a number is 2048. */
 static inline int thkStftSize (float size)

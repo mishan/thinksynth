@@ -86,7 +86,7 @@
 #include "thSynthTree.h"
 #include "thSynth.h"
 
-enum {IN_ARG, IN_FREEZE, IN_SIZE, IN_RANDOM, IN_FADE, IN_SEED, OUT_ARG, INOUT_STATE};
+enum {IN_ARG, IN_FREEZE, IN_SIZE, IN_RANDOM, IN_FADE, IN_SEED, OUT_ARG, OUT_PLAY, INOUT_STATE};
 
 std::atomic<int> args[INOUT_STATE + 1];
 
@@ -108,6 +108,7 @@ enum {
     S_RINGPOS, S_STAGE, S_G, S_N, S_HOPPOS, S_FRAME, S_HIGH,
     S_WAIT,         /* samples before another capture may start */
     S_ARMED,        /* a rise while dry, not yet captured */
+    S_LOUD,         /* what is held is over THK_STFT_PLAY_FLOOR */
     S_SCALARS,
     S_RING = S_SCALARS,
     S_ACC = S_RING + RING,
@@ -199,6 +200,10 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
     plugin->setArgUnits(args[OUT_ARG], "full scale");
 
+    args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_PLAY], "1 while there is sound still to come out, for the io node's play");
+    plugin->setArgRange(args[OUT_PLAY], 0, 1);
+
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     return 0;
@@ -273,6 +278,7 @@ static void capture (float *st, int n)
 
     analyze(st, n, n / 4, pr, pi);      /* B, held in the phasors for now */
     analyze(st, n, 0, ar, ai);          /* A */
+    st[S_LOUD] = 0;
     for (int k = 0; k <= n / 2; k++)
     {
         const float m = sqrtf(ar[k] * ar[k] + ai[k] * ai[k]);
@@ -281,6 +287,8 @@ static void capture (float *st, int n)
         const float d = sqrtf(cr * cr + ci * ci);
 
         mag[k] = m < 1e-30f ? 0 : m;
+        if (m > THK_STFT_PLAY_FLOOR * (float)n / 4)
+            st[S_LOUD] = 1;
         zr[k] = d > 0 ? cr / d : 1;
         zi[k] = d > 0 ? ci / d : 0;
         pr[k] = m > 0 ? ar[k] / m : 1;
@@ -300,6 +308,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                       seedArg(mod->getArg(node, args[IN_SEED]));
     float *st = mod->getArg(node, args[INOUT_STATE])->allocate(S_LEN);
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
+    float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
     float *ring = st + S_RING, *acc = st + S_ACC;
 
     /* Only the scalars can go bad, since what goes into the ring is
@@ -359,6 +368,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         high = up;
         if (wait > 0)
             wait--;
+
+        /* Dry, the input is the sound, with no latency; holding, what is
+           held is, through the fade back. */
+        play[i] = fabsf(dry) > THK_STFT_PLAY_FLOOR || (stage != DRY && st[S_LOUD] > 0) ? 1 : 0;
 
         /* Bounded, so that no finite input can carry a frame's magnitudes
            past a float. */
