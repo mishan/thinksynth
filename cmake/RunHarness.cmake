@@ -165,10 +165,13 @@ if(HARNESS_B OR EXTRA_ARGS_B OR REFERENCE)
         else()
           set(_text "${out_A}")
         endif()
-        string(REGEX MATCHALL "[0-9a-f]+  [^\n]+" _lines "${_text}")
+        # After a newline: the first line is the toolchain's, and a key
+        # with no build type has two spaces after a word that may end in
+        # hex, `x86_64  []'.
+        string(REGEX MATCHALL "\n[0-9a-f]+  [^\n]+" _lines "${_text}")
         set(names_${side} "")
         foreach(_l IN LISTS _lines)
-          string(REGEX REPLACE "^[0-9a-f]+  " "" _n "${_l}")
+          string(REGEX REPLACE "^\n[0-9a-f]+  " "" _n "${_l}")
           list(APPEND names_${side} "${_n}")
         endforeach()
       endforeach()
