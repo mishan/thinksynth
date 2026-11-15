@@ -10347,6 +10347,103 @@ static void checkWiden (const string &pluginPath)
     }
 }
 
+/* mixer::widen over random draws: args anywhere in and past their ranges,
+ * an input that is noise, a sine or a square at any level up to twice full
+ * scale, and any window length. Every draw is finite, sums to twice its
+ * input, and stays within the bound the side's filters allow: the highpass's
+ * impulse response sums to 1 + 2/e^2 in magnitude (two poles, critically
+ * damped), and each allpass's to 1 + 2g, so the side is at most
+ * (1 + 2/e^2) (1 + 2g)^2 times the input -- and never more than (1 + 2g)^2,
+ * since the highpass clips at full scale. */
+static void checkWidenDraws (const string &pluginPath)
+{
+    const double g = 0.6, ap = (1 + 2 * g) * (1 + 2 * g), hp = 1 + 2 * exp(-2.0);
+    uint64_t seed = 0x9e3779b97f4a7c15ull;
+    auto draw = [&seed] () {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        return (double)(seed >> 11) / (double)(1ull << 53);
+    };
+    bool finite = true, exact = true, bounded = true;
+    string detail;
+    const int draws = 2000;
+
+    for (int d = 0; d < draws && finite && exact && bounded; d++)
+    {
+        const float width = (float)(draw() * 1.2 - 0.1);
+        const float time = draw() < 0.1 ? 0 : (float)(draw() * 2000);
+        const float low = draw() < 0.1 ? 0 : (float)(draw() * 3000);
+        const float amp = (float)(draw() * 2);
+        const int kind = (int)(draw() * 3);
+        const unsigned windowlen = 1 + (unsigned)(exp(draw() * log(512.0)) - 1);
+        vector<NodeSpec> src;
+
+        if (kind == 0)
+            src = widenNoise(amp);
+        else
+        {
+            src = { specNode("osc", "osc/simple",
+                             { { "freq", (float)(20 + draw() * 8000) },
+                               { "waveform", kind == 1 ? 0.0f : 2.0f } }, {}),
+                    specNode("src", "math/mul", { { "in1", amp } }, { { "in0", "osc", "out" } }) };
+        }
+
+        vector< vector<float> > got;
+        string why;
+
+        if (!widenRender(pluginPath, widenGraph(src, { { "width", width }, { "time", time },
+                                                       { "low", low } }),
+                         windowlen, 2048, got, why))
+        {
+            fail("mixer::widen renders a random draw", why);
+            return;
+        }
+
+        const double w = width < 0 ? 0 : width > 1 ? 1 : width;
+        double most = 0;
+
+        for (float x : got[0])
+            most = fmax(most, fabs(x));
+
+        const double limit = most + w * fmin(hp * ap * most, ap) + 1e-6;
+        const string at = "draw " + num((double)d) + " (width " + num(width) + ", time " +
+                          num(time) + ", low " + num(low) + ", amp " + num(amp) + ", input " +
+                          num((double)kind) + ", window " + num((double)windowlen) + ")";
+
+        for (size_t i = 0; i < got[0].size(); i++)
+        {
+            const double in = got[0][i], l = got[1][i], r = got[2][i];
+
+            if (!std::isfinite(l) || !std::isfinite(r))
+            {
+                finite = false;
+                detail = at + ", sample " + num((double)i);
+                break;
+            }
+            if (!(fabs(l + r - 2 * in) <= 1e-6 * (1 + fabs(in))))
+            {
+                exact = false;
+                detail = at + ", sample " + num((double)i) + ": " + num(l + r) + " against " +
+                         num(2 * in);
+                break;
+            }
+            if (!(fabs(l) <= limit && fabs(r) <= limit))
+            {
+                bounded = false;
+                detail = at + ", sample " + num((double)i) + ": " + num(fmax(fabs(l), fabs(r))) +
+                         " over " + num(limit);
+                break;
+            }
+        }
+    }
+
+    okOrFail(finite, "mixer::widen: finite over two thousand random draws", detail);
+    okOrFail(exact, "mixer::widen: twice the input over two thousand random draws", detail);
+    okOrFail(bounded, "mixer::widen: within its filters' bound over two thousand random draws",
+             detail);
+}
+
 /* ---- dyn::compressor ----------------------------------------------------
  *
  * Three things a compressor has to be true about, and they are three
@@ -11498,6 +11595,7 @@ int main (int argc, char **argv)
     checkVowel(pluginPath);
     checkPan(pluginPath);
     checkWiden(pluginPath);
+    checkWidenDraws(pluginPath);
     checkCompressor(pluginPath);
     checkMoog(pluginPath);
 
