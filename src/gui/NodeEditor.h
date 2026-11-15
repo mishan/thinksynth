@@ -98,6 +98,11 @@ public:
     /* True if text_ is not what the source says. */
     bool dirty (void) const;
 
+    bool hasHistory (void) const
+    {
+        return history_.canUndo() || history_.canRedo();
+    }
+
 protected:
     string status (void) const { return status_.get_text(); }
     void onArrange (void);
