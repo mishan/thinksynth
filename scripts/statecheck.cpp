@@ -6913,6 +6913,448 @@ static void checkFftPlay (const string &pluginPath)
     }
 }
 
+/* ---- fft::shift --------------------------------------------------------- */
+
+struct ShRun
+{
+    enum Source { SINE, NOISE, CHIRP, VIBRATO, TRIAD, PAIR, RESONANT, CLICK } source = SINE;
+    float freq = 440;
+    float size = 2048, ratio = 1, offset = 0, formant = 0, mix = 1;
+    bool constant = false;          /* the input the number `level' */
+    float level = 0;
+    bool resize = false;            /* size 2048, then 256 from 0.1 s */
+};
+
+static void shSine (vector<NodeSpec> &spec, const char *name, float freq, float amp)
+{
+    spec.push_back(specNode(name, "osc/simple", { { "freq", freq }, { "amp", amp }, { "waveform", 0 } }, {}));
+}
+
+static vector<NodeSpec> shGraph (const ShRun &run)
+{
+    vector<NodeSpec> spec;
+    const auto sum = [&](const char *name, const char *a, const char *b) {
+        spec.push_back(specNode(name, "math/add", {}, { { "in0", a, "out" }, { "in1", b, "out" } }));
+    };
+
+    if (run.constant)
+        spec.push_back(specNode("src", "math/add", { { "in0", run.level }, { "in1", 0 } }, {}));
+    else
+        switch (run.source)
+        {
+        case ShRun::SINE:
+            shSine(spec, "src", run.freq, 0.3f);
+            break;
+        case ShRun::NOISE:
+            spec.push_back(specNode("src", "osc/noise", { { "amp", 0.5f } }, {}));
+            break;
+        case ShRun::CHIRP:
+            /* 200 Hz rising 400 Hz a second, from a saw a hundred seconds long. */
+            spec.push_back(specNode("ramp", "osc/simple", { { "freq", 0.01f }, { "amp", 1 }, { "waveform", 1 } }, {}));
+            spec.push_back(specNode("rampf", "math/mul", { { "in1", 20000 } }, { { "in0", "ramp", "out" } }));
+            spec.push_back(specNode("chf", "math/add", { { "in1", 20200 } }, { { "in0", "rampf", "out" } }));
+            spec.push_back(specNode("src", "osc/simple", { { "amp", 0.3f }, { "waveform", 0 } },
+                                    { { "freq", "chf", "out" } }));
+            break;
+        case ShRun::VIBRATO:
+            /* 440 Hz, 3% either way at 5 Hz. */
+            shSine(spec, "lfo", 5, 13.2f);
+            spec.push_back(specNode("vf", "math/add", { { "in1", 440 } }, { { "in0", "lfo", "out" } }));
+            spec.push_back(specNode("src", "osc/simple", { { "amp", 0.3f }, { "waveform", 0 } },
+                                    { { "freq", "vf", "out" } }));
+            break;
+        case ShRun::TRIAD:
+            shSine(spec, "c", 261.63f, 0.3f);
+            shSine(spec, "e", 329.63f, 0.3f);
+            shSine(spec, "g", 392, 0.3f);
+            sum("ce", "c", "e");
+            sum("src", "ce", "g");
+            break;
+        case ShRun::PAIR:
+            shSine(spec, "p1", 440, 0.3f);
+            shSine(spec, "p2", 500, 0.3f);
+            sum("src", "p1", "p2");
+            break;
+        case ShRun::RESONANT:
+            /* A saw at `freq', band-limited so that nothing lies between
+               its harmonics, with a resonance at 1000 Hz, over a noise floor
+               100 dB down. */
+            spec.push_back(specNode("saw", "osc/blep", { { "freq", run.freq }, { "waveform", 0 } }, {}));
+            spec.push_back(specNode("res", "filt/svf", { { "cutoff", 1000 }, { "res", 0.9f } },
+                                    { { "in", "saw", "out" } }));
+            spec.push_back(specNode("floor", "osc/noise", { { "amp", 1e-5f } }, {}));
+            spec.push_back(specNode("src", "math/add", {}, { { "in0", "res", "out_band" }, { "in1", "floor", "out" } }));
+            break;
+        case ShRun::CLICK:
+            fzStep(spec, "clickon", 1);
+            fzStep(spec, "clickoff", 1 + 20 / FZ_RATE);
+            spec.push_back(specNode("src", "math/sub", {},
+                                    { { "in0", "clickon", "out" }, { "in1", "clickoff", "out" } }));
+            break;
+        }
+
+    vector<Value> v = { { "ratio", run.ratio }, { "offset", run.offset }, { "formant", run.formant },
+                        { "mix", run.mix } };
+    vector<Wire> w = { { "in", "src", "out" } };
+
+    if (run.resize)
+    {
+        fzStep(spec, "resize", 0.1);
+        spec.push_back(specNode("sz", "math/mul", { { "in1", -1792 } }, { { "in0", "resize", "out" } }));
+        spec.push_back(specNode("sz2", "math/add", { { "in1", 2048 } }, { { "in0", "sz", "out" } }));
+        w.push_back({ "size", "sz2", "out" });
+    }
+    else
+        v.push_back({ "size", run.size });
+    spec.insert(spec.begin(), specNode("sh", "fft/shift", v, w));
+    return spec;
+}
+
+static bool shRender (const string &pluginPath, const ShRun &run, double seconds, unsigned windowlen,
+                      vector<float> &in, vector<float> &out, string &why)
+{
+    vector< vector<float> > got;
+
+    if (!render(pluginPath, shGraph(run), { { "src", "out" }, { "sh", "out" } }, windowlen,
+                (unsigned)(seconds * FZ_RATE), got, why))
+        return false;
+    in = got[0];
+    out = got[1];
+    return true;
+}
+
+static double shDb (double a, double b)
+{
+    return 20 * log10(std::max(a, 1e-30) / std::max(b, 1e-30));
+}
+
+static void checkShift (const string &pluginPath)
+{
+    const double late = 2048 / FZ_RATE;
+    const auto same = [](const vector<float> &a, const vector<float> &b) {
+        return a.size() == b.size() && !memcmp(a.data(), b.data(), a.size() * sizeof(float));
+    };
+
+    /* ---- at ratio 1 the input a frame late, whatever it is ---- */
+    for (ShRun::Source src : { ShRun::SINE, ShRun::NOISE, ShRun::CHIRP, ShRun::VIBRATO })
+    {
+        ShRun run;
+        vector<float> in, out;
+        string why;
+
+        run.source = src;
+        if (!shRender(pluginPath, run, 1.5, 256, in, out, why))
+            fail("fft::shift renders at ratio 1", why);
+        else
+        {
+            double worst = 0, peak = 0;
+
+            for (size_t i = 2 * 2048; i < out.size(); i++)
+            {
+                worst = std::max(worst, fabs((double)out[i] - in[i - 2048]));
+                peak = std::max(peak, fabs((double)in[i - 2048]));
+            }
+
+            static const char *const names[] = { "a sine", "noise", "a chirp", "vibrato" };
+
+            okOrFail(worst < 1e-5 * peak, string("fft::shift at ratio 1: ") + names[src] + " a frame late",
+                     num(shDb(worst, peak)) + " dB off");
+        }
+    }
+
+    /* ---- mix 0 the input a frame late exactly, and 0.25 the blend ---- */
+    {
+        ShRun dry, wet, part;
+        vector<float> in, a, b, c;
+        string why;
+
+        dry.ratio = wet.ratio = part.ratio = 1.5f;
+        dry.mix = 0;
+        part.mix = 0.25f;
+        if (!shRender(pluginPath, dry, 0.5, 256, in, a, why) || !shRender(pluginPath, wet, 0.5, 256, in, b, why) ||
+            !shRender(pluginPath, part, 0.5, 256, in, c, why))
+            fail("fft::shift renders a blend", why);
+        else
+        {
+            bool exact = true;
+            double worst = 0;
+
+            for (size_t i = 2048; i < a.size(); i++)
+                exact = exact && !memcmp(&a[i], &in[i - 2048], sizeof(float));
+            for (size_t i = 0; i < c.size(); i++)
+                worst = std::max(worst, fabs((double)c[i] - (0.75 * a[i] + 0.25 * b[i])));
+            okOrFail(exact, "fft::shift: at mix 0, the input a frame late, bit for bit", "");
+            okOrFail(worst < 1e-6, "fft::shift: at mix 0.25, a quarter the shifted and the rest the input",
+                     "worst " + num(worst));
+        }
+    }
+
+    /* ---- a sine moved: its new frequency and level, nothing left at the
+       old, no warble at the hop rate ---- */
+    {
+        struct Case { float ratio, offset, want; };
+        const double hopRate = FZ_RATE / 512;
+
+        for (const Case &c : { Case { 1.5f, 0, 660 }, Case { 0.5f, 0, 220 }, Case { 2, 0, 880 },
+                               Case { 1, 100, 540 }, Case { 1, -500, 60 } })
+        {
+            ShRun run;
+            vector<float> in, out;
+            string why;
+
+            run.ratio = c.ratio;
+            run.offset = c.offset;
+            if (!shRender(pluginPath, run, 2, 256, in, out, why))
+                fail("fft::shift renders a sine moved", why);
+            else
+            {
+                const double t = 0.5 + late;
+                const double level = shDb(blAt(out, c.want, t, 1), 0.3), left = shDb(blAt(out, 440, t, 1), 0.3);
+                const double freq = fzFreq(out, t, t + 1);
+                const double warble = shDb(std::max(blAt(out, c.want + hopRate, t, 1), blAt(out, c.want - hopRate, t, 1)), 0.3);
+
+                okOrFail(fabs(level) < 0.3 && left < -40 && fabs(freq - c.want) < 1 && warble < -40,
+                         "fft::shift: 440 Hz times " + num(c.ratio) + " plus " + num(c.offset) + " Hz is " +
+                             num(c.want) + " Hz",
+                         num(freq) + " Hz at " + num(level) + " dB, " + num(left) + " dB left at 440, " +
+                             "hop-rate sidebands " + num(warble) + " dB");
+            }
+        }
+    }
+
+    /* ---- a partial that moves: vibrato and a chirp up a fifth keep their
+       level from moment to moment ---- */
+    for (ShRun::Source src : { ShRun::VIBRATO, ShRun::CHIRP })
+    {
+        ShRun run;
+        vector<float> in, out;
+        string why;
+
+        run.source = src;
+        run.ratio = 1.5f;
+        if (!shRender(pluginPath, run, 1.5, 256, in, out, why))
+            fail("fft::shift renders a moving partial", why);
+        else
+        {
+            double lo = 1e9, hi = -1e9;
+
+            for (double t = 0.3; t + 0.01 < 1.3; t += 0.01)
+            {
+                const double db = shDb(fzRms(out, t + late, t + late + 0.01), fzRms(in, t, t + 0.01));
+
+                lo = std::min(lo, db);
+                hi = std::max(hi, db);
+            }
+            okOrFail(lo > -1 && hi < 1,
+                     string("fft::shift: ") + (src == ShRun::CHIRP ? "a chirp" : "vibrato") +
+                         " up a fifth keeps its level from one 10 ms to the next",
+                     "from " + num(lo) + " to " + num(hi) + " dB");
+        }
+    }
+
+    /* ---- a chord up a fifth, and two partials that land together ---- */
+    {
+        struct Case { const char *what; ShRun::Source src; float ratio; vector<float> from; };
+
+        for (const Case &c : { Case { "a C major triad up a fifth", ShRun::TRIAD, 1.4983f, { 261.63f, 329.63f, 392 } },
+                               Case { "440 and 500 Hz down an octave, a bin and a half apart", ShRun::PAIR, 0.5f,
+                                      { 440, 500 } } })
+        {
+            ShRun run;
+            vector<float> in, out;
+            string why;
+
+            run.source = c.src;
+            run.ratio = c.ratio;
+            if (!shRender(pluginPath, run, 2, 256, in, out, why))
+                fail(string("fft::shift renders ") + c.what, why);
+            else
+            {
+                double worst = 0;
+                string levels;
+
+                for (float f : c.from)
+                {
+                    const double db = shDb(blAt(out, f * c.ratio, 0.5 + late, 1), 0.3);
+
+                    worst = std::max(worst, fabs(db));
+                    levels += num(db) + " ";
+                }
+                okOrFail(worst < 0.5, string("fft::shift: ") + c.what + ", each partial at its level",
+                         levels + "dB");
+            }
+        }
+    }
+
+    /* ---- formants: a resonant tone up a fifth keeps its resonance at
+       formant 1, and carries it up at 0; and keeping it, up or down,
+       lifts no noise ---- */
+    {
+        vector<float> in, kept, moved, downKept, downMoved;
+        string why;
+        ShRun run;
+
+        run.source = ShRun::RESONANT;
+        run.freq = 220;
+        run.ratio = 1.5f;
+        run.formant = 1;
+        ShRun up = run, down = run, downUp = run;
+
+        /* Down, sparser: 440 Hz by 0.7, the floor's peaks far between its
+           harmonics. */
+        up.formant = 0;
+        down.freq = downUp.freq = 440;
+        down.ratio = downUp.ratio = 0.7f;
+        downUp.formant = 0;
+        if (!shRender(pluginPath, run, 2, 256, in, kept, why) || !shRender(pluginPath, up, 2, 256, in, moved, why) ||
+            !shRender(pluginPath, down, 2, 256, in, downKept, why) ||
+            !shRender(pluginPath, downUp, 2, 256, in, downMoved, why))
+            fail("fft::shift renders a resonant tone", why);
+        else
+        {
+            const auto loudest = [&](const vector<float> &v, double f0, double &partials) {
+                double best = 0, at = 0;
+
+                partials = 0;
+                for (int k = 1; f0 * k < 8000; k++)
+                {
+                    const double a = blAt(v, f0 * k, 0.5 + late, 1);
+
+                    partials += a * a / 2;
+                    if (a > best)
+                    {
+                        best = a;
+                        at = f0 * k;
+                    }
+                }
+                return at;
+            };
+            const auto junk = [&](const vector<float> &v, double partials) {
+                const double all = fzRms(v, 0.5 + late, 1.5 + late);
+
+                return shDb(sqrt(std::max(all * all - partials, 1e-30)), sqrt(partials));
+            };
+            double pk, pm, pdk, pdm;
+            const double k = loudest(kept, 330, pk), m = loudest(moved, 330, pm);
+
+            loudest(downKept, 308, pdk);
+            loudest(downMoved, 308, pdm);
+
+            const double jk = junk(kept, pk), jm = junk(moved, pm);
+            const double jdk = junk(downKept, pdk), jdm = junk(downMoved, pdm);
+
+            /* Off the partials, the shift leaves what lobes cut apart and
+               moved by different whole bins leave: the window's sidelobes,
+               31 dB down, no longer meeting. Keeping the formants must not
+               add to it, as it did through a noise floor's peaks, which
+               shows most going down. */
+            okOrFail(k == 990 && m == 1320 && jm < -30 && jk < jm + 3 && jdk < jdm + 3,
+                     "fft::shift: up a fifth, the resonance stays at formant 1 and moves at 0, and "
+                     "keeping it lifts nothing between the partials, up or down",
+                     "loudest " + num(k) + " and " + num(m) + " Hz; between the partials " + num(jk) +
+                         " dB kept, " + num(jm) + " moved; down " + num(jdk) + " kept, " + num(jdm) +
+                         " moved");
+        }
+    }
+
+    /* ---- the limits, held where they were measured: noise a few dB
+       down once shifted, and a click smeared, but not by more ---- */
+    {
+        ShRun noise, click;
+        vector<float> in, out, cin, cout;
+        string why;
+
+        noise.source = ShRun::NOISE;
+        noise.ratio = 1.5f;
+        click.source = ShRun::CLICK;
+        click.ratio = 1.5f;
+        if (!shRender(pluginPath, noise, 3, 256, in, out, why) || !shRender(pluginPath, click, 2, 256, cin, cout, why))
+            fail("fft::shift renders noise and a click", why);
+        else
+        {
+            const double db = shDb(fzRms(out, 1 + late, 3), fzRms(in, 1, 3 - late));
+            const double at = 1 + late;
+            const double early = fzRms(cout, at - 0.05, at - 0.005), all = fzRms(cout, at - 0.05, at + 0.1);
+            const double earlyDb = 10 * log10(std::max(early * early * 0.045, 1e-30) / (all * all * 0.15));
+
+            okOrFail(db > -4 && db < -1, "fft::shift: noise up a fifth comes out a few dB down",
+                     num(db) + " dB");
+            okOrFail(earlyDb < -6, "fft::shift: a click up a fifth smears, with little of it early",
+                     num(earlyDb) + " dB of it more than 5 ms early");
+        }
+    }
+
+    /* ---- at any window length ---- */
+    {
+        ShRun run;
+
+        run.source = ShRun::VIBRATO;
+        run.size = 256;
+        run.ratio = 1.3f;
+        run.formant = 0.5f;
+        windowsAgree(pluginPath, shGraph(run), "sh", "out",
+                     "fft::shift: the same at one sample a window and at five hundred");
+    }
+
+    /* ---- what it makes of a value it cannot use ---- */
+    {
+        struct Case { const char *what; ShRun a, b; };
+        ShRun base;
+        const auto with = [&](ShRun r, auto set) { set(r); return r; };
+
+        base.ratio = 1.3f;
+        base.formant = 0.5f;
+        const vector<Case> cases = {
+            { "a NaN ratio as 1", with(base, [](ShRun &r) { r.ratio = NAN; }), with(base, [](ShRun &r) { r.ratio = 1; }) },
+            { "a ratio of 0 as 1", with(base, [](ShRun &r) { r.ratio = 0; }), with(base, [](ShRun &r) { r.ratio = 1; }) },
+            { "a NaN offset as 0", with(base, [](ShRun &r) { r.offset = NAN; }), base },
+            { "a NaN formant as 0", with(base, [](ShRun &r) { r.formant = NAN; }),
+              with(base, [](ShRun &r) { r.formant = 0; }) },
+            { "a NaN mix as 0", with(base, [](ShRun &r) { r.mix = NAN; }), with(base, [](ShRun &r) { r.mix = 0; }) },
+            { "a NaN size as 2048", with(base, [](ShRun &r) { r.size = NAN; }), base },
+            { "a size changed while it runs as the size it started with",
+              with(base, [](ShRun &r) { r.resize = true; }), base },
+            { "an infinite in as 0", with(base, [](ShRun &r) { r.constant = true; r.level = INFINITY; }),
+              with(base, [](ShRun &r) { r.constant = true; r.level = 0; }) },
+        };
+
+        for (const Case &k : cases)
+        {
+            vector<float> in, a, b;
+            string why;
+
+            if (!shRender(pluginPath, k.a, 0.5, 256, in, a, why) || !shRender(pluginPath, k.b, 0.5, 256, in, b, why))
+                fail(string("fft::shift renders ") + k.what, why);
+            else
+                okOrFail(same(a, b), string("fft::shift takes ") + k.what, "");
+        }
+    }
+
+    /* ---- play: a quiet noise's shifted tail is held while it is heard,
+       and let go ---- */
+    {
+        ShRun run;
+        vector<NodeSpec> spec;
+        vector< vector<float> > got;
+        string why;
+
+        run.source = ShRun::NOISE;
+        run.ratio = 1.5f;
+        spec = shGraph(run);
+        fpQuiet(spec, 0.01f, 0.5);
+        if (!render(pluginPath, spec, { { "sh", "out" }, { "sh", "play" } }, 256, (unsigned)(2 * FZ_RATE), got, why))
+            fail("fft::shift renders for play", why);
+        else
+        {
+            const long unheld = fpUnheld(got[0], got[1]), end = fpLast(got[1]);
+
+            okOrFail(unheld == 0 && end > 0 && end + 1 < (long)got[1].size(),
+                     "fft::shift: play holds while the shifted sound is heard, then lets go",
+                     num((double)unheld) + " samples heard with play at 0, last at " + num((double)end));
+        }
+    }
+}
+
 static void checkAdsrGated (const string &pluginPath)
 {
     const float sr = TH_DEFAULT_SAMPLES;
@@ -11803,6 +12245,7 @@ int main (int argc, char **argv)
     checkBlur(pluginPath);
     checkGate(pluginPath);
     checkFftPlay(pluginPath);
+    checkShift(pluginPath);
     checkEcho(pluginPath);
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);
