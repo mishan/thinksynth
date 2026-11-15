@@ -35,6 +35,13 @@
 #
 # Slow in, slow out, and a sustain that holds -- the attack and release
 # are the only expression the instrument has.
+#
+# WIDE, AND STILL ITSELF IN MONO. The ensemble is per voice and so is the
+# width: mixer::widen at the end adds a side made from the voice's own
+# sound, highpassed, late and smeared, to one channel and takes it from
+# the other. Summed to mono the side cancels and the string machine is
+# exactly what it was, which is what a section heard on one speaker
+# should be. `Width' at 0 is that mono voice in both channels.
 
 name "Strings";
 author "Misha Nasledov";
@@ -89,6 +96,12 @@ category "Strings and pads";
     @ensemble.max = 1;
     @ensemble.label = "Ensemble";
 
+    @width = 1;
+    @width.widget = 1;
+    @width.min = 0;
+    @width.max = 1;
+    @width.label = "Width";
+
     @a = 220 ms;
     @a.widget = 1;
     @a.min = 1ms;
@@ -118,8 +131,8 @@ category "Strings and pads";
 
 node ionode {
     channels = 2;
-    out0 = vca->out;
-    out1 = vca->out;
+    out0 = wide->out0;
+    out1 = wide->out1;
     play = env->play;
 };
 
@@ -181,6 +194,11 @@ node env env::adsr {
 node vca mixer::mul {
     in0 = tone->out_low * (1 - @ensemble) * 0.8 + shimmer->out * @ensemble * 0.8;
     in1 = env->out;
+};
+
+node wide mixer::widen {
+    in = vca->out;
+    width = @width;
 };
 
 io ionode;
