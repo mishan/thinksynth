@@ -157,6 +157,11 @@ NodeEditor::NodeEditor (thSynth *synth)
     scroller_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     scroller_.set_child(canvas_);
 
+    /* The canvas takes the focus on a click, and a viewport scrolls to show
+       what has it: all of the canvas, from its top-left corner. */
+    if (Gtk::Viewport *v = dynamic_cast<Gtk::Viewport *>(scroller_.get_child()))
+        v->set_scroll_to_focus(false);
+
     /* A floor for the graph. The panels either side keep their widths as
        the editor narrows -- the paned gives the canvas what is left -- and
        with nothing under it the graph went to a sliver long before the
