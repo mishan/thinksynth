@@ -176,10 +176,15 @@ if(HARNESS_B OR EXTRA_ARGS_B OR REFERENCE)
         endforeach()
       endforeach()
 
+      # Some CMake versions refuse a REMOVE_ITEM with nothing to remove.
       set(_missing "${names_A}")
-      list(REMOVE_ITEM _missing ${names_ref})
+      if(names_ref)
+        list(REMOVE_ITEM _missing ${names_ref})
+      endif()
       set(_stale "${names_ref}")
-      list(REMOVE_ITEM _stale ${names_A})
+      if(names_A)
+        list(REMOVE_ITEM _stale ${names_A})
+      endif()
 
       if(_missing OR _stale)
         get_filename_component(_name "${REFERENCE}" NAME)
