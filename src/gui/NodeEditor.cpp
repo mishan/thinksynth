@@ -995,20 +995,46 @@ void NodeEditor::finishSave (void)
 }
 
 
+/* One step, so an accidental Revert is one Undo away. What it goes back to
+ * is read again -- the file may have changed since -- and taken as the file
+ * only once it has parsed: a source that no longer parses is no reason to
+ * lose what is on screen. */
 void NodeEditor::onRevert (void)
 {
     if (source_.empty())
         return;
 
-    /* open(), not reload(): reading the source again is what throws away
-       nodes added and deleted since the last save. */
-    if (!open(source_, channel_))
-        return;
+    string disk;
 
-    /* Put the running synth back as well. Reverting the file and leaving the
-       sound wherever the sliders were left would be worse than not offering
-       Revert at all. */
+    if (inlineSave_)
+        disk = inlineBody_;
+    else if (!readFile(source_, disk))
+    {
+        setStatus("Could not read " + source_);
+        return;
+    }
+
+    Gesture gesture(*this, "revert");
+
+    /* No positions of the step's own: the file's layout block, and the
+       layout for whatever it does not place. */
+    NodeHistory::Snapshot file;
+
+    file.text = disk;
+
+    if (!restore(file, ""))
+    {
+        setStatus("Not reverted: " + source_ + " does not parse.");
+        return;
+    }
+
+    saved_ = disk;
+
+    /* Every value, not only those that differ from a moment ago: what was
+       pushed live since the file was read may have been on a node deleted
+       since. */
     putBackAll();
+    updateDirty();
 
     setStatus(attached() ? "Reverted to what is on disk, and the running "
                            "synth with it."
@@ -1890,7 +1916,11 @@ bool NodeEditor::reloadAfter (const string &was)
 
 bool NodeEditor::reloadKeepingSelection (const NodeLayout::PosMap *carry)
 {
-    const int sel = canvas_.selected();
+    /* Bounded: an Undo or a Revert that takes probes away removes their
+       panels, from the end of the boxes, before this runs -- and one of them
+       may be what is selected. */
+    const int sel = canvas_.selected() < (int)graph_.boxes().size()
+                    ? canvas_.selected() : -1;
     const string name = sel >= 0 ? graph_.boxes()[sel].name : string();
 
     if (!reload(carry))

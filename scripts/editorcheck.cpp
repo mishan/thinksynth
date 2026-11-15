@@ -1953,6 +1953,94 @@ void checkUndo (thSynth &synth)
     ok(undid && ed->text() != text, "the Undo and Redo buttons undo and "
        "redo");
 
+    /* A probe's panel selected when a Revert takes the probe away: the
+       panels go before the reparse that keeps the selection, which then must
+       not read past them. An editor of its own, with no probe from before. */
+    {
+        TestEditor *pe = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *pw = new Gtk::Window();
+
+        pw->set_child(*pe);
+        pw->present();
+        pump(0.05);
+
+        std::vector<NodeCanvasWidget *> pc;
+
+        collectWidgets(pe, pc);
+        reopen();
+
+        const bool armed = !pc.empty() && pe->open(copy) &&
+                           pe->armProbe("lfo", "out", visual);
+
+        for (size_t b = 0; armed && b < pe->graph().boxes().size(); b++)
+            if (pe->graph().boxes()[b].isProbe)
+                pc[0]->setSelected((int)b);
+
+        if (armed)
+            pe->onRevert();
+
+        ok(armed && pc[0]->selected() < (int)pe->graph().boxes().size() &&
+           pe->probes_.empty(),
+           "Revert with a probe's panel selected takes the probe away and "
+           "selects nothing past the end of the graph");
+
+        delete pw;
+    }
+
+    /* Revert is a step: an accidental one is one Undo away. */
+    reopen();
+    ed->onParamEdited(box("osc"), "amp", 0.25);
+
+    const string edited = ed->text();
+
+    ed->onRevert();
+
+    const bool reverted = ed->text() == text && !ed->dirty();
+
+    ed->onUndo();
+
+    const bool unreverted = ed->text() == edited && ed->dirty();
+
+    ed->onRedo();
+
+    ok(reverted && unreverted && ed->text() == text && !ed->dirty(),
+       "Revert is a step: undone, the edits are back and unsaved; redone, "
+       "the file again (%d %d)", reverted, unreverted);
+
+    /* What is on disk is what Revert goes back to, and a file that will not
+       parse any more is no reason to lose what is on screen. */
+    ed->onParamEdited(box("osc"), "amp", 0.25);
+
+    const string kept = ed->text();
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "not a graph\n";
+    }
+
+    ed->onRevert();
+
+    ok(ed->text() == kept && ed->dirty(),
+       "Revert to a file that no longer parses changes nothing");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << text << "# changed on disk\n";
+    }
+
+    ed->onRevert();
+
+    ok(ed->text() == text + "# changed on disk\n" && !ed->dirty(),
+       "and to one changed on disk since, takes it as the file");
+
+    ed->onUndo();
+
+    ok(ed->text() == kept && ed->dirty(),
+       "and undone, what was on screen is back, unsaved against the file "
+       "as it is now");
+
     delete w;
 
     std::filesystem::remove(copy);
