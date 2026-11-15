@@ -7027,6 +7027,13 @@ static bool shRender (const string &pluginPath, const ShRun &run, double seconds
         return false;
     in = got[0];
     out = got[1];
+
+    /* A NaN would slip past every max and comparison the checks make. */
+    if (!allFinite(out))
+    {
+        why = "an output sample that is not a number";
+        return false;
+    }
     return true;
 }
 
@@ -7183,7 +7190,7 @@ static void checkShift (const string &pluginPath)
 
                 for (float f : c.from)
                 {
-                    const double db = shDb(blAt(out, f * c.ratio, 0.5 + late, 1), 0.3);
+                    const double db = shDb(blAt(out, (double)f * c.ratio, 0.5 + late, 1), 0.3);
 
                     worst = std::max(worst, fabs(db));
                     levels += num(db) + " ";
@@ -7409,7 +7416,7 @@ static void checkShift (const string &pluginPath)
         {
             const long unheld = fpUnheld(got[0], got[1]), end = fpLast(got[1]);
 
-            okOrFail(unheld == 0 && end > 0 && end + 1 < (long)got[1].size(),
+            okOrFail(allFinite(got[0]) && unheld == 0 && end > 0 && end + 1 < (long)got[1].size(),
                      "fft::shift: play holds while the shifted sound is heard, then lets go",
                      num((double)unheld) + " samples heard with play at 0, last at " + num((double)end));
         }

@@ -781,7 +781,7 @@ main ()
                 double d = thkAtan2Turns(y, x) - atan2((double)y, (double)x) / (2 * M_PI);
 
                 d -= floor(d + 0.5);
-                worst = std::max(worst, std::fabs(d));
+                worst = std::isfinite(d) ? std::max(worst, std::fabs(d)) : INFINITY;
             }
         report("thkAtan2Turns, atan2 in turns", worst, 3.3e-5);
         report("thkAtan2Turns at the origin", std::fabs(thkAtan2Turns(0, 0)), 0);
