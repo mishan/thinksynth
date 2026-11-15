@@ -72,6 +72,7 @@
 #include "gui/ArgPanelView.h"
 #include "gui/PanelView.h"
 #include "gui/NodeParamsView.h"
+#include "gui/NodePalette.h"
 
 /* Picked up automatically by LeakSanitizer, the same way visualcheck and
  * dspstress supply theirs -- so this stays a real gate under CI's
@@ -272,6 +273,43 @@ void collectScales (Gtk::Widget *w, std::vector<Gtk::Scale *> &out)
     for (Gtk::Widget *c = w->get_first_child(); c != NULL;
          c = c->get_next_sibling())
         collectScales(c, out);
+}
+
+/* The editor's own binding for `accel', taken as a key press would: GTK
+   matches the key to the trigger, and this goes from the trigger on. */
+static bool press (Gtk::Widget *w, const char *accel)
+{
+    GtkShortcutTrigger *want = gtk_shortcut_trigger_parse_string(accel);
+    GListModel *controllers = gtk_widget_observe_controllers(w->gobj());
+    bool done = false;
+
+    for (guint i = 0; !done && i < g_list_model_get_n_items(controllers); i++)
+    {
+        GObject *c = (GObject *)g_list_model_get_item(controllers, i);
+
+        if (GTK_IS_SHORTCUT_CONTROLLER(c))
+            for (guint k = 0; !done && k < g_list_model_get_n_items(
+                                               G_LIST_MODEL(c)); k++)
+            {
+                GtkShortcut *s =
+                    (GtkShortcut *)g_list_model_get_item(G_LIST_MODEL(c), k);
+
+                if (gtk_shortcut_trigger_equal(gtk_shortcut_get_trigger(s),
+                                               want))
+                    done = gtk_shortcut_action_activate(
+                        gtk_shortcut_get_action(s),
+                        GTK_SHORTCUT_ACTION_EXCLUSIVE, w->gobj(), NULL);
+
+                g_object_unref(s);
+            }
+
+        g_object_unref(c);
+    }
+
+    g_object_unref(controllers);
+    g_object_unref(want);
+
+    return done;
 }
 
 /* Every widget of one type under `w', depth first. */
@@ -1953,6 +1991,90 @@ void checkUndo (thSynth &synth)
 
     ok(undid && ed->text() != text, "the Undo and Redo buttons undo and "
        "redo");
+
+    /* And the keys, from whatever in the editor has the focus -- and a
+       second one after the first has rebuilt the panel the focus was in. */
+    {
+        reopen();
+        ed->onParamEdited(box("osc"), "amp", 0.25);
+
+        const string edited = ed->text();
+
+        canvas->setSelected(box("osc"));
+
+        std::vector<Gtk::SpinButton *> fields;
+
+        collectWidgets<Gtk::SpinButton>(ed, fields);
+
+        const bool focused = !fields.empty() && fields[0]->grab_focus();
+        const auto inEditor = [&] ()
+        {
+            Gtk::Window *w = dynamic_cast<Gtk::Window *>(ed->get_root());
+            Gtk::Widget *f = w ? w->get_focus() : nullptr;
+
+            return f != nullptr && f->is_ancestor(*ed);
+        };
+
+        const bool z = press(ed, "<Primary>z") && ed->text() == text &&
+                       inEditor();
+        const bool shiftZ = press(ed, "<Primary><Shift>z") &&
+                            ed->text() == edited;
+
+        ed->onUndo();
+
+        ok(focused && z && shiftZ && press(ed, "<Primary>y") &&
+           ed->text() == edited,
+           "Ctrl+Z undoes, and Ctrl+Shift+Z and Ctrl+Y redo, the focus "
+           "staying in the editor");
+    }
+
+    /* A number typed and not entered, in a panel the graph then takes the
+       focus from after showing another: the box goes with what it was
+       typed into, and changes nothing in the one shown now. */
+    {
+        reopen();
+        canvas->setSelected(box("osc"));
+
+        std::vector<Gtk::SpinButton *> fields;
+
+        collectWidgets<Gtk::SpinButton>(ed, fields);
+
+        const bool typed = !fields.empty() && fields[0]->grab_focus();
+
+        if (typed)
+            fields[0]->set_text("0.9");
+
+        canvas->setSelected(-1);
+        dynamic_cast<Gtk::Widget *>(canvas)->grab_focus();
+
+        ok(typed && ed->text() == text, "a number left typed in a panel "
+           "since replaced is no edit");
+    }
+
+    /* The palette's filter is typed into with no step taken: Ctrl+Z there
+       is its own. */
+    {
+        reopen();
+        ed->onParamEdited(box("osc"), "amp", 0.25);
+
+        const string edited = ed->text();
+
+        std::vector<NodePalette *> palette;
+        std::vector<Gtk::Entry *> filter;
+
+        collectWidgets<NodePalette>(ed, palette);
+
+        if (palette.size() == 1)
+        {
+            palette[0]->set_visible(true);
+            collectWidgets<Gtk::Entry>(palette[0], filter);
+        }
+
+        const bool focused = filter.size() == 1 && filter[0]->grab_focus();
+
+        ok(focused && !press(ed, "<Primary>z") && ed->text() == edited,
+           "Ctrl+Z in the palette's filter is the filter's");
+    }
 
     /* A probe's panel selected when a Revert takes the probe away: the
        panels go before the reparse that keeps the selection, which then must

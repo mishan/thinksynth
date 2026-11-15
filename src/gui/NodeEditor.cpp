@@ -243,21 +243,64 @@ NodeEditor::NodeEditor (thSynth *synth)
         sigc::mem_fun(*this, &NodeEditor::onRedo));
     nameAs(undoBtn_, "Undo");
     nameAs(redoBtn_, "Redo");
+
+    /* The editor's own, not the application's: it is a pane that can move
+       to a window of its own, and the keys go with it. Heard before the
+       field with the focus, whose text would take Ctrl+Z for itself. */
+    Glib::RefPtr<Gtk::ShortcutController> keys =
+        Gtk::ShortcutController::create();
+
+    for (auto [trigger, act] :
+         { std::pair<const char *, void (NodeEditor::*)(void)>(
+               "<Primary>z", &NodeEditor::onUndo),
+           std::pair<const char *, void (NodeEditor::*)(void)>(
+               "<Primary><Shift>z", &NodeEditor::onRedo),
+           std::pair<const char *, void (NodeEditor::*)(void)>(
+               "<Primary>y", &NodeEditor::onRedo) })
+        keys->add_shortcut(Gtk::Shortcut::create(
+            Gtk::ShortcutTrigger::parse_string(trigger),
+            Gtk::CallbackAction::create(
+                [this, act = act] (Gtk::Widget &, const Glib::VariantBase &)
+                {
+                    Gtk::Widget *focus =
+                        get_root() ? get_root()->get_focus() : nullptr;
+
+                    /* A filter is typed into with no step taken. */
+                    if (focus != nullptr && GTK_IS_TEXT(focus->gobj()) &&
+                        !focus->is_ancestor(params_))
+                        return false;
+
+                    (this->*act)();
+
+                    /* The step may have rebuilt the panel the focus was in,
+                       leaving it on a field no longer in the window, and
+                       the next key would go nowhere. */
+                    focus = get_root() ? get_root()->get_focus() : nullptr;
+
+                    if (focus == nullptr || !focus->is_ancestor(*this))
+                        canvas_.grab_focus();
+
+                    return true;
+                })));
+
+    keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    add_controller(keys);
+
     /* Read out as "plus", "minus" and "one colon one" otherwise. */
     nameAs(zoomInBtn_, "Zoom in");
     nameAs(zoomOutBtn_, "Zoom out");
     nameAs(zoomResetBtn_, "Actual size");
 
-    /* Tab stops of GTK's own -- a split's handle moves from the keys, and
-       the graph's scroller takes the focus for its arrows -- that a
-       screen reader had nothing to call. Groups, since GTK's own role for
-       them, generic, takes no name. */
+    /* Tab stops -- a split's handle moves from the keys, and the graph
+       takes the focus for Undo and its scroller's arrows -- that a screen
+       reader had nothing to call. Groups, since GTK's own role for them,
+       generic, takes no name. */
     for (auto [w, name] : { std::pair<Gtk::Widget *, const char *>(
                                 &outer_, "Palette and graph"),
                             std::pair<Gtk::Widget *, const char *>(
                                 &split_, "Graph and parameters"),
                             std::pair<Gtk::Widget *, const char *>(
-                                &scroller_, "Patch graph") })
+                                &canvas_, "Patch graph") })
     {
         w->property_accessible_role() = Gtk::Accessible::Role::GROUP;
         nameAs(*w, name);
