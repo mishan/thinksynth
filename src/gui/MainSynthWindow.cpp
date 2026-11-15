@@ -2230,9 +2230,10 @@ void MainSynthWindow::clearPages (void)
         paramStack_.remove(*w);
 
     /* Loading or saving a patch on any channel rebuilds every page, and an
-       editor holding edits not yet in its file would go with its page. */
+       editor holding edits not yet in its file, or steps to undo or redo,
+       would go with its page. */
     for (const std::pair<const int, NodeEditor *> &e : editors_)
-        if (e.second->dirty())
+        if (e.second->dirty() || e.second->hasHistory())
         {
             e.second->reference();
             holders_[e.first]->remove(*e.second);

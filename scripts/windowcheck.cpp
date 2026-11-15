@@ -284,6 +284,21 @@ findUnder (Gtk::Widget *w)
     return NULL;
 }
 
+/* Every widget of type T under `w'. */
+template <typename T>
+static void
+collectUnder (Gtk::Widget *w, std::vector<T *> &out)
+{
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+    {
+        if (T *t = dynamic_cast<T *>(c))
+            out.push_back(t);
+
+        collectUnder<T>(c, out);
+    }
+}
+
 /* Whether `w''s description is `want'. */
 static bool
 described (Gtk::Widget *w, const char *want)
@@ -471,6 +486,33 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(win->editors_.count(2) == 1 && win->editors_[2] == edited &&
           edited->dirty(),
           "...and the graph on it, with the edits not saved yet");
+
+    /* Undone, the graph is its file again but has a Redo, which a reload
+       must not take away. */
+    {
+        std::vector<Gtk::Button *> buttons;
+        Gtk::Button *undo = NULL, *redo = NULL;
+
+        collectUnder<Gtk::Button>(edited, buttons);
+
+        for (Gtk::Button *b : buttons)
+            if (b->get_icon_name() == "edit-undo-symbolic")
+                undo = b;
+            else if (b->get_icon_name() == "edit-redo-symbolic")
+                redo = b;
+
+        if (undo != NULL)
+            g_signal_emit_by_name(undo->gobj(), "clicked");
+
+        const bool undone = undo != NULL && redo != NULL && !edited->dirty();
+
+        patchMgr->newPatch(dsp, 5);
+        pump(4);
+
+        check(undone && win->editors_.count(2) == 1 &&
+              win->editors_[2] == edited && redo->get_sensitive(),
+              "...and one with only a step to redo");
+    }
 
     /* A graph with no patch file saved for it -- as every instrument a
        piece carries is -- goes by the graph's name. */
