@@ -1598,6 +1598,123 @@ int main (int argc, char **argv)
         }
     }
 
+    /* The other edits over an arg written across lines: found where it
+       is, not taken for absent, which wrote a second assignment beside it
+       or did nothing. */
+    {
+        enum Op { DISCONNECT, CONNECT, SET, FIND };
+        struct Case {
+            const char *what;
+            Op op;
+            const char *arg;
+            NodeEdit::Result want;
+            const char *has;    /* in the text after, or NULL for unchanged */
+            bool unended = false;   /* in0's `;' left off, as while typing */
+        };
+
+        const Case cases[] = {
+            { "disconnecting an expression over two lines", DISCONNECT, "in0",
+              NodeEdit::OK, "    # the sum\n    in0 = 0;\n" },
+            { "connecting into it is refused", CONNECT, "in0", NodeEdit::REFUSED,
+              NULL },
+            { "typing a number over it is refused", SET, "in0",
+              NodeEdit::NOT_A_VALUE, NULL },
+            { "it is found", FIND, "in0", NodeEdit::OK, NULL },
+            { "connecting over a wire written across two lines", CONNECT, "in1",
+              NodeEdit::OK, "    in1 = c->out;\n};" },
+            { "a statement missing its `;' does not take the next one with it",
+              DISCONNECT, "in0", NodeEdit::OK, NULL, true },
+        };
+        const string before =
+            "name \"Across\";\n"
+            "node ionode { channels = 1; out0 = mix->out; };\n"
+            "node a osc::simple { freq = 220; };\n"
+            "node b osc::simple { freq = 330; };\n"
+            "node c osc::simple { freq = 440; };\n"
+            "node mix mixer::mul {\n"
+            "    in0 = a->out * 0.5 +   # the sum\n"
+            "          b->out;\n"
+            "    in1 =\n"
+            "          a->out;\n"
+            "};\n"
+            "io ionode;\n";
+
+        okOrFail(!refused(synth, before), "args written across lines parse", before);
+
+        for (const Case &c : cases)
+        {
+            string text = before, why;
+            NodeEdit::Result r;
+
+            if (c.unended)
+                text.replace(text.find("b->out;"), 7, "b->out");
+
+            const string given = text;
+
+            switch (c.op)
+            {
+            case DISCONNECT:
+                r = NodeEdit::Text::disconnect(text, "mix", c.arg, 0, why);
+                break;
+            case CONNECT:
+                r = NodeEdit::Text::connect(text, "mix", c.arg, "c", "out", why);
+                break;
+            case SET:
+                r = NodeEdit::Text::setValue(text, "mix", c.arg, 0.3, why);
+                break;
+            default:
+                r = NodeEdit::Text::find(text, "mix", c.arg);
+                break;
+            }
+
+            const string assign = string(c.arg) + " =";
+            const string::size_type at = text.find(assign);
+
+            okOrFail(r == c.want &&
+                     (c.has ? text.find(c.has) != string::npos && !refused(synth, text) &&
+                                  text.find(assign, at + 1) == string::npos
+                            : text == given),
+                     c.what, text);
+        }
+    }
+
+    /* A number written across lines takes a new value as one line would,
+       and an unchanged one leaves the text alone. */
+    {
+        struct Case {
+            const char *what;
+            const char *rhs;        /* in1's, after the `=' */
+            double value;
+            bool saved;             /* through the overload that keeps the saved spelling */
+            const char *has;        /* in the text after, or NULL for unchanged */
+        };
+        const double ms = 44.1;     /* samples, at the rate a .dsp folds at */
+
+        const Case cases[] = {
+            { "a `;' on a line of its own", " 4\n          ;", 3, false, "    in1 = 3;\n" },
+            { "a unit on the next line", " 4\n          ms;", 2 * ms, false, "    in1 = 2 ms;\n" },
+            { "a CRLF file", " 4\r\n          ms;\r", 2 * ms, false, "    in1 = 2 ms;\r\n};" },
+            { "the same value through the saved spelling", "\n          440;", 440, true, NULL },
+        };
+
+        for (const Case &c : cases)
+        {
+            const string before = string("name \"Across\";\n"
+                                         "node ionode { channels = 1; out0 = mix->out; };\n"
+                                         "node mix mixer::mul {\n"
+                                         "    in0 = 1;\n"
+                                         "    in1 =") + c.rhs + "\n};\nio ionode;\n";
+            string text = before, why;
+            const NodeEdit::Result r =
+                c.saved ? NodeEdit::Text::setValue(text, "mix", "in1", c.value, before, why)
+                        : NodeEdit::Text::setValue(text, "mix", "in1", c.value, why);
+
+            okOrFail(r == NodeEdit::OK &&
+                     (c.has ? text.find(c.has) != string::npos : text == before),
+                     string("setting a number over ") + c.what, text);
+        }
+    }
+
     /* Line breaks inside a right-hand side change nothing a removal does:
        where the whole arg would fall back to 0 on one line, it does over
        several. */
