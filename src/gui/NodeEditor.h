@@ -99,6 +99,7 @@ public:
     bool dirty (void) const;
 
 protected:
+    string status (void) const { return status_.get_text(); }
     void onArrange (void);
     void onSave (void);
     void onRevert (void);

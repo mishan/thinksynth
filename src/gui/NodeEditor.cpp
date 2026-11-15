@@ -752,6 +752,13 @@ bool NodeEditor::open (const string &filename, int chan)
     const string prevSource = source_;
     const int prevChannel = channel_;
 
+    /* reload reads a file's probes only when none are armed. Those armed are
+       in prevText, to be read back from it if this one does not open. */
+    const bool probes = !probes_.empty();
+
+    if (probes)
+        disarmAllProbes();
+
     text_ = text;
     source_ = filename;
     channel_ = chan;
@@ -762,6 +769,15 @@ bool NodeEditor::open (const string &filename, int chan)
         source_ = prevSource;
         channel_ = prevChannel;
         inlineSave_ = prevSave;
+
+        if (probes)
+        {
+            const string why = status_.get_text();
+
+            reload(&settled_);
+            setStatus(why);
+        }
+
         return false;
     }
 
