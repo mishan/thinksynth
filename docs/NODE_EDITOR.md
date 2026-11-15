@@ -15,6 +15,7 @@ behaviour and layout.
 | Piece | Where |
 |---|---|
 | The editor: the patch's text, its edits, Save and Revert | `src/gui/NodeEditor.{h,cpp}` |
+| Undo and Redo's steps, and what one changes in a running synth; no toolkit | `src/NodeHistory.{h,cpp}` |
 | Arg direction in the plugin API | `thPlugin::ArgDir`, `regArg(name, dir)`, `argIsPort()` |
 | Graph model, layout, hit-testing | `src/NodeGraph.{h,cpp}` |
 | Canvas: the drawing and the gestures, no toolkit | `src/NodeCanvas.{h,cpp}` over `src/CanvasContent.{h,cpp}` |
@@ -106,13 +107,24 @@ patch's text as it is made, and reaches disk only on Save — a file rewritten o
 every gesture would be alarming. The edits are the splices the browser's editor
 makes, `NodeEdit::Text` and `NodeLayout::Text`, so the two agree byte for byte
 about what an edit is. Save adds the layout block and writes the text; Revert
-reads the file again.
+reads the file again, as a step Undo can take back.
 
 **Unsaved means the text is not the file.** Nothing else is held aside, so an
 edit undone by hand leaves nothing to save: a value typed back goes in the
 file's own spelling, `0.50` staying `0.50`, for that reason. A box dragged back
 or a probe disarmed does the same on a file whose layout block already says
 where every box is; a file without one gains one at the first drag.
+
+**Undo and Redo** are the arrows by Save, and Ctrl+Z, Ctrl+Shift+Z and Ctrl+Y
+(Cmd on macOS) from anywhere in the editor; a text field outside the parameter
+panel, such as the palette's filter, keeps Ctrl+Z for its own typing. A step
+is one gesture -- a drag, a wire, a node added -- and values typed into one
+arg less than a second apart are one step. A step holds the text and where
+every box was, since a box nobody has moved has no line in the layout block
+and undoing a drag still has to put it back. Opening a file starts the
+history over; switching channels, or a patch loaded elsewhere, keeps it.
+`NodeHistory` knows nothing of GTK or files, so the browser's editor can
+use the same steps.
 
 **A value, a slider, a drag or a probe changes the graph in place; a wire, a
 node added or deleted, or a control's range parses the text again.** A node's
@@ -266,7 +278,7 @@ insensitive, so the dialog still says which control it is about.
 Like adding a node, this goes into the text and parses it again at once. A
 range decides how the strip is drawn and what the slider can reach, and both
 come from a parse — a range that had changed in the text and not on the canvas
-would be a slider lying about where its own ends are. Revert undoes it like
+would be a slider lying about where its own ends are. Undo takes it back like
 any other edit.
 
 ### Controls that are not scales
@@ -373,6 +385,12 @@ Three kinds of edit, and they behave differently:
   `(next note)` rather than pretending otherwise.
 - **Wire changes** are not applied live at all; they need the graph rebuilt.
 
+Undo, Redo and Revert put back what they change the same way:
+`NodeHistory::liveChanges` compares the graph before and after by name and
+pushes every control and value that differs. What no value can carry -- a
+wire, a node added or removed, a plugin, a text arg -- waits for the patch
+to be loaded again, and the status bar says so.
+
 ## 7. Why the layout will not get much narrower
 
 `ts1.dsp` is an eleven-stage signal chain at 1888 pixels; the deepest in the
@@ -438,7 +456,8 @@ display, and skips itself without one. The rest are run by hand.
 |---|---|---|
 | `argtype` | yes | a plugin's step, value names, description and default; the pass that carries the type to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; that no drag and no written value can land on a hole in a value list or off the step; that a node written with its plugin's declared defaults, with zeroes, and with neither all render bit-identically; and that every declared default is what a bare node of its plugin loads holding |
 | `exprcheck` | yes | a constant expression still folding to a value and no node, precedence and the unary minus included; an expression rendering bitwise against the nodes it stands for; every box's text re-parsing to the graph behind it; one read-only box per expression with every port attached; `canConnect`, `setValue` and `connect` refusing one and changing no byte; `disconnect` rewriting the whole arg to 0; `removeControl` and `removeNode` replacing the reference and not the arg; a node added beside one and removed again byte for byte |
-| `editorcheck` | yes | the editor itself, through its handlers and the canvas's gestures: Save's bytes for every file in the corpus held against the same edits made with `NodeEdit::Text`, in the opposite order, and the positions read back out of what was saved; a saved layout opened as saved and kept through a probe; an edit undone by hand leaving nothing to save; a slider or a value the text will not take refused when it is made; a value set on one element of an array reaching every element; a file that fails to open, or no temporary directory, losing nothing |
+| `editorcheck` | yes | the editor itself, through its handlers and the canvas's gestures: Save's bytes for every file in the corpus held against the same edits made with `NodeEdit::Text`, in the opposite order, and the positions read back out of what was saved; a saved layout opened as saved and kept through a probe; an edit undone by hand leaving nothing to save; a slider or a value the text will not take refused when it is made; a value set on one element of an array reaching every element; a file that fails to open, or no temporary directory, losing nothing; every kind of edit undone and redone, by button and by key, with what a running synth hears; random Undo and Redo among the random edits, each giving back exactly the step's text |
+| `historycheck` | yes | `NodeHistory` with no toolkit: steps back and forth, edits to one arg joined and an Undo ending the join, the cap; what changed in the sound between two graphs, and when that is not all that changed |
 | `dspgraph` | yes | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
 | `dspwrite` | yes | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
 | `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |
@@ -470,6 +489,9 @@ finding them means sitting in front of it.
 
 ## 9. Still ahead
 
+- **The browser's editor has no Undo yet.** The solo page can take
+  `NodeHistory` as it is; a room's shared document wants Yjs's own
+  `Y.UndoManager`, so that an Undo takes back only one's own edits.
 - **`dspcheck` should grow a "load this and process it" check** for anything the
   editor writes.
 - **`thSynthTree::buildSynthTree` walks the graph recursively with a `recalc`
