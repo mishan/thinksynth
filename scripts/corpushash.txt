@@ -78,6 +78,7 @@ d24e30605bea55b5  guitar.dsp
 cc4ea4aa4acc232d  hat.dsp
 c50365f372fbfc6d  hat0.dsp
 e275e1652e31b96d  hat808.dsp
+67bb15fc9ace26c5  haze.dsp
 03b32d10ba72ecfd  hoover.dsp
 1c23614274cdcf75  horns.dsp
 3090faad159b673d  index.dsp
