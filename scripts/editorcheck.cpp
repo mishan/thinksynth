@@ -2375,9 +2375,13 @@ void checkUndoLive (thSynth &synth)
  *   - the editor's text is what the same edits make applied straight through
  *     NodeEdit::Text, in the order they were made, each refused one skipped;
  *   - the graph on the canvas says what a fresh parse of that text says, so
- *     what is changed in place never drifts from the text.
+ *     what is changed in place never drifts from the text;
+ *   - Undo and Redo, among the edits, give back exactly the text from
+ *     before the step undone and after the step redone, a run of values
+ *     set on one arg being one step.
  *
- * And Save writes the text, with the layout block, to the file. */
+ * And Undo all the way gives back the file, Redo all the way the last
+ * text, and Save writes that, with the layout block, to the file. */
 void checkRandomEdits (thSynth &synth, const string &pluginPath)
 {
     const char *dsps = getenv("THINK_DSP_PATH");
@@ -2457,6 +2461,8 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
         string want = orig;
         string why;
         bool ok_ = true;
+        vector<string> past, future;
+        string lastJoin;
 
         const auto pick = [&] (size_t n) { return (size_t)(rng() % n); };
 
@@ -2464,9 +2470,10 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
         {
             const NodeGraph &g = ed->graph();
             const size_t nb = g.boxes().size();
-            const int op = (int)pick(6);
+            const int op = (int)pick(8);
             const string prev = want;
-            string what;
+            const string before = ed->text();
+            string what, join;
 
             if (op == 0)
             {
@@ -2489,6 +2496,7 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
                 const string node = x.name;
 
                 what = "value " + node + "." + arg;
+                join = node + "." + arg;
 
                 if (NodeEdit::Text::setValue(want, node, arg, v, orig, why) !=
                     NodeEdit::OK)
@@ -2616,6 +2624,33 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
                 else
                     NodeLayout::Text::write(want, ed->graph());
             }
+            else if (op >= 6)
+            {
+                vector<string> &from = op == 6 ? past : future;
+                vector<string> &to = op == 6 ? future : past;
+
+                if (from.empty())
+                    continue;
+
+                what = op == 6 ? "undo" : "redo";
+                to.push_back(before);
+                want = from.back();
+                from.pop_back();
+                lastJoin.clear();
+
+                if (op == 6)
+                    ed->onUndo();
+                else
+                    ed->onRedo();
+
+                if (ed->text() != want)
+                {
+                    ok(false, "%s, seed %d, step %d (%s): the text is the "
+                       "step's, exactly", files[f].c_str(), (int)f + 1, step,
+                       what.c_str());
+                    ok_ = false;
+                }
+            }
             else
             {
                 /* A plain node selected and deleted. */
@@ -2648,6 +2683,15 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
             }
 
             made++;
+
+            if (op < 6 && ed->text() != before)
+            {
+                if (join.empty() || join != lastJoin)
+                    past.push_back(before);
+
+                lastJoin = join;
+                future.clear();
+            }
 
             /* An edit whose text will not parse is refused, the editor
                keeping the text it had. */
@@ -2695,6 +2739,27 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
 
         if (ok_)
         {
+            const string last = ed->text();
+
+            for (size_t i = past.size(); i > 0; i--)
+                ed->onUndo();
+
+            const bool back = ed->text() == (past.empty() ? last : orig);
+
+            for (size_t i = past.size() + future.size(); i > 0; i--)
+                ed->onRedo();
+
+            if (!back || ed->text() != (future.empty() ? last
+                                                       : future.front()))
+            {
+                ok(false, "%s: Undo all the way gives back the file, and "
+                   "Redo all the way the last text", files[f].c_str());
+                ok_ = false;
+            }
+        }
+
+        if (ok_)
+        {
             string mine = ed->text();
 
             NodeLayout::Text::write(mine, ed->graph());
@@ -2716,8 +2781,9 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
 
     ok(runs == (int)files.size() && diverged == 0 && made > runs * STEPS / 2 &&
        refused > 0,
-       "%d random edits over %d files keep the text, the canvas and the file "
-       "agreeing (%d refused by the writer, %d files diverged)", made, runs,
+       "%d random edits, undos and redos over %d files keep the text, the "
+       "canvas and the file agreeing (%d refused by the writer, %d files "
+       "diverged)", made, runs,
        refused, diverged);
 
     std::filesystem::remove(copy);
