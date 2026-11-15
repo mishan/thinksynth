@@ -14,9 +14,9 @@
 # it was played, and the voice ends once its tail is under the floor
 # rather than when the key comes up.
 #
-# Size is 512, a frame of 12 ms: late enough to swell, early enough to
-# play from a keyboard. A longer frame blurs pitch more cleanly and
-# comes later.
+# Size is 512, a frame of 12 ms: short enough to play from a keyboard.
+# A longer frame resolves pitch more finely and comes later. Blur stops
+# at three seconds, where a note's voice already lasts half a minute.
 
 name "Haze";
 author "Misha Nasledov";
@@ -26,7 +26,7 @@ category "Plucked";
     @blur = 800 ms;
     @blur.widget = 1;
     @blur.min = 0 ms;
-    @blur.max = 5000 ms;
+    @blur.max = 3000 ms;
     @blur.label = "Blur";
 
     @random = 0.3;

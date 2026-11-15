@@ -1815,7 +1815,7 @@ int main (int argc, char **argv)
 
     /* ---- a voice whose play follows fft::blur lives as long as its tail ----
 
-       A note of a tenth of a second, under a half-second blur. Played by
+       A key held a tenth of a second, under a half-second blur. Played by
        its envelope alone the voice is retired with the envelope and the
        blurred tail is cut; with the blur's `play' in it, the tail is
        heard after the envelope ends, and the voice is still retired
