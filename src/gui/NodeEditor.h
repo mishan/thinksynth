@@ -23,6 +23,7 @@
 
 #include "../NodeEdit.h"
 #include "../NodeGraph.h"
+#include "../NodeHistory.h"
 #include "../NodeLayout.h"
 #include "../thVisual.h"
 #include "NodeCanvasWidget.h"
@@ -101,6 +102,8 @@ protected:
     void onArrange (void);
     void onSave (void);
     void onRevert (void);
+    void onUndo (void);
+    void onRedo (void);
     void onZoomIn (void);
     void onZoomOut (void);
     void onZoomReset (void);
@@ -423,6 +426,27 @@ protected:
        box to delete -- for a keyboard and a screen reader, which the canvas
        has no way in for. */
     Gtk::ToggleButton listBtn_;
+    Gtk::Button undoBtn_;
+    Gtk::Button redoBtn_;
+
+    /* One gesture's step in the history. The outermost of these takes the
+       state from before the gesture and, when it goes, records it if the
+       text changed; one made inside it -- a probe moved to another visual
+       is a disarm and an arm -- is part of the same step. */
+    class Gesture {
+    public:
+        Gesture (NodeEditor &ed, const string &what,
+                 const string &join = string());
+        ~Gesture (void);
+
+    private:
+        NodeEditor &ed_;
+        bool outer_;
+        NodeHistory::Snapshot was_;
+        string what_, join_;
+    };
+
+    friend class Gesture;
     Gtk::Paned graphSplit_{Gtk::Orientation::VERTICAL};   /* canvas | list */
     Gtk::ScrolledWindow outlineScroll_;
     Gtk::Box outline_{Gtk::Orientation::VERTICAL};
@@ -479,18 +503,40 @@ private:
        something that happened. */
     bool selStatus_;
 
-    /* Node args pushed into the running synth since the source was read,
-       by node and arg name -- what Revert puts back. */
-    std::set<std::pair<std::string, std::string> > liveValues_;
+    /* The steps Undo and Redo go through, and how many Gestures are open
+       now. */
+    NodeHistory history_;
+    int gestures_;
+
+    /* text_ and where every box is. */
+    NodeHistory::Snapshot snapshot (void) const;
+
+    /* Where every box was when the last gesture, open, save or restore
+       finished. A drag is told of only once the box has moved, so this --
+       not where the boxes are when its Gesture is made -- is where they
+       were before it. */
+    NodeLayout::PosMap settled_;
+    void settle (void) { settled_ = snapshot().positions; }
+
+    /* Shows `s': its text parsed, its boxes where it says, the probes its
+       text has, and the running synth told what changed. False, with
+       nothing changed, if the text will not parse. */
+    bool restore (const NodeHistory::Snapshot &s, const string &done);
+
+    /* Tells the running synth every control and value that differs between
+       `before' and the graph now; how many, and whether that was all. */
+    int putBackLive (const NodeGraph &before, bool &complete);
+
+    /* Tells it every control and value the graph has, differing or not:
+       what Revert needs, when what was pushed live since the file was read
+       may have been on a node deleted since. */
+    void putBackAll (void);
 
 
     /* Each control's value as text_ has it, by chanarg name: where a slider
        goes back to when the text will not take what it was moved to. */
     std::map<std::string, double> ctlText_;
 
-    /* Controls pushed into the running synth since the source was read --
-       what Revert puts back. */
-    std::set<std::string> liveControls_;
 
     /* Nodes added and removed. Adding a node means asking the plugin what
        ports it has, which means loading it, which is exactly what reparsing

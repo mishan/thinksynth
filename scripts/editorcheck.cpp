@@ -153,10 +153,16 @@ public:
     using NodeEditor::onDisconnect;
     using NodeEditor::onConnect;
     using NodeEditor::onDeleteNode;
+    using NodeEditor::onUndo;
+    using NodeEditor::onRedo;
+    using NodeEditor::onArrange;
+    using NodeEditor::undoBtn_;
+    using NodeEditor::redoBtn_;
     using NodeEditor::text;
     using NodeEditor::onBoxMoved;
     using NodeEditor::onParamEdited;
     using NodeEditor::onControlChanged;
+    using NodeEditor::onRevert;
     using NodeEditor::onPaletteAdd;
 
     /* The box index of the first probe panel, or -1. */
@@ -1692,6 +1698,426 @@ bool graphsAgree (const NodeGraph &a, const NodeGraph &b, string &why)
     return true;
 }
 
+/* Every kind of edit undone and redone. Undo puts back exactly the text and
+ * the box positions from before the edit, and Redo exactly those from after
+ * it; the canvas says what the text does at each end. Undoing to the file
+ * leaves nothing to save. */
+void checkUndo (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-undo-");
+    const string text =
+        "name \"Undo\";\n"
+        "@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n"
+        "node ionode { channels = 1; out0 = mix->out; play = env->play; };\n"
+        "node lfo osc::simple { freq = 2; };\n"
+        "node osc osc::simple { freq = ionode->note; amp = 1; mul = @lvl; };\n"
+        "node spare osc::simple { freq = 3; };\n"
+        "node env env::adsr { trigger = ionode->trigger; };\n"
+        "node mix mixer::mul { in0 = osc->out; in1 = env->out; };\n"
+        "io ionode;\n";
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1000, 600);
+    w->present();
+
+    pump(0.2);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    if (canvases.empty() || ed->visuals_.empty())
+    {
+        ok(false, "an editor with a canvas and a visual to probe with");
+        delete w;
+        return;
+    }
+
+    NodeCanvas *canvas = canvases[0];
+    const string visual = ed->visuals_.begin()->first;
+
+    const auto reopen = [&] ()
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << text;
+        out.close();
+
+        return ed->open(copy);
+    };
+
+    const auto box = [&] (const string &name)
+    {
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].name == name)
+                return (int)b;
+
+        return -1;
+    };
+
+    const auto port = [&] (int b, const string &name, bool in)
+    {
+        for (size_t k = 0; b >= 0 && k < ed->graph().boxes()[b].ports.size();
+             k++)
+            if (ed->graph().boxes()[b].ports[k].name == name &&
+                ed->graph().boxes()[b].ports[k].isInput == in)
+                return (int)k;
+
+        return -1;
+    };
+
+    const auto drag = [&] (const string &name, double dx, double dy)
+    {
+        const int b = box(name);
+        const double x = ed->graph().boxes()[b].x + 6;
+        const double y = ed->graph().boxes()[b].y + 6;
+
+        canvas->onPressed(1, x, y);
+        canvas->onMotion(x + dx, y + dy);
+        canvas->onReleased(1, x + dx, y + dy);
+    };
+
+    struct State {
+        string text;
+        NodeLayout::PosMap positions;
+    };
+
+    const auto now = [&] ()
+    {
+        State s;
+
+        s.text = ed->text();
+
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].attachedTo < 0)
+                s.positions[NodeLayout::keyFor(ed->graph(), (int)b)] =
+                    std::make_pair(ed->graph().boxes()[b].x,
+                                   ed->graph().boxes()[b].y);
+
+        return s;
+    };
+
+    const auto agrees = [&] ()
+    {
+        NodeGraph fresh;
+        thSynthTree *tree = synth.parseTreeText("undo", ed->text());
+        string why;
+        const bool good = tree != NULL && fresh.build(tree) &&
+                          graphsAgree(fresh, ed->graph(), why);
+
+        delete tree;
+
+        return good;
+    };
+
+    struct Case {
+        const char *what;
+        std::function<void ()> setup, edit;
+    };
+
+    const std::function<void ()> none = [] { };
+
+    const Case cases[] = {
+        { "a value typed", none,
+          [&] { ed->onParamEdited(box("osc"), "amp", 0.25); } },
+        { "a slider pressed", none, [&] {
+              double x0, x1, y, hx;
+              const int b = box("@lvl");
+
+              if (b >= 0 && ed->graph().sliderGeometry(b, x0, x1, y, hx))
+              {
+                  canvas->onPressed(1, x0 + (x1 - x0) * 0.875, y);
+                  canvas->onReleased(1, x0 + (x1 - x0) * 0.875, y);
+              } } },
+        { "a wire drawn", none, [&] {
+              const int a = box("lfo"), z = box("spare");
+
+              ed->onConnect(a, port(a, "out", false), z,
+                            port(z, "freq", true)); } },
+        { "a wire cut", none, [&] {
+              for (size_t e = 0; e < ed->graph().edges().size(); e++)
+                  if (ed->graph().boxes()[ed->graph().edges()[e].toBox]
+                          .name == "mix")
+                  {
+                      ed->onDisconnect((int)e);
+                      break;
+                  } } },
+        { "a node added", none, [&] { ed->onPaletteAdd("osc::simple"); } },
+        { "a node deleted", none, [&] {
+              canvas->setSelected(box("spare"));
+              ed->onDeleteNode(); } },
+        { "a box dragged", none, [&] { drag("osc", 40, 25); } },
+        { "an arrange", [&] { drag("osc", 300, 200); ed->onSave(); },
+          [&] { ed->onArrange(); } },
+        { "a probe armed", none,
+          [&] { ed->armProbe("lfo", "out", visual); } },
+        { "a probe disarmed", [&] {
+              ed->armProbe("lfo", "out", visual);
+              ed->onSave(); },
+          [&] {
+              for (size_t i = 0; i < ed->probes_.size(); i++)
+                  if (ed->probes_[i].node == "lfo")
+                      ed->disarmProbe(i); } },
+    };
+
+    for (const Case &c : cases)
+    {
+        if (!reopen())
+        {
+            ok(false, "the editor opens a graph to undo in");
+            break;
+        }
+
+        c.setup();
+
+        const State before = now();
+
+        c.edit();
+
+        const State after = now();
+
+        ed->onUndo();
+
+        const State undone = now();
+        const bool back = undone.text == before.text &&
+                          undone.positions == before.positions && agrees() &&
+                          !ed->dirty();
+
+        ed->onRedo();
+
+        const State redone = now();
+
+        ok(after.text != before.text && back &&
+           redone.text == after.text && redone.positions == after.positions &&
+           agrees(),
+           "%s: undone is the text and the places from before it, with "
+           "nothing to save, and redone those from after (changed %d, "
+           "undone %d, redone %d)", c.what, after.text != before.text, back,
+           redone.text == after.text && redone.positions == after.positions);
+    }
+
+    /* A panel's slider dragged through one arg is one step. */
+    reopen();
+
+    const string start = ed->text();
+
+    ed->onParamEdited(box("osc"), "amp", 0.3);
+    ed->onParamEdited(box("osc"), "amp", 0.4);
+    ed->onParamEdited(box("osc"), "amp", 0.5);
+    ed->onUndo();
+
+    ok(ed->text() == start && !ed->undoBtn_.get_sensitive(),
+       "one arg's value set over and over at once is one step");
+
+    /* A retarget -- a probe moved to another visual -- is one step. */
+    if (ed->visuals_.size() > 1)
+    {
+        reopen();
+        ed->armProbe("lfo", "out", visual);
+
+        const string armed = ed->text();
+
+        ed->armProbe("lfo", "out", std::next(ed->visuals_.begin())->first);
+        ed->onUndo();
+
+        ok(ed->text() == armed, "a probe moved to another visual is one "
+           "step");
+    }
+
+    /* An edit after an Undo leaves nothing to redo; opening a file starts
+       over; the buttons are what undo and redo. */
+    reopen();
+    ed->onParamEdited(box("osc"), "amp", 0.25);
+    ed->onUndo();
+    ed->onConnect(box("lfo"), port(box("lfo"), "out", false), box("spare"),
+                  port(box("spare"), "freq", true));
+
+    ok(!ed->redoBtn_.get_sensitive(), "an edit after an Undo leaves nothing "
+       "to redo");
+
+    reopen();
+
+    ok(!ed->undoBtn_.get_sensitive() && !ed->redoBtn_.get_sensitive(),
+       "opening a file starts the history over");
+
+    ed->onParamEdited(box("osc"), "amp", 0.25);
+    g_signal_emit_by_name(ed->undoBtn_.gobj(), "clicked");
+
+    const bool undid = ed->text() == text;
+
+    g_signal_emit_by_name(ed->redoBtn_.gobj(), "clicked");
+
+    ok(undid && ed->text() != text, "the Undo and Redo buttons undo and "
+       "redo");
+
+    delete w;
+
+    std::filesystem::remove(copy);
+}
+
+/* Undo, Redo and Revert put the running synth back as well as the text, on
+ * an editor attached to a channel the synth is playing: a control, a node's
+ * value, one element of an array -- which is every element -- and an arg of
+ * the io node. */
+void checkUndoLive (thSynth &synth)
+{
+    const int chan = 7;
+    const string copy = thUtil::tempFile("editorcheck-live-");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Live\";\n"
+               "@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n"
+               "@lvl.max = 1;\n"
+               "node ionode { channels = 1; mono = 0; out0 = mix->out; "
+               "play = env->play; };\n"
+               "node osc osc::simple { freq = ionode->note; amp = 1; "
+               "mul = @lvl; };\n"
+               "node tone[2] osc::simple { freq = ionode->note; amp = 1; };\n"
+               "node env env::adsr { trigger = ionode->trigger; };\n"
+               "node mix mixer::mul { in0 = osc->out; in1 = env->out; };\n"
+               "io ionode;\n";
+    }
+
+    if (synth.loadTree(copy, chan, 1.0f) == NULL)
+    {
+        ok(false, "the synth plays a graph on channel %d", chan + 1);
+        std::filesystem::remove(copy);
+        return;
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->present();
+
+    pump(0.2);
+
+    const auto control = [&] ()
+    {
+        thArg *a = synth.getChanArg(chan, "lvl");
+
+        return a ? (double)(*a)[0] : -1.0;
+    };
+
+    const auto value = [&] (const string &node, const string &arg)
+    {
+        thMidiChan *c = synth.getChannel(chan);
+        thNode *n = c && c->modnode() ? c->modnode()->findNode(node) : NULL;
+        thArg *a = n ? n->getArg(arg) : NULL;
+
+        return a ? (double)(*a)[0] : -1.0;
+    };
+
+    const auto boxOf = [&] (const string &name, bool sink)
+    {
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].name == name &&
+                (!sink || ed->graph().boxes()[b].isIoSink))
+                return (int)b;
+
+        return -1;
+    };
+
+    ok(ed->open(copy, chan), "an editor opens the graph channel %d plays",
+       chan + 1);
+
+    int lvl = -1;
+
+    for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+        if (ed->graph().boxes()[b].isControl &&
+            ed->graph().boxes()[b].ctlArg == "lvl")
+            lvl = (int)b;
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    /* The slider pressed and let go, as a hand would. */
+    const auto slide = [&] (double along)
+    {
+        double x0, x1, y, hx;
+
+        if (canvases.empty() || lvl < 0 ||
+            !ed->graph().sliderGeometry(lvl, x0, x1, y, hx))
+            return;
+
+        canvases[0]->onPressed(1, x0 + (x1 - x0) * along, y);
+        canvases[0]->onReleased(1, x0 + (x1 - x0) * along, y);
+    };
+
+    slide(0.9);
+
+    const bool slid = control() > 0.8;
+
+    ed->onUndo();
+
+    ok(slid && (float)control() == 0.5f,
+       "a control undone is put back in the running synth (%g)", control());
+
+    ed->onParamEdited(boxOf("osc", false), "amp", 0.25);
+
+    const bool set = (float)value("osc", "amp") == 0.25f;
+
+    ed->onUndo();
+
+    ok(set && value("osc", "amp") == 1,
+       "a node's value undone is put back (%g)", value("osc", "amp"));
+
+    ed->onParamEdited(boxOf("tone[1]", false), "amp", 0.5);
+
+    const bool both = (float)value("tone[0]", "amp") == 0.5f &&
+                      (float)value("tone[1]", "amp") == 0.5f;
+
+    ed->onUndo();
+
+    ok(both && value("tone[0]", "amp") == 1 && value("tone[1]", "amp") == 1,
+       "one element of an array set is every element's, and so is its "
+       "Undo (%g, %g)", value("tone[0]", "amp"), value("tone[1]", "amp"));
+
+    ed->onParamEdited(boxOf("ionode", true), "mono", 1);
+
+    const bool mono = value("ionode", "mono") == 1;
+
+    ed->onUndo();
+
+    ok(mono && value("ionode", "mono") == 0,
+       "an arg of the io node undone is put back (%g)",
+       value("ionode", "mono"));
+
+    ed->onRedo();
+
+    ok(value("ionode", "mono") == 1, "and redone, set again");
+
+    slide(0.2);
+    ed->onRevert();
+
+    ok((float)control() == 0.5f,
+       "Revert puts the running synth back too (%g)", control());
+
+    /* A value pushed live on a node since deleted: Revert brings the node
+       back, and its value with it. */
+    ed->onParamEdited(boxOf("osc", false), "amp", 0.25);
+    if (!canvases.empty())
+        canvases[0]->setSelected(boxOf("osc", false));
+
+    ed->onDeleteNode();
+    ed->onRevert();
+
+    ok(value("osc", "amp") == 1,
+       "and a value set on a node deleted since (%g)", value("osc", "amp"));
+
+    delete w;
+
+    synth.removeChan(chan);
+    std::filesystem::remove(copy);
+}
+
 /* Seeded runs of random edits through the editor's handlers and gestures,
  * over the corpus. After every edit, two things hold:
  *
@@ -2770,6 +3196,8 @@ int run (const string &pluginPath, const char *file)
     checkValueCommit(synth);
     checkFailedReparse(synth, file);
     checkRandomEdits(synth, pluginPath);
+    checkUndo(synth);
+    checkUndoLive(synth);
     checkSaveCorpus(synth, pluginPath);
     checkNodePanel(synth, file);
     checkEffectPanel(synth, pluginPath);
