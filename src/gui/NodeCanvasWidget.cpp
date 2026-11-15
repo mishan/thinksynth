@@ -37,6 +37,12 @@ NodeCanvasWidget::NodeCanvasWidget (void)
         sigc::mem_fun(*this, &NodeCanvas::onReleased));
     add_controller(click_);
 
+    /* So the editor's keys -- Ctrl+Z -- go to the graph clicked on, not to
+       whatever had the focus before. */
+    set_focusable(true);
+    click_->signal_pressed().connect(
+        [this] (int, double, double) { grab_focus(); });
+
     /* A second gesture rather than widening the first: GestureClick
        filters by button, and asking one controller for both would mean
        every left-drag path testing which button it was. */

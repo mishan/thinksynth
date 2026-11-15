@@ -130,7 +130,7 @@ protected:
 
     void emitEdit (const string &row, const string &valueText);
 
-    void onAdjust (size_t at);
+    void onAdjust (size_t at, Gtk::Adjustment *from);
     void onChoice (size_t at);
     void onEntry (size_t at);
     void onToggle (size_t at);

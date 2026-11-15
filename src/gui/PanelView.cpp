@@ -503,7 +503,8 @@ Gtk::Widget *PanelView::makeSlider (size_t at, Gtk::Label &label)
     bound.adjust->set_value(row.value);
 
     bound.adjust->signal_value_changed().connect(
-        sigc::bind(sigc::mem_fun(*this, &PanelView::onAdjust), at));
+        sigc::bind(sigc::mem_fun(*this, &PanelView::onAdjust), at,
+                   bound.adjust.get()));
 
     box->append(*slider);
     box->append(*valEntry);
@@ -540,7 +541,8 @@ Gtk::Widget *PanelView::makeNumber (size_t at)
     bound.adjust->set_value(row.value);
 
     bound.adjust->signal_value_changed().connect(
-        sigc::bind(sigc::mem_fun(*this, &PanelView::onAdjust), at));
+        sigc::bind(sigc::mem_fun(*this, &PanelView::onAdjust), at,
+                   bound.adjust.get()));
 
     return valEntry;
 }
@@ -703,8 +705,14 @@ void PanelView::emitEdit (const string &row, const string &valueText)
  * rather than a rounding of something finer -- and the provider parses the
  * same characters a person would have typed into the box. One spelling, one
  * value, whichever of the two the control was moved by. */
-void PanelView::onAdjust (size_t at)
+/* `from' may be a box from a panel since replaced: one with the focus,
+   taken out, still commits what was typed into it when the focus moves on,
+   and its row is no longer `at'. */
+void PanelView::onAdjust (size_t at, Gtk::Adjustment *from)
 {
+    if (at >= bound_.size() || bound_[at].adjust.get() != from)
+        return;
+
     Bound &b = bound_[at];
 
     const double now = b.adjust->get_value();
