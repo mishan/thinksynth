@@ -1953,6 +1953,40 @@ void checkUndo (thSynth &synth)
     ok(undid && ed->text() != text, "the Undo and Redo buttons undo and "
        "redo");
 
+    /* A probe's panel selected when a Revert takes the probe away: the
+       panels go before the reparse that keeps the selection, which then must
+       not read past them. An editor of its own, with no probe from before. */
+    {
+        TestEditor *pe = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *pw = new Gtk::Window();
+
+        pw->set_child(*pe);
+        pw->present();
+        pump(0.05);
+
+        std::vector<NodeCanvasWidget *> pc;
+
+        collectWidgets(pe, pc);
+        reopen();
+
+        const bool armed = !pc.empty() && pe->open(copy) &&
+                           pe->armProbe("lfo", "out", visual);
+
+        for (size_t b = 0; armed && b < pe->graph().boxes().size(); b++)
+            if (pe->graph().boxes()[b].isProbe)
+                pc[0]->setSelected((int)b);
+
+        if (armed)
+            pe->onRevert();
+
+        ok(armed && pc[0]->selected() < (int)pe->graph().boxes().size() &&
+           pe->probes_.empty(),
+           "Revert with a probe's panel selected takes the probe away and "
+           "selects nothing past the end of the graph");
+
+        delete pw;
+    }
+
     /* Revert is a step: an accidental one is one Undo away. */
     reopen();
     ed->onParamEdited(box("osc"), "amp", 0.25);

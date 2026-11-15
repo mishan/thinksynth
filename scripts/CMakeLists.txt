@@ -609,6 +609,10 @@ if(THINK_GUI)
                       "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
   target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
+  # An index past the end of one of the editor's vectors -- a selection kept
+  # across a reparse that took boxes away -- reads quietly; libstdc++'s
+  # checked operator[] aborts on it.
+  target_compile_definitions(editorcheck PRIVATE _GLIBCXX_ASSERTIONS)
 
   # The composer window, driven the way editorcheck drives the node editor.
   # Its own harness rather than more EXTRA on that one: the two share no code

@@ -1916,7 +1916,11 @@ bool NodeEditor::reloadAfter (const string &was)
 
 bool NodeEditor::reloadKeepingSelection (const NodeLayout::PosMap *carry)
 {
-    const int sel = canvas_.selected();
+    /* Bounded: an Undo or a Revert that takes probes away removes their
+       panels, from the end of the boxes, before this runs -- and one of them
+       may be what is selected. */
+    const int sel = canvas_.selected() < (int)graph_.boxes().size()
+                    ? canvas_.selected() : -1;
     const string name = sel >= 0 ? graph_.boxes()[sel].name : string();
 
     if (!reload(carry))
