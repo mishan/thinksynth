@@ -1953,6 +1953,60 @@ void checkUndo (thSynth &synth)
     ok(undid && ed->text() != text, "the Undo and Redo buttons undo and "
        "redo");
 
+    /* Revert is a step: an accidental one is one Undo away. */
+    reopen();
+    ed->onParamEdited(box("osc"), "amp", 0.25);
+
+    const string edited = ed->text();
+
+    ed->onRevert();
+
+    const bool reverted = ed->text() == text && !ed->dirty();
+
+    ed->onUndo();
+
+    const bool unreverted = ed->text() == edited && ed->dirty();
+
+    ed->onRedo();
+
+    ok(reverted && unreverted && ed->text() == text && !ed->dirty(),
+       "Revert is a step: undone, the edits are back and unsaved; redone, "
+       "the file again (%d %d)", reverted, unreverted);
+
+    /* What is on disk is what Revert goes back to, and a file that will not
+       parse any more is no reason to lose what is on screen. */
+    ed->onParamEdited(box("osc"), "amp", 0.25);
+
+    const string kept = ed->text();
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "not a graph\n";
+    }
+
+    ed->onRevert();
+
+    ok(ed->text() == kept && ed->dirty(),
+       "Revert to a file that no longer parses changes nothing");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << text << "# changed on disk\n";
+    }
+
+    ed->onRevert();
+
+    ok(ed->text() == text + "# changed on disk\n" && !ed->dirty(),
+       "and to one changed on disk since, takes it as the file");
+
+    ed->onUndo();
+
+    ok(ed->text() == kept && ed->dirty(),
+       "and undone, what was on screen is back, unsaved against the file "
+       "as it is now");
+
     delete w;
 
     std::filesystem::remove(copy);
