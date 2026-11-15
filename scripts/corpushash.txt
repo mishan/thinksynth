@@ -124,7 +124,7 @@ d7723199aeb1773d  snare808.dsp
 9f24f6aedc07fdbd  speak.dsp
 a0299c973f28af8d  spectral.dsp
 f3026ce10e3b8c0d  stab.dsp
-6752c2bf613be57d  strings.dsp
+2c28be4c1e8f04a5  strings.dsp
 7e0121859dfdcc6d  stylophone.dsp
 e7d48243ce2f7d95  sub.dsp
 266deb6700ae480d  supersaw.dsp
