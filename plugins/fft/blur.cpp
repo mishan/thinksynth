@@ -242,9 +242,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
                 mag[k] = sqrtf(m2);
                 level[k] = s < 1e-30f ? 0 : s;
-                if (level[k] > THK_STFT_PLAY_FLOOR * (float)n / 4)
-                    hold = hold > n ? hold : n;
             }
+            if (thkStftHeard(level, n))
+                hold = hold > n ? hold : n;
             for (int k = 0; k <= n / 2; k++)
             {
                 const float mk = mag[k], s = level[k];

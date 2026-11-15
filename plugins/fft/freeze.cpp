@@ -108,7 +108,7 @@ enum {
     S_RINGPOS, S_STAGE, S_G, S_N, S_HOPPOS, S_FRAME, S_HIGH,
     S_WAIT,         /* samples before another capture may start */
     S_ARMED,        /* a rise while dry, not yet captured */
-    S_LOUD,         /* what is held is over THK_STFT_PLAY_FLOOR */
+    S_LOUD,         /* what is held is heard, by thkStftHeard */
     S_SCALARS,
     S_RING = S_SCALARS,
     S_ACC = S_RING + RING,
@@ -278,7 +278,6 @@ static void capture (float *st, int n)
 
     analyze(st, n, n / 4, pr, pi);      /* B, held in the phasors for now */
     analyze(st, n, 0, ar, ai);          /* A */
-    st[S_LOUD] = 0;
     for (int k = 0; k <= n / 2; k++)
     {
         const float m = sqrtf(ar[k] * ar[k] + ai[k] * ai[k]);
@@ -287,14 +286,13 @@ static void capture (float *st, int n)
         const float d = sqrtf(cr * cr + ci * ci);
 
         mag[k] = m < 1e-30f ? 0 : m;
-        if (m > THK_STFT_PLAY_FLOOR * (float)n / 4)
-            st[S_LOUD] = 1;
         zr[k] = d > 0 ? cr / d : 1;
         zi[k] = d > 0 ? ci / d : 0;
         pr[k] = m > 0 ? ar[k] / m : 1;
         pi[k] = m > 0 ? ai[k] / m : 0;
     }
     memset(st + S_ACC, 0, MAXN * sizeof(float));
+    st[S_LOUD] = thkStftHeard(mag, n) ? 1 : 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,

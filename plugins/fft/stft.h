@@ -46,9 +46,26 @@
 #include "fft.h"
 
 /* Under this a node's sound is over, for its `play': the floor the modal
-   resonators' `play' uses. A sine of this amplitude has a frame's loudest
-   bin at THK_STFT_PLAY_FLOOR n / 4 under a periodic Hann window. */
+   resonators' `play' uses. */
 #define THK_STFT_PLAY_FLOOR 1e-4f
+
+/* Whether a frame of magnitudes `mag', n/2 + 1 of them, is still heard:
+   its sound's RMS over a quarter of the floor, where noise's peaks reach
+   it. The RMS is the frame's, by Parseval, over the periodic Hann's power,
+   3n/8 -- the sum, not the loudest bin, since noise or a scattered tail
+   can sit under the floor in every bin and be heard in all of them. */
+static inline bool thkStftHeard (const float *mag, int n)
+{
+    float e = mag[0] * mag[0] + mag[n / 2] * mag[n / 2];
+
+    for (int k = 1; k < n / 2; k++)
+        e += 2 * mag[k] * mag[k];
+
+    const float rms2 = e / (float)n * 8 / (3 * (float)n);
+    const float q = THK_STFT_PLAY_FLOOR / 4;
+
+    return rms2 > q * q;
+}
 
 /* `size' to the power of two nearest it in octaves, 256 to THK_FFT_MAX;
    0 or not a number is 2048. */
