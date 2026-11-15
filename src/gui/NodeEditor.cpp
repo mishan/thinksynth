@@ -752,6 +752,19 @@ bool NodeEditor::open (const string &filename, int chan)
     const string prevSource = source_;
     const int prevChannel = channel_;
 
+    /* reload reads a file's probes only when none are armed. Put back as they
+       are if this one does not open: a probe whose node is gone is in no
+       text to read them back from. */
+    vector<Probe> armed = probes_;
+
+    for (Probe &p : armed)
+    {
+        p.inst = NULL;
+        p.slot = -1;
+    }
+
+    disarmAllProbes();
+
     text_ = text;
     source_ = filename;
     channel_ = chan;
@@ -762,6 +775,10 @@ bool NodeEditor::open (const string &filename, int chan)
         source_ = prevSource;
         channel_ = prevChannel;
         inlineSave_ = prevSave;
+
+        probes_ = armed;
+        reapplyProbes();
+
         return false;
     }
 

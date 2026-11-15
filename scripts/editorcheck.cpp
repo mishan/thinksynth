@@ -134,6 +134,7 @@ public:
     using NodeEditor::armProbe;
     using NodeEditor::disarmProbe;
     using NodeEditor::probes_;
+    using NodeEditor::status;
     using NodeEditor::visuals_;
     using NodeEditor::disarmAllProbes;
     using NodeEditor::graph;
@@ -1985,6 +1986,46 @@ void checkUndo (thSynth &synth)
            "selects nothing past the end of the graph");
 
         delete pw;
+    }
+
+    /* A file opened is its own probes, not the last one's -- and one that
+       does not open leaves the last one as it was. */
+    {
+        const auto panels = [&] ()
+        {
+            int n = 0;
+
+            for (const NodeGraph::Box &b : ed->graph().boxes())
+                n += b.isProbe;
+
+            return n;
+        };
+
+        reopen();
+        ed->armProbe("lfo", "out", visual);
+
+        const string bad = copy + ".bad.dsp";
+
+        ofstream(bad.c_str()) << "node {";
+
+        const bool kept = !ed->open(bad) && ed->probes_.size() == 1 &&
+                          panels() == 1;
+
+        ok(kept && ed->status().find("Could not parse") == 0,
+           "a file that does not parse leaves the probe on screen, and says "
+           "it did not parse");
+
+        canvas->setSelected(box("lfo"));
+        ed->onDeleteNode();
+        drag("osc", 40, 25);
+        ed->open(bad);
+        ::remove(bad.c_str());
+        ok(ed->probes_.size() == 1 && panels() == 0,
+           "...and a probe whose node is gone, and so not in the text, armed");
+
+        reopen();
+        ok(ed->probes_.empty() && panels() == 0,
+           "opening a file without a probe drops the one armed before");
     }
 
     /* Revert is a step: an accidental one is one Undo away. */
