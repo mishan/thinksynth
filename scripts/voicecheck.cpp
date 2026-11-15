@@ -1813,6 +1813,68 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- a voice whose play follows fft::blur lives as long as its tail ----
+
+       A note of a tenth of a second, under a half-second blur. Played by
+       its envelope alone the voice is retired with the envelope and the
+       blurred tail is cut; with the blur's `play' in it, the tail is
+       heard after the envelope ends, and the voice is still retired
+       once it is over. */
+    for (int follows = 0; follows < 2; follows++)
+    {
+        const string text = string("name \"Tail\";\n"
+            "node ionode { channels = 1; out0 = bl->out; play = ") +
+            (follows ? "max(env->play, bl->play)" : "env->play") + "; };\n"
+            "node freq misc::midi2freq { note = ionode->note; };\n"
+            "node osc osc::simple { freq = freq->out; };\n"
+            "node env env::adsr { a = 1 ms; d = 50 ms; s = 0; r = 70 ms; "
+            "trigger = ionode->trigger; };\n"
+            "node vca mixer::mul { in0 = osc->out; in1 = env->out; };\n"
+            "node bl fft::blur { in = vca->out; size = 512; blur = 22050; mix = 1; };\n"
+            "io ionode;\n";
+        Session s(pluginPath);
+
+        if (!writeFile(file, text) || !s.load(file))
+        {
+            fail("a blurred voice loads", "");
+            continue;
+        }
+
+        const int len = s.synth.getWindowlen();
+        const int second = rate / len;
+        int alive = 0;
+        double late = 0;
+
+        s.synth.addNote(0, 60, 100);
+        s.run(second / 10);
+        s.synth.delNote(0, 60);
+        s.take();
+        for (int w = 0; w < 10 * second; w++)
+        {
+            s.run(1);
+
+            const vector<float> got = s.take();
+
+            if (s.synth.getChannel(0)->getNote(60) != NULL)
+                alive = w + 1;
+            if (w >= second / 2 && w < second)
+                late = std::max(late, rms(got));
+        }
+
+        const double lived = (double)alive / second;
+
+        if (follows)
+            okOrFail(late > 1e-3 && alive < 10 * second,
+                     "a voice with fft::blur's play in it rings out its tail, then ends",
+                     "RMS " + num(late) + " half a second after the key, retired after " +
+                         num(lived) + " s");
+        else
+            okOrFail(late == 0 && lived < 0.5,
+                     "and played by its envelope alone, the tail is cut",
+                     "RMS " + num(late) + " half a second after the key, retired after " +
+                         num(lived) + " s");
+    }
+
     /* A silent synth renders nothing, but what a command displaces is
        still handed back: the web page's mirror is silent for good. */
     if (writeFile(file, graph("", "freq->out", "")))
