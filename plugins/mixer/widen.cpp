@@ -53,6 +53,10 @@
  * The allpasses' lengths are fixed: a length that followed a knob would need
  * its line emptied on every move.
  *
+ * COST: about 9 ns a sample a voice on a desktop x86-64 (dspbench, 16
+ * voices of a unison lead), against 11 for one delay::chorus and 1.5 for
+ * mixer::pan -- 0.04% of a core a voice at 44.1 kHz.
+ *
  * Silence in for a quarter of a second empties the lines, and a silent
  * window after that costs nothing. A non-finite input is a 0, as filt::eq
  * takes one; a NaN `width' is 0, which is mono.
