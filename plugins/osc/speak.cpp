@@ -78,7 +78,7 @@
  * harmonics go down by half of it, a loud one's up by half. `ring' is the
  * singer's formant, a boost of that many decibels around 3 kHz.
  * `sibilance' turns the hiss of the sibilants up or down by decibels: the
- * table's are set for speech, and a singer's sit well under the vowel.
+ * table's levels are for speech, and a singer's sit well under the vowel.
  */
 
 #include <stdio.h>
@@ -224,6 +224,8 @@ struct Segment
     float dur;              /* ms */
     bool  hold;             /* the nucleus: held while the key is down */
     bool  sib = false;      /* the hiss of S, Z, SH, ZH, CH or JH */
+    bool  fade = false;     /* S, Z, SH, ZH: turned down, it comes in slowly;
+                               CH and JH keep their sharp rise or are SH */
 };
 
 #define MAX_SEGMENTS (3 * TH_NOTE_SAY + 1)
@@ -301,6 +303,7 @@ static int segments (const int *codes, int n, Segment *out)
                 s->dur = p.dur;
                 s->hold = hold;
                 s->sib = p.name[0] == 'S' || p.name[0] == 'Z';
+                s->fade = s->sib;
                 count++;
                 break;
 
@@ -722,8 +725,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
 
         /* A sung sibilant sits far under its vowel, and one that starts
-           at full strength is a spit: turned down, it also comes in over
-           SIB_ONSET_MS rather than the gains' few. */
+           at full strength is a spit: turned down, S, Z, SH and ZH also
+           come in over SIB_ONSET_MS rather than the gains' few. */
         const float sibilance = thClampArg((*in_sibilance)[i], -40, 12);
         const bool sib = sibilance != 0 && seg < count && segs[seg].sib;
 
@@ -737,7 +740,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             const float d = target[k] - st[S_GLIDE + k];
             const float g = k <= P_B3 ? formantK
-                          : sib && sibilance < 0 && k == P_AF && d > 0
+                          : sib && sibilance < 0 && segs[seg].fade &&
+                            k == P_AF && d > 0
                           ? onsetK : gainK;
 
             if (fabsf(d) < 1e-6f)

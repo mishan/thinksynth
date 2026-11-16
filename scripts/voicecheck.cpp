@@ -870,20 +870,21 @@ int main (int argc, char **argv)
         /* S AA, with `sibilance' unwired and at -12: -12 takes the S's
            4-10 kHz down by 12 dB from 50 ms in, leaves the vowel after it
            alone, and fades the S in, so that its first 12 ms are at least
-           6 dB further down still. */
+           6 dB further down still. CH AA's hiss is turned down as much but
+           keeps its sharp rise after the 140 ms closure, or it is SH. */
         {
-            const unsigned char saa[] = { 31, 1, 0 };
+            const unsigned char saa[] = { 31, 1, 0 }, chaa[] = { 17, 1, 0 };
             const char *const sibilance[] = { "", "-12" };
-            vector<float> got[2];
+            vector<float> got[2], ch[2];
 
-            for (int k = 0; k < 2; k++)
+            for (int k = 0; k < 4; k++)
             {
                 string g = speakGraph("");
                 const string at = "    trigger = ionode->trigger;\n";
 
-                if (*sibilance[k])
+                if (*sibilance[k % 2])
                     g.insert(g.find(at) + at.size(),
-                             string("    sibilance = ") + sibilance[k] +
+                             string("    sibilance = ") + sibilance[k % 2] +
                              ";\n");
 
                 thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
@@ -895,8 +896,8 @@ int main (int argc, char **argv)
                     break;
                 }
 
-                synth.addNote(0, 45, 100, 1, NULL, saa);
-                listen(synth, windows / 2, got[k]);
+                synth.addNote(0, 45, 100, 1, NULL, k < 2 ? saa : chaa);
+                listen(synth, windows / 2, k < 2 ? got[k] : ch[k - 2]);
             }
 
             auto band = [&](const vector<float> &v, size_t from, double lo,
@@ -927,6 +928,18 @@ int main (int argc, char **argv)
                      "osc::speak: `sibilance' -12 fades an S in",
                      "the first 12 ms " + num(onset) + " dB, from 50 ms " +
                      num(hiss) + " dB");
+
+            const size_t burst = TH_DEFAULT_SAMPLES * 140 / 1000;
+            const double chHiss = band(ch[1], burst + 1024, 4000, 10000) -
+                                  band(ch[0], burst + 1024, 4000, 10000);
+            const double chOnset = band(ch[1], burst, 4000, 10000, 512) -
+                                   band(ch[0], burst, 4000, 10000, 512);
+
+            okOrFail(chHiss < -9 && fabs(chOnset - chHiss) < 3,
+                     "osc::speak: `sibilance' -12 turns a CH down and keeps "
+                     "its sharp rise",
+                     "the first 12 ms " + num(chOnset) + " dB, from 23 ms " +
+                     num(chHiss) + " dB");
         }
 
         /* A mono slide moves the words on without starting the voice
