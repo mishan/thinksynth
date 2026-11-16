@@ -3249,8 +3249,10 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
         btn->signal_clicked().connect([this, key]() {
             ctxPopover_.popdown();
 
+            /* A control drawn on its node is attached and deletable; a
+               probe's panel, which shares its host's name, is neither. */
             for (int i = 0; i < (int)graph_.boxes().size(); i++)
-                if (graph_.boxes()[i].attachedTo < 0 &&
+                if (!graph_.boxes()[i].isProbe &&
                     NodeLayout::keyFor(graph_, i) == key)
                 {
                     if (!canvas_.isSelected(i))

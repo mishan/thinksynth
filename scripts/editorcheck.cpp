@@ -2968,8 +2968,9 @@ void checkWires (thSynth &synth)
     const string copy = thUtil::tempFile("editorcheck-wires-");
     const string text =
         "name \"Wires\";\n"
+        "@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n"
         "node ionode { channels = 1; out0 = mix->out; play = env->play; };\n"
-        "node a osc::simple { freq = 1; };\n"
+        "node a osc::simple { freq = 1; mul = @lvl; };\n"
         "node b osc::simple { freq = 2; };\n"
         "node env env::adsr { trigger = ionode->trigger; };\n"
         "node mix mixer::mul { in0 = a->out; in1 = env->out; };\n"
@@ -3016,9 +3017,14 @@ void checkWires (thSynth &synth)
     NodeCanvasWidget *canvas = canvases[0];
     using K = CanvasContent;
 
+    /* By name, controls too, which boxByName does not look at. */
     const auto box = [&] (const string &name)
     {
-        return ed->graph().boxByName(name);
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].name == name)
+                return (int)b;
+
+        return -1;
     };
 
     /* The wire into mix.in0, and the middle of its curve. */
@@ -3120,6 +3126,24 @@ void checkWires (thSynth &synth)
     ok(del != NULL && box("b") < 0 && box("a") >= 0,
        "a right-click on a box offers to delete it, and deletes that box, "
        "not the one selected");
+
+    /* A control drawn as a strip on its node: its menu's Delete too. */
+    reopen();
+    pump(0.05);
+
+    {
+        const NodeGraph::Box &strip = ed->graph().boxes()[box("@lvl")];
+
+        canvas->onRightPressed(1, strip.x + 4, strip.y + 4);
+    }
+
+    Gtk::Button *delCtl = menuButton("Delete @lvl");
+
+    if (delCtl != NULL)
+        g_signal_emit_by_name(delCtl->gobj(), "clicked");
+
+    ok(delCtl != NULL && box("@lvl") < 0,
+       "...and a control on its node, its strip right-clicked");
 
     ed->ctxPopover_.popdown();
     delete w;
