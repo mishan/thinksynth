@@ -77,6 +77,8 @@
  * following `effort', how hard the voice is pushed: a soft note's upper
  * harmonics go down by half of it, a loud one's up by half. `ring' is the
  * singer's formant, a boost of that many decibels around 3 kHz.
+ * `sibilance' turns the hiss of the sibilants up or down by decibels: the
+ * table's are set for speech, and a singer's sit well under the vowel.
  */
 
 #include <stdio.h>
@@ -96,7 +98,7 @@
 
 enum {IN_FREQ, IN_SAY, IN_TRIGGER, IN_RATE, IN_SHIFT, IN_BUZZ, IN_BREATH,
       IN_SOURCE, IN_TALK, IN_JITTER, IN_SHIMMER, IN_TRACK, IN_TILT, IN_EFFORT,
-      IN_RING, OUT_ARG, OUT_PLAY, INOUT_STATE};
+      IN_RING, IN_SIBILANCE, OUT_ARG, OUT_PLAY, INOUT_STATE};
 
 std::atomic<int> args[INOUT_STATE + 1];
 
@@ -213,6 +215,7 @@ enum { P_F1, P_F2, P_F3, P_B1, P_B2, P_B3, P_AV, P_AH, P_AF, P_A2, P_A3, P_A4,
    over in ten. */
 #define FORMANT_GLIDE_MS 12.0f
 #define GAIN_GLIDE_MS     3.0f
+#define SIB_ONSET_MS     20.0f
 
 /* A segment: one target held for a time. A phoneme is one or more. */
 struct Segment
@@ -220,6 +223,7 @@ struct Segment
     float target[P_COUNT];
     float dur;              /* ms */
     bool  hold;             /* the nucleus: held while the key is down */
+    bool  sib = false;      /* the hiss of S, Z, SH, ZH, CH or JH */
 };
 
 #define MAX_SEGMENTS (3 * TH_NOTE_SAY + 1)
@@ -296,6 +300,7 @@ static int segments (const int *codes, int n, Segment *out)
                 fromRow(p, s->target);
                 s->dur = p.dur;
                 s->hold = hold;
+                s->sib = p.name[0] == 'S' || p.name[0] == 'Z';
                 count++;
                 break;
 
@@ -343,6 +348,7 @@ static int segments (const int *codes, int n, Segment *out)
                     fromRow(table[p.fric - 1], b->target);
                     b->target[P_AV] = p.voiced ? p.av : 0;
                     b->dur = table[p.fric - 1].dur * 0.8f;
+                    b->sib = true;
                 }
                 else
                 {
@@ -546,6 +552,12 @@ int module_init (thPlugin *plugin)
                        "formant, which carries over an orchestra");
     plugin->setArgRange(args[IN_RING], 0, 12);
     plugin->setArgUnits(args[IN_RING], "dB");
+    args[IN_SIBILANCE] = plugin->regArg("sibilance", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SIBILANCE],
+                       "The hiss of S, Z, SH, ZH and of CH and JH, against "
+                       "the rest; under 0 it also fades in");
+    plugin->setArgRange(args[IN_SIBILANCE], -40, 12);
+    plugin->setArgUnits(args[IN_SIBILANCE], "dB");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "The voice");
@@ -610,6 +622,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_tilt = mod->getArg(node, args[IN_TILT]);
     thArg *in_effort = mod->getArg(node, args[IN_EFFORT]);
     thArg *in_ring = mod->getArg(node, args[IN_RING]);
+    thArg *in_sibilance = mod->getArg(node, args[IN_SIBILANCE]);
     thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
 
     float st[S_LEN];
@@ -665,6 +678,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     const float formantK = 1 - expf(-1000 / (FORMANT_GLIDE_MS * rate));
     const float gainK = 1 - expf(-1000 / (GAIN_GLIDE_MS * rate));
+    const float onsetK = 1 - expf(-1000 / (SIB_ONSET_MS * rate));
     const float hushK = 1 - expf(-2 * (float)M_PI * 9000 / rate);
     const float tiltK = 1 - expf(-2 * (float)M_PI * TILT_HZ / rate);
 
@@ -707,13 +721,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             st[S_TAIL] += 1;
         }
 
+        /* A sung sibilant sits far under its vowel, and one that starts
+           at full strength is a spit: turned down, it also comes in over
+           SIB_ONSET_MS rather than the gains' few. */
+        const float sibilance = thClampArg((*in_sibilance)[i], -40, 12);
+        const bool sib = sibilance != 0 && seg < count && segs[seg].sib;
+
+        if (sib)
+            target[P_AF] *= expf(sibilance * DB_TO_LN);
+
         /* Landed once within a millionth: a gain gliding to 0 would
            otherwise sink into denormals and stay there, which costs a
            voice half as much again for the rest of its vowel. */
         for (int k = 0; k < P_COUNT; k++)
         {
-            const float g = k <= P_B3 ? formantK : gainK;
             const float d = target[k] - st[S_GLIDE + k];
+            const float g = k <= P_B3 ? formantK
+                          : sib && sibilance < 0 && k == P_AF && d > 0
+                          ? onsetK : gainK;
 
             if (fabsf(d) < 1e-6f)
                 st[S_GLIDE + k] = target[k];

@@ -1435,6 +1435,7 @@ Speech (formant synthesizer, ARPAbet)
 | `tilt` | in | How much brighter the glottal source's upper harmonics are at `effort' 1 than at 0; an unwired `effort' is 0, the darkest |  | 0 to 24 | dB |  |
 | `effort` | in | How hard the voice is pushed, for `tilt': 0 soft and dark, 0.5 the plain source, 1 loud and bright |  | 0 to 1 |  |  |
 | `ring` | in | A boost around 3 kHz on the voice: the singer's formant, which carries over an orchestra |  | 0 to 12 | dB |  |
+| `sibilance` | in | The hiss of S, Z, SH, ZH and of CH and JH, against the rest; under 0 it also fades in |  | -40 to 12 | dB |  |
 | `out` | out | The voice |  | -1 to 1 | full scale |  |
 | `play` | out | 1 until the last phoneme has been said |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |

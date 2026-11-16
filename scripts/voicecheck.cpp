@@ -867,6 +867,68 @@ int main (int argc, char **argv)
             }
         }
 
+        /* S AA, with `sibilance' unwired and at -12: -12 takes the S's
+           4-10 kHz down by 12 dB from 50 ms in, leaves the vowel after it
+           alone, and fades the S in, so that its first 12 ms are at least
+           6 dB further down still. */
+        {
+            const unsigned char saa[] = { 31, 1, 0 };
+            const char *const sibilance[] = { "", "-12" };
+            vector<float> got[2];
+
+            for (int k = 0; k < 2; k++)
+            {
+                string g = speakGraph("");
+                const string at = "    trigger = ionode->trigger;\n";
+
+                if (*sibilance[k])
+                    g.insert(g.find(at) + at.size(),
+                             string("    sibilance = ") + sibilance[k] +
+                             ";\n");
+
+                thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                              TH_DEFAULT_SAMPLES);
+
+                if (!writeFile(file, g) || synth.loadTree(file, 0, 100) == NULL)
+                {
+                    fail("a graph on osc::speak loads", "");
+                    break;
+                }
+
+                synth.addNote(0, 45, 100, 1, NULL, saa);
+                listen(synth, windows / 2, got[k]);
+            }
+
+            auto band = [&](const vector<float> &v, size_t from, double lo,
+                            double hi, size_t n = 2048) {
+                double e = 0;
+
+                for (double hz = lo; hz < hi; hz += f0)
+                    e += pow(harmonic(v, from, n, hz), 2);
+
+                return 10 * log10(e > 0 ? e : 1e-30);
+            };
+            const size_t s = TH_DEFAULT_SAMPLES / 20;
+            const size_t vowel = TH_DEFAULT_SAMPLES / 4;
+
+            const double hiss = band(got[1], s, 4000, 10000) -
+                                band(got[0], s, 4000, 10000);
+            const double onset = band(got[1], 0, 4000, 10000, 512) -
+                                 band(got[0], 0, 4000, 10000, 512);
+            const double aa = band(got[1], vowel, f0, 4000) -
+                              band(got[0], vowel, f0, 4000);
+
+            okOrFail(fabs(hiss + 12) < 1.5 && fabs(aa) < 0.1,
+                     "osc::speak: `sibilance' -12 takes an S down 12 dB and "
+                     "leaves its vowel",
+                     "S at 4-10 kHz " + num(hiss) + " dB, AA " + num(aa) +
+                     " dB");
+            okOrFail(onset < hiss - 6,
+                     "osc::speak: `sibilance' -12 fades an S in",
+                     "the first 12 ms " + num(onset) + " dB, from 50 ms " +
+                     num(hiss) + " dB");
+        }
+
         /* A mono slide moves the words on without starting the voice
            again: AA slid onto IY is IY a tenth of a second later, and S AA
            slid onto S AA -- the same words, la la -- says its S again. */
