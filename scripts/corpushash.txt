@@ -114,8 +114,10 @@ c22e14805d1e7605  rpiano1.dsp
 c74b47c8c74a2325  sampled_bassoon.dsp
 c74b47c8c74a2325  sampled_cellos.dsp
 c74b47c8c74a2325  sampled_clarinet.dsp
+c74b47c8c74a2325  sampled_contrabass.dsp
 c74b47c8c74a2325  sampled_drums.dsp
 c74b47c8c74a2325  sampled_flute.dsp
+c74b47c8c74a2325  sampled_harp.dsp
 c74b47c8c74a2325  sampled_horn.dsp
 c74b47c8c74a2325  sampled_oboe.dsp
 c74b47c8c74a2325  sampled_orchperc.dsp
@@ -124,6 +126,7 @@ c74b47c8c74a2325  sampled_trombone.dsp
 c74b47c8c74a2325  sampled_trumpet.dsp
 c74b47c8c74a2325  sampled_tuba.dsp
 c74b47c8c74a2325  sampled_upright.dsp
+c74b47c8c74a2325  sampled_violas.dsp
 c74b47c8c74a2325  sampled_violins.dsp
 814bbd21f563b705  sandh.dsp
 66649fe4a81d0d61  section.dsp
