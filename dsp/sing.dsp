@@ -64,6 +64,12 @@ category "Synths";
     @ring.max = 12;
     @ring.label = "Ring (dB)";
 
+    @sibilance = -8;
+    @sibilance.widget = 1;
+    @sibilance.min = -30;
+    @sibilance.max = 0;
+    @sibilance.label = "Sibilance (dB)";
+
     @detune = 0;
     @detune.widget = 1;
     @detune.min = -50;
@@ -112,6 +118,7 @@ node sp osc::speak {
     tilt = 12;
     effort = ionode->velocity / th_max;
     ring = @ring;
+    sibilance = @sibilance;
 };
 
 # Up while the singer is singing, so the words decide when the voice
