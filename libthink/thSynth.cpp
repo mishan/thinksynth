@@ -2972,7 +2972,7 @@ void thSynth::process (const float *add)
         static const char said[] = "thSynth: the master effect went "
                                    "non-finite; the mix is going out dry\n";
 #ifdef _WIN32
-        (void)_write(2, said, sizeof(said) - 1);
+        (void)_write(2, said, (unsigned int)(sizeof(said) - 1));
 #else
         ssize_t ignored = write(2, said, sizeof(said) - 1);
 

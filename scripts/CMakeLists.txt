@@ -1052,7 +1052,7 @@ add_test(NAME dspsweep.guard
                  -g "${PROJECT_SOURCE_DIR}/scripts/guard")
 
 # And the same piece through genwav, for the status and the summary line a
-# script asks about. See cmake/RunGuardPiece.cmake for the three claims.
+# script asks about. See cmake/RunGuardPiece.cmake for what it checks.
 # Rendered with its channels on three more threads, the same bytes as on
 # one: two pieces with a dozen channels and a noise kit among them.
 foreach(piece mirrorball philly)

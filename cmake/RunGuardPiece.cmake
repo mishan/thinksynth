@@ -1,13 +1,16 @@
 # genwav over the piece that goes wrong on purpose, run via `cmake -P'.
 #
 # scripts/guard/nonfinite.gen is one instrument that cannot help producing a
-# NaN and one that behaves. Three claims about the render:
+# NaN and one that behaves, under a master effect that is 0/0. What the
+# render must show:
 #
 #   - it exits 4, the status for a render the guard fired during -- beside 3
 #     for clipping and ahead of it, since a piece that clips is loud and a
 #     piece with a non-finite voice in it is not the piece;
 #   - the summary says how many voices that was, so the count is in the log
 #     and not only in the status;
+#   - the synth says the master effect went non-finite and the mix is going
+#     out dry;
 #   - it still has a peak: the good instrument goes on sounding.
 #
 # Required: -DGENWAV= -DPIECE= -DPLUGIN_DIR= -DDSP_PATH=
