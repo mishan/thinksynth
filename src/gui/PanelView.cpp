@@ -21,6 +21,7 @@
 #include <math.h>
 
 #include <gtkmm.h>
+#include <glibmm/extraclassinit.h>
 
 #include "think.h"
 
@@ -262,9 +263,42 @@ void PanelView::setPanel (const thPanel &panel)
  * Homogeneous, so every column is the same width; combined with the two size
  * groups it means the names, controls and value boxes line up down the panel
  * rather than each column being its own shape. */
+/* GtkFlowBox moves the focus a child at a time, and a child with nothing
+   focusable in it -- a READONLY row -- ends the move there while saying it
+   was made, so Tab never got past a panel with one. Tab goes through the
+   rows' controls in order, as through any box; the arrows stay the flow
+   box's. */
+namespace {
+
+gboolean tabFocus (GtkWidget *w, GtkDirectionType d)
+{
+    const GType as = d == GTK_DIR_TAB_FORWARD || d == GTK_DIR_TAB_BACKWARD
+                     ? GTK_TYPE_WIDGET : GTK_TYPE_FLOW_BOX;
+
+    return GTK_WIDGET_CLASS(g_type_class_peek(as))->focus(w, d);
+}
+
+void tabFlowClassInit (void *klass, void *)
+{
+    GTK_WIDGET_CLASS(klass)->focus = tabFocus;
+}
+
+/* gtkmm wraps no focus vfunc; a class of its own can set GTK's. */
+class TabFlow : public Glib::ExtraClassInit, public Gtk::FlowBox
+{
+public:
+    TabFlow (void)
+        : Glib::ObjectBase("thTabFlowBox"),
+          Glib::ExtraClassInit(tabFlowClassInit)
+    {
+    }
+};
+
+}
+
 Gtk::FlowBox *PanelView::makeFlow (const std::vector<size_t> &rows)
 {
-    Gtk::FlowBox *flow = manage(new Gtk::FlowBox);
+    Gtk::FlowBox *flow = manage(new TabFlow);
 
     flow->set_selection_mode(Gtk::SelectionMode::NONE);
     flow->set_homogeneous(true);
