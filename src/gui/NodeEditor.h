@@ -235,18 +235,6 @@ protected:
     void finishSave (void);
     void finishSaveAs (void);
 
-    /* What is selected, by name, and which of it the panel shows: a parse
-       renumbers the boxes. */
-    struct Selection {
-        vector<string> keys;
-        string shown;
-    };
-
-    Selection selection (void) const;
-
-    /* Selects again what is still there of `s'. */
-    void reselect (const Selection &s);
-
     bool reloadKeepingSelection (const NodeLayout::PosMap *carry = NULL);
 
     /* reload() after a structural edit, putting text_ back to `was' if the

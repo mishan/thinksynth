@@ -45,7 +45,7 @@
  * both.
  */
 
-import { createCanvasView } from './canvasview.js';
+import { createCanvasView, modsOf } from './canvasview.js';
 import { placePopover } from './popover.js';
 import { CHOICE, numberIn, showPanel } from './panel.js';
 
@@ -65,7 +65,19 @@ const SIG = {
     CONTROL: 6,
     CONTEXT: 7,
     PROBE: 8,
+    NUDGED: 9,
+    DELETE: 10,
 };
+
+/* CanvasContent::Key, by a keydown's key, and Ctrl+A by its key code, so
+   it is the A key on any layout. */
+const KEYS = { Escape: 1, ArrowLeft: 2, ArrowRight: 3, ArrowUp: 4,
+               ArrowDown: 5, Delete: 6, Backspace: 6 };
+const KEY_SELECT_ALL = 7;
+
+const keyOf = ({ key, code, mods }) => (mods & 2) && code === 'KeyA'
+    ? KEY_SELECT_ALL : KEYS[key] ?? 0;
+
 
 /* NodeGraph::Box kinds, as tw_graph_box_kind reports them. */
 const BOX = { NODE: 0, CONTROL: 1, IO_IN: 2, IO_OUT: 3, PROBE: 4 };
@@ -129,12 +141,117 @@ export async function createNodeView ({ files, root = document,
         return true;
     };
 
+    /* The positions back into the file's own layout block, which is where
+       the desktop keeps them. */
+    const writeLayout = () =>
+    {
+        if (M.ccall('tw_layout_write', 'number', ['string'], [text()]))
+            files.write(file, M.UTF8ToString(M._tw_edit_text()));
+    };
+
+    /* Boxes moved by keys and not written yet. A rebuild drops them: the
+       graph they were moved in is gone, and writing its positions into the
+       text that replaced it would undo whatever that text changed. */
+    let nudged = false;
+
+    const writeNudged = () =>
+    {
+        if (!nudged)
+            return;
+
+        nudged = false;
+
+        /* A drag under way writes them with its own move, and a write now
+           would rebuild the graph out from under it. */
+        if (!M._tw_node_canvas_busy())
+            writeLayout();
+    };
+
+    /* Delete on the canvas: everything selected that can go, as the
+       desktop's does -- not the io node, and not an expression, which is
+       an arg's text. One write for the lot, so a room gets one splice and
+       a patch one reload: each removal is spliced into the text the last
+       one left. */
+    function deleteSelection ()
+    {
+        const victims = [];
+        let ioStays = false, exprStays = false;
+
+        for (let i = 0; i < M._tw_node_canvas_selection_count(); i++)
+        {
+            const b = M._tw_node_canvas_selection_at(i);
+            const kind = M._tw_graph_box_kind(b);
+
+            if ((kind === BOX.NODE && !isExpr(b)) || kind === BOX.CONTROL)
+                victims.push(kind === BOX.CONTROL
+                    ? { control: call('tw_graph_box_control', ['number'],
+                                      [b]) }
+                    : { node: call('tw_graph_box_name', ['number'], [b]) });
+            else if (kind === BOX.IO_IN || kind === BOX.IO_OUT)
+                ioStays = true;
+            else
+                exprStays = true;
+        }
+
+        const stays = ioStays && exprStays
+            ? '  The io node and expressions stay.'
+            : ioStays ? '  The io node stays.'
+            : exprStays ? '  Expressions stay; cutting a wire into one ' +
+                          'removes it.'
+            : '';
+
+        if (victims.length === 0)
+        {
+            if (stays)
+                onStatus(`Nothing to delete.${stays}`);
+
+            return;
+        }
+
+        let next = text();
+
+        for (const v of victims)
+        {
+            const r = v.control !== undefined
+                ? M.ccall('tw_edit_remove_control', 'number',
+                          ['string', 'string'], [next, v.control])
+                : M.ccall('tw_edit_remove_node', 'number',
+                          ['string', 'string'], [next, v.node]);
+
+            if (r !== OK)
+            {
+                onStatus(`${call('tw_edit_result_text', ['number'], [r])}: ` +
+                         M.UTF8ToString(M._tw_edit_why()));
+                return;
+            }
+
+            next = M.UTF8ToString(M._tw_edit_text());
+        }
+
+        /* What watched them goes first: a panel would have no host. */
+        const gone = new Set(victims.map((v) => v.node ?? `@${v.control}`));
+
+        for (let i = probes.length - 1; i >= 0; i--)
+            if (gone.has(probes[i].node))
+                stopProbe(i);
+
+        selected = -1;
+        files.write(file, next);
+        onStatus(victims.length === 1
+            ? `Deleted ${v0(victims[0])}.${stays}`
+            : `Deleted ${victims.length} nodes.${stays}`);
+    }
+
+    const v0 = (v) => v.node ?? `@${v.control}`;
+
     /* ---- the canvas ---- */
 
     const view = createCanvasView({
         scroller: $('nodescroll'),
         canvas: $('nodecanvas'),
         send: (m) => toModule(m),
+        takes: (e) => keyOf({ key: e.key, code: e.code,
+                              mods: modsOf(e) }) !== 0,
 
         /* At 1:1, and Fit for the whole graph: see canvasview.js. On a
            phone the other way round -- 1:1 there is a strip of one box at
@@ -160,7 +277,7 @@ export async function createNodeView ({ files, root = document,
 
             case 'press':
                 M._tw_node_canvas_press(m.x, m.y, m.button ?? 1,
-                                        m.nPress ?? 1);
+                                        m.nPress ?? 1, m.mods ?? 0);
                 break;
 
             case 'motion':
@@ -173,8 +290,8 @@ export async function createNodeView ({ files, root = document,
 
             case 'key':
             {
-                /* CanvasContent::KEY_ESCAPE */
-                const took = M._tw_node_canvas_key(1) !== 0;
+                const took = M._tw_node_canvas_key(keyOf(m),
+                                                   m.mods ?? 0) !== 0;
 
                 drain();
 
@@ -265,6 +382,17 @@ export async function createNodeView ({ files, root = document,
                     showParams();
                     break;
 
+                /* Written when the key comes up: a held arrow repeats,
+                   and every write reloads a patch or goes to every peer. */
+                case SIG.NUDGED:
+                    nudged = true;
+                    paint();
+                    break;
+
+                case SIG.DELETE:
+                    deleteSelection();
+                    break;
+
                 /* A wire: from a box's port to another's. The graph knows
                    which end is which; the names are what the file wants. */
                 case SIG.CONNECT:
@@ -307,16 +435,8 @@ export async function createNodeView ({ files, root = document,
                    own layout block, which is where the desktop keeps
                    them. */
                 case SIG.BOX_MOVED:
-                {
-                    const was = text();
-
-                    if (M.ccall('tw_layout_write', 'number', ['string'],
-                                [was]))
-                        files.write(file,
-                                    M.UTF8ToString(M._tw_edit_text()));
-
+                    writeLayout();
                     break;
-                }
             }
         }
     }
@@ -1002,6 +1122,8 @@ export async function createNodeView ({ files, root = document,
        edits and everybody else's. */
     function rebuild ()
     {
+        nudged = false;
+
         const source = text();
 
         if (source === '')
@@ -1020,12 +1142,8 @@ export async function createNodeView ({ files, root = document,
         M.ccall('tw_graph_apply_layout', 'number', ['string'], [source]);
         showProbes();
 
-        /* A selection is an index into the boxes, and a rebuild makes new
-           ones. Kept only when it still names something. */
-        if (selected >= boxes)
-            selected = -1;
-
-        M._tw_node_canvas_select(selected);
+        /* The build kept the selection by name. */
+        selected = M._tw_node_canvas_selected();
         view.viewport();
         showParams();
         paint();
@@ -1066,7 +1184,11 @@ export async function createNodeView ({ files, root = document,
             /* Somebody else's edit to this file -- another peer's, or the
                text editor's on this page -- is a rebuild like our own. */
             watching = files.watch?.(name, rebuild) ?? null;
+
+            /* Or the build would keep a box of the same name selected, in
+               a file where nobody chose it, one key from Delete. */
             selected = -1;
+            M._tw_node_canvas_select(-1);
             rebuild();
         }
 
@@ -1094,6 +1216,26 @@ export async function createNodeView ({ files, root = document,
         if (!menu.hidden && !menu.contains(e.target))
             menu.hidden = true;
     }, true);
+
+    $('nodecanvas').addEventListener('keyup', writeNudged);
+    $('nodecanvas').addEventListener('blur', writeNudged);
+
+    /* Undo and Save as the desktop's graph has them, said rather than left
+       to the page: its Ctrl+Z undoes the piece, and the browser's Ctrl+S
+       saves the page. */
+    $('nodecanvas').addEventListener('keydown', (e) =>
+    {
+        if (!(e.ctrlKey || e.metaKey) ||
+            !['KeyZ', 'KeyY', 'KeyS'].includes(e.code))
+            return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        onStatus(e.code === 'KeyS'
+            ? 'The graph has nothing to save: its edits are in the patch ' +
+              'as they are made.'
+            : 'No Undo in the browser\'s graph yet.');
+    });
 
     /* And the browser's own menu stays out of the way: a right-click here
        is asking the canvas, not the page. */
@@ -1131,6 +1273,7 @@ export async function createNodeView ({ files, root = document,
             watching?.();
             watching = null;
             file = null;
+            nudged = false;
             selected = -1;
             M._tw_node_canvas_select(-1);
             showParams();
