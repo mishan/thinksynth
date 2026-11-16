@@ -22,10 +22,10 @@
 #
 # The shadow is a second rhodes.dsp playing the tune through
 # fx/shift.dsp, a fifth up with its formants kept, so it is a rhodes
-# a fifth higher and not a smaller one. In Fifth it plays the tune in
-# parallel fifths; in Ring every partial of it is moved 110 Hz more, so
-# its harmonics are no longer harmonic and the double rings like a bell
-# struck with the tune.
+# a fifth higher and not a smaller one. Its frame is 512, so it comes
+# 12 ms after the tune rather than 46 and does not flam. In Fifth it
+# plays the tune in parallel fifths; in Ring every partial of it is
+# moved 97 Hz more, so its harmonics are no longer harmonic.
 #
 # SIX KNOBS, each set by every section, so the loop comes round to Thaw
 # as it was: Shimmer is both freezes' `random', Smear the blur, Thin
@@ -41,7 +41,7 @@
 
 name "Thaw";
 author "Misha Nasledov";
-description "The spectral nodes, one part each: frozen bell chords sieved thin and hollow, a tune that freezes on each phrase's last bar, and plucks blurred into a wash.";
+description "The spectral nodes, one part each: frozen bell chords sieved thin and hollow, a tune that freezes on each phrase's last bar, plucks blurred into a wash, and the tune shifted a fifth up and then out of tune.";
 category "Timbre as material";
 
 tempo 66;
@@ -98,10 +98,9 @@ section sieve   8 bars { @shimmer = 0.25; @smear = 300;  @thin = -10; @hollow = 
                          @shadow = 0;  @ring = 0; };
 section fifth   8 bars { @shimmer = 0.25; @smear = 300;  @thin = -90; @hollow = 0;
                          @shadow = 30; @ring = 0;
-                         hold = 0;  pluck = 0; };
+                         pluck = 0; };
 section ring    8 bars { @shimmer = 0.25; @smear = 300;  @thin = -90; @hollow = 0;
-                         @shadow = 30; @ring = 110;
-                         hold = 0; };
+                         @shadow = 30; @ring = 97; };
 section hollow  8 bars { @shimmer = 0.8;  @smear = 600;  @thin = -12; @hollow = 1;
                          @shadow = 0;  @ring = 0;
                          frost = 2; };
@@ -162,6 +161,7 @@ instrument shadow {
     effect "fx/shift.dsp" {
         pitch   = 7;
         offset  = @ring;
+        size    = 512;
         formant = 1;
     };
 };
