@@ -275,15 +275,23 @@ NodeEditor::NodeEditor (thSynth *synth)
                         !focus->is_ancestor(params_))
                         return false;
 
+                    const double y =
+                        paramScroll_.get_vadjustment()->get_value();
+
                     (this->*act)();
 
                     /* The step may have rebuilt the panel the focus was in,
                        leaving it on a field no longer in the window, and
-                       the next key would go nowhere. */
+                       the next key would go nowhere. Moving it on scrolls
+                       the panel's viewport to its top, to show a focus it
+                       no longer holds. */
                     focus = get_root() ? get_root()->get_focus() : nullptr;
 
                     if (focus == nullptr || !focus->is_ancestor(*this))
+                    {
                         canvas_.grab_focus();
+                        paramScroll_.get_vadjustment()->set_value(y);
+                    }
 
                     return true;
                 })));
