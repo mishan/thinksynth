@@ -49,6 +49,8 @@ private:
 
     Glib::RefPtr<Gtk::GestureClick> click_;
     Glib::RefPtr<Gtk::GestureClick> rightClick_;
+    Glib::RefPtr<Gtk::GestureClick> pan_;
+    bool spaceHeld_ = false;
     Glib::RefPtr<Gtk::EventControllerMotion> motion_;
     Glib::RefPtr<Gtk::EventControllerKey> keys_;
 };

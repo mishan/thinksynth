@@ -298,6 +298,12 @@ private:
     bool bandOn_;
     double bandX0_, bandY0_, bandX1_, bandY1_;
 
+    /* A pan under way: where the pointer was on the screen, and the scroll
+       then, both in shell pixels. The screen and not the canvas, whose
+       pixels slide under a pointer held still while it scrolls. */
+    bool panOn_ = false;
+    double panSX_ = 0, panSY_ = 0, panX0_ = 0, panY0_ = 0;
+
     /* A band drawn with Shift adds to what was selected when it began. */
     std::vector<int> bandBase_;
 

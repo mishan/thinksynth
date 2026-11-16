@@ -302,7 +302,8 @@ void NodeCanvas::hold (const Held &h)
 
 bool NodeCanvas::busy (void) const
 {
-    return dragBox_ >= 0 || dragSlider_ >= 0 || wireBox_ >= 0 || bandOn_;
+    return dragBox_ >= 0 || dragSlider_ >= 0 || wireBox_ >= 0 || bandOn_ ||
+           panOn_;
 }
 
 /* Within a cone about the way pointed, and twice as far off to one side
@@ -539,6 +540,24 @@ void NodeCanvas::onPressed (int nPress, double x, double y, unsigned mods)
     if (graph_ == NULL)
         return;
 
+    /* A pan, before anything under the pointer is asked about: on a box it
+       is still the view that moves. */
+    if (mods & MOD_PAN)
+    {
+        double vx, vy, vw, vh;
+
+        if (shellViewport(vx, vy, vw, vh))
+        {
+            panOn_ = true;
+            panSX_ = x - vx;
+            panSY_ = y - vy;
+            panX0_ = vx;
+            panY0_ = vy;
+        }
+
+        return;
+    }
+
     double gx, gy;
 
     toContent(x, y, gx, gy);
@@ -704,6 +723,12 @@ void NodeCanvas::onReleased (int nPress, double x, double y)
     /* Which button came up does not matter: the gesture only watches one. */
     (void)nPress; (void)x; (void)y;
 
+    if (panOn_)
+    {
+        panOn_ = false;
+        return;
+    }
+
     if (dragSlider_ >= 0)
     {
         const int s = dragSlider_;
@@ -804,6 +829,17 @@ void NodeCanvas::onMotion (double x, double y)
 {
     if (graph_ == NULL)
         return;
+
+    if (panOn_)
+    {
+        double vx, vy, vw, vh;
+
+        if (shellViewport(vx, vy, vw, vh))
+            scrollShellTo(std::max(0.0, panX0_ - (x - vx - panSX_)),
+                          std::max(0.0, panY0_ - (y - vy - panSY_)));
+
+        return;
+    }
 
     double gx, gy;
 
