@@ -2378,7 +2378,9 @@ void checkUndoLive (thSynth &synth)
  *     what is changed in place never drifts from the text;
  *   - Undo and Redo, among the edits, give back exactly the text from
  *     before the step undone and after the step redone, a run of values
- *     set on one arg being one step.
+ *     set on one arg being one step;
+ *   - a value, a wire, an Undo or a Redo leaves selected what was, of what
+ *     is still there.
  *
  * And Undo all the way gives back the file, Redo all the way the last
  * text, and Save writes that, with the layout block, to the file. */
@@ -2470,6 +2472,36 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
         {
             const NodeGraph &g = ed->graph();
             const size_t nb = g.boxes().size();
+            /* Now and then a few boxes held, one of them showing. */
+            if (pick(3) == 0)
+            {
+                vector<int> free, held;
+
+                for (size_t b = 0; b < nb; b++)
+                    if (g.boxes()[b].attachedTo < 0)
+                        free.push_back((int)b);
+
+                for (size_t k = 1 + pick(3); k > 0 && !free.empty(); k--)
+                    held.push_back(free[pick(free.size())]);
+
+                if (!held.empty())
+                    canvas->setSelection(held, held[pick(held.size())]);
+            }
+
+            const auto keys = [&] (std::set<string> &out)
+            {
+                out.clear();
+
+                for (int b : canvas->selection())
+                    if (b >= 0 && b < (int)ed->graph().boxes().size() &&
+                        ed->graph().boxes()[b].attachedTo < 0)
+                        out.insert(NodeLayout::keyFor(ed->graph(), b));
+
+                return NodeLayout::keyFor(ed->graph(), canvas->selected());
+            };
+
+            std::set<string> held;
+            const string shown = keys(held);
             const int op = (int)pick(8);
             const string prev = want;
             const string before = ed->text();
@@ -2684,6 +2716,27 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
 
             made++;
 
+            if (op == 0 || op == 2 || op == 3 || op >= 6)
+            {
+                std::set<string> left, now;
+                const string showing = keys(now);
+
+                /* A control the edit has put on a node is part of it now,
+                   and the canvas does not select those. */
+                for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+                    if (ed->graph().boxes()[b].attachedTo < 0 &&
+                        held.count(NodeLayout::keyFor(ed->graph(), (int)b)))
+                        left.insert(NodeLayout::keyFor(ed->graph(), (int)b));
+
+                if (now != left || (left.count(shown) && showing != shown))
+                {
+                    ok(false, "%s, seed %d, step %d (%s): what was selected "
+                       "still is", files[f].c_str(), (int)f + 1, step,
+                       what.c_str());
+                    ok_ = false;
+                }
+            }
+
             if (op < 6 && ed->text() != before)
             {
                 if (join.empty() || join != lastJoin)
@@ -2850,9 +2903,6 @@ void checkFailedOpen (thSynth &synth, const char *file)
     std::filesystem::remove(bad);
 }
 
-/* A save that takes a box out of the graph -- cutting the wire out of an
-   expression removes the whole expression -- keeps the box that was selected
-   selected, though the reparse moves every box after the one removed. */
 /* A click on the graph gives it the focus, and a viewport scrolls to what
    has the focus -- which for a canvas the size of the graph is its top-left
    corner. The view stays where it was. */
@@ -2904,6 +2954,184 @@ void checkScrollKept (thSynth &synth, const char *file)
     delete w;
 }
 
+/* The boxes selected before an edit that parses the text again are the
+   ones selected after it, by name, and the one whose parameters were showing
+   still is -- for one box and for a group. Gone is unselected; a delete
+   leaves nothing selected and an add the box added. */
+void checkSelectionKept (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-keep-");
+    const string text =
+        "name \"Keep\";\n"
+        "@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n"
+        "node ionode { channels = 1; out0 = mix->out; play = env->play; };\n"
+        "node lfo osc::simple { freq = 2; };\n"
+        "node osc osc::simple { freq = ionode->note; amp = 1; mul = @lvl; };\n"
+        "node spare osc::simple { freq = 3; };\n"
+        "node env env::adsr { trigger = ionode->trigger; };\n"
+        "node mix mixer::mul { in0 = osc->out; in1 = env->out; };\n"
+        "io ionode;\n";
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1000, 600);
+    w->present();
+
+    pump(0.2);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    if (canvases.empty())
+    {
+        ok(false, "an editor with a canvas");
+        delete w;
+        return;
+    }
+
+    NodeCanvas *canvas = canvases[0];
+
+    const auto box = [&] (const string &name)
+    {
+        return ed->graph().boxByName(name);
+    };
+
+    const auto port = [&] (int b, const string &name, bool in)
+    {
+        for (size_t k = 0; b >= 0 && k < ed->graph().boxes()[b].ports.size();
+             k++)
+            if (ed->graph().boxes()[b].ports[k].name == name &&
+                ed->graph().boxes()[b].ports[k].isInput == in)
+                return (int)k;
+
+        return -1;
+    };
+
+    const auto names = [&] ()
+    {
+        std::set<string> out;
+
+        for (int b : canvas->selection())
+            if (b >= 0 && b < (int)ed->graph().boxes().size())
+                out.insert(ed->graph().boxes()[b].name);
+
+        return out;
+    };
+
+    const auto shown = [&] ()
+    {
+        const int b = canvas->selected();
+
+        return b >= 0 && b < (int)ed->graph().boxes().size()
+               ? ed->graph().boxes()[b].name : string("");
+    };
+
+    /* A band around osc and env, then a press on env: env's parameters
+       showing and both held. */
+    const auto group = [&] ()
+    {
+        const NodeGraph::Box &o = ed->graph().boxes()[box("osc")];
+        const NodeGraph::Box &e = ed->graph().boxes()[box("env")];
+        const double x0 = std::min(o.x, e.x) - 4, y0 = std::min(o.y, e.y) - 4;
+        const double x1 = std::max(o.x + o.w, e.x + e.w) + 4;
+        const double y1 = std::max(o.y + o.h, e.y + e.h) + 4;
+
+        canvas->onPressed(1, x0, y0);
+        canvas->onMotion(x1, y1);
+        canvas->onReleased(1, x1, y1);
+
+        const double ex = ed->graph().boxes()[box("env")].x + 6;
+        const double ey = ed->graph().boxes()[box("env")].y + 6;
+
+        canvas->onPressed(1, ex, ey);
+        canvas->onReleased(1, ex, ey);
+    };
+
+    struct Edit {
+        const char *what;
+        std::function<void ()> before, edit;
+    };
+
+    const std::function<void ()> none = [] { };
+
+    const vector<Edit> edits = {
+        { "a wire drawn", none, [&] {
+              ed->onConnect(box("lfo"), port(box("lfo"), "out", false),
+                            box("spare"), port(box("spare"), "freq", true)); } },
+        { "a wire cut", none, [&] {
+              for (size_t e = 0; e < ed->graph().edges().size(); e++)
+                  if (ed->graph().boxes()[ed->graph().edges()[e].toBox].name ==
+                      "mix")
+                  {
+                      ed->onDisconnect((int)e);
+                      break;
+                  } } },
+        { "an Undo", [&] { ed->onParamEdited(box("lfo"), "freq", 4); },
+          [&] { ed->onUndo(); } },
+        { "a Redo", [&] { ed->onParamEdited(box("lfo"), "freq", 4);
+                          ed->onUndo(); },
+          [&] { ed->onRedo(); } },
+        { "a Revert", [&] { ed->onParamEdited(box("lfo"), "freq", 4); },
+          [&] { ed->onRevert(); } },
+        { "an auto-arrange", none, [&] { ed->onArrange(); } },
+    };
+
+    const auto reopen = [&] ()
+    {
+        {
+            ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+            out << text;
+        }
+
+        return ed->open(copy);
+    };
+
+    for (const Edit &e : edits)
+        for (int kind = 0; kind < 2; kind++)
+        {
+            reopen();
+            e.before();
+
+            if (kind == 0)
+                canvas->setSelected(box("env"));
+            else
+                group();
+
+            const std::set<string> held = names();
+            const string was = shown();
+
+            e.edit();
+
+            ok(names() == held && shown() == was && !held.empty(),
+               "%s keeps %s selected", e.what,
+               kind == 0 ? "a box" : "a group, and the one showing");
+        }
+
+    reopen();
+    group();
+    ed->onDeleteNode();
+
+    ok(canvas->selection().empty() && canvas->selected() < 0,
+       "a delete leaves nothing selected");
+
+    reopen();
+    group();
+    ed->onPaletteAdd("osc::simple");
+
+    ok(canvas->selection().size() == 1 && shown() == "simple",
+       "an add selects the box added (%s)", shown().c_str());
+
+    delete w;
+    std::filesystem::remove(copy);
+}
+
+/* A save that takes a box out of the graph -- cutting the wire out of an
+   expression removes the whole expression -- keeps the box that was selected
+   selected, though the reparse moves every box after the one removed. */
 void checkSelectionAfterSave (thSynth &synth)
 {
     const string body =
@@ -3556,6 +3784,7 @@ int run (const string &pluginPath, const char *file)
 
     checkSelectionAfterSave(synth);
     checkScrollKept(synth, file);
+    checkSelectionKept(synth);
     checkFailedOpen(synth, file);
     checkLayoutRestored(synth, file);
     checkNoScratchFile(synth, file);

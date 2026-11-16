@@ -981,8 +981,11 @@ void NodeEditor::onArrange (void)
 
     Gesture gesture(*this, "auto-arrange");
 
+    const Selection kept = selection();
+
     graph_.layout();
     canvas_.setGraph(&graph_);
+    reselect(kept);
 
     /* Auto-arranging discards hand placement, so it is itself an edit. */
     writeLayout();
@@ -1251,7 +1254,7 @@ void NodeEditor::onPaletteAdd (string spelling)
     /* reload(), emphatically not open(): the node has just been written to
        text_, and open() would read the source over it -- undoing the add in
        the act of displaying it. */
-    if (!reloadAfter(was))
+    if (!reloadAfter(was, false))
         return;
 
     /* Put it where there is room rather than on top of layer 0, and select it
@@ -1481,7 +1484,7 @@ void NodeEditor::addControlFromForm (ControlForm *form)
         return;
     }
 
-    if (!reloadAfter(was))
+    if (!reloadAfter(was, false))
         return;
 
     const int box = graph_.boxByName("@" + name);
@@ -1660,7 +1663,7 @@ void NodeEditor::onDeleteNode (void)
         return;
     }
 
-    if (!reloadAfter(was))
+    if (!reloadAfter(was, false))
         return;
 
     char buf[256];
@@ -1904,20 +1907,27 @@ bool NodeEditor::restore (const NodeHistory::Snapshot &s, const string &done)
         probes = had[i].node != has[i].node || had[i].arg != has[i].arg ||
                  had[i].visual != has[i].visual;
 
+    /* Before the probes go, which renumbers the boxes. */
+    const Selection kept = selection();
+
     if (probes)
         disarmAllProbes();
 
     text_ = s.text;
 
-    if (!reloadKeepingSelection(&s.positions))
+    if (!reload(&s.positions))
     {
         text_ = was;
 
         if (probes)
             reload(&settled_);
 
+        reselect(kept);
+
         return false;
     }
+
+    reselect(kept);
 
     bool complete = true;
 
@@ -1968,9 +1978,9 @@ void NodeEditor::onRedo (void)
 /* reload() after a structural edit to text_. One whose result will not parse
    puts `was' back, so the text goes on saying what the canvas -- which
    reload leaves alone when it fails -- is showing. */
-bool NodeEditor::reloadAfter (const string &was)
+bool NodeEditor::reloadAfter (const string &was, bool keep)
 {
-    if (reload())
+    if (keep ? reloadKeepingSelection() : reload())
         return true;
 
     text_ = was;
@@ -1981,30 +1991,57 @@ bool NodeEditor::reloadAfter (const string &was)
 
 bool NodeEditor::reloadKeepingSelection (const NodeLayout::PosMap *carry)
 {
-    /* Bounded: an Undo or a Revert that takes probes away removes their
-       panels, from the end of the boxes, before this runs -- and one of them
-       may be what is selected. */
-    const int sel = canvas_.selected() < (int)graph_.boxes().size()
-                    ? canvas_.selected() : -1;
-    const string name = sel >= 0 ? graph_.boxes()[sel].name : string();
+    const Selection kept = selection();
 
     if (!reload(carry))
         return false;
 
-    const vector<NodeGraph::Box> &boxes = graph_.boxes();
-
-    /* Where it was first: the io node's two halves share a name. */
-    if (sel >= 0 && sel < (int)boxes.size() && boxes[sel].name == name)
-        canvas_.setSelected(sel);
-    else if (!name.empty())
-        for (size_t b = 0; b < boxes.size(); b++)
-            if (boxes[b].name == name)
-            {
-                canvas_.setSelected((int)b);
-                break;
-            }
+    reselect(kept);
 
     return true;
+}
+
+/* By key, which tells the io node's two halves apart. Not the boxes
+   attached to another -- the canvas selects the host for a press on one --
+   since a control a wire has just put on a node keeps its name. */
+NodeEditor::Selection NodeEditor::selection (void) const
+{
+    Selection s;
+    const int n = (int)graph_.boxes().size();
+
+    for (int b : canvas_.selection())
+        if (b >= 0 && b < n && graph_.boxes()[b].attachedTo < 0)
+            s.keys.push_back(NodeLayout::keyFor(graph_, b));
+
+    const int shown = canvas_.selected();
+
+    if (shown >= 0 && shown < n && graph_.boxes()[shown].attachedTo < 0)
+        s.shown = NodeLayout::keyFor(graph_, shown);
+
+    return s;
+}
+
+void NodeEditor::reselect (const Selection &s)
+{
+    vector<int> boxes;
+    int shown = -1;
+
+    for (int b = 0; b < (int)graph_.boxes().size(); b++)
+    {
+        if (graph_.boxes()[b].attachedTo >= 0)
+            continue;
+
+        const string key = NodeLayout::keyFor(graph_, b);
+
+        if (std::find(s.keys.begin(), s.keys.end(), key) != s.keys.end())
+            boxes.push_back(b);
+
+        if (key == s.shown)
+            shown = b;
+    }
+
+    if (!boxes.empty())
+        canvas_.setSelection(boxes, shown);
 }
 
 

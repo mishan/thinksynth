@@ -236,6 +236,17 @@ void NodeCanvas::setSelected (int box)
     requestRedraw();
 }
 
+void NodeCanvas::setSelection (const std::vector<int> &boxes, int shown)
+{
+    sel_ = boxes;
+    selBox_ = std::find(sel_.begin(), sel_.end(), shown) != sel_.end()
+              ? shown : sel_.size() == 1 ? sel_[0] : -1;
+
+    m_signal_selected_(selBox_);
+    m_signal_selection_((int)sel_.size());
+    requestRedraw();
+}
+
 /* Right-click: says what is under the pointer and lets the editor decide what
    that means. Deliberately without selecting or otherwise disturbing anything
    -- a menu that moved the selection out from under you before opening would
