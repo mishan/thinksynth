@@ -3,6 +3,7 @@ toolchain: GNU 13.3.0 x86_64 RelWithDebInfo [-O2 -g -DNDEBUG]
 8504aba6912de725  analog.dsp
 1e67f071e818ea0d  anasync.dsp
 44ac9a90fd4d5d95  aspect2.dsp
+06fd7b665f55b69d  bambooflute.dsp
 b32504b1b640679d  bass.dsp
 9c27b84027a18e45  bd10.dsp
 1a0f0cfeff0bb98d  bdshaped.dsp
