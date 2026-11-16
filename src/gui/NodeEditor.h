@@ -130,6 +130,8 @@ protected:
     void onRefused (string why);
     void onControlChanged (int box, double value, bool commit);
     void onPaletteAdd (string spelling);
+    void onPaletteDrop (const string &spelling, double x, double y);
+    void addNodeAt (const string &spelling, double cx, double cy);
     void onPaletteAddControl (void);
 
     void onTogglePalette (void);

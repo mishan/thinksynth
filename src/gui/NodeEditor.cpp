@@ -412,6 +412,24 @@ NodeEditor::NodeEditor (thSynth *synth)
     palette_.signal_add().connect(
         sigc::mem_fun(*this, &NodeEditor::onPaletteAdd));
 
+    /* A plugin dragged in from the palette lands where it is dropped. */
+    {
+        Glib::RefPtr<Gtk::DropTarget> drop = Gtk::DropTarget::create(
+            Glib::Value<Glib::ustring>::value_type(), Gdk::DragAction::COPY);
+
+        drop->signal_drop().connect(
+            [this] (const Glib::ValueBase &v, double x, double y)
+            {
+                Glib::Value<Glib::ustring> s;
+
+                s.init(v.gobj());
+                onPaletteDrop(s.get(), x, y);
+
+                return true;
+            }, false);
+        canvas_.add_controller(drop);
+    }
+
     palette_.signal_add_control().connect(
         sigc::mem_fun(*this, &NodeEditor::onPaletteAddControl));
 
@@ -1320,7 +1338,27 @@ vector<string> NodeEditor::takenNames (void) const
  *
  * What it is written to is text_, not the user's .dsp, so Revert undoes this
  * like anything else, by reading the source again. */
+/* In the middle of what is in view: added below the whole graph, a node in
+   a patch scrolled to its top was one nobody could see arrive. */
 void NodeEditor::onPaletteAdd (string spelling)
+{
+    double x, y, w, h;
+
+    canvas_.visibleRect(x, y, w, h);
+    addNodeAt(spelling, x + w / 2, y + h / 2);
+}
+
+/* A plugin dropped from the palette, at a point on the canvas in its own
+   pixels. */
+void NodeEditor::onPaletteDrop (const string &spelling, double x, double y)
+{
+    double gx, gy;
+
+    canvas_.toContent(x, y, gx, gy);
+    addNodeAt(spelling, gx, gy);
+}
+
+void NodeEditor::addNodeAt (const string &spelling, double cx, double cy)
 {
     if (source_.empty())
     {
@@ -1369,13 +1407,32 @@ void NodeEditor::onPaletteAdd (string spelling)
     if (!reloadAfter(was, false))
         return;
 
-    /* Put it where there is room rather than on top of layer 0, and select it
-       so its parameters are the ones showing. */
+    /* Centered on the point, and stepped down and along off a box already
+       there, so adds one after another do not stack; then selected, so its
+       parameters are the ones showing. */
     const int box = graph_.boxByName(name);
 
     if (box >= 0)
     {
-        graph_.moveBox(box, 20.0, graph_.height() + 20.0);
+        double x = std::max(0.0, cx - graph_.boxes()[box].w / 2);
+        double y = std::max(0.0, cy - graph_.boxes()[box].h / 2);
+
+        for (bool clear = false; !clear; )
+        {
+            clear = true;
+
+            for (int b = 0; b < (int)graph_.boxes().size(); b++)
+                if (b != box && graph_.boxes()[b].attachedTo < 0 &&
+                    std::fabs(graph_.boxes()[b].x - x) < 12 &&
+                    std::fabs(graph_.boxes()[b].y - y) < 12)
+                {
+                    x += 24;
+                    y += 24;
+                    clear = false;
+                }
+        }
+
+        graph_.moveBox(box, x, y);
         graph_.refreshExtent();
         canvas_.setGraph(&graph_);
         canvas_.setSelected(box);
