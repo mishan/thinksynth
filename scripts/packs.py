@@ -19,7 +19,8 @@ release RELEASE names below; everything else downloads that.
 
     packs.py fetch OUTDIR [--missing-ok]
         RELEASE, unpacked into OUTDIR -- what the deploy puts in the site's
-        packs/. With --missing-ok a release not published yet is a warning.
+        packs/. With --missing-ok a release not published yet is a warning,
+        and the release before it is fetched instead.
 
     packs.py install [PACK...]
         RELEASE into this user's data directory (thUtil::userDataDir), under
@@ -60,7 +61,7 @@ RUSTY = ("sfzinstruments/karoryfer.big-rusty-drums",
 # The published packs everything downloads. A change to what a pack holds
 # is a new number: a release, once made, is not replaced.
 REPO = "mishan/thinksynth"
-RELEASE = "packs-1"
+RELEASE = "packs-2"
 
 RATE = 44100
 PEAK = 0.89
@@ -72,8 +73,9 @@ NOTE = r"(?P<note>[A-G](?:#|b)?-?\d)"
 # and whether the end is a sustain the .dsp loops.
 #
 # `octave' is what to add to a name's octave for MIDI: VSCO's orchestral
-# folders call middle C "C3", its Upright Nr1 calls it "C4". Each was
-# checked against the source's own SFZ `pitch_keycenter'.
+# folders call middle C "C3", its Upright Nr1 and Harp call it "C4". Each
+# was checked against the source's own SFZ `pitch_keycenter', or, where
+# the pinned commit has none, against the recordings' measured pitch.
 PACKS = {
     "violins": dict(
         title="Violin section", source=VSCO,
@@ -105,6 +107,51 @@ PACKS = {
         dirs=["Keys/Upright Nr1"],
         match=r"UR1_" + NOTE + r"_(?P<layer>pp|mf|f)_RR1\.wav",
         octave=0, layers=["pp", "mf", "f"], seconds=5.0, sustain=False),
+    "trombone": dict(
+        title="Tenor trombone", source=VSCO,
+        dirs=["Brass/Tenor Trombone/sus"],
+        match=r"tenortbn_sus_" + NOTE + r"_v(?P<layer>\d)_1\.wav",
+        octave=1, layers=["1", "2", "3"], seconds=2.5, sustain=True),
+    "tuba": dict(
+        title="Tuba", source=VSCO,
+        dirs=["Brass/Tuba/sus"],
+        match=r"Tuba3_sus_" + NOTE + r"_v(?P<layer>\d)_rr1_Mid\.wav",
+        octave=1, layers=["1", "2", "3"], seconds=2.5, sustain=True),
+    "oboe": dict(
+        title="Oboe", source=VSCO,
+        dirs=["Woodwinds/Oboe/Vib"],
+        match=r"Oboe_Vib_" + NOTE + r"_v(?P<layer>\d)_Main\.wav",
+        octave=1, layers=["1", "3"], seconds=2.5, sustain=True),
+    # The top note is named F#5 but sounds F5.
+    "clarinet": dict(
+        title="Clarinet", source=VSCO,
+        dirs=["Woodwinds/Clarinet/susLong"],
+        match=r"DCClar_susLong_" + NOTE + r"_v(?P<layer>\d)_rr1_sum\.wav",
+        misnamed={"F#5": "F5"},
+        octave=1, layers=["1", "2", "3"], seconds=2.5, sustain=True),
+    "bassoon": dict(
+        title="Bassoon", source=VSCO,
+        dirs=["Woodwinds/Bassoon/sus"],
+        match=r"PSBassoon_" + NOTE + r"_v(?P<layer>\d)_1\.wav",
+        octave=1, layers=["1", "2"], seconds=2.5, sustain=True),
+    "violas": dict(
+        title="Viola section", source=VSCO,
+        dirs=["Strings/Viola Section/susvib"],
+        match=r"ViolaEns_susvib_" + NOTE + r"_v(?P<layer>\d)_1\.wav",
+        octave=1, layers=["1", "2"], seconds=3.0, sustain=True),
+    # Non-vibrato: only it has the low E.
+    "contrabass": dict(
+        title="Contrabass", source=VSCO,
+        dirs=["Strings/Solo Contrabass/SusNV"],
+        match=r"BKCtbss_SusNV_" + NOTE + r"_v(?P<layer>\d)_rr1\.wav",
+        octave=1, layers=["1", "3"], seconds=3.0, sustain=True),
+    # One recording per note, at whichever dynamic it was made, so one
+    # layer.
+    "harp": dict(
+        title="Harp", source=VSCO,
+        dirs=["Strings/Harp"],
+        match=r"KSHarp_" + NOTE + r"_(?:mp|mf|f)(?P<layer>)\.wav",
+        octave=0, layers=[""], seconds=4.0, sustain=False),
 }
 
 # The kit: each drum's folder, the General MIDI note it answers, how long
@@ -124,6 +171,59 @@ DRUMS = [
 
 PACKS["drums"] = dict(title="Drum kit", source=RUSTY, drums=DRUMS,
                       sustain=False)
+
+# Packs whose names carry no note: each file with its note and layer.
+# A timpano's note is the nearest to its pitch, measured as the mean, in
+# semitones, of its lowest three modes taken as 1 : 1.5 : 2. The rolls
+# are a pack of their own, a sustain the .dsp loops; drum 5's rolls sound
+# a semitone above its hits. Drums 1 and 5 leave out v1: peaking at -58
+# and -50 dB, it is too near the -60 dB leading-silence cut, which takes
+# all of drum 1's and the start of drum 5's.
+TIMPANI = "Percussion/Timpani/Timpani"
+ROLLS = "Percussion/Timpani/Rolls/Timpani"
+PACKS["timpani"] = dict(title="Timpani", source=VSCO, seconds=5.0,
+                        sustain=False, files={
+    f"{TIMPANI}1_Hit_v3_rr1_Sum.wav": (42, 2),
+    f"{TIMPANI}2_Hit_v1_rr1_Sum.wav": (47, 1),
+    f"{TIMPANI}2_Hit_v3_rr1_Sum.wav": (47, 2),
+    f"{TIMPANI}2_Hit_v4_rr1_Sum.wav": (47, 3),
+    f"{TIMPANI}3_Hit_v1_rr1_Sum.wav": (49, 1),
+    f"{TIMPANI}3_Hit_v3_rr1_Sum.wav": (49, 2),
+    f"{TIMPANI}3_Hit_v4_rr1_Sum.wav": (49, 3),
+    f"{TIMPANI}4_Hit_v1_rr1_Sum.wav": (52, 1),
+    f"{TIMPANI}4_Hit_v3_rr1_Sum.wav": (52, 2),
+    f"{TIMPANI}4_Hit_v4_rr1_Sum.wav": (52, 3),
+    f"{TIMPANI}5_Hit_v3_rr1_Sum.wav": (54, 2),
+    f"{TIMPANI}5_Hit_v4_rr1_Sum.wav": (54, 3),
+})
+PACKS["timpani_rolls"] = dict(title="Timpani rolls", source=VSCO,
+                              seconds=4.0, sustain=True, files={
+    f"{ROLLS}1_Roll_v3_rr1_Sum.wav": (42, 1),
+    f"{ROLLS}1_Roll_v5_rr1_Sum.wav": (42, 2),
+    f"{ROLLS}2_Roll_v3_rr1_Sum.wav": (47, 1),
+    f"{ROLLS}2_Roll_v5_rr1_Sum.wav": (47, 2),
+    f"{ROLLS}3_Roll_v3_rr1_Sum.wav": (49, 1),
+    f"{ROLLS}3_Roll_v5_rr1_Sum.wav": (49, 2),
+    f"{ROLLS}4_Roll_v3_rr1_Sum.wav": (52, 1),
+    f"{ROLLS}4_Roll_v5_rr1_Sum.wav": (52, 2),
+    f"{ROLLS}5_Roll_v3_rr1_Sum.wav": (55, 1),
+    f"{ROLLS}5_Roll_v4_rr1_Sum.wav": (55, 2),
+})
+# Unpitched, so on notes like the kit's: 49 is General MIDI's crash, 52
+# its Chinese cymbal, the nearest to a gong, and 57 its second crash. Of
+# four dynamics, the three most evenly spaced in level.
+PACKS["orchperc"] = dict(title="Orchestral percussion", source=VSCO,
+                         seconds=8.0, sustain=False, files={
+    "Percussion/cymbal-crash1_pp_rr1.wav": (49, 1),
+    "Percussion/cymbal-crash1_mp_rr1.wav": (49, 2),
+    "Percussion/cymbal-crash1_ff_rr1.wav": (49, 3),
+    "Percussion/gongHit_p.wav": (52, 1),
+    "Percussion/gongHit_mf.wav": (52, 2),
+    "Percussion/gongHit_fff.wav": (52, 3),
+    "Percussion/susCymb1-hit_pp_rr1.wav": (57, 1),
+    "Percussion/susCymb1-hit_mp_rr1.wav": (57, 2),
+    "Percussion/susCymb1-hit_fff_rr1.wav": (57, 3),
+})
 
 
 def midi(name, octave):
@@ -204,12 +304,18 @@ def plan(pack, cache):
                              f"{pack}/{prefix}_{note}_{k}.wav", note, k,
                              seconds))
         return jobs
+    if "files" in spec:
+        return [(path, f"{pack}/{pack}_{note}_{k}.wav", note, k,
+                 spec["seconds"])
+                for path, (note, k) in spec["files"].items()]
     for d in spec["dirs"]:
         for n in sorted(listing(repo, sha, d, cache)):
             m = re.fullmatch(spec["match"], n)
             if not m or m.group("layer") not in spec["layers"]:
                 continue
-            note = midi(m.group("note"), spec["octave"])
+            note = midi(spec.get("misnamed", {}).get(m.group("note"),
+                                                     m.group("note")),
+                        spec["octave"])
             k = spec["layers"].index(m.group("layer")) + 1
             jobs.append((f"{d}/{n}", f"{pack}/{pack}_{note}_{k}.wav", note,
                          k, spec["seconds"]))
@@ -294,8 +400,8 @@ def user_samples():
     return os.path.join(base, "dsp", "samples")
 
 
-def asset(name):
-    return f"https://github.com/{REPO}/releases/download/{RELEASE}/{name}"
+def asset(name, release=RELEASE):
+    return f"https://github.com/{REPO}/releases/download/{release}/{name}"
 
 
 def archive(outdir):
@@ -342,22 +448,32 @@ def get(url):
 
 def fetch(outdir, missing_ok=False, names=()):
     """RELEASE's packs into outdir -- those named, or all of them; the
-    index, or None if there is none."""
-    try:
-        index = json.loads(get(asset("index.json")))
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
+    index, or None if there is none. With missing_ok an unpublished
+    RELEASE falls back to the one before it: the deploy that comes with
+    a merge runs before the new release is published, and the site
+    should keep the packs it had until then."""
+    n = int(RELEASE.rsplit("-", 1)[1])
+    tries = [RELEASE] + ([f"packs-{n - 1}"] if missing_ok and n > 1 else [])
+    for release in tries:
+        try:
+            index = json.loads(get(asset("index.json", release)))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+    else:
         if missing_ok:
             print(f"::warning::{RELEASE} is not published; no sample packs")
             return None
         sys.exit(f"{RELEASE} is not published yet: run the `sample packs' "
                  "workflow, or build from the sources with `packs.py build'")
+    if release != RELEASE:
+        print(f"::warning::{RELEASE} is not published; serving {release}")
     index = [p for p in index if not names or p["id"] in names]
     os.makedirs(outdir, exist_ok=True)
     for p in index:
         with tempfile.TemporaryFile() as tmp:
-            tmp.write(get(asset(p["id"] + ".tar")))
+            tmp.write(get(asset(p["id"] + ".tar", release)))
             tmp.seek(0)
             with tarfile.open(fileobj=tmp) as t:
                 extract(t, outdir)

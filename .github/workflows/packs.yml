@@ -3,7 +3,7 @@
 # scripts/packs.py builds them from their CC0 sources -- a couple of hundred
 # megabytes of downloads and an ffmpeg pass -- and this publishes the result
 # as the release scripts/packs.py names in RELEASE (packs-1, packs-2, ...):
-# a tar per pack and the index, about 17 MB. The site's deploy and
+# a tar per pack and the index. The site's deploy and
 # `packs.py install' download that and never touch the sources.
 #
 # By hand, and apart from a thinksynth release: the packs change when a pack
