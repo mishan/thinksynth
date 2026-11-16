@@ -124,6 +124,7 @@ c74b47c8c74a2325  sampled_violins.dsp
 66649fe4a81d0d61  section.dsp
 81518ca7523a86ed  shaker.dsp
 6bb32217201f927d  shapeo.dsp
+cd7804c3c8dd6fbd  sho.dsp
 f7de616b560e294d  sing.dsp
 6f174dbc2b82983d  slicer.dsp
 c311e7dc95ffd125  snare.dsp
