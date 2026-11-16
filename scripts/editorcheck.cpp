@@ -2904,6 +2904,104 @@ void checkFailedOpen (thSynth &synth, const char *file)
     std::filesystem::remove(bad);
 }
 
+/* Tab leaves the graph and the parameter panel, with a node selected as
+   without: the keyboard's way through the editor is not a dead end. */
+void checkTabLeaves (thSynth &synth, const char *file)
+{
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+    Gtk::Button *after = Gtk::manage(new Gtk::Button("After"));
+    Gtk::Box *row = Gtk::manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+
+    row->append(*ed);
+    row->append(*after);
+    w->set_child(*row);
+    w->set_default_size(1000, 700);
+    w->present();
+
+    pump(0.05);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    const bool opened = !canvases.empty() && ed->open(file);
+
+    if (opened)
+        ed->showPanels(false, true);
+
+    pump(0.1);
+
+    const auto from = [&] (Gtk::Widget *start)
+    {
+        start->grab_focus();
+
+        std::vector<string> seen;
+
+        for (int i = 0; i < 80; i++)
+        {
+            w->child_focus(Gtk::DirectionType::TAB_FORWARD);
+
+            Gtk::Widget *f = w->get_focus();
+
+            seen.push_back(f ? G_OBJECT_TYPE_NAME(f->gobj()) : "none");
+
+            if (f == after)
+                return true;
+        }
+
+        string last;
+
+        for (size_t i = seen.size() > 6 ? seen.size() - 6 : 0;
+             i < seen.size(); i++)
+            last += " " + seen[i];
+
+        printf("     stuck at:%s\n", last.c_str());
+
+        return false;
+    };
+
+    ok(opened && from(canvases[0]),
+       "Tab from the graph, with nothing selected, gets past the editor");
+
+    int node = -1;
+
+    for (size_t b = 0; opened && b < ed->graph().boxes().size(); b++)
+        if (!ed->graph().boxes()[b].isControl &&
+            ed->graph().boxes()[b].params.size() > 2)
+            node = (int)b;
+
+    if (node >= 0)
+        canvases[0]->setSelected(node);
+
+    pump(0.1);
+
+    ok(node >= 0 && from(canvases[0]),
+       "...and with a node selected, its parameters showing");
+
+    {
+        std::vector<NodeParamsView *> panel;
+        std::vector<Gtk::SpinButton *> fields;
+
+        collectWidgets(ed, panel);
+
+        /* A node whose panel has a number to type into. */
+        for (size_t b = 0; panel.size() == 1 && fields.empty() &&
+             b < ed->graph().boxes().size(); b++)
+            if (!ed->graph().boxes()[b].isControl)
+            {
+                canvases[0]->setSelected((int)b);
+                pump(0.02);
+                collectWidgets(panel[0], fields);
+            }
+
+        ok(!fields.empty() && from(fields[0]),
+           "...and from a field in the panel");
+    }
+
+    delete w;
+}
+
 /* A click on the graph gives it the focus, and a viewport scrolls to what
    has the focus -- which for a canvas the size of the graph is its top-left
    corner. The view stays where it was. */
@@ -4280,6 +4378,7 @@ int run (const string &pluginPath, const char *file)
 
     checkSelectionAfterSave(synth);
     checkScrollKept(synth, file);
+    checkTabLeaves(synth, file);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);
