@@ -4373,10 +4373,10 @@ static void checkSinger (const string &pluginPath)
 
     /* Well above the shelf `tilt' 12 is 6 dB down at `effort' 0 and 6 up
        at 1, and a one-pole shelf at 1 kHz is most of the way at 2.8;
-       `ring' 9 is 9 dB at its center, 2.8 kHz at `shift' 1, and nothing at
-       the fundamental. */
+       `ring' 9 is 9 dB at its center, 2.8 kHz at `shift' 1 and 3.2 at
+       1.23, and nothing at the fundamental. */
     auto levels = [&](const char *arg, float value, const char *arg2,
-                      float value2, double &low, double &high) {
+                      float value2, double at, double &low, double &high) {
         NodeSpec n = voice(100);
         vector<float> got;
 
@@ -4385,14 +4385,13 @@ static void checkSinger (const string &pluginPath)
         if (!render(n, got))
             return false;
         low = harmonic(got, 100);
-        high = harmonic(got, 2800);
+        high = harmonic(got, at);
         return true;
     };
-    double softLow, softHigh, loudLow, loudHigh, plainLow, plainHigh,
-           ringLow, ringHigh;
+    double softLow, softHigh, loudLow, loudHigh;
 
-    if (levels("tilt", 12, "effort", 0, softLow, softHigh) &&
-        levels("tilt", 12, "effort", 1, loudLow, loudHigh))
+    if (levels("tilt", 12, "effort", 0, 2800, softLow, softHigh) &&
+        levels("tilt", 12, "effort", 1, 2800, loudLow, loudHigh))
     {
         const double db = 20 * log10(loudHigh / softHigh) -
                           20 * log10(loudLow / softLow);
@@ -4403,16 +4402,23 @@ static void checkSinger (const string &pluginPath)
                  num(db) + " dB");
     }
 
-    if (levels("ring", 0, "effort", 0, plainLow, plainHigh) &&
-        levels("ring", 9, "effort", 0, ringLow, ringHigh))
+    for (float shift : { 1.0f, 1.23f })
     {
+        const double at = shift > 1 ? 3200 : 2800;
+        double plainLow, plainHigh, ringLow, ringHigh;
+
+        if (!levels("ring", 0, "shift", shift, at, plainLow, plainHigh) ||
+            !levels("ring", 9, "shift", shift, at, ringLow, ringHigh))
+            continue;
+
         const double high = 20 * log10(ringHigh / plainHigh);
         const double low = 20 * log10(ringLow / plainLow);
 
         okOrFail(high > 8 && high < 10 && fabs(low) < 0.5,
-                 "osc::speak: `ring' 9 lifts 2.8 kHz by 9 dB and leaves the "
-                 "fundamental",
-                 "2.8 kHz " + num(high) + " dB, 100 Hz " + num(low) + " dB");
+                 "osc::speak: `ring' 9 at `shift' " + num(shift) + " lifts " +
+                 num(at) + " Hz by 9 dB and leaves the fundamental",
+                 num(at) + " Hz " + num(high) + " dB, 100 Hz " + num(low) +
+                 " dB");
     }
 
     NodeSpec all = voice(220);

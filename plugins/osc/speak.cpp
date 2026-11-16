@@ -436,8 +436,8 @@ enum {
 #define TAIL_MS 40.0f
 
 /* Where the tilt's shelf turns, where a tracked F1 sits over the
-   fundamental, and the singer's formant's center at `shift' 1 (held to
-   2.8 to 3.2 kHz) and sharpness. */
+   fundamental, and the singer's formant: its center, scaled by `shift'
+   and held to 2.8 to 3.2 kHz, and its sharpness. */
 #define TILT_HZ     1000.0f
 #define TRACK_ABOVE 1.1f
 #define RING_HZ     2600.0f
@@ -531,7 +531,8 @@ int module_init (thPlugin *plugin)
     args[IN_TILT] = plugin->regArg("tilt", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_TILT],
                        "How much brighter the glottal source's upper "
-                       "harmonics are at `effort' 1 than at 0");
+                       "harmonics are at `effort' 1 than at 0; an unwired "
+                       "`effort' is 0, the darkest");
     plugin->setArgRange(args[IN_TILT], 0, 24);
     plugin->setArgUnits(args[IN_TILT], "dB");
     args[IN_EFFORT] = plugin->regArg("effort", thPlugin::ARG_IN);
@@ -541,7 +542,7 @@ int module_init (thPlugin *plugin)
     plugin->setArgRange(args[IN_EFFORT], 0, 1);
     args[IN_RING] = plugin->regArg("ring", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RING],
-                       "A boost around 3 kHz on the voicing: the singer's "
+                       "A boost around 3 kHz on the voice: the singer's "
                        "formant, which carries over an orchestra");
     plugin->setArgRange(args[IN_RING], 0, 12);
     plugin->setArgUnits(args[IN_RING], "dB");
@@ -782,6 +783,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             st[S_TILT] += tiltK * (own - st[S_TILT]);
             own = st[S_TILT] + g * (own - st[S_TILT]);
         }
+        else
+            st[S_TILT] = own;
 
         const float talk = thClampArg((*in_talk)[i], 0, 1);
         const float in = (*in_source)[i];
@@ -832,7 +835,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         if (ring > 0)
         {
-            const float fc = fminf(fmaxf(RING_HZ * shift, 2800), 3200);
+            const float fc = fminf(fminf(fmaxf(RING_HZ * shift, 2800), 3200),
+                                   nyq);
             const float w = 2 * (float)M_PI * fc / rate;
             const float A = expf(ring * DB_TO_LN * 0.5f);
             const float alpha = sinf(w) / (2 * RING_Q);
@@ -844,6 +848,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             st[S_RING] = (cw * x - cw * y) / a0 + st[S_RING2];
             st[S_RING2] = ((1 - alpha * A) * x - (1 - alpha / A) * y) / a0;
         }
+        else
+            st[S_RING] = st[S_RING2] = 0;
 
         /* The parallel path: frication through F2 to F6 and past them.
            Each resonator is unity at DC, which is about Q at its peak, so
