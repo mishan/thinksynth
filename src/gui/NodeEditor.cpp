@@ -275,7 +275,8 @@ NodeEditor::NodeEditor (thSynth *synth)
                         !focus->is_ancestor(params_))
                         return false;
 
-                    const double y = paramScroll_.get_vadjustment()->get_value();
+                    const double y =
+                        paramScroll_.get_vadjustment()->get_value();
 
                     (this->*act)();
 
