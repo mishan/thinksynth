@@ -40,6 +40,7 @@
  * range reads off the accumulator, and a NaN let in comes back as the dry
  * signal a frame later and spoils every frame it is in. */
 
+#include <math.h>
 #include <string.h>
 
 #include "thKernel.h"
@@ -100,6 +101,27 @@ static inline float thkStftJitter (uint32_t seed, uint32_t frame, uint32_t k)
     h *= 0x846ca68bu;
     h ^= h >> 16;
     return (float)(h >> 8) * (1.0f / 16777216.0f) - 0.5f;
+}
+
+/* The angle of (x, y) in turns, -0.5 to 0.5, as atan2(y, x) / 2 pi: an
+   octant's arctangent as a polynomial, to 3.3e-5 of a turn, and (0, 0) is 0. */
+static inline float thkAtan2Turns (float y, float x)
+{
+    const float ax = fabsf(x), ay = fabsf(y);
+    const float hi = ax > ay ? ax : ay, lo = ax > ay ? ay : ax;
+
+    if (hi == 0)
+        return 0;
+
+    const float a = lo / hi, s = a * a;
+    float r = (((-0.0464964749f * s + 0.15931422f) * s - 0.327622764f) * s * a + a) *
+              (1.0f / 6.283185307f);
+
+    if (ay > ax)
+        r = 0.25f - r;
+    if (x < 0)
+        r = 0.5f - r;
+    return y < 0 ? -r : r;
 }
 
 struct thkStft

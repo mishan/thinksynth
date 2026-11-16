@@ -769,6 +769,24 @@ main ()
                doubled, 2e-6);
     }
 
+    /* thkAtan2Turns against libm's, round the circle and at every scale. */
+    {
+        double worst = 0;
+
+        for (int i = -4000; i <= 4000; i++)
+            for (float m : { 1e-30f, 1e-6f, 1.0f, 3e5f })
+            {
+                const double a = 2 * M_PI * i / 8000.0;
+                const float x = m * (float)cos(a), y = m * (float)sin(a);
+                double d = thkAtan2Turns(y, x) - atan2((double)y, (double)x) / (2 * M_PI);
+
+                d -= floor(d + 0.5);
+                worst = std::isfinite(d) ? std::max(worst, std::fabs(d)) : INFINITY;
+            }
+        report("thkAtan2Turns, atan2 in turns", worst, 3.3e-5);
+        report("thkAtan2Turns at the origin", std::fabs(thkAtan2Turns(0, 0)), 0);
+    }
+
     /* A size it cannot do writes zeros rather than running off its arrays. */
     {
         double worst = 0;

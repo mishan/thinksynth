@@ -435,6 +435,22 @@ Spectral gate: each frequency passed by its level against the loudest
 | `play` | out | 1 while there is sound still to come out, for the io node's play |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
 
+### fft::shift
+
+Spectral shift: every partial moved by a ratio and an offset
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `size` | in | The frame, read when the node starts, and its latency | 2048 | 256 to 4096 | samples |  |
+| `ratio` | in | How far every partial moves: 2 is an octave up, 0.5 one down; 0 is 1 | 1 | 0.25 to 4 |  |  |
+| `offset` | in | Hertz added after the ratio, which makes partials inharmonic |  | -2000 to 2000 | Hz |  |
+| `formant` | in | 0 the formants move with the pitch, 1 they stay where they were |  | 0 to 1 |  |  |
+| `mix` | in | 0 the input a frame late, 1 the shifted |  | 0 to 1 |  |  |
+| `out` | out | The blend, a frame late |  | -1 to 1 | full scale |  |
+| `play` | out | 1 while there is sound still to come out, for the io node's play |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
+
 ## filt
 
 ### filt::allpass
