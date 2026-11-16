@@ -154,6 +154,55 @@ if(HARNESS_B OR EXTRA_ARGS_B OR REFERENCE)
       set(held "${REFERENCE}")
     endif()
 
+    # Another toolchain's reference still names every file: a graph added
+    # without its line, or removed with its line left, is caught here
+    # rather than only by CI, which a branch stacked on another never runs.
+    if(EXISTS "${REFERENCE}" AND NOT held STREQUAL "${REFERENCE}" AND NOT UPDATE)
+      file(READ "${REFERENCE}" _ref)
+      foreach(side ref A)
+        if(side STREQUAL "ref")
+          set(_text "${_ref}")
+        else()
+          set(_text "${out_A}")
+        endif()
+        # After a newline: the first line is the toolchain's, and a key
+        # with no build type has two spaces after a word that may end in
+        # hex, `x86_64  []'.
+        string(REGEX MATCHALL "\n[0-9a-f]+  [^\n]+" _lines "${_text}")
+        set(names_${side} "")
+        foreach(_l IN LISTS _lines)
+          string(REGEX REPLACE "^\n[0-9a-f]+  " "" _n "${_l}")
+          list(APPEND names_${side} "${_n}")
+        endforeach()
+      endforeach()
+
+      # Some CMake versions refuse a REMOVE_ITEM with nothing to remove.
+      set(_missing "${names_A}")
+      if(names_ref)
+        list(REMOVE_ITEM _missing ${names_ref})
+      endif()
+      set(_stale "${names_ref}")
+      if(names_A)
+        list(REMOVE_ITEM _stale ${names_A})
+      endif()
+
+      if(_missing OR _stale)
+        get_filename_component(_name "${REFERENCE}" NAME)
+        set(_why "")
+        if(_missing)
+          list(JOIN _missing " " _missing)
+          string(APPEND _why " Without a line: ${_missing}.")
+        endif()
+        if(_stale)
+          list(JOIN _stale " " _stale)
+          string(APPEND _why " Not in the corpus: ${_stale}.")
+        endif()
+        message(FATAL_ERROR "${_name} does not name the corpus.${_why} A new "
+                            "line is CI's: push the branch and run "
+                            "`gh workflow run ci.yml --ref BRANCH' for its log.")
+      endif()
+    endif()
+
     if(UPDATE)
       file(WRITE "${held}" "${out_A}")
       message(STATUS "wrote ${held}")
