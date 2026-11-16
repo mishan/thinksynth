@@ -19,7 +19,8 @@ release RELEASE names below; everything else downloads that.
 
     packs.py fetch OUTDIR [--missing-ok]
         RELEASE, unpacked into OUTDIR -- what the deploy puts in the site's
-        packs/. With --missing-ok a release not published yet is a warning.
+        packs/. With --missing-ok a release not published yet is a warning,
+        and the release before it is fetched instead.
 
     packs.py install [PACK...]
         RELEASE into this user's data directory (thUtil::userDataDir), under
@@ -399,8 +400,8 @@ def user_samples():
     return os.path.join(base, "dsp", "samples")
 
 
-def asset(name):
-    return f"https://github.com/{REPO}/releases/download/{RELEASE}/{name}"
+def asset(name, release=RELEASE):
+    return f"https://github.com/{REPO}/releases/download/{release}/{name}"
 
 
 def archive(outdir):
@@ -447,22 +448,32 @@ def get(url):
 
 def fetch(outdir, missing_ok=False, names=()):
     """RELEASE's packs into outdir -- those named, or all of them; the
-    index, or None if there is none."""
-    try:
-        index = json.loads(get(asset("index.json")))
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            raise
+    index, or None if there is none. With missing_ok an unpublished
+    RELEASE falls back to the one before it: the deploy that comes with
+    a merge runs before the new release is published, and the site
+    should keep the packs it had until then."""
+    n = int(RELEASE.rsplit("-", 1)[1])
+    tries = [RELEASE] + ([f"packs-{n - 1}"] if missing_ok and n > 1 else [])
+    for release in tries:
+        try:
+            index = json.loads(get(asset("index.json", release)))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+    else:
         if missing_ok:
             print(f"::warning::{RELEASE} is not published; no sample packs")
             return None
         sys.exit(f"{RELEASE} is not published yet: run the `sample packs' "
                  "workflow, or build from the sources with `packs.py build'")
+    if release != RELEASE:
+        print(f"::warning::{RELEASE} is not published; serving {release}")
     index = [p for p in index if not names or p["id"] in names]
     os.makedirs(outdir, exist_ok=True)
     for p in index:
         with tempfile.TemporaryFile() as tmp:
-            tmp.write(get(asset(p["id"] + ".tar")))
+            tmp.write(get(asset(p["id"] + ".tar", release)))
             tmp.seek(0)
             with tarfile.open(fileobj=tmp) as t:
                 extract(t, outdir)
