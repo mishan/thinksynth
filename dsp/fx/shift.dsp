@@ -10,11 +10,11 @@
 # chipmunk a voice has an octave up; at 1 the resonances stay where
 # they were and only the notes move. Mix blends the shifted against
 # the channel delayed by the same frame, so a fifth's harmony does not
-# comb with the dry.
+# flam behind the dry.
 #
 # Size, rounded to a power of two, is the frame and the latency: 2048
 # moves a bass cleanly, 256 keeps the attacks close at the cost of
-# low partials, which under two bins (344 Hz at 256) blur.
+# low partials: under two bins (344 Hz at 256) they come out doubled.
 
 name "Shift";
 author "Misha Nasledov";
