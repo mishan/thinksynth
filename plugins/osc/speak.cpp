@@ -64,6 +64,21 @@
  * which is a talk box -- the tube from the amplifier into the player's
  * mouth on "Around the World". The words, the glides and the consonants
  * are all the same; only what they shape is new.
+ *
+ * A SINGER is the rest, each part 0 and so absent unless asked for.
+ * `jitter' and `shimmer' let every glottal cycle draw its own period and
+ * level, within so many percent and decibels of the note's: a throat
+ * never repeats a cycle exactly, and one that does is a machine. The
+ * draws are uniform, so the measured cycle-to-cycle figures are two
+ * thirds of the settings, and they come from a noise seeded by the
+ * note's first pitch, so a render replays. `track' raises F1 to stay
+ * just above a fundamental that climbs past it, which is what a soprano
+ * does with her jaw on a high note. `tilt' is the source's brightness
+ * following `effort', how hard the voice is pushed: a soft note's upper
+ * harmonics go down by half of it, a loud one's up by half. `ring' is the
+ * singer's formant, a boost of that many decibels around 3 kHz.
+ * `sibilance' turns the hiss of the sibilants up or down by decibels: the
+ * table's levels are for speech, and a singer's sit well under the vowel.
  */
 
 #include <stdio.h>
@@ -82,7 +97,8 @@
 #include "thSynth.h"
 
 enum {IN_FREQ, IN_SAY, IN_TRIGGER, IN_RATE, IN_SHIFT, IN_BUZZ, IN_BREATH,
-      IN_SOURCE, IN_TALK, OUT_ARG, OUT_PLAY, INOUT_STATE};
+      IN_SOURCE, IN_TALK, IN_JITTER, IN_SHIMMER, IN_TRACK, IN_TILT, IN_EFFORT,
+      IN_RING, IN_SIBILANCE, OUT_ARG, OUT_PLAY, INOUT_STATE};
 
 std::atomic<int> args[INOUT_STATE + 1];
 
@@ -199,6 +215,7 @@ enum { P_F1, P_F2, P_F3, P_B1, P_B2, P_B3, P_AV, P_AH, P_AF, P_A2, P_A3, P_A4,
    over in ten. */
 #define FORMANT_GLIDE_MS 12.0f
 #define GAIN_GLIDE_MS     3.0f
+#define SIB_ONSET_MS     20.0f
 
 /* A segment: one target held for a time. A phoneme is one or more. */
 struct Segment
@@ -206,6 +223,9 @@ struct Segment
     float target[P_COUNT];
     float dur;              /* ms */
     bool  hold;             /* the nucleus: held while the key is down */
+    bool  sib = false;      /* the hiss of S, Z, SH, ZH, CH or JH */
+    bool  fade = false;     /* S, Z, SH, ZH: turned down, it comes in slowly;
+                               CH and JH keep their sharp rise or are SH */
 };
 
 #define MAX_SEGMENTS (3 * TH_NOTE_SAY + 1)
@@ -282,6 +302,8 @@ static int segments (const int *codes, int n, Segment *out)
                 fromRow(p, s->target);
                 s->dur = p.dur;
                 s->hold = hold;
+                s->sib = p.name[0] == 'S' || p.name[0] == 'Z';
+                s->fade = s->sib;
                 count++;
                 break;
 
@@ -329,6 +351,7 @@ static int segments (const int *codes, int n, Segment *out)
                     fromRow(table[p.fric - 1], b->target);
                     b->target[P_AV] = p.voiced ? p.av : 0;
                     b->dur = table[p.fric - 1].dur * 0.8f;
+                    b->sib = true;
                 }
                 else
                 {
@@ -407,6 +430,12 @@ enum {
     S_FLOW = S_PARALLEL + 10,           /* the last glottal flow sample */
     S_HUSH,                 /* the noise's low-pass, two samples */
     S_HUSH2,
+    S_WOBBLEHI, S_WOBBLELO, /* jitter's and shimmer's noise */
+    S_JITTER,               /* this cycle's draws, -1 to 1 */
+    S_SHIMMER,
+    S_TILT,                 /* the tilt's low-pass */
+    S_RING,                 /* the singer's formant, two samples */
+    S_RING2,
     S_SAID,                 /* TH_NOTE_SAY: what was being said */
     S_LEN = S_SAID + TH_NOTE_SAY
 };
@@ -414,6 +443,17 @@ enum {
 /* How long `play' stays up after the last phoneme, so the glide can
    bring the gains down rather than the envelope cutting them. */
 #define TAIL_MS 40.0f
+
+/* Where the tilt's shelf turns, where a tracked F1 sits over the
+   fundamental, and the singer's formant: its center, scaled by `shift'
+   and held to 2.8 to 3.2 kHz, and its sharpness. */
+#define TILT_HZ     1000.0f
+#define TRACK_ABOVE 1.1f
+#define RING_HZ     2600.0f
+#define RING_Q      4.0f
+
+/* A dB figure times this is its natural log, for expf. */
+#define DB_TO_LN 0.11512925f
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -480,6 +520,47 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_TALK],
                        "The source: 0 the voice's own, 1 `source'");
     plugin->setArgRange(args[IN_TALK], 0, 1);
+    args[IN_JITTER] = plugin->regArg("jitter", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_JITTER],
+                       "How far each glottal cycle's period strays from "
+                       "`freq', at random; 1 is a healthy voice");
+    plugin->setArgRange(args[IN_JITTER], 0, 5);
+    plugin->setArgUnits(args[IN_JITTER], "percent");
+    args[IN_SHIMMER] = plugin->regArg("shimmer", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SHIMMER],
+                       "How far each glottal cycle's level strays, at "
+                       "random; 0.6 is a healthy voice");
+    plugin->setArgRange(args[IN_SHIMMER], 0, 3);
+    plugin->setArgUnits(args[IN_SHIMMER], "dB");
+    args[IN_TRACK] = plugin->regArg("track", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_TRACK],
+                       "How far the first formant rises to stay above a "
+                       "fundamental that passes it, as a soprano's does");
+    plugin->setArgRange(args[IN_TRACK], 0, 1);
+    args[IN_TILT] = plugin->regArg("tilt", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_TILT],
+                       "How much brighter the glottal source's upper "
+                       "harmonics are at `effort' 1 than at 0; an unwired "
+                       "`effort' is 0, the darkest");
+    plugin->setArgRange(args[IN_TILT], 0, 24);
+    plugin->setArgUnits(args[IN_TILT], "dB");
+    args[IN_EFFORT] = plugin->regArg("effort", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_EFFORT],
+                       "How hard the voice is pushed, for `tilt': 0 soft and "
+                       "dark, 0.5 the plain source, 1 loud and bright");
+    plugin->setArgRange(args[IN_EFFORT], 0, 1);
+    args[IN_RING] = plugin->regArg("ring", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RING],
+                       "A boost around 3 kHz on the voice: the singer's "
+                       "formant, which carries over an orchestra");
+    plugin->setArgRange(args[IN_RING], 0, 12);
+    plugin->setArgUnits(args[IN_RING], "dB");
+    args[IN_SIBILANCE] = plugin->regArg("sibilance", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SIBILANCE],
+                       "The hiss of S, Z, SH, ZH and of CH and JH, against "
+                       "the rest; under 0 it also fades in");
+    plugin->setArgRange(args[IN_SIBILANCE], -40, 12);
+    plugin->setArgUnits(args[IN_SIBILANCE], "dB");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "The voice");
@@ -538,6 +619,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_breath = mod->getArg(node, args[IN_BREATH]);
     thArg *in_source = mod->getArg(node, args[IN_SOURCE]);
     thArg *in_talk = mod->getArg(node, args[IN_TALK]);
+    thArg *in_jitter = mod->getArg(node, args[IN_JITTER]);
+    thArg *in_shimmer = mod->getArg(node, args[IN_SHIMMER]);
+    thArg *in_track = mod->getArg(node, args[IN_TRACK]);
+    thArg *in_tilt = mod->getArg(node, args[IN_TILT]);
+    thArg *in_effort = mod->getArg(node, args[IN_EFFORT]);
+    thArg *in_ring = mod->getArg(node, args[IN_RING]);
+    thArg *in_sibilance = mod->getArg(node, args[IN_SIBILANCE]);
     thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
 
     float st[S_LEN];
@@ -576,6 +664,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             silence(t);
             memcpy(st + S_GLIDE, t, sizeof(t));
             st[S_SEEDLO] = 1;
+
+            /* Seeded by the pitch, so that copies of a voice a few cents
+               apart do not waver in step. */
+            st[S_WOBBLELO] = (float)((unsigned int)(thBoundFreq(
+                (double)(*in_freq)[0], samples) * 64) & 0xffff);
         }
 
         st[S_STARTED] = 1;
@@ -588,7 +681,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     const float formantK = 1 - expf(-1000 / (FORMANT_GLIDE_MS * rate));
     const float gainK = 1 - expf(-1000 / (GAIN_GLIDE_MS * rate));
+    const float onsetK = 1 - expf(-1000 / (SIB_ONSET_MS * rate));
     const float hushK = 1 - expf(-2 * (float)M_PI * 9000 / rate);
+    const float tiltK = 1 - expf(-2 * (float)M_PI * TILT_HZ / rate);
 
     /* Laid out in milliseconds and timed against `rate' sample by sample,
        so the pace moves on the sample it is asked to, whatever the
@@ -629,13 +724,25 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             st[S_TAIL] += 1;
         }
 
+        /* A sung sibilant sits far under its vowel, and one that starts
+           at full strength is a spit: turned down, S, Z, SH and ZH also
+           come in over SIB_ONSET_MS rather than the gains' few. */
+        const float sibilance = thClampArg((*in_sibilance)[i], -40, 12);
+        const bool sib = sibilance != 0 && seg < count && segs[seg].sib;
+
+        if (sib)
+            target[P_AF] *= expf(sibilance * DB_TO_LN);
+
         /* Landed once within a millionth: a gain gliding to 0 would
            otherwise sink into denormals and stay there, which costs a
            voice half as much again for the rest of its vowel. */
         for (int k = 0; k < P_COUNT; k++)
         {
-            const float g = k <= P_B3 ? formantK : gainK;
             const float d = target[k] - st[S_GLIDE + k];
+            const float g = k <= P_B3 ? formantK
+                          : sib && sibilance < 0 && segs[seg].fade &&
+                            k == P_AF && d > 0
+                          ? onsetK : gainK;
 
             if (fabsf(d) < 1e-6f)
                 st[S_GLIDE + k] = target[k];
@@ -647,14 +754,29 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const float shift = thClampArg((*in_shift)[i], 0.5f, 2);
         const float buzz = thClampArg((*in_buzz)[i], 0, 1);
         const float breath = thClampArg((*in_breath)[i], 0, 1);
-        const float f0 = (float)thBoundFreq((double)(*in_freq)[i], samples);
+        const float note = (float)thBoundFreq((double)(*in_freq)[i],
+                                              samples);
+        const float jitter = thClampArg((*in_jitter)[i], 0, 5);
+        const float shimmer = thClampArg((*in_shimmer)[i], 0, 3);
         const float nyq = rate * 0.45f;
+        float f0 = note;
+
+        if (jitter > 0)
+            f0 *= 1 + jitter * 0.01f * st[S_JITTER];
 
         /* The source. Rosenberg's glottal flow, rising for 40% of the
            cycle, falling for 10% and closed for the rest; its first
            difference is what the lips radiate. The
            sawtooth is that with the rounding taken off. */
         float phase = st[S_PHASE] + f0 / rate;
+
+        /* A new cycle draws its own period and level. The draw lands in
+           the closed phase, where the flow is 0, so neither clicks. */
+        if (phase >= 1)
+        {
+            st[S_JITTER] = noise(&st[S_WOBBLEHI], &st[S_WOBBLELO]);
+            st[S_SHIMMER] = noise(&st[S_WOBBLEHI], &st[S_WOBBLELO]);
+        }
 
         phase -= floorf(phase);
         st[S_PHASE] = phase;
@@ -672,7 +794,27 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const float pulse = (flow - st[S_FLOW]) * rate / (f0 > 1 ? f0 : 1) /
                             12;
         const float saw = 1 - 2 * phase;
-        const float own = pulse + (saw * 0.5f - pulse) * buzz;
+        float own = pulse + (saw * 0.5f - pulse) * buzz;
+
+        if (shimmer > 0)
+            own *= expf(shimmer * st[S_SHIMMER] * DB_TO_LN);
+
+        /* A pushed glottis closes harder and a soft one more gently, which
+           is most of why a loud note is brighter than a soft one: a shelf
+           over the harmonics above TILT_HZ, flat at `effort' 0.5. */
+        const float tilt = thClampArg((*in_tilt)[i], 0, 24);
+
+        if (tilt > 0)
+        {
+            const float effort = thClampArg((*in_effort)[i], 0, 1);
+            const float g = expf((effort - 0.5f) * tilt * DB_TO_LN);
+
+            st[S_TILT] += tiltK * (own - st[S_TILT]);
+            own = st[S_TILT] + g * (own - st[S_TILT]);
+        }
+        else
+            st[S_TILT] = own;
+
         const float talk = thClampArg((*in_talk)[i], 0, 1);
         const float in = (*in_source)[i];
         const float source = thIsFinite(in) ? fmaxf(TH_MIN, fminf(TH_MAX, in))
@@ -695,8 +837,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         /* The cascade: voicing and aspiration through F1 to F5. */
         float y = voicing + asp;
 
-        y = resonate(y, fminf(p[P_F1] * shift, nyq), p[P_B1], rate,
-                     st + S_CASCADE);
+        /* A soprano opens her jaw on a high note until F1 is over the
+           fundamental, or the note's strongest harmonic would sit on the
+           resonance's far side and lose the most energy. */
+        float f1 = p[P_F1] * shift;
+        const float track = thClampArg((*in_track)[i], 0, 1);
+
+        if (track > 0)
+            f1 += track * (fmaxf(f1, note * TRACK_ABOVE) - f1);
+
+        y = resonate(y, fminf(f1, nyq), p[P_B1], rate, st + S_CASCADE);
         y = resonate(y, fminf(p[P_F2] * shift, nyq), p[P_B2], rate,
                      st + S_CASCADE + 2);
         y = resonate(y, fminf(p[P_F3] * shift, nyq), p[P_B3], rate,
@@ -705,6 +855,30 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      st + S_CASCADE + 6);
         y = resonate(y, fminf(F5 * shift, nyq), 300, rate,
                      st + S_CASCADE + 8);
+
+        /* The singer's formant: F3 to F5 drawn together around 3 kHz by a
+           lowered larynx. A peaking filter (Bristow-Johnson's) and not
+           another resonator, since a resonator's 90 degrees at its peak
+           would add across rather than on top. */
+        const float ring = thClampArg((*in_ring)[i], 0, 12);
+
+        if (ring > 0)
+        {
+            const float fc = fminf(fminf(fmaxf(RING_HZ * shift, 2800), 3200),
+                                   nyq);
+            const float w = 2 * (float)M_PI * fc / rate;
+            const float A = expf(ring * DB_TO_LN * 0.5f);
+            const float alpha = sinf(w) / (2 * RING_Q);
+            const float cw = -2 * cosf(w);
+            const float a0 = 1 + alpha / A;
+            const float x = y;
+
+            y = ((1 + alpha * A) * x) / a0 + st[S_RING];
+            st[S_RING] = (cw * x - cw * y) / a0 + st[S_RING2];
+            st[S_RING2] = ((1 - alpha * A) * x - (1 - alpha / A) * y) / a0;
+        }
+        else
+            st[S_RING] = st[S_RING2] = 0;
 
         /* The parallel path: frication through F2 to F6 and past them.
            Each resonator is unity at DC, which is about Q at its peak, so
@@ -733,6 +907,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             v = 0;
             memset(st + S_CASCADE, 0, 20 * sizeof(float));
+            st[S_TILT] = st[S_RING] = st[S_RING2] = 0;
         }
 
         out[i] = thClampArg(v, -2, 2) * TH_MAX;

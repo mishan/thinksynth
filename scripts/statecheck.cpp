@@ -4206,6 +4206,232 @@ static void checkSpeak (const string &pluginPath)
     }
 }
 
+/* ---- osc::speak as a singer ---------------------------------------------
+ *
+ * A pitch of a 128-sample period, exact in float, so that with `jitter'
+ * and `shimmer' at 0 every glottal cycle is the same length and the same
+ * height and either one at all is visible in the peaks. `track' is read
+ * through a talk box, a 100 Hz saw for the mouth to shape while `freq'
+ * is a C5 above IY's F1: the loudest of its harmonics under 1 kHz is F1.
+ * `tilt' and `ring' are harmonic levels of a 100 Hz voice.
+ */
+static void checkSinger (const string &pluginPath)
+{
+    const float period = 128;
+    const double hz = TH_DEFAULT_SAMPLES / period;
+    auto voice = [](float freq) {
+        NodeSpec n;
+
+        n.name = "sp";
+        n.spelling = "osc/speak";
+        n.values.push_back(Value{ "freq", freq });
+        n.values.push_back(Value{ "trigger", 1 });
+        return n;
+    };
+    auto render = [&](const NodeSpec &n, vector<float> &got,
+                      const vector<NodeSpec> &with = vector<NodeSpec>()) {
+        vector<NodeSpec> spec = with;
+        string why;
+
+        spec.push_back(n);
+        if (render1(pluginPath, spec, "sp", "out", 256, 30000, got, why))
+            return true;
+        fail("osc::speak renders as a singer", why);
+        return false;
+    };
+    /* Each cycle's peak from 8000 samples on: where and how high. */
+    auto peaks = [&](const vector<float> &v, vector<double> &at,
+                     vector<double> &height) {
+        size_t from = 8000;
+
+        for (size_t i = from; i < from + (size_t)period; i++)
+            if (v[i] > v[from])
+                from = i;
+        for (size_t p = from; p + 2 * (size_t)period < v.size();)
+        {
+            at.push_back((double)p);
+            height.push_back(v[p]);
+
+            size_t next = p + (size_t)period / 2;
+
+            for (size_t i = next; i < p + 3 * (size_t)period / 2; i++)
+                if (v[i] > v[next])
+                    next = i;
+            p = next;
+        }
+    };
+    auto harmonic = [](const vector<float> &v, double f) {
+        double re = 0, im = 0;
+        const size_t from = 8000;
+
+        for (size_t i = from; i < v.size(); i++)
+        {
+            const double w = 2 * M_PI * f * (double)(i - from) /
+                             TH_DEFAULT_SAMPLES;
+
+            re += v[i] * cos(w);
+            im -= v[i] * sin(w);
+        }
+        return sqrt(re * re + im * im);
+    };
+
+    for (float jitter : { 0.0f, 1.0f })
+    {
+        NodeSpec n = voice((float)hz);
+        vector<float> got;
+        vector<double> at, height;
+
+        n.values.push_back(Value{ "jitter", jitter });
+        if (!render(n, got))
+            continue;
+        peaks(got, at, height);
+
+        double off = 0, step = 0;
+
+        for (size_t k = 1; k < at.size(); k++)
+            off = fmax(off, fabs(at[k] - at[k - 1] - period));
+        for (size_t k = 2; k < at.size(); k++)
+            step += fabs(at[k] - 2 * at[k - 1] + at[k - 2]);
+        step /= at.size() > 2 ? at.size() - 2 : 1;
+
+        okOrFail(jitter > 0 ? step > 0.4 && step < 1.3 : off == 0,
+                 jitter > 0 ? "osc::speak: `jitter' 1 moves each cycle's "
+                              "length by about two thirds of 1%"
+                            : "osc::speak: at `jitter' 0 every cycle is "
+                              "the same length",
+                 "cycle-to-cycle " + num(step) + " samples of " +
+                 num(period) + ", furthest " + num(off));
+    }
+
+    for (float shimmer : { 0.0f, 0.6f })
+    {
+        NodeSpec n = voice((float)hz);
+        vector<float> got;
+        vector<double> at, height;
+
+        n.values.push_back(Value{ "shimmer", shimmer });
+        if (!render(n, got))
+            continue;
+        peaks(got, at, height);
+
+        double db = 0;
+
+        for (size_t k = 1; k < height.size(); k++)
+            db += fabs(20 * log10(height[k] / height[k - 1]));
+        db /= height.size() > 1 ? height.size() - 1 : 1;
+
+        okOrFail(shimmer > 0 ? db > 0.2 && db < 0.6 : db < 1e-3,
+                 shimmer > 0 ? "osc::speak: `shimmer' 0.6 moves each "
+                               "cycle's height by about 0.4 dB"
+                             : "osc::speak: at `shimmer' 0 every cycle is "
+                               "the same height",
+                 "cycle-to-cycle " + num(db) + " dB");
+    }
+
+    NodeSpec saw;
+
+    saw.name = "src";
+    saw.spelling = "osc/simple";
+    saw.values.push_back(Value{ "freq", 100 });
+    saw.values.push_back(Value{ "waveform", 1 });
+
+    for (float track : { 0.0f, 1.0f })
+    {
+        NodeSpec n = voice(523.25f);
+        vector<float> got;
+
+        n.values.push_back(Value{ "say", 11 });
+        n.values.push_back(Value{ "talk", 1 });
+        n.values.push_back(Value{ "track", track });
+        n.wires.push_back(Wire{ "source", "src", "out" });
+        if (!render(n, got, vector<NodeSpec>(1, saw)))
+            continue;
+
+        double f1 = 0, top = 0;
+
+        for (int k = 2; k < 10; k++)
+        {
+            const double a = harmonic(got, 100 * k);
+
+            if (a > top)
+            {
+                top = a;
+                f1 = 100 * k;
+            }
+        }
+
+        const double want = track > 0 ? 523.25 * 1.1 : 310;
+
+        okOrFail(fabs(f1 - want) <= 50,
+                 track > 0 ? "osc::speak: at `track' 1 IY's F1 rises over "
+                             "a C5"
+                           : "osc::speak: at `track' 0 IY's F1 stays under "
+                             "a C5",
+                 "loudest under 1 kHz at " + num(f1) + " Hz, want about " +
+                 num(want));
+    }
+
+    /* Well above the shelf `tilt' 12 is 6 dB down at `effort' 0 and 6 up
+       at 1, and a one-pole shelf at 1 kHz is most of the way at 2.8;
+       `ring' 9 is 9 dB at its center, 2.8 kHz at `shift' 1 and 3.2 at
+       1.23, and nothing at the fundamental. */
+    auto levels = [&](const char *arg, float value, const char *arg2,
+                      float value2, double at, double &low, double &high) {
+        NodeSpec n = voice(100);
+        vector<float> got;
+
+        n.values.push_back(Value{ arg, value });
+        n.values.push_back(Value{ arg2, value2 });
+        if (!render(n, got))
+            return false;
+        low = harmonic(got, 100);
+        high = harmonic(got, at);
+        return true;
+    };
+    double softLow, softHigh, loudLow, loudHigh;
+
+    if (levels("tilt", 12, "effort", 0, 2800, softLow, softHigh) &&
+        levels("tilt", 12, "effort", 1, 2800, loudLow, loudHigh))
+    {
+        const double db = 20 * log10(loudHigh / softHigh) -
+                          20 * log10(loudLow / softLow);
+
+        okOrFail(db > 9 && db < 12,
+                 "osc::speak: at `tilt' 12 a loud voice's 2.8 kHz is within "
+                 "3 dB of 12 over a soft one's, against its fundamental",
+                 num(db) + " dB");
+    }
+
+    for (float shift : { 1.0f, 1.23f })
+    {
+        const double at = shift > 1 ? 3200 : 2800;
+        double plainLow, plainHigh, ringLow, ringHigh;
+
+        if (!levels("ring", 0, "shift", shift, at, plainLow, plainHigh) ||
+            !levels("ring", 9, "shift", shift, at, ringLow, ringHigh))
+            continue;
+
+        const double high = 20 * log10(ringHigh / plainHigh);
+        const double low = 20 * log10(ringLow / plainLow);
+
+        okOrFail(high > 8 && high < 10 && fabs(low) < 0.5,
+                 "osc::speak: `ring' 9 at `shift' " + num(shift) + " lifts " +
+                 num(at) + " Hz by 9 dB and leaves the fundamental",
+                 num(at) + " Hz " + num(high) + " dB, 100 Hz " + num(low) +
+                 " dB");
+    }
+
+    NodeSpec all = voice(220);
+
+    for (const Value &v : { Value{ "jitter", 1 }, Value{ "shimmer", 0.6f },
+                            Value{ "track", 1 }, Value{ "tilt", 12 },
+                            Value{ "effort", 0.8f }, Value{ "ring", 6 } })
+        all.values.push_back(v);
+    windowsAgree(pluginPath, vector<NodeSpec>(1, all), "sp", "out",
+                 "osc::speak: the same singer at one sample a window and "
+                 "at five hundred");
+}
+
 /* ---- delay::echo's loop -----------------------------------------------
  *
  * A click into a ring a thousand samples long, so repeat k is the 200
@@ -12318,6 +12544,7 @@ int main (int argc, char **argv)
     checkVarispeed(pluginPath);
     checkCrush(pluginPath);
     checkSpeak(pluginPath);
+    checkSinger(pluginPath);
     checkYin(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
