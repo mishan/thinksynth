@@ -1745,7 +1745,10 @@ void NodeEditor::onDeleteNode (void)
     }
 
     if (!reloadAfter(was, false))
+    {
+        say(status_.get_text());
         return;
+    }
 
     char buf[256];
 
