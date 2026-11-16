@@ -105,6 +105,29 @@ CanvasContent::visibleRect (double &x, double &y, double &w, double &h) const
 }
 
 void
+CanvasContent::showRect (double x, double y, double w, double h)
+{
+    double px = 0, py = 0, pw = 0, ph = 0;
+
+    if (!shellViewport(px, py, pw, ph) || pw < 1 || ph < 1)
+        return;
+
+    double nx = px, ny = py;
+
+    x *= zoom_; y *= zoom_; w *= zoom_; h *= zoom_;
+
+    /* The far edge first, so a rectangle wider than the view shows its
+       near one. */
+    if (x + w > nx + pw) nx = x + w - pw;
+    if (x < nx) nx = x;
+    if (y + h > ny + ph) ny = y + h - ph;
+    if (y < ny) ny = y;
+
+    if (nx != px || ny != py)
+        scrollShellTo(nx, ny);
+}
+
+void
 CanvasContent::zoomToFit (void)
 {
     double gw = 0, gh = 0;

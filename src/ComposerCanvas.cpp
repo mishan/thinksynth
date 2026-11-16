@@ -2758,8 +2758,10 @@ ComposerCanvas::onMotion (double sx, double sy)
 /* Escape leaves the enlarged view. A canvas that fills itself with one
    stage and offers no way back is a trap. */
 bool
-ComposerCanvas::keyPressed (Key key)
+ComposerCanvas::keyPressed (Key key, unsigned mods)
 {
+    (void)mods;
+
     if (key == KEY_ESCAPE && enlarged_.kind != Selection::NONE)
     {
         setEnlarged(Selection());

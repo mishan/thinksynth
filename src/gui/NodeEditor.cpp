@@ -296,6 +296,15 @@ NodeEditor::NodeEditor (thSynth *synth)
                     return true;
                 })));
 
+    keys->add_shortcut(Gtk::Shortcut::create(
+        Gtk::ShortcutTrigger::parse_string("<Primary>s"),
+        Gtk::CallbackAction::create(
+            [this] (Gtk::Widget &, const Glib::VariantBase &)
+            {
+                onSave();
+                return true;
+            })));
+
     keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
     add_controller(keys);
 
@@ -330,6 +339,10 @@ NodeEditor::NodeEditor (thSynth *synth)
 
     canvas_.signal_box_moved().connect(
         sigc::mem_fun(*this, &NodeEditor::onBoxMoved));
+    canvas_.signal_nudged().connect(
+        sigc::mem_fun(*this, &NodeEditor::onNudged));
+    canvas_.signal_delete_requested().connect(
+        sigc::mem_fun(*this, &NodeEditor::onDeleteNode));
 
     canvas_.signal_selected().connect(
         sigc::mem_fun(*this, &NodeEditor::onSelected));
@@ -1124,6 +1137,26 @@ void NodeEditor::onBoxMoved (int box)
     writeLayout();
 }
 
+/* Presses moving the same boxes, each soon after the last, are one step. */
+void NodeEditor::onNudged (int box)
+{
+    string which;
+
+    for (int b : canvas_.selection())
+        if (b >= 0 && b < (int)graph_.boxes().size())
+            which += " " + NodeLayout::keyFor(graph_, b);
+
+    Gesture gesture(*this, "move " + graph_.boxes()[box].name,
+                    "nudge" + which);
+
+    writeLayout();
+}
+
+bool NodeEditor::deletable (const NodeGraph::Box &b)
+{
+    return !b.isIoSource && !b.isIoSink && !b.isExpr;
+}
+
 /* One box selected: the panel shows it, and Delete names what it would take.
  *
  * Controls are deletable now that they can be created. The io node is still
@@ -1146,11 +1179,8 @@ void NodeEditor::onSelected (int box)
 
     clearSelectionStatus();
 
-    const bool deletable =
-        box >= 0 && box < (int)graph_.boxes().size() &&
-        !graph_.boxes()[box].isIoSource && !graph_.boxes()[box].isIoSink;
-
-    deleteBtn_.set_sensitive(deletable);
+    deleteBtn_.set_sensitive(box >= 0 && box < (int)graph_.boxes().size() &&
+                             deletable(graph_.boxes()[box]));
 
     /* The label needs resetting when nothing is selected too. It was only set
        for a real box, so after a group it stayed on "Delete 5" -- greyed out,
@@ -1176,21 +1206,20 @@ void NodeEditor::onSelectionChanged (int n)
     /* Whether any of them can actually go. A band across the right-hand end
        of a patch catches the audio output, and a selection of nothing but the
        io halves has nothing to delete. */
-    int deletable = 0;
+    int can = 0;
 
     const vector<int> &sel = canvas_.selection();
 
     for (size_t i = 0; i < sel.size(); i++)
         if (sel[i] >= 0 && sel[i] < (int)graph_.boxes().size() &&
-            !graph_.boxes()[sel[i]].isIoSource &&
-            !graph_.boxes()[sel[i]].isIoSink)
-            deletable++;
+            deletable(graph_.boxes()[sel[i]]))
+            can++;
 
-    deleteBtn_.set_sensitive(deletable > 0);
+    deleteBtn_.set_sensitive(can > 0);
 
     char buf[48];
 
-    snprintf(buf, sizeof(buf), "Delete %d", deletable);
+    snprintf(buf, sizeof(buf), "Delete %d", can);
     deleteBtn_.set_label(buf);
 
     snprintf(buf, sizeof(buf), "%d nodes selected.", (int)sel.size());
@@ -1603,14 +1632,15 @@ void NodeEditor::editControlFromForm (ControlForm *form)
  * right-hand side of a patch will catch the audio output, and there is no
  * reading of "delete these six nodes" under which the user meant to be told
  * off about the one that cannot go. A .dsp without an io node does not load,
- * so it simply stays. */
+ * so it simply stays. An expression stays too: it is an arg's text, and
+ * cutting the wire it feeds is what removes it. */
 void NodeEditor::onDeleteNode (void)
 {
     if (source_.empty())
         return;
 
     vector<pair<string, bool> > victims;   /* name, isControl */
-    int skipped = 0;
+    bool ioStays = false, exprStays = false;
 
     const vector<int> &sel = canvas_.selection();
 
@@ -1621,15 +1651,29 @@ void NodeEditor::onDeleteNode (void)
 
         const NodeGraph::Box &sb = graph_.boxes()[sel[i]];
 
-        if (sb.isIoSource || sb.isIoSink)
-        { skipped++; continue; }
+        ioStays = ioStays || sb.isIoSource || sb.isIoSink;
+        exprStays = exprStays || sb.isExpr;
+
+        if (!deletable(sb))
+            continue;
 
         victims.push_back(make_pair(sb.isControl ? sb.ctlArg : sb.name,
                                     sb.isControl));
     }
 
+    const char *stays = ioStays && exprStays
+        ? "  The io node and expressions stay."
+        : ioStays ? "  The io node stays."
+        : exprStays ? "  Expressions stay; cutting a wire into one removes it."
+        : "";
+
     if (victims.empty())
+    {
+        if (*stays)
+            setStatus(string("Nothing to delete.") + stays);
+
         return;
+    }
 
     const bool isControl = victims[0].second;
     const string name = victims[0].first;
@@ -1678,6 +1722,7 @@ void NodeEditor::onDeleteNode (void)
 
     const string shown = (isControl ? "@" : "") + name;
 
+
     /* The references are the part nobody asked for, so they are the part
        worth reporting. Left in place they would make the file load with
        "Node x not found" and read zero. */
@@ -1694,14 +1739,12 @@ void NodeEditor::onDeleteNode (void)
                  "Deleted %s, and disconnected %d input%s that read from it.",
                  shown.c_str(), refs, refs == 1 ? "" : "s");
     else if (done == 1)
-        snprintf(buf, sizeof(buf), "Deleted %s.%s", shown.c_str(),
-                 skipped ? "  The io node stays." : "");
+        snprintf(buf, sizeof(buf), "Deleted %s.%s", shown.c_str(), stays);
     else
         snprintf(buf, sizeof(buf),
                  "Deleted %d nodes, and disconnected %d input%s that read "
                  "from them.%s",
-                 done, refs, refs == 1 ? "" : "s",
-                 skipped ? "  The io node stays." : "");
+                 done, refs, refs == 1 ? "" : "s", stays);
 
     setStatus(buf);
 }

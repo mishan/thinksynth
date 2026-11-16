@@ -247,6 +247,183 @@ void NodeCanvas::setSelection (const std::vector<int> &boxes, int shown)
     requestRedraw();
 }
 
+bool NodeCanvas::busy (void) const
+{
+    return dragBox_ >= 0 || dragSlider_ >= 0 || wireBox_ >= 0 || bandOn_;
+}
+
+/* Within a cone about the way pointed, and twice as far off to one side
+   counting as far as along: a plain nearest-in-that-half-plane zigzags
+   between rows, and takes a box far off to the side a hair that way. */
+int NodeCanvas::nearest (int from, double dx, double dy) const
+{
+    const NodeGraph::Box &f = graph_->boxes()[from];
+    const double fx = f.x + f.w / 2, fy = f.y + f.h / 2;
+    int best = -1;
+    double bestScore = 0;
+
+    for (int b = 0; b < (int)graph_->boxes().size(); b++)
+    {
+        const NodeGraph::Box &t = graph_->boxes()[b];
+
+        if (b == from || t.attachedTo >= 0)
+            continue;
+
+        const double vx = t.x + t.w / 2 - fx, vy = t.y + t.h / 2 - fy;
+        const double along = vx * dx + vy * dy;
+        const double across = std::fabs(vx * dy - vy * dx);
+
+        if (along <= 0 || across > 2 * along)
+            continue;
+
+        const double score = along + 2 * across;
+
+        if (best < 0 || score < bestScore)
+        {
+            best = b;
+            bestScore = score;
+        }
+    }
+
+    return best;
+}
+
+bool NodeCanvas::keyPressed (Key key, unsigned mods)
+{
+    if (graph_ == NULL)
+        return false;
+
+    if (key == KEY_ESCAPE)
+    {
+        if (wireBox_ >= 0 || bandOn_)
+        {
+            wireBox_ = wirePort_ = wireTargetBox_ = wireTargetPort_ = -1;
+            bandOn_ = false;
+            requestRedraw();
+            return true;
+        }
+
+        if (busy())
+            return true;
+
+        /* Nothing held is nothing to let go of: the key is the shell's. */
+        if (sel_.empty() && selBox_ < 0)
+            return false;
+
+        setSelection(std::vector<int>(), -1);
+
+        return true;
+    }
+
+    const bool arrow = key == KEY_LEFT || key == KEY_RIGHT ||
+                       key == KEY_UP || key == KEY_DOWN;
+
+    if (arrow && (mods & MOD_CTRL) && !(mods & MOD_SHIFT))
+        return false;
+
+    if (key != KEY_DELETE && key != KEY_SELECT_ALL && !arrow)
+        return false;
+
+    if (busy())
+        return true;
+
+    if (key == KEY_DELETE)
+    {
+        if (sel_.empty())
+            return false;
+
+        m_signal_delete_();
+
+        return true;
+    }
+
+    if (key == KEY_SELECT_ALL)
+    {
+        std::vector<int> all;
+
+        for (int b = 0; b < (int)graph_->boxes().size(); b++)
+            if (graph_->boxes()[b].attachedTo < 0)
+                all.push_back(b);
+
+        setSelection(all, selBox_);
+
+        return true;
+    }
+
+    const double dx = key == KEY_LEFT ? -1 : key == KEY_RIGHT ? 1 : 0;
+    const double dy = key == KEY_UP ? -1 : key == KEY_DOWN ? 1 : 0;
+
+    /* Taken whether or not anything moves, or the shell would move the
+       focus out of the canvas the way the arrow points. */
+    if (mods & MOD_SHIFT)
+    {
+        std::vector<int> moving;
+
+        for (int b : sel_)
+            if (b >= 0 && b < (int)graph_->boxes().size() &&
+                graph_->boxes()[b].attachedTo < 0)
+                moving.push_back(b);
+
+        if (moving.empty())
+            return true;
+
+        const int lead = selBox_ >= 0 && std::find(moving.begin(),
+                             moving.end(), selBox_) != moving.end()
+                         ? selBox_ : moving[0];
+        const double x0 = graph_->boxes()[lead].x;
+        const double y0 = graph_->boxes()[lead].y;
+        const double step = (mods & MOD_CTRL) ? 1 : 10;
+
+        graph_->moveSelection(moving, dx * step, dy * step);
+        graph_->refreshExtent();
+        contentResized();
+        requestRedraw();
+
+        const NodeGraph::Box &l = graph_->boxes()[lead];
+
+        if (l.x != x0 || l.y != y0)
+        {
+            showRect(l.x, l.y, l.w, l.h);
+            m_signal_nudged_(lead);
+        }
+
+        return true;
+    }
+
+    int from = selBox_;
+
+    if (from < 0 && !sel_.empty())
+        from = sel_[0];
+
+    if (from >= 0 && graph_->boxes()[from].attachedTo >= 0)
+        from = graph_->boxes()[from].attachedTo;
+
+    int to = -1;
+
+    if (from >= 0)
+        to = nearest(from, dx, dy);
+    else
+        for (int b = 0; b < (int)graph_->boxes().size(); b++)
+        {
+            const NodeGraph::Box &t = graph_->boxes()[b];
+
+            if (t.attachedTo < 0 && (to < 0 ||
+                t.x + t.y < graph_->boxes()[to].x + graph_->boxes()[to].y))
+                to = b;
+        }
+
+    if (to >= 0)
+    {
+        setSelection(std::vector<int>(1, to), to);
+
+        const NodeGraph::Box &t = graph_->boxes()[to];
+
+        showRect(t.x, t.y, t.w, t.h);
+    }
+
+    return true;
+}
+
 /* Right-click: says what is under the pointer and lets the editor decide what
    that means. Deliberately without selecting or otherwise disturbing anything
    -- a menu that moved the selection out from under you before opening would
@@ -273,7 +450,7 @@ void NodeCanvas::onRightPressed (int nPress, double x, double y)
     m_signal_context_(pb, pp, x, y);
 }
 
-void NodeCanvas::onPressed (int nPress, double x, double y)
+void NodeCanvas::onPressed (int nPress, double x, double y, unsigned mods)
 {
     if (graph_ == NULL)
         return;
@@ -373,8 +550,35 @@ void NodeCanvas::onPressed (int nPress, double x, double y)
         bandOn_ = true;
         bandX0_ = bandX1_ = gx;
         bandY0_ = bandY1_ = gy;
+        bandBase_.clear();
 
-        clearSelection();
+        if (mods & MOD_SHIFT)
+            bandBase_ = sel_;
+        else
+            clearSelection();
+
+        return;
+    }
+
+    /* Shift adds the box to the selection or takes it out, and drags
+       nothing: a box just taken out would stay put while the rest of the
+       group went with the pointer. The second press of a double-click
+       has had its toggle from the first. */
+    if (mods & MOD_SHIFT)
+    {
+        if (nPress > 1)
+            return;
+
+        std::vector<int> sel = sel_;
+        const auto at = std::find(sel.begin(), sel.end(), hit);
+        const bool adding = at == sel.end();
+
+        if (adding)
+            sel.push_back(hit);
+        else
+            sel.erase(at);
+
+        setSelection(sel, adding ? hit : selBox_ == hit ? -1 : selBox_);
 
         return;
     }
@@ -470,16 +674,17 @@ void NodeCanvas::onReleased (int nPress, double x, double y)
 
         /* The geometry is NodeGraph's, so it can be checked without a
            display -- see boxesIn, and dspgraph. */
-        graph_->boxesIn(x0, y0, x1, y1, sel_);
+        std::vector<int> sel;
+
+        graph_->boxesIn(x0, y0, x1, y1, sel);
+
+        for (int b : bandBase_)
+            if (std::find(sel.begin(), sel.end(), b) == sel.end())
+                sel.push_back(b);
 
         /* The panel can only speak for one node, so it gets the single box
            when that is what was gathered and nothing otherwise. */
-        selBox_ = (sel_.size() == 1) ? sel_[0] : -1;
-
-        m_signal_selected_(selBox_);
-        m_signal_selection_((int)sel_.size());
-
-        requestRedraw();
+        setSelection(sel, -1);
 
         return;
     }

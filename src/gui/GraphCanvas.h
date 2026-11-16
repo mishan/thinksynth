@@ -64,6 +64,10 @@ protected:
        What a widget subclass answers CanvasContent::shellViewport with. */
     bool viewport (double &x, double &y, double &w, double &h) const;
 
+    /* Scrolls the scroller this is in to `x', `y', in widget pixels.
+       What a widget subclass answers CanvasContent::scrollShellTo with. */
+    void scrollTo (double x, double y);
+
     /* The scroll controller, so a subclass can ask about modifiers on
        its own gestures without making a second one. */
     Glib::RefPtr<Gtk::EventControllerScroll> scroll_;

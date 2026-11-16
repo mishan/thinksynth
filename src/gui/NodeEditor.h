@@ -115,6 +115,11 @@ protected:
     void onZoomReset (void);
     void onZoomFit (void);
     void onBoxMoved (int box);
+    void onNudged (int box);
+
+    /* What Delete can take: not the io node, which a .dsp cannot load
+       without, and not an expression, which is an arg's text. */
+    static bool deletable (const NodeGraph::Box &b);
     void onSelected (int box);
 
     /* A rubber band gathered several boxes; `n' of them. */

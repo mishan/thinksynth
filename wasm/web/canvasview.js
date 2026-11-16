@@ -188,8 +188,10 @@ export function createCanvasView ({ scroller, canvas, send,
         if (e.key !== 'Escape')
             return;
 
-        send({ type: 'key', key: e.key });
-        e.preventDefault();
+        /* A content that says it did not take the key leaves it to the
+           page: Escape with nothing to let go of gives the keyboard back. */
+        if (send({ type: 'key', key: e.key }) !== false)
+            e.preventDefault();
     });
 
     /* Ctrl+wheel zooms, as it does on the desktop; a plain wheel scrolls,

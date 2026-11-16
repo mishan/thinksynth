@@ -293,7 +293,7 @@ public:
 
     void draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                int height) override;
-    bool keyPressed (Key key) override;
+    bool keyPressed (Key key, unsigned mods = 0) override;
 
     /* The gestures, in shell pixels: a press, a release and a motion
        with a button where the shell knows one, and a drag as the offset

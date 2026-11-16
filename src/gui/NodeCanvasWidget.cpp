@@ -32,7 +32,11 @@ NodeCanvasWidget::NodeCanvasWidget (void)
     click_ = Gtk::GestureClick::create();
     click_->set_button(1);
     click_->signal_pressed().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onPressed));
+        [this] (int n, double x, double y)
+        {
+            onPressed(n, x, y,
+                      modsOf(click_->get_current_event_state()));
+        });
     click_->signal_released().connect(
         sigc::mem_fun(*this, &NodeCanvas::onReleased));
     add_controller(click_);
@@ -58,4 +62,62 @@ NodeCanvasWidget::NodeCanvasWidget (void)
     motion_->signal_leave().connect(
         sigc::mem_fun(*this, &NodeCanvas::onLeave));
     add_controller(motion_);
+
+    keys_ = Gtk::EventControllerKey::create();
+    keys_->signal_key_pressed().connect(
+        [this] (guint keyval, guint, Gdk::ModifierType state)
+        {
+            const unsigned mods = modsOf(state);
+            Key key = KEY_NONE;
+
+            switch (keyval)
+            {
+                case GDK_KEY_Escape:    key = KEY_ESCAPE; break;
+                case GDK_KEY_Left:
+                case GDK_KEY_KP_Left:   key = KEY_LEFT; break;
+                case GDK_KEY_Right:
+                case GDK_KEY_KP_Right:  key = KEY_RIGHT; break;
+                case GDK_KEY_Up:
+                case GDK_KEY_KP_Up:     key = KEY_UP; break;
+                case GDK_KEY_Down:
+                case GDK_KEY_KP_Down:   key = KEY_DOWN; break;
+                case GDK_KEY_Delete:
+                case GDK_KEY_KP_Delete:
+                case GDK_KEY_BackSpace: key = KEY_DELETE; break;
+            }
+
+            return key != KEY_NONE && keyPressed(key, mods);
+        }, false);
+    add_controller(keys_);
+
+    /* A shortcut rather than a keysym in the controller above: a trigger
+       matches the key that is A on the layout the keyboard has, a Russian
+       one included. The canvas's own, so a text field keeps its Ctrl+A. */
+    Glib::RefPtr<Gtk::ShortcutController> all =
+        Gtk::ShortcutController::create();
+
+    all->add_shortcut(Gtk::Shortcut::create(
+        Gtk::ShortcutTrigger::parse_string("<Primary>a"),
+        Gtk::CallbackAction::create(
+            [this] (Gtk::Widget &, const Glib::VariantBase &)
+            {
+                return keyPressed(KEY_SELECT_ALL, MOD_CTRL);
+            })));
+    add_controller(all);
+}
+
+/* Cmd on a Mac is what Ctrl is elsewhere. Only there: an X keymap can
+   put Meta on the same modifier as Alt. */
+unsigned NodeCanvasWidget::modsOf (Gdk::ModifierType state)
+{
+    using M = Gdk::ModifierType;
+
+#ifdef __APPLE__
+    const M primary = M::META_MASK;
+#else
+    const M primary = M::CONTROL_MASK;
+#endif
+
+    return ((state & M::SHIFT_MASK) == M::SHIFT_MASK ? MOD_SHIFT : 0) |
+           ((state & primary) == primary ? MOD_CTRL : 0);
 }

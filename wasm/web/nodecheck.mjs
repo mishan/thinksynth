@@ -438,6 +438,23 @@ process.stdout.write(
             fail(`a box pressed and let go ${dx} pixels over said it ` +
                  `moved ${moved} times, not ${want}`);
     }
+
+    /* Escape lets go of what is selected, and with nothing selected is the
+       page's: canvasview.js leaves the key alone when the canvas says it
+       did not take it, so the page can give the keyboard back. */
+    {
+        const held = M._tw_node_canvas_selected() >= 0;
+        const first = M._tw_node_canvas_key(1);
+        const second = M._tw_node_canvas_key(1);
+
+        if (held && first === 1 && M._tw_node_canvas_selected() < 0 &&
+            second === 0)
+            process.stdout.write('ok    Escape lets go of the selection, ' +
+                                 'and with nothing held is not taken\n');
+        else
+            fail(`Escape with a box selected took ${first} and left ` +
+                 `${M._tw_node_canvas_selected()}; again took ${second}`);
+    }
 }
 
 /* ---- a new patch, and a node added to it -------------------------------- */

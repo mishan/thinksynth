@@ -2954,6 +2954,306 @@ void checkScrollKept (thSynth &synth, const char *file)
     delete w;
 }
 
+/* The canvas from the keyboard: arrows between boxes by where they are,
+   Shift+arrows moving the selection, Escape, Select All and Delete; Shift
+   to add a box to the selection; keys held while a press is under way;
+   Ctrl+S. Four boxes on the corners of a square, so which is nearest which
+   way is plain. */
+void checkCanvasKeys (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-keys-");
+    const string text =
+        "name \"Keys\";\n"
+        "node ionode { channels = 1; out0 = mix->out; play = env->play; };\n"
+        "node a osc::simple { freq = 1; };\n"
+        "node b osc::simple { freq = 2; };\n"
+        "node c osc::simple { freq = 3; };\n"
+        "node d osc::simple { freq = 4; };\n"
+        "node env env::adsr { trigger = ionode->trigger; };\n"
+        "node mix mixer::mul { in0 = a->out * 2; in1 = env->out; };\n"
+        "io ionode;\n"
+        "\n"
+        "# @layout  Node editor positions.\n"
+        "# @layout a 0 0\n# @layout b 400 0\n"
+        "# @layout c 400 300\n# @layout d 0 300\n"
+        "# @layout env 800 600\n# @layout mix 1400 900\n"
+        "# @layout mix.in0 1000 900\n"
+        "# @layout ionode#in 800 0\n# @layout ionode#out 1800 900\n";
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(500, 300);
+    w->present();
+
+    pump(0.05);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    const auto reopen = [&] ()
+    {
+        {
+            ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+            out << text;
+        }
+
+        return !canvases.empty() && ed->open(copy);
+    };
+
+    if (!reopen())
+    {
+        ok(false, "an editor opens the four-corner patch");
+        delete w;
+        return;
+    }
+
+    pump(0.1);
+
+    NodeCanvasWidget *canvas = canvases[0];
+    using K = CanvasContent;
+
+    /* By name, expressions too, which boxByName does not look at. */
+    const auto box = [&] (const string &name)
+    {
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].name == name)
+                return (int)b;
+
+        return -1;
+    };
+
+    const auto shown = [&] ()
+    {
+        const int b = canvas->selected();
+
+        return b >= 0 ? ed->graph().boxes()[b].name : string("");
+    };
+
+    const auto key = [&] (K::Key k, unsigned mods = 0)
+    {
+        return canvas->keyPressed(k, mods);
+    };
+
+    /* ---- arrows ---- */
+    canvas->setSelected(-1);
+
+    const bool first = key(K::KEY_RIGHT) && shown() == "a";
+
+    key(K::KEY_RIGHT);
+    const bool right = shown() == "b";
+    key(K::KEY_DOWN);
+    const bool down = shown() == "c";
+    key(K::KEY_LEFT);
+    const bool left = shown() == "d";
+    key(K::KEY_UP);
+    const bool up = shown() == "a";
+
+    ok(first && right && down && left && up,
+       "with nothing selected an arrow takes the top-left box, then each "
+       "goes to the nearest box that way");
+
+    ok(key(K::KEY_UP) && shown() == "a",
+       "an arrow with no box that way is still taken, and stays put");
+
+    ok(!key(K::KEY_DOWN, K::MOD_CTRL),
+       "Ctrl+arrow is left to the scroller");
+
+    /* The far box, off the view of a small window: scrolled to. */
+    {
+        canvas->setSelected(box("c"));
+        key(K::KEY_DOWN);
+
+        pump(0.05);
+
+        double x, y, vw, vh;
+
+        canvas->visibleRect(x, y, vw, vh);
+
+        const NodeGraph::Box &e = ed->graph().boxes()[box("env")];
+
+        ok(shown() == "env" && e.x >= x && e.x + e.w <= x + vw + 1 &&
+           e.y >= y && e.y + e.h <= y + vh + 1,
+           "a box arrowed to off the view is scrolled into it");
+    }
+
+    /* ---- Shift+arrows ---- */
+    canvas->setSelected(box("a"));
+    key(K::KEY_RIGHT, K::MOD_SHIFT);
+    key(K::KEY_RIGHT, K::MOD_SHIFT | K::MOD_CTRL);
+
+    const double nudged = ed->graph().boxes()[box("a")].x;
+
+    ed->onUndo();
+
+    ok(nudged == 11 && ed->graph().boxes()[box("a")].x == 0,
+       "Shift+arrow moves the selection 10, with Ctrl 1, and a run of them "
+       "is one step (%g)", nudged);
+
+    const string before = ed->text();
+
+    key(K::KEY_LEFT, K::MOD_SHIFT);
+
+    ok(ed->text() == before,
+       "a nudge into the edge moves nothing and is no edit");
+
+    reopen();
+    canvas->setSelected(box("a"));
+    key(K::KEY_DOWN, K::MOD_SHIFT);
+    canvas->setSelected(box("b"));
+    key(K::KEY_DOWN, K::MOD_SHIFT);
+    ed->onUndo();
+
+    ok(ed->graph().boxes()[box("a")].y == 10 &&
+       ed->graph().boxes()[box("b")].y == 0,
+       "nudging another box is a step of its own");
+
+    /* ---- a group ---- */
+    reopen();
+
+    std::vector<int> group = { box("a"), box("b") };
+
+    canvas->setSelection(group, -1);
+    key(K::KEY_RIGHT, K::MOD_SHIFT);
+
+    ok(ed->graph().boxes()[box("a")].x == 10 &&
+       ed->graph().boxes()[box("b")].x == 410,
+       "Shift+arrow moves a group, none of it showing, together");
+
+    /* ---- Escape, Select All ---- */
+    ok(key(K::KEY_ESCAPE) && canvas->selection().empty() &&
+       canvas->selected() < 0, "Escape lets go of the selection");
+    ok(!key(K::KEY_ESCAPE), "...and with nothing held is not taken");
+
+    {
+        size_t free = 0;
+
+        for (const NodeGraph::Box &b : ed->graph().boxes())
+            free += b.attachedTo < 0;
+
+        ok(key(K::KEY_SELECT_ALL) && canvas->selection().size() == free,
+           "Select All takes every box not on another");
+    }
+
+    /* ---- Delete ---- */
+    reopen();
+    canvas->setSelection({ box("b"), box("mix.in0"), box("ionode") }, -1);
+
+    ok(key(K::KEY_DELETE) && box("b") < 0 && box("mix.in0") >= 0 &&
+       box("ionode") >= 0 && ed->status().find("Deleted b.") == 0,
+       "Delete takes what it can of the selection, and leaves the io node "
+       "and an expression without trying them (%s)", ed->status().c_str());
+
+    canvas->setSelection({ box("mix.in0") }, -1);
+    key(K::KEY_DELETE);
+
+    ok(box("mix.in0") >= 0 &&
+       ed->status().find("Expressions stay") != string::npos,
+       "Delete on nothing that can go says why (%s)", ed->status().c_str());
+
+    canvas->setSelection({}, -1);
+
+    ok(!key(K::KEY_DELETE), "Delete with nothing selected is not taken");
+
+    /* ---- keys while a press is under way ---- */
+    reopen();
+    {
+        const NodeGraph::Box &a = ed->graph().boxes()[box("a")];
+        const double ax = a.x + 6, ay = a.y + 6;
+
+        canvas->onPressed(1, ax, ay);
+        canvas->onMotion(ax + 30, ay);
+
+        const bool held = key(K::KEY_ESCAPE) && key(K::KEY_RIGHT) &&
+                          shown() == "a";
+
+        canvas->onMotion(ax + 40, ay);
+        canvas->onReleased(1, ax + 40, ay);
+
+        ok(held && shown() == "a" &&
+           ed->graph().boxes()[box("a")].x == 40,
+           "keys during a drag are taken and wait: the drag goes on");
+    }
+
+    /* ---- Shift and the pointer ---- */
+    reopen();
+    {
+        const auto at = [&] (const string &name, double &x, double &y)
+        {
+            x = ed->graph().boxes()[box(name)].x + 6;
+            y = ed->graph().boxes()[box(name)].y + 6;
+        };
+
+        double x, y;
+
+        canvas->setSelected(box("a"));
+        at("b", x, y);
+        canvas->onPressed(1, x, y, K::MOD_SHIFT);
+        canvas->onMotion(x + 50, y);
+        canvas->onReleased(1, x + 50, y);
+
+        const bool added = canvas->selection().size() == 2 &&
+                           shown() == "b" &&
+                           ed->graph().boxes()[box("b")].x == 400;
+
+        at("a", x, y);
+        canvas->onPressed(1, x, y, K::MOD_SHIFT);
+        canvas->onReleased(1, x, y);
+
+        ok(added && canvas->selection().size() == 1 && shown() == "b",
+           "Shift and a click adds a box to the selection or takes it out, "
+           "and drags nothing");
+
+        /* A quick second press is a double-click's, not a second toggle. */
+        at("c", x, y);
+        canvas->onPressed(1, x, y, K::MOD_SHIFT);
+        canvas->onReleased(1, x, y);
+        canvas->onPressed(2, x, y, K::MOD_SHIFT);
+        canvas->onReleased(2, x, y);
+
+        ok(canvas->isSelected(box("c")),
+           "Shift with a double-click adds the box once");
+
+        canvas->onPressed(1, x, y, K::MOD_SHIFT);
+        canvas->onReleased(1, x, y);
+
+        /* A band with Shift around d adds it. */
+        const NodeGraph::Box &d = ed->graph().boxes()[box("d")];
+
+        canvas->onPressed(1, d.x - 10, d.y - 10, K::MOD_SHIFT);
+        canvas->onMotion(d.x + d.w + 10, d.y + d.h + 10);
+        canvas->onReleased(1, d.x + d.w + 10, d.y + d.h + 10);
+
+        std::set<string> names;
+
+        for (int b : canvas->selection())
+            names.insert(ed->graph().boxes()[b].name);
+
+        ok(names == std::set<string>({ "b", "d" }),
+           "a band drawn with Shift adds to the selection");
+    }
+
+    /* ---- Ctrl+S ---- */
+    reopen();
+    ed->onParamEdited(box("a"), "freq", 7);
+
+    {
+        const bool pressed = press(ed, "<Primary>s");
+        ifstream in(copy.c_str(), std::ios::binary);
+        const string saved((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+
+        ok(pressed && saved.find("freq = 7") != string::npos &&
+           !ed->dirty(), "Ctrl+S saves");
+    }
+
+    delete w;
+    std::filesystem::remove(copy);
+}
+
 /* The boxes selected before an edit that parses the text again are the
    ones selected after it, by name, and the one whose parameters were showing
    still is -- for one box and for a group. Gone is unselected; a delete
@@ -3785,6 +4085,7 @@ int run (const string &pluginPath, const char *file)
     checkSelectionAfterSave(synth);
     checkScrollKept(synth, file);
     checkSelectionKept(synth);
+    checkCanvasKeys(synth);
     checkFailedOpen(synth, file);
     checkLayoutRestored(synth, file);
     checkNoScratchFile(synth, file);
