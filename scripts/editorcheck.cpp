@@ -2904,6 +2904,32 @@ void checkFailedOpen (thSynth &synth, const char *file)
     std::filesystem::remove(bad);
 }
 
+/* The toolbar fits the pane the editor opens in, at the window's default
+   size, rather than scrolling Save and the view's buttons out of sight. */
+void checkToolbarFits (thSynth &synth)
+{
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::ScrolledWindow *bar =
+        dynamic_cast<Gtk::ScrolledWindow *>(ed->get_first_child());
+    Gtk::Widget *row = bar != NULL ? bar->get_child() : NULL;
+
+    if (row != NULL && dynamic_cast<Gtk::Viewport *>(row) != NULL)
+        row = row->get_first_child();
+
+    int min = 0, nat = 0, minB = 0, natB = 0;
+
+    if (row != NULL)
+        row->measure(Gtk::Orientation::HORIZONTAL, -1, min, nat, minB, natB);
+
+    /* The Patch graph pane's width at the main window's default size. */
+    const int PANE_PX = 660;
+
+    ok(row != NULL && min > 0 && min <= PANE_PX,
+       "the toolbar fits a %d-pixel pane (%d at its narrowest)", PANE_PX, min);
+
+    delete ed;
+}
+
 /* Tab leaves the graph and the parameter panel, with a node selected as
    without: the keyboard's way through the editor is not a dead end. */
 void checkTabLeaves (thSynth &synth, const char *file)
@@ -4379,6 +4405,7 @@ int run (const string &pluginPath, const char *file)
     checkSelectionAfterSave(synth);
     checkScrollKept(synth, file);
     checkTabLeaves(synth, file);
+    checkToolbarFits(synth);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);

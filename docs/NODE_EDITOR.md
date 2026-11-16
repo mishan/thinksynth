@@ -3,7 +3,7 @@
 A visual editor for `.dsp` files: nodes, typed ports, wires, and the controls
 that drive them. It is the main window's **Patch graph** pane, showing the
 channel picked in Channels. Its palette and parameter panel start collapsed;
-the two toggles at the start of its toolbar open them.
+the first two toggles on its toolbar open them.
 
 The format rules a writer has to obey — the grammar's constraints, what the
 parser discards, why edits are spliced rather than re-emitted — are in
@@ -120,10 +120,10 @@ sits above the node, drawing what it produces, and a double-click opens it in
 a window of its own. Probes are written into the file's layout block, so a
 patch opens with the ones it was saved with.
 
-**The graph as a list.** List, at the end of the toolbar, shows every node as a
-row and, for the chosen one, its wires as buttons: connect, disconnect, watch
-and delete, each the canvas's own gesture. It is the keyboard's and a screen
-reader's way into the graph.
+**The graph as a list.** List, the third toggle on the toolbar, shows every
+node as a row and, for the chosen one, its wires as buttons: connect,
+disconnect, watch and delete, each the canvas's own gesture. It is the
+keyboard's and a screen reader's way into the graph.
 
 **When edits reach the file.** Every edit goes into the editor's copy of the
 patch's text as it is made, and reaches disk only on Save — a file rewritten on
