@@ -172,8 +172,14 @@ export async function createNodeView ({ files, root = document,
                 break;
 
             case 'key':
-                M._tw_node_canvas_key(1);       /* CanvasContent::KEY_ESCAPE */
-                break;
+            {
+                /* CanvasContent::KEY_ESCAPE */
+                const took = M._tw_node_canvas_key(1) !== 0;
+
+                drain();
+
+                return took;
+            }
 
             case 'zoomBy':
                 M._tw_node_canvas_set_zoom(M._tw_node_canvas_zoom() * m.by);

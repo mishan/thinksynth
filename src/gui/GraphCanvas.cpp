@@ -127,6 +127,18 @@ GraphCanvas::viewport (double &x, double &y, double &w, double &h) const
     return true;
 }
 
+void
+GraphCanvas::scrollTo (double x, double y)
+{
+    Gtk::ScrolledWindow *sw = scrollerOf(this);
+
+    if (sw == NULL)
+        return;
+
+    sw->get_hadjustment()->set_value(x);
+    sw->get_vadjustment()->set_value(y);
+}
+
 /* A deferred fit, taken the moment the canvas has a size to fit to.
  *
  * on_size_allocate is not overridable in GTK4 -- the vfunc is

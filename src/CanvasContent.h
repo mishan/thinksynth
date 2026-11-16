@@ -88,7 +88,20 @@ public:
     enum Key
     {
         KEY_NONE = 0,
-        KEY_ESCAPE
+        KEY_ESCAPE,
+        KEY_LEFT,
+        KEY_RIGHT,
+        KEY_UP,
+        KEY_DOWN,
+        KEY_DELETE,         /* Delete and Backspace */
+        KEY_SELECT_ALL      /* Ctrl+A, Cmd+A on a Mac */
+    };
+
+    /* Held with a key or a press. MOD_CTRL is Cmd on a Mac. */
+    enum Mod
+    {
+        MOD_SHIFT = 1,
+        MOD_CTRL = 2
     };
 
     /* ---- what the shell calls ---- */
@@ -100,8 +113,13 @@ public:
     virtual void draw (const Cairo::RefPtr<Cairo::Context> &cr,
                        int width, int height) = 0;
 
-    /* A key went down; true if the content took it. */
-    virtual bool keyPressed (Key key) { (void)key; return false; }
+    /* A key went down, with the Mod bits held; true if the content took
+       it. A shell leaves one not taken to whatever else would have it. */
+    virtual bool keyPressed (Key key, unsigned mods = 0)
+    {
+        (void)key; (void)mods;
+        return false;
+    }
 
     /* The shell's size changed. Takes the fit zoomToFit() had to put
        off because there was nothing to fit to yet. */
@@ -155,6 +173,10 @@ public:
      * is what a canvas built by a harness with no shell looks like. */
     void visibleRect (double &x, double &y, double &w, double &h) const;
 
+    /* Scrolls as little as it takes to bring the rectangle, in the
+       content's coordinates, into view. */
+    void showRect (double x, double y, double w, double h);
+
     /* Call when the drawing's size changed: tells the shell how big it
        is now, in pixels, so a scroller knows what it is scrolling. */
     void contentResized (void);
@@ -188,6 +210,9 @@ protected:
 
     /* Take the keyboard, so keyPressed() is reached. */
     virtual void takeFocus (void) {}
+
+    /* Scroll the view's top-left corner to `x', `y', in shell pixels. */
+    virtual void scrollShellTo (double x, double y) { (void)x; (void)y; }
 
 private:
     double zoom_;

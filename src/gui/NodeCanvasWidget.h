@@ -42,11 +42,15 @@ protected:
     {
         return viewport(x, y, w, h);
     }
+    void scrollShellTo (double x, double y) override { scrollTo(x, y); }
 
 private:
+    static unsigned modsOf (Gdk::ModifierType state);
+
     Glib::RefPtr<Gtk::GestureClick> click_;
     Glib::RefPtr<Gtk::GestureClick> rightClick_;
     Glib::RefPtr<Gtk::EventControllerMotion> motion_;
+    Glib::RefPtr<Gtk::EventControllerKey> keys_;
 };
 
 #endif /* NODE_CANVAS_WIDGET_H */

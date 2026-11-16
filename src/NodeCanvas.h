@@ -178,6 +178,17 @@ public:
         return m_signal_activated_;
     }
 
+    /* Delete pressed with boxes selected: the editor decides which of them
+       can go, as it does for its own Delete. */
+    typedef sigc::signal<void()> type_signal_delete;
+    type_signal_delete signal_delete_requested (void) {
+        return m_signal_delete_;
+    }
+
+    /* The selection moved by a key, with a box in it. Not signal_box_moved:
+       a run of presses is one edit, where every drag is one of its own. */
+    type_signal_box_moved signal_nudged (void) { return m_signal_nudged_; }
+
     /* The drawing itself, into any context.
      *
      * Public and separate from the draw callback for two reasons: the timing
@@ -197,11 +208,17 @@ public:
     /* Input, in shell pixels, from whatever the shell has -- gesture
        controllers on the desktop, pointer events in a browser, a harness
        with neither. Every one converts at the door. */
-    void onPressed (int nPress, double x, double y);
+    void onPressed (int nPress, double x, double y, unsigned mods = 0);
     void onRightPressed (int nPress, double x, double y);
     void onReleased (int nPress, double x, double y);
     void onMotion (double x, double y);
     void onLeave (void);
+
+    /* Arrows go to the nearest box that way; with Shift they move the
+       selection, 1 pixel with Ctrl too. Delete asks for the selection to
+       go, Escape lets go of what is held, and Select All takes every box
+       not on another. Ctrl+arrow is left to the shell's scroller. */
+    bool keyPressed (Key key, unsigned mods = 0) override;
 
     /* Nodes drawn with a title of their own color: what growth or a search
        added to the graph the piece declares. */
@@ -246,6 +263,15 @@ private:
     bool bandOn_;
     double bandX0_, bandY0_, bandX1_, bandY1_;
 
+    /* A band drawn with Shift adds to what was selected when it began. */
+    std::vector<int> bandBase_;
+
+    /* A press, a drag or a band under way: keys wait for it to end. */
+    bool busy (void) const;
+
+    /* The free box nearest `from' going (dx, dy), or -1. */
+    int nearest (int from, double dx, double dy) const;
+
     /* Wire being dragged: the port it started at, and where the loose end
        currently is, in graph coordinates. */
     int wireBox_, wirePort_;
@@ -273,6 +299,8 @@ private:
     type_signal_control m_signal_control_;
     type_signal_context m_signal_context_;
     type_signal_activated m_signal_activated_;
+    type_signal_delete m_signal_delete_;
+    type_signal_box_moved m_signal_nudged_;
 };
 
 #endif /* NODE_CANVAS_H */

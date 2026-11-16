@@ -90,7 +90,17 @@ input-to-output are the same gesture. Clicking a wire removes it.
 
 **Selecting.** A click selects a box and shows its parameters. A drag on empty
 canvas is a rubber band, and dragging any box of a selection moves the whole of
-it.
+it. Shift with a click adds a box to the selection or takes it out, and Shift
+with a band adds what it gathers.
+
+**Keys on the graph.** The arrows go to the nearest box that way, by where the
+boxes sit; Shift+arrows move the selection 10 pixels, 1 with Ctrl too, and a
+run of presses is one Undo. Delete or Backspace deletes the selection, all but
+the io node and expressions, which stay; Escape lets go of it; Ctrl+A selects
+every box; Ctrl+S saves (Cmd on macOS). Keys wait while a drag is under way, and
+Ctrl+arrow is left to the scroller. The canvas takes the keys in
+`NodeCanvas::keyPressed`, so the browser's editor has them once its page maps
+them.
 
 **Probes.** Right-click an output to watch it with a visual module: a panel
 sits above the node, drawing what it produces, and a double-click opens it in
