@@ -2,10 +2,12 @@
 #
 # A relative of the ryuteki and the shinobue, with the shakuhachi's way
 # of bending a note. A bamboo bore is rough inside and its holes are
-# open, so the tone is mostly fundamental: a recording of a shakuhachi
-# at A4 has the second harmonic 15 dB down, the third 20 and the fourth
-# 34. That is a sine with a band-limited saw under it, lowpassed near
-# the third harmonic, and the breath is the rest.
+# open, so the tone is mostly fundamental. The one clean recording of
+# a bamboo flute to hand is a shakuhachi's, end-blown but sounding the
+# same bore: at A4 its second harmonic is 15 dB down, the third 20 and
+# the fourth 34. That is a sine with a band-limited saw under it,
+# lowpassed between the third and sixth harmonics, and the breath is
+# the rest.
 #
 # THE BREATH. Air across the embouchure hole is noise, and the bore
 # colors it: one band of it rings at the note, which is the hollow
@@ -16,7 +18,9 @@
 # BLOWING HARDER. A flute played louder is played brighter: a faster
 # jet drives the upper harmonics, so velocity raises both the saw and
 # the lowpass over it, and at full velocity the tone has the edge of a
-# note about to overblow.
+# note about to overblow. A harder note also speaks sooner: the attack
+# runs from 1.5 times `Attack' at the softest to half of it at the
+# hardest.
 #
 # THE SCOOP AND THE MERI. A player rarely lands on a note: it is
 # slid into from below, `Scoop' semitones over `Scoop Time'. `Meri' is
@@ -24,9 +28,9 @@
 # mouthpiece, and as there it darkens the tone and takes a little off
 # its level. It is a knob, so it bends a note that is already held.
 #
-# THE VIBRATO. It arrives late, after `Vibrato Delay', and is breath
-# as much as pitch: the level follows the bend, a few percent up and
-# down with it.
+# THE VIBRATO. It arrives late: straight for `Vibrato Delay', then
+# growing over as long again. It is breath as much as pitch: the level
+# follows the bend, 6% each way at the default depth.
 
 name "Bamboo Flute";
 author "Misha Nasledov";
@@ -191,8 +195,8 @@ node mix math::mul {
     in0 = (fund->out +
            octave->out * (0.08 + 0.12 * ionode->velocity * ionode->velocity) *
            clamp((10000 - vib->out) / 1000, 0, 1) +
-           tone->out_low * (0.45 + 0.6 * ionode->velocity * ionode->velocity) * -1 +
-           air->out) *
+           air->out -
+           tone->out_low * (0.45 + 0.6 * ionode->velocity * ionode->velocity)) *
           env->out * (1 + (vib->out / freq->out - 1) * 6) *
           (1 - meri->out * 0.08) +
           air->out * chiff->out * 2;
