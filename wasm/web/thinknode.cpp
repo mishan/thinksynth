@@ -280,7 +280,9 @@ enum {
     SIG_REFUSED,
     SIG_CONTROL,
     SIG_CONTEXT,
-    SIG_PROBE
+    SIG_PROBE,
+    SIG_NUDGED,
+    SIG_DELETE
 };
 
 const Signal *signalAt (int i)
@@ -381,6 +383,19 @@ WebNodeCanvas *canvas (void)
             signals_.push_back(s);
         });
 
+    canvas_->signal_nudged().connect([](int box)
+        {
+            Signal s(SIG_NUDGED);
+
+            s.a = box;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_delete_requested().connect([]()
+        {
+            signals_.push_back(Signal(SIG_DELETE));
+        });
+
     /* What goes inside a probe panel. The canvas has already clipped to
        the body and translated to its origin; what is drawn there is the
        module's business and not the canvas's. */
@@ -453,6 +468,12 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
        which is why this order and not the other. */
     g.layout();
 
+    /* By name, before the boxes it names are gone: a peer's edit that adds
+       a box earlier in the file would otherwise leave the selection on
+       the box after the one chosen, one key from Delete. */
+    const NodeCanvas::Held kept =
+        canvas_ != NULL ? canvas_->held() : NodeCanvas::Held();
+
     graph_ = g;
 
     /* setGraph and not just a redraw, because every index the canvas was
@@ -462,7 +483,10 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
        wireBox_ pointing past the end of the new list, and the next mouse
        move read it. */
     if (canvas_ != NULL)
+    {
         canvas_->setGraph(&graph_);
+        canvas_->hold(kept);
+    }
 
     return (int)graph_.boxes().size();
 }
@@ -876,13 +900,15 @@ EMSCRIPTEN_KEEPALIVE int tw_node_canvas_draw (int w, int h)
 
 /* The right button is its own entry point here, as it is on the desktop:
    it asks what can be done rather than starting a wire. */
+/* `mods' is CanvasContent::Mod bits. */
 EMSCRIPTEN_KEEPALIVE void tw_node_canvas_press (double x, double y,
-                                                int button, int nPress)
+                                                int button, int nPress,
+                                                int mods)
 {
     if (button == 3)
         canvas()->onRightPressed(nPress, x, y);
     else
-        canvas()->onPressed(nPress, x, y);
+        canvas()->onPressed(nPress, x, y, (unsigned)mods);
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_node_canvas_motion (double x, double y)
@@ -897,9 +923,10 @@ EMSCRIPTEN_KEEPALIVE void tw_node_canvas_release (double x, double y,
     canvas()->onReleased(1, x, y);
 }
 
-EMSCRIPTEN_KEEPALIVE int tw_node_canvas_key (int key)
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_key (int key, int mods)
 {
-    return canvas()->keyPressed((CanvasContent::Key)key) ? 1 : 0;
+    return canvas()->keyPressed((CanvasContent::Key)key, (unsigned)mods)
+           ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_node_canvas_viewport (double x, double y,
@@ -947,6 +974,25 @@ EMSCRIPTEN_KEEPALIVE int tw_node_canvas_selected (void)
 EMSCRIPTEN_KEEPALIVE void tw_node_canvas_select (int box)
 {
     canvas()->setSelected(box);
+}
+
+/* A press, a drag, a wire or a band under way. */
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_busy (void)
+{
+    return canvas()->busy() ? 1 : 0;
+}
+
+/* Every selected box, the one the panel shows among them. */
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_selection_count (void)
+{
+    return (int)canvas()->selection().size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_selection_at (int i)
+{
+    const std::vector<int> &sel = canvas()->selection();
+
+    return i >= 0 && (size_t)i < sel.size() ? sel[(size_t)i] : -1;
 }
 
 /* ---- what the canvas decided ---- */

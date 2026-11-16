@@ -1002,11 +1002,11 @@ void NodeEditor::onArrange (void)
 
     Gesture gesture(*this, "auto-arrange");
 
-    const Selection kept = selection();
+    const NodeCanvas::Held kept = canvas_.held();
 
     graph_.layout();
     canvas_.setGraph(&graph_);
-    reselect(kept);
+    canvas_.hold(kept);
 
     /* Auto-arranging discards hand placement, so it is itself an edit. */
     writeLayout();
@@ -1959,7 +1959,7 @@ bool NodeEditor::restore (const NodeHistory::Snapshot &s, const string &done)
                  had[i].visual != has[i].visual;
 
     /* Before the probes go, which renumbers the boxes. */
-    const Selection kept = selection();
+    const NodeCanvas::Held kept = canvas_.held();
 
     if (probes)
         disarmAllProbes();
@@ -1973,12 +1973,12 @@ bool NodeEditor::restore (const NodeHistory::Snapshot &s, const string &done)
         if (probes)
             reload(&settled_);
 
-        reselect(kept);
+        canvas_.hold(kept);
 
         return false;
     }
 
-    reselect(kept);
+    canvas_.hold(kept);
 
     bool complete = true;
 
@@ -2042,58 +2042,16 @@ bool NodeEditor::reloadAfter (const string &was, bool keep)
 
 bool NodeEditor::reloadKeepingSelection (const NodeLayout::PosMap *carry)
 {
-    const Selection kept = selection();
+    const NodeCanvas::Held kept = canvas_.held();
 
     if (!reload(carry))
         return false;
 
-    reselect(kept);
+    canvas_.hold(kept);
 
     return true;
 }
 
-/* By key, which tells the io node's two halves apart. Not the boxes
-   attached to another -- the canvas selects the host for a press on one --
-   since a control a wire has just put on a node keeps its name. */
-NodeEditor::Selection NodeEditor::selection (void) const
-{
-    Selection s;
-    const int n = (int)graph_.boxes().size();
-
-    for (int b : canvas_.selection())
-        if (b >= 0 && b < n && graph_.boxes()[b].attachedTo < 0)
-            s.keys.push_back(NodeLayout::keyFor(graph_, b));
-
-    const int shown = canvas_.selected();
-
-    if (shown >= 0 && shown < n && graph_.boxes()[shown].attachedTo < 0)
-        s.shown = NodeLayout::keyFor(graph_, shown);
-
-    return s;
-}
-
-void NodeEditor::reselect (const Selection &s)
-{
-    vector<int> boxes;
-    int shown = -1;
-
-    for (int b = 0; b < (int)graph_.boxes().size(); b++)
-    {
-        if (graph_.boxes()[b].attachedTo >= 0)
-            continue;
-
-        const string key = NodeLayout::keyFor(graph_, b);
-
-        if (std::find(s.keys.begin(), s.keys.end(), key) != s.keys.end())
-            boxes.push_back(b);
-
-        if (key == s.shown)
-            shown = b;
-    }
-
-    if (!boxes.empty())
-        canvas_.setSelection(boxes, shown);
-}
 
 
 void NodeEditor::onNewFile (void)

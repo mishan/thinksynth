@@ -248,7 +248,10 @@
     <p id="nodeempty" hidden>No graph to edit: this piece plays only the
       shipped patches. A .dsp in the room's document is drawn here.</p>
     <div id="nodescroll" class="canvasview">
-      <canvas id="nodecanvas" tabindex="0" role="img"
+      <!-- Not an image: a screen reader in browse mode keeps the arrows on
+           an image, and the graph moves its selection with them. -->
+      <canvas id="nodecanvas" tabindex="0" role="application"
+              aria-roledescription="graph"
               aria-label="The graph, as nodes and wires"></canvas>
     </div>
     <!-- The graph without the canvas: its nodes to choose, and the chosen

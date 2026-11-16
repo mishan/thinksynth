@@ -99,8 +99,13 @@ run of presses is one Undo. Delete or Backspace deletes the selection, all but
 the io node and expressions, which stay; Escape lets go of it; Ctrl+A selects
 every box; Ctrl+S saves (Cmd on macOS). Keys wait while a drag is under way, and
 Ctrl+arrow is left to the scroller. The canvas takes the keys in
-`NodeCanvas::keyPressed`, so the browser's editor has them once its page maps
-them.
+`NodeCanvas::keyPressed`, so the browser's editor has them too; there a held
+Shift+arrow is written to the file when the key comes up, since every write
+reloads the patch or goes to every peer, and a rebuild before that drops it
+rather than writing an old graph's positions over the new text. Ctrl+Z there
+says the graph has no Undo yet rather than undoing the piece. A rebuild keeps the selection by name
+(`NodeCanvas::held`), so a peer's edit that renumbers the boxes leaves the same
+ones selected.
 
 **Probes.** Right-click an output to watch it with a visual module: a panel
 sits above the node, drawing what it produces, and a double-click opens it in

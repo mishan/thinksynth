@@ -30,6 +30,7 @@
 #include <chrono>   /* onDraw times itself; see drawCount() in the header */
 
 #include "NodeCanvas.h"
+#include "NodeLayout.h"
 
 /* Palette. Kept flat and low-contrast so the wires stay the loudest thing on
    screen -- in a signal-flow diagram the connections are the content. Not
@@ -245,6 +246,51 @@ void NodeCanvas::setSelection (const std::vector<int> &boxes, int shown)
     m_signal_selected_(selBox_);
     m_signal_selection_((int)sel_.size());
     requestRedraw();
+}
+
+NodeCanvas::Held NodeCanvas::held (void) const
+{
+    Held h;
+
+    if (graph_ == NULL)
+        return h;
+
+    const int n = (int)graph_->boxes().size();
+
+    for (int b : sel_)
+        if (b >= 0 && b < n && graph_->boxes()[b].attachedTo < 0)
+            h.keys.push_back(NodeLayout::keyFor(*graph_, b));
+
+    if (selBox_ >= 0 && selBox_ < n && graph_->boxes()[selBox_].attachedTo < 0)
+        h.shown = NodeLayout::keyFor(*graph_, selBox_);
+
+    return h;
+}
+
+void NodeCanvas::hold (const Held &h)
+{
+    if (graph_ == NULL)
+        return;
+
+    std::vector<int> boxes;
+    int shown = -1;
+
+    for (int b = 0; b < (int)graph_->boxes().size(); b++)
+    {
+        if (graph_->boxes()[b].attachedTo >= 0)
+            continue;
+
+        const string key = NodeLayout::keyFor(*graph_, b);
+
+        if (std::find(h.keys.begin(), h.keys.end(), key) != h.keys.end())
+            boxes.push_back(b);
+
+        if (key == h.shown)
+            shown = b;
+    }
+
+    if (!boxes.empty())
+        setSelection(boxes, shown);
 }
 
 bool NodeCanvas::busy (void) const

@@ -455,6 +455,99 @@ process.stdout.write(
             fail(`Escape with a box selected took ${first} and left ` +
                  `${M._tw_node_canvas_selected()}; again took ${second}`);
     }
+
+    const heldNames = () =>
+    {
+        const out = [];
+
+        for (let i = 0; i < M._tw_node_canvas_selection_count(); i++)
+            out.push(M.UTF8ToString(M._tw_graph_box_name(
+                M._tw_node_canvas_selection_at(i))));
+
+        return out.sort().join(' ');
+    };
+
+    const queued = () =>
+    {
+        const out = [];
+
+        for (let i = 0; i < M._tw_node_signal_count(); i++)
+            out.push(M._tw_node_signal_kind(i));
+
+        return out;
+    };
+
+    /* Two boxes, the second by Shift and a click, held through a rebuild
+       of the same text and through one with a node put in before them:
+       by name, not by where they were in the list. */
+    {
+        const click = (b, mods) =>
+        {
+            const x = M._tw_graph_box_x(b) + 6, y = M._tw_graph_box_y(b) + 6;
+
+            M._tw_node_canvas_press(x, y, 1, 1, mods);
+            M._tw_node_canvas_release(x, y, 1);
+        };
+
+        click(1, 0);
+        click(2, 1);
+
+        const held = heldNames();
+        const at = M._tw_node_canvas_selection_at(0);
+
+        M.ccall('tw_graph_build', 'number', ['string'], [text]);
+
+        const same = heldNames();
+
+        M.ccall('tw_graph_build', 'number', ['string'],
+                ['node aaa osc::simple { freq = 1; };\n' + text]);
+
+        /* Only a test of names if the node put in renumbered them. */
+        const moved = M._tw_node_canvas_selection_count() === 2 &&
+                      M._tw_node_canvas_selection_at(0) !== at;
+
+        if (held.split(' ').length === 2 && same === held &&
+            heldNames() === held && moved)
+            process.stdout.write('ok    a selection of two, one added with ' +
+                                 'Shift, is held by name across rebuilds\n');
+        else
+            fail(`two selected [${held}] came back as [${same}], and with ` +
+                 `a node before them as [${heldNames()}]`);
+
+        M.ccall('tw_graph_build', 'number', ['string'], [text]);
+        M.ccall('tw_graph_apply_layout', 'number', ['string'], [text]);
+    }
+
+    /* The keys the page sends: an arrow selects, Shift+arrow says the
+       selection moved, Delete asks for it to go. */
+    {
+        M._tw_node_canvas_key(1, 0);
+        M._tw_node_signals_clear();
+
+        const arrow = M._tw_node_canvas_key(3, 0) === 1 &&
+                      M._tw_node_canvas_selected() >= 0;
+        const box = M._tw_node_canvas_selected();
+        const x0 = M._tw_graph_box_x(box);
+
+        M._tw_node_signals_clear();
+
+        const nudged = M._tw_node_canvas_key(3, 1) === 1 &&
+                       queued().includes(9) &&
+                       M._tw_graph_box_x(box) === x0 + 10;
+
+        M._tw_node_signals_clear();
+
+        const deleting = M._tw_node_canvas_key(6, 0) === 1 &&
+                         queued().includes(10);
+
+        if (arrow && nudged && deleting)
+            process.stdout.write('ok    an arrow selects, Shift+arrow moves ' +
+                                 'it 10 and says so, Delete asks\n');
+        else
+            fail(`arrow ${arrow}, nudge ${nudged}, delete ${deleting}`);
+
+        M._tw_node_signals_clear();
+    }
 }
 
 /* ---- a new patch, and a node added to it -------------------------------- */

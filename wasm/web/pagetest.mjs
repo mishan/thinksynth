@@ -2951,6 +2951,158 @@ try
         await page.evaluate(() => window.solo.settled());
     }
 
+    /* The canvas from the keys (CanvasContent::Key): an arrow moves the
+       selection, a run of Shift+arrows is written once when it stops,
+       Ctrl+Z says there is no Undo here rather than undoing the piece, and
+       Delete takes the selected node out of the .dsp -- the right one,
+       after the rebuilds the nudges made, since a rebuild keeps the
+       selection by name. The patch is put back after. */
+    {
+        const dsp = () => page.$eval('#dsp', (e) => e.value);
+        const original = await dsp();
+        const sel = () => page.evaluate(() => window.solo.node().selected);
+
+        /* The leftmost node, so there is something to its right. */
+        const start = await page.evaluate(() =>
+        {
+            const n = window.solo.node();
+            let best = null;
+
+            for (let i = 0; i < n.boxes; i++)
+            {
+                const b = n.box(i);
+
+                if (b.kind === 0 && (best === null || b.x < best.x))
+                    best = { ...b, i };
+            }
+
+            return best;
+        });
+
+        await page.locator('#nodescroll').scrollIntoViewIfNeeded();
+        await page.$eval('#nodescroll', (s) => { s.scrollLeft = 0; });
+
+        const at = await page.$eval('#nodecanvas', (c) =>
+        {
+            const r = c.getBoundingClientRect();
+
+            return { x: r.x, y: r.y };
+        });
+
+        await page.mouse.click(at.x + start.x + 8, at.y + start.y + 8);
+        await page.waitForFunction(() => window.solo.node().selected >= 0,
+                                   null, { timeout: 15000 });
+
+        const clicked = await sel();
+
+        await page.keyboard.press('ArrowRight');
+
+        const arrowed = await sel();
+        const focus = await page.evaluate(() => document.activeElement.id);
+
+        check(clicked === start.i && arrowed >= 0 && arrowed !== clicked &&
+              focus === 'nodecanvas',
+              'an arrow on the canvas moves the selection, and the canvas ' +
+              'keeps the keys');
+
+        const name = await page.evaluate((i) => window.solo.node().box(i).name,
+                                         arrowed);
+        /* One first, so the file has a layout block to read numbers from:
+           this patch has none until something moves. */
+        const plain = await dsp();
+
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.waitForFunction(
+            (t) => document.getElementById('dsp').value !== t, plain,
+            { timeout: 10000 }).catch(() => {});
+        await page.evaluate(() => window.solo.settled());
+
+        const before = await dsp();
+
+        /* Held: the key repeats, and comes up once. */
+        await page.keyboard.down('Shift');
+
+        for (let i = 0; i < 3; i++)
+            await page.keyboard.down('ArrowRight');
+
+        const during = await dsp();
+
+        await page.keyboard.up('ArrowRight');
+        await page.keyboard.up('Shift');
+        await page.waitForFunction(
+            (t) => document.getElementById('dsp').value !== t, before,
+            { timeout: 10000 }).catch(() => {});
+        await page.evaluate(() => window.solo.settled());
+
+        /* By the file's own numbers: the page's are scrolled and zoomed. */
+        const xOf = (t) => Number(t.split('\n')
+            .find((l) => l.startsWith(`# @layout ${name} `))
+            ?.split(' ')[3]);
+        const from = xOf(before), to = xOf(await dsp());
+
+        check(during === before && from >= 0 && to === from + 30,
+              `Shift+Right held for three is written when it comes up, ` +
+              `${name} ${from} to ${to}`);
+
+        /* An edit to the text while a nudge waits -- typed into the box
+           here, a peer's in a room -- is not written over with the graph
+           from before it. */
+        {
+            const typed = (await dsp()).replace(/\n$/, '') + '\n# typed\n';
+
+            await page.keyboard.down('Shift');
+            await page.keyboard.down('ArrowRight');
+            await page.evaluate((t) =>
+            {
+                const box = document.getElementById('dsp');
+
+                box.value = t;
+                box.dispatchEvent(new Event('input'));
+            }, typed);
+            await page.evaluate(() => window.solo.settled());
+            await page.keyboard.up('ArrowRight');
+            await page.keyboard.up('Shift');
+            await page.evaluate(() => window.solo.settled());
+
+            check((await dsp()) === typed,
+                  'a nudge waiting when the text is edited is dropped, not ' +
+                  'written over the edit');
+        }
+
+        const nudged = await dsp();
+
+        await page.keyboard.press('Control+z');
+
+        check((await dsp()) === nudged &&
+              (await page.$eval('#status', (e) => e.textContent))
+                  .includes('No Undo'),
+              'Ctrl+Z on the canvas says there is no Undo here, and undoes ' +
+              'nothing');
+
+        const shown = await page.evaluate(
+            () => window.solo.node().box(window.solo.node().selected).name);
+
+        await page.keyboard.press('Delete');
+        await page.waitForFunction(
+            (t) => document.getElementById('dsp').value !== t, nudged,
+            { timeout: 10000 }).catch(() => {});
+        await page.evaluate(() => window.solo.settled());
+
+        const after = await dsp();
+
+        check(shown === name && !after.includes(`node ${name} `) &&
+              nudged.includes(`node ${name} `),
+              `Delete takes ${name}, still the one selected after the ` +
+              'rebuilds, out of the .dsp');
+
+        await page.evaluate((t) =>
+        {
+            document.getElementById('dsp').value = t;
+        }, original);
+        await page.click('#load');
+        await page.evaluate(() => window.solo.settled());
+    }
+
     /* MIDI out (midiout.js): a piece whose instrument names a port. Before
      * access it plays its dsp, and its row says why; with MIDI out on it
      * plays on the fake output, every message scheduled for a time in

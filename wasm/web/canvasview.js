@@ -56,9 +56,16 @@ import { replay } from './replay.js';
 /* A drag sends at most one motion per animation frame. A pointer moves
    faster than a mesh wants, and a knob's slider already produces about
    this rate. */
+/* CanvasContent::Mod bits: Shift, and Ctrl or Cmd. */
+export const modsOf = (e) =>
+    (e.shiftKey ? 1 : 0) | (e.ctrlKey || e.metaKey ? 2 : 0);
+
+/* `takes' says which keys the content is sent; the rest stay the page's,
+   arrow scrolling and Ctrl+A among them. */
 export function createCanvasView ({ scroller, canvas, send,
                                     fitOnShow = true,
                                     wheelZooms = false,
+                                    takes = (e) => e.key === 'Escape',
                                     onFrame = () => {} })
 {
     const ctx = canvas.getContext('2d');
@@ -150,7 +157,8 @@ export function createCanvasView ({ scroller, canvas, send,
 
         canvas.setPointerCapture(e.pointerId);
         canvas.focus();
-        send({ type: 'press', ...p, button: e.button + 1, nPress: last.n });
+        send({ type: 'press', ...p, button: e.button + 1, nPress: last.n,
+               mods: modsOf(e) });
         e.preventDefault();
     });
 
@@ -185,12 +193,13 @@ export function createCanvasView ({ scroller, canvas, send,
 
     canvas.addEventListener('keydown', (e) =>
     {
-        if (e.key !== 'Escape')
+        if (!takes(e))
             return;
 
         /* A content that says it did not take the key leaves it to the
            page: Escape with nothing to let go of gives the keyboard back. */
-        if (send({ type: 'key', key: e.key }) !== false)
+        if (send({ type: 'key', key: e.key, code: e.code,
+                   mods: modsOf(e) }) !== false)
             e.preventDefault();
     });
 

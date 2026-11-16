@@ -79,6 +79,21 @@ public:
        -1 for none unless there is only one -- the box whose parameters show. */
     void setSelection (const std::vector<int> &boxes, int shown);
 
+    /* What is selected, by name, and which of it the panel shows: a parse
+       renumbers the boxes, and a name survives it. By NodeLayout::keyFor,
+       which tells the io node's two halves apart, and not the boxes on
+       another -- a press on one selects its host -- since a control a wire
+       has just put on a node keeps its name. */
+    struct Held {
+        std::vector<string> keys;
+        string shown;
+    };
+
+    Held held (void) const;
+
+    /* Selects again what is still there of `h'. */
+    void hold (const Held &h);
+
     /* Every selected box, `selected()' among them. Empty or a single entry
        for all the ordinary cases; more after a rubber band. */
     const std::vector<int> &selection (void) const { return sel_; }
@@ -220,6 +235,9 @@ public:
        not on another. Ctrl+arrow is left to the shell's scroller. */
     bool keyPressed (Key key, unsigned mods = 0) override;
 
+    /* A press, a drag, a wire or a band under way: keys wait for it. */
+    bool busy (void) const;
+
     /* Nodes drawn with a title of their own color: what growth or a search
        added to the graph the piece declares. */
     void setMarked (const std::set<string> &names) { marked_ = names; }
@@ -265,9 +283,6 @@ private:
 
     /* A band drawn with Shift adds to what was selected when it began. */
     std::vector<int> bandBase_;
-
-    /* A press, a drag or a band under way: keys wait for it to end. */
-    bool busy (void) const;
 
     /* The free box nearest `from' going (dx, dy), or -1. */
     int nearest (int from, double dx, double dy) const;
