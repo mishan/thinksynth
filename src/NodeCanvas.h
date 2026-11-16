@@ -193,6 +193,20 @@ public:
         return m_signal_activated_;
     }
 
+    /* A wire clicked, by its index, or -1 when it is let go of. Delete then
+       asks for it to be cut, through signal_disconnect_requested. */
+    type_signal_disconnect signal_wire_selected (void) {
+        return m_signal_wire_selected_;
+    }
+
+    int selectedWire (void) const { return selEdge_; }
+
+    /* A right-click on a wire: its index and where to put a menu. */
+    typedef sigc::signal<void(int, double, double)> type_signal_wire_context;
+    type_signal_wire_context signal_wire_context_requested (void) {
+        return m_signal_wire_context_;
+    }
+
     /* Delete pressed with boxes selected: the editor decides which of them
        can go, as it does for its own Delete. */
     typedef sigc::signal<void()> type_signal_delete;
@@ -250,7 +264,10 @@ private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
                   const NodeGraph::Box &b, bool highlit, bool selected);
     void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
-                   bool highlit);
+                   bool highlit, bool selected);
+
+    /* Lets go of a selected wire, saying so. */
+    void dropWire (void);
     void drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr);
     void drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
                      const NodeGraph::Box &b);
@@ -315,6 +332,10 @@ private:
     type_signal_context m_signal_context_;
     type_signal_activated m_signal_activated_;
     type_signal_delete m_signal_delete_;
+    type_signal_disconnect m_signal_wire_selected_;
+    type_signal_wire_context m_signal_wire_context_;
+
+    int selEdge_;               /* the wire clicked, or -1 */
     type_signal_box_moved m_signal_nudged_;
 };
 

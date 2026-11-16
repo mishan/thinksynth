@@ -343,6 +343,10 @@ NodeEditor::NodeEditor (thSynth *synth)
         sigc::mem_fun(*this, &NodeEditor::onNudged));
     canvas_.signal_delete_requested().connect(
         sigc::mem_fun(*this, &NodeEditor::onDeleteNode));
+    canvas_.signal_wire_selected().connect(
+        sigc::mem_fun(*this, &NodeEditor::onWireSelected));
+    canvas_.signal_wire_context_requested().connect(
+        sigc::mem_fun(*this, &NodeEditor::onWireContext));
 
     canvas_.signal_selected().connect(
         sigc::mem_fun(*this, &NodeEditor::onSelected));
@@ -3221,7 +3225,7 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
             menu->append(*btn);
         }
     }
-    else
+    else if (!deletable(b))
     {
         /* Not a port and not a panel. Saying so is better than a menu that
            silently does not appear, which reads as a broken right-click. */
@@ -3232,6 +3236,41 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
         menu->append(*lbl);
     }
 
+    /* The box itself, as Delete would take it: what is selected when the box
+       is part of that, else the box alone -- a right-click does not select,
+       and a Delete here taking whatever was would take the wrong thing. */
+    if (!b.isProbe && deletable(b))
+    {
+        const string key = NodeLayout::keyFor(graph_, box);
+        Gtk::Button *btn = Gtk::manage(new Gtk::Button(
+            "Delete " + string(b.isControl ? "@" + b.ctlArg : b.name)));
+
+        btn->set_has_frame(false);
+        btn->signal_clicked().connect([this, key]() {
+            ctxPopover_.popdown();
+
+            /* A control drawn on its node is attached and deletable; a
+               probe's panel, which shares its host's name, is neither. */
+            for (int i = 0; i < (int)graph_.boxes().size(); i++)
+                if (!graph_.boxes()[i].isProbe &&
+                    NodeLayout::keyFor(graph_, i) == key)
+                {
+                    if (!canvas_.isSelected(i))
+                        canvas_.setSelected(i);
+
+                    onDeleteNode();
+                    return;
+                }
+        });
+
+        menu->append(*btn);
+    }
+
+    popMenu(menu, x, y);
+}
+
+void NodeEditor::popMenu (Gtk::Widget *menu, double x, double y)
+{
     ctxPopover_.set_parent(canvas_);
     ctxPopover_.set_child(*menu);
     ctxPopover_.set_has_arrow(false);
@@ -3240,6 +3279,50 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
 
     ctxPopover_.set_pointing_to(at);
     ctxPopover_.popup();
+}
+
+/* `from.out -> to.in', as the status bar and the menu name a wire. */
+string NodeEditor::wireName (int edge) const
+{
+    const NodeGraph::Edge &e = graph_.edges()[edge];
+
+    return graph_.boxes()[e.fromBox].name + "." +
+           graph_.boxes()[e.fromBox].ports[e.fromPort].name + " -> " +
+           graph_.boxes()[e.toBox].name + "." +
+           graph_.boxes()[e.toBox].ports[e.toPort].name;
+}
+
+void NodeEditor::onWireSelected (int edge)
+{
+    if (edge >= 0 && edge < (int)graph_.edges().size())
+        setStatus("The wire " + wireName(edge) + ".  Delete cuts it.");
+}
+
+void NodeEditor::onWireContext (int edge, double x, double y)
+{
+    if (edge < 0 || edge >= (int)graph_.edges().size())
+        return;
+
+    /* By name, resolved when clicked, as the probe entries are. */
+    const string wire = wireName(edge);
+    Gtk::Box *menu = Gtk::manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 2));
+    Gtk::Button *btn = Gtk::manage(new Gtk::Button("Disconnect " + wire));
+
+    menu->set_margin(4);
+    btn->set_has_frame(false);
+    btn->signal_clicked().connect([this, wire]() {
+        ctxPopover_.popdown();
+
+        for (int e = 0; e < (int)graph_.edges().size(); e++)
+            if (wireName(e) == wire)
+            {
+                onDisconnect(e);
+                return;
+            }
+    });
+
+    menu->append(*btn);
+    popMenu(menu, x, y);
 }
 
 /* ------------------------------------------------------------------------
