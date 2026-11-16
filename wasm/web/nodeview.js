@@ -401,9 +401,16 @@ export async function createNodeView ({ files, root = document,
                     selected = a;
                     showParams();
 
-                    if (a >= 0)
+                    /* One of a group is shown, and the group is what was
+                       chosen: SELECTION says that. */
+                    if (a >= 0 && M._tw_node_canvas_selection_count() <= 1)
                         say(`${call('tw_graph_box_name', ['number'], [a])}, ` +
                             call('tw_graph_box_plugin', ['number'], [a]));
+                    break;
+
+                case SIG.SELECTION:
+                    if (a > 1)
+                        say(`${a} nodes selected.`);
                     break;
 
                 /* Written when the key comes up: a held arrow repeats,

@@ -1695,7 +1695,10 @@ void NodeEditor::onDeleteNode (void)
     if (victims.empty())
     {
         if (*stays)
+        {
             setStatus(string("Nothing to delete.") + stays);
+            say(status_.get_text());
+        }
 
         return;
     }
@@ -1737,6 +1740,7 @@ void NodeEditor::onDeleteNode (void)
         setStatus("Could not delete " +
                   string(victims[0].second ? "@" : "") + victims[0].first +
                   ": " + why);
+        say(status_.get_text());
         return;
     }
 
@@ -2606,6 +2610,7 @@ void NodeEditor::onDisconnect (int edge)
         setStatus("That is part of an expression. Disconnect " +
                   graph_.boxes()[ed.toBox].exprNode + "." +
                   graph_.boxes()[ed.toBox].exprArg + " to remove all of it.");
+        say(status_.get_text());
         return;
     }
 

@@ -3103,6 +3103,14 @@ try
               `...and the graph's line still says so after the reload: ` +
               `${await said()}`);
 
+        await page.keyboard.press('Control+a');
+
+        check(/^\d+ nodes selected\.$/.test(await said()),
+              `...and that Ctrl+A took a group, not one box: ` +
+              `${await said()}`);
+
+        await page.keyboard.press('Escape');
+
         /* The right-click menu's Delete, on a node nobody selected: that
            node goes, and not the one selected. */
         {
