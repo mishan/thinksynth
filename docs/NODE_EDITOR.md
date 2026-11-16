@@ -107,7 +107,11 @@ Ctrl+arrow is left to the scroller. The canvas takes the keys in
 Shift+arrow is written to the file when the key comes up, since every write
 reloads the patch or goes to every peer, and a rebuild before that drops it
 rather than writing an old graph's positions over the new text. Ctrl+Z there
-says the graph has no Undo yet rather than undoing the piece. A rebuild keeps the selection by name
+says the graph has no Undo yet rather than undoing the piece. A screen reader
+hears what a key did -- the box an arrow reached, a group, a wire, a delete, an
+Undo: the desktop announces it (GTK 4.14 and up, with an accessibility bus),
+and the browser writes it in a live line under the graph, since the page's
+status is the patch reload's a moment after every edit. A rebuild keeps the selection by name
 (`NodeCanvas::held`), so a peer's edit that renumbers the boxes leaves the same
 ones selected.
 

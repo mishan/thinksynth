@@ -50,4 +50,29 @@ describeAs (Gtk::Widget &w, const Glib::ustring &text)
                                        text.c_str(), -1);
 }
 
+/* `text' said by a screen reader, as about `w'.
+ *
+ * Not through the context GTK falls back to with no accessibility bus --
+ * a desktop with no screen reader set up, or a headless run: it has no
+ * announce, and GTK calls it anyway (4.24 jumps to a null pointer). With
+ * no bus there is nobody to say it to. */
+inline void
+announce (Gtk::Widget &w, const Glib::ustring &text)
+{
+#if GTK_CHECK_VERSION(4, 14, 0)
+    GtkATContext *ctx = gtk_accessible_get_at_context(GTK_ACCESSIBLE(w.gobj()));
+    const bool test = ctx != NULL &&
+                      g_str_equal(G_OBJECT_TYPE_NAME(ctx), "GtkTestATContext");
+
+    if (ctx != NULL && !test)
+        gtk_accessible_announce(GTK_ACCESSIBLE(w.gobj()), text.c_str(),
+                                GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM);
+
+    if (ctx != NULL)
+        g_object_unref(ctx);
+#else
+    (void)w; (void)text;
+#endif
+}
+
 #endif /* GTH_ACCESS_H */

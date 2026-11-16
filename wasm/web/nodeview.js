@@ -91,6 +91,24 @@ export async function createNodeView ({ files, root = document,
 {
     const $ = (id) => root.getElementById(id);
 
+    /* What this view says goes in its own line as well as the page's: the
+       page's is the reload's a moment after an edit. */
+    const say = (text) =>
+    {
+        const line = $('nodesay');
+
+        if (line !== null)
+            line.textContent = text;
+    };
+
+    const pageStatus = onStatus;
+
+    onStatus = (text) =>
+    {
+        pageStatus(text);
+        say(text);
+    };
+
     /* The page's own instance of the module. The worklet's is playing and
        the mirror's is composing; this one only ever reads and edits text,
        and it fetches its own wasm because a page can. */
@@ -382,6 +400,17 @@ export async function createNodeView ({ files, root = document,
                 case SIG.SELECTED:
                     selected = a;
                     showParams();
+
+                    /* One of a group is shown, and the group is what was
+                       chosen: SELECTION says that. */
+                    if (a >= 0 && M._tw_node_canvas_selection_count() <= 1)
+                        say(`${call('tw_graph_box_name', ['number'], [a])}, ` +
+                            call('tw_graph_box_plugin', ['number'], [a]));
+                    break;
+
+                case SIG.SELECTION:
+                    if (a > 1)
+                        say(`${a} nodes selected.`);
                     break;
 
                 /* Written when the key comes up: a held arrow repeats,

@@ -1010,7 +1010,7 @@ void NodeEditor::onArrange (void)
 
     graph_.layout();
     canvas_.setGraph(&graph_);
-    canvas_.hold(kept);
+    holdQuietly(kept);
 
     /* Auto-arranging discards hand placement, so it is itself an edit. */
     writeLayout();
@@ -1194,6 +1194,26 @@ void NodeEditor::onSelected (int box)
                                                            : "Delete node");
     else
         deleteBtn_.set_label("Delete node");
+
+    if (box >= 0 && box < (int)graph_.boxes().size())
+        say(graph_.boxes()[box].name + ", " + graph_.boxes()[box].plugin);
+}
+
+/* The selection put back after a rebuild is not news; the edit that
+   rebuilt is what gets said. */
+void NodeEditor::holdQuietly (const NodeCanvas::Held &kept)
+{
+    quiet_++;
+    canvas_.hold(kept);
+    quiet_--;
+}
+
+/* For a screen reader, what a key just did on the graph: the canvas is
+   drawn, and has nothing of its own to read out. */
+void NodeEditor::say (const string &text)
+{
+    if (quiet_ == 0)
+        ::announce(canvas_, text);
 }
 
 /* A rubber band gathered `n' boxes.
@@ -1228,6 +1248,7 @@ void NodeEditor::onSelectionChanged (int n)
 
     snprintf(buf, sizeof(buf), "%d nodes selected.", (int)sel.size());
     setSelectionStatus(buf);
+    say(buf);
 }
 
 vector<string> NodeEditor::takenNames (void) const
@@ -1674,7 +1695,10 @@ void NodeEditor::onDeleteNode (void)
     if (victims.empty())
     {
         if (*stays)
+        {
             setStatus(string("Nothing to delete.") + stays);
+            say(status_.get_text());
+        }
 
         return;
     }
@@ -1716,11 +1740,15 @@ void NodeEditor::onDeleteNode (void)
         setStatus("Could not delete " +
                   string(victims[0].second ? "@" : "") + victims[0].first +
                   ": " + why);
+        say(status_.get_text());
         return;
     }
 
     if (!reloadAfter(was, false))
+    {
+        say(status_.get_text());
         return;
+    }
 
     char buf[256];
 
@@ -1751,6 +1779,7 @@ void NodeEditor::onDeleteNode (void)
                  done, refs, refs == 1 ? "" : "s", stays);
 
     setStatus(buf);
+    say(buf);
 }
 
 /* A new .dsp: ask where, write the smallest file that loads, open it. */
@@ -1977,12 +2006,12 @@ bool NodeEditor::restore (const NodeHistory::Snapshot &s, const string &done)
         if (probes)
             reload(&settled_);
 
-        canvas_.hold(kept);
+        holdQuietly(kept);
 
         return false;
     }
 
-    canvas_.hold(kept);
+    holdQuietly(kept);
 
     bool complete = true;
 
@@ -1994,6 +2023,7 @@ bool NodeEditor::restore (const NodeHistory::Snapshot &s, const string &done)
                       ? "  -- the rest is heard once the patch is loaded "
                         "again"
                       : ""));
+    say(status_.get_text());
 
     return true;
 }
@@ -2051,7 +2081,7 @@ bool NodeEditor::reloadKeepingSelection (const NodeLayout::PosMap *carry)
     if (!reload(carry))
         return false;
 
-    canvas_.hold(kept);
+    holdQuietly(kept);
 
     return true;
 }
@@ -2583,6 +2613,7 @@ void NodeEditor::onDisconnect (int edge)
         setStatus("That is part of an expression. Disconnect " +
                   graph_.boxes()[ed.toBox].exprNode + "." +
                   graph_.boxes()[ed.toBox].exprArg + " to remove all of it.");
+        say(status_.get_text());
         return;
     }
 
@@ -2593,6 +2624,7 @@ void NodeEditor::onDisconnect (int edge)
     rewire([&] (string &text, string &why)
         { return NodeEdit::Text::disconnect(text, node, arg, 0, why); },
         "Disconnected " + node + "." + arg + ".");
+    say(status_.get_text());
 }
 
 /* A slider moved. `commit' is false while dragging and true on release.
@@ -3295,7 +3327,10 @@ string NodeEditor::wireName (int edge) const
 void NodeEditor::onWireSelected (int edge)
 {
     if (edge >= 0 && edge < (int)graph_.edges().size())
+    {
         setStatus("The wire " + wireName(edge) + ".  Delete cuts it.");
+        say(status_.get_text());
+    }
 }
 
 void NodeEditor::onWireContext (int edge, double x, double y)
