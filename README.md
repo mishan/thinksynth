@@ -200,9 +200,10 @@ browser, the page's MIDI out button does the same through Web MIDI
 a DAW follows the piece's tempo and transport.
 
 The sampled instruments (`sampled_*.dsp`: strings, horn, trumpet, flute,
-upright piano, a drum kit) play public-domain recordings that are not in this
-repository: they are published as a release of their own, built by the
-`sample packs` workflow. `scripts/packs.py install` (it needs ffmpeg)
+upright piano, a drum kit, timpani and orchestral percussion) play
+public-domain recordings that are not in this repository: they are published
+as a release of their own, built by the `sample packs` workflow.
+`scripts/packs.py install` (it needs ffmpeg)
 downloads it into this user's data directory, where thinksynth looks —
 `~/.local/share/thinksynth` on Linux, `~/Library/Application Support/thinksynth`
 on macOS, `%LOCALAPPDATA%\thinksynth` on Windows, and the first of those
