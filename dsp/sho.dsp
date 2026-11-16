@@ -4,12 +4,11 @@
 # foot that swings freely through its slot; the pipe above it is tuned
 # to the reed and takes the edge off it. A free reed is close to a
 # pulse, rich in odd and even partials, and the pipe is a resonance at
-# the note: here a band-limited pulse a little narrower than square,
-# with that band under it and a gentle lowpass over both. A recording
+# the note. A recording
 # of a soprano sheng, the sho's continental relative, puts the second
 # partial 16 dB down and the third 32; the sho is the reedier of the
-# two, and at full breath here the second is 14 dB down and the third
-# 17.
+# two, and here at A4, velocity 80, the second is 17 dB down and the
+# third 25.
 #
 # THE BREATH. The reed speaks only as the player's breath builds, so
 # a note swells in over `Swell' and fades over `Release', and the tone
@@ -128,14 +127,15 @@ node env env::adsr {
 
 node pipe filt::svf {
     in = reed->out;
-    cutoff = clamp(freq->out, 20, 18000);
+    cutoff = freq->out;
     res = 0.8;
 };
 
-# The floor keeps a low pipe's partials; the ceiling keeps the filter
-# under its limit at the top.
+# The floor keeps a low pipe's partials. The pulse's fundamental is
+# above 1 and the band passes it in phase, so the sum is scaled to stay
+# inside the -1..1 the filter clamps its input to.
 node tone filt::svf {
-    in = reed->out * 0.6 + pipe->out_band;
+    in = reed->out * 0.3 + pipe->out_band * 0.5;
     cutoff = clamp(freq->out * (1.5 + (0.5 + 2.5 * @bright) * env->out) *
                    (1 - 0.15 * turn->out), 300, 16000);
     res = 0.3;
@@ -148,14 +148,14 @@ node noise osc::noise {
 
 node breath filt::svf {
     in = noise->out;
-    cutoff = clamp(freq->out * 2, 200, 12000);
+    cutoff = max(freq->out * 2, 200);
     res = 0.5;
 };
 
 node mix math::mul {
     in0 = (tone->out_low +
            breath->out_band * @air * 0.15 * (1 + turn->out)) * env->out;
-    in1 = @level * 0.1;
+    in1 = @level * 0.12;
 };
 
 io ionode;
