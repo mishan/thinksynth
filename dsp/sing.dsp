@@ -12,11 +12,12 @@
 #
 # A THROAT IS NOT A CLOCK. `jitter' and `shimmer' let each glottal cycle
 # stray a little in length and level, at a healthy voice's figures;
-# vibrato is a singer's half semitone at 5.5 Hz, arriving once the note
-# has settled. `track' lifts F1 over the fundamental on the high notes,
-# where a soprano opens her jaw. The velocity is `effort': a soft note is
-# darker and a loud one brighter, not only quieter. `Ring' is the
-# singer's formant around 3 kHz.
+# vibrato is a singer's half semitone at 5.5 Hz, arriving once the
+# phrase's first note has settled and carrying over its slides. `track'
+# lifts F1 over the fundamental on the high notes, where a soprano opens
+# her jaw. The velocity is `effort': a soft phrase is darker and a loud
+# one brighter, not only quieter, and a slide keeps the velocity of the
+# note it started from. `Ring' is the singer's formant around 3 kHz.
 #
 # `Detune' moves the pitch by cents, so that copies of this voice on
 # separate channels singing the same line do not comb into one; give each
