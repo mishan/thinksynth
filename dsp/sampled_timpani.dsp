@@ -10,16 +10,16 @@
 # Five drums, tuned F#2 B2 C#3 E3 F#3 (MIDI 42 47 49 52 54). Every other
 # note plays its nearest drum, retuned, as a timpanist retunes with the
 # pedal. A hit is a one-shot that rings out whatever the note's length,
-# 3 velocity layers.
+# up to 3 velocity layers (the lowest drum has one, the highest two).
 #
 # A roll is the same drums' tremolo recordings, 2 velocity layers, the
 # last second looped with a 300 ms crossfade, so it lasts as long as the
 # note is held and stops with the release. osc::sample has at most three
 # layers and plays a zone at the key's pitch, so the rolls are a second
-# osc::sample, and Roll picks between the two: 0 hits, 1 rolls. It is a
-# control rather than a length threshold so that a long note can still
-# be a hit left to ring, and a piece asks for rolls with `roll = 1' on
-# an instrument of their own, or by moving it.
+# osc::sample, and Roll picks between the two: 0 hits, 1 rolls, a mix
+# between. It is a control rather than a length threshold so that a
+# long note can still be a hit left to ring, and a piece asks for rolls
+# with `roll = 1' on an instrument of its own, or by moving it.
 
 name "Timpani (sampled)";
 author "Misha Nasledov";
@@ -89,10 +89,11 @@ node env env::adsr {
     trigger = ionode->trigger;
 };
 
-# Each pack is levelled to the same peak on its own, and at that peak a
-# roll is about 9 dB louder than a hit's first 300 ms: 0.6 brings it back
-# beside the hits. The lowest drum has one recording, which peaks 20 dB
-# under the next drum's middle layer, so the notes it plays (below 45;
+# Each pack is leveled to the same peak on its own, and at that peak a
+# roll is about 9 dB louder than a hit's first 300 ms: 0.6 takes 4.4 dB
+# of that off, so a roll still sits above a hit, as a held tremolo does.
+# The lowest drum has one recording, which peaks 20 dB under the next
+# drum's middle layer, so the notes it plays (below 45;
 # clamp(... * 1000, 0, 1) is "note < 45") take it up with velocity, to
 # 6 times at the hardest, as the layers it lacks would.
 node vca mixer::mul {
