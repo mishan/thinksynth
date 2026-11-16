@@ -41,6 +41,11 @@ if(NOT said MATCHES "non-finite voices: [1-9]")
       "genwav exited 4 but its summary never said how many voices that was")
 endif()
 
+if(NOT said MATCHES "the master effect went non-finite; the mix is going out dry")
+  message(FATAL_ERROR
+      "the master effect is 0/0 on every sample and the synth never said so")
+endif()
+
 # "peak 0.000" is what the whole mix looked like when one bad voice could take
 # the rest of it with it.
 if(said MATCHES "peak 0\\.000")

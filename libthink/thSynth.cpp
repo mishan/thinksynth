@@ -23,6 +23,11 @@
 #include <string.h>
 #include <errno.h>
 #include <stdint.h>
+#ifdef _WIN32
+# include <io.h>
+#else
+# include <unistd.h>
+#endif
 #include <filesystem>
 #include <system_error>
 
@@ -2962,8 +2967,17 @@ void thSynth::process (const float *add)
 
     if (!masterOk && !masterSaidSo_)
     {
-        fprintf(stderr, "thSynth: the master effect went non-finite; the "
-                "mix is going out dry\n");
+        /* One write(2) of a constant, as thMidiChan::reportNonFinite does:
+           an fprintf would take stdio's lock on the audio thread. */
+        static const char said[] = "thSynth: the master effect went "
+                                   "non-finite; the mix is going out dry\n";
+#ifdef _WIN32
+        (void)_write(2, said, sizeof(said) - 1);
+#else
+        ssize_t ignored = write(2, said, sizeof(said) - 1);
+
+        (void)ignored;
+#endif
         masterSaidSo_ = true;
     }
 
