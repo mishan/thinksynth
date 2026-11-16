@@ -691,12 +691,7 @@ SeqView::key (size_t i, guint keyval, Gdk::ModifierType state)
             return false;
     }
 
-#if GTK_CHECK_VERSION(4, 14, 0)
-    const std::string said = trackSaid(i);
-
-    gtk_accessible_announce(GTK_ACCESSIBLE(t.area->gobj()), said.c_str(),
-                            GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM);
-#endif
+    ::announce(*t.area, trackSaid(i));
     t.area->queue_draw();
     return true;
 }

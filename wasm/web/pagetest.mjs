@@ -3007,6 +3007,11 @@ try
 
         const name = await page.evaluate((i) => window.solo.node().box(i).name,
                                          arrowed);
+        const said = () => page.$eval('#nodesay', (e) => e.textContent);
+
+        check((await said()).startsWith(`${name}, `),
+              `the graph's own line says where the arrow went: ` +
+              `${await said()}`);
         /* One first, so the file has a layout block to read numbers from:
            this patch has none until something moves. */
         const plain = await dsp();
@@ -3094,6 +3099,9 @@ try
               nudged.includes(`node ${name} `),
               `Delete takes ${name}, still the one selected after the ` +
               'rebuilds, out of the .dsp');
+        check((await said()).startsWith(`Deleted ${name}.`),
+              `...and the graph's line still says so after the reload: ` +
+              `${await said()}`);
 
         /* The right-click menu's Delete, on a node nobody selected: that
            node goes, and not the one selected. */

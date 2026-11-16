@@ -343,6 +343,9 @@ protected:
 
     void onContextRequested (int box, int port, double x, double y);
     void onWireSelected (int edge);
+    void say (const string &text);
+    void holdQuietly (const NodeCanvas::Held &kept);
+    int quiet_ = 0;
     void onWireContext (int edge, double x, double y);
     void popMenu (Gtk::Widget *menu, double x, double y);
     string wireName (int edge) const;
