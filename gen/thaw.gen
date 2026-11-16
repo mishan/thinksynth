@@ -1,5 +1,6 @@
 # thaw.gen -- the spectral nodes, one part each: chords sieved, a tune
-# that freezes, and plucks smeared into a wash.
+# that freezes, plucks smeared into a wash, and the tune's shadow
+# shifted a fifth up and then out of tune with itself.
 #
 # The chords are frost.dsp, a bell whose strike is caught sixty
 # milliseconds in by fft::freeze and held as a pad for as long as the
@@ -19,9 +20,18 @@
 # arpeggio is a wash of the chord rather than a line; in Sieve and
 # Hollow, at 300 and 600 ms, they are plucks again with a soft edge.
 #
-# FOUR KNOBS, each set by every section, so the loop comes round to Thaw
+# The shadow is a second rhodes.dsp playing the tune through
+# fx/shift.dsp, a fifth up with its formants kept, so it is a rhodes
+# a fifth higher and not a smaller one. In Fifth it plays the tune in
+# parallel fifths; in Ring every partial of it is moved 110 Hz more, so
+# its harmonics are no longer harmonic and the double rings like a bell
+# struck with the tune.
+#
+# SIX KNOBS, each set by every section, so the loop comes round to Thaw
 # as it was: Shimmer is both freezes' `random', Smear the blur, Thin
-# the sieve's threshold, and Hollow inverts it.
+# the sieve's threshold, Hollow inverts it, Shadow is the shadow's
+# level (it plays the tune's chain, so it is silenced by level, not by
+# a section's mute) and Ring its offset.
 #
 # D lydian, at sixty-six: D, B minor, G and A under a tune that leans on
 # the raised fourth.
@@ -63,14 +73,37 @@ meter 4;
 @hollow.values = "Off,On";
 @hollow.label = "Hollow";
 
+@shadow = 0;
+@shadow.widget = 1;
+@shadow.min = 0;
+@shadow.max = 60;
+@shadow.label = "Shadow";
+
+@ring = 0;
+@ring.widget = 1;
+@ring.min = 0;
+@ring.max = 300;
+@ring.label = "Ring (Hz)";
+
 section still   8 bars { @shimmer = 0;    @smear = 40;   @thin = -90; @hollow = 0;
+                         @shadow = 0;  @ring = 0;
                          tune = 0;  hold = 0;  bass = 0;  pluck = 0; };
 section thaw    8 bars { @shimmer = 0.25; @smear = 40;   @thin = -90; @hollow = 0;
+                         @shadow = 0;  @ring = 0;
                          pluck = 0; };
 section smear   8 bars { @shimmer = 0.25; @smear = 2500; @thin = -90; @hollow = 0;
+                         @shadow = 0;  @ring = 0;
                          tune = 0; };
-section sieve   8 bars { @shimmer = 0.25; @smear = 300;  @thin = -10; @hollow = 0; };
+section sieve   8 bars { @shimmer = 0.25; @smear = 300;  @thin = -10; @hollow = 0;
+                         @shadow = 0;  @ring = 0; };
+section fifth   8 bars { @shimmer = 0.25; @smear = 300;  @thin = -90; @hollow = 0;
+                         @shadow = 30; @ring = 0;
+                         hold = 0;  pluck = 0; };
+section ring    8 bars { @shimmer = 0.25; @smear = 300;  @thin = -90; @hollow = 0;
+                         @shadow = 30; @ring = 110;
+                         hold = 0; };
 section hollow  8 bars { @shimmer = 0.8;  @smear = 600;  @thin = -12; @hollow = 1;
+                         @shadow = 0;  @ring = 0;
                          frost = 2; };
 section loop thaw;
 
@@ -121,6 +154,18 @@ instrument pluck {
     };
 };
 
+instrument shadow {
+    dsp  "rhodes.dsp";
+    amp  = @shadow;
+    send = 0.35;
+
+    effect "fx/shift.dsp" {
+        pitch   = 7;
+        offset  = @ring;
+        formant = 1;
+    };
+};
+
 instrument bass {
     dsp  "sub.dsp";
     amp  = 20;
@@ -150,6 +195,7 @@ chain tune {
     };
     stage c xform::chance { prob = 0.9; };
     sink { instrument = tune; };
+    sink { instrument = shadow; };
 };
 
 # The freeze: off for three bars, on for the fourth.
