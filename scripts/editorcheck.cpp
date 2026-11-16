@@ -136,6 +136,7 @@ public:
     using NodeEditor::disarmProbe;
     using NodeEditor::probes_;
     using NodeEditor::status;
+    using NodeEditor::ctxPopover_;
     using NodeEditor::visuals_;
     using NodeEditor::disarmAllProbes;
     using NodeEditor::graph;
@@ -2954,6 +2955,177 @@ void checkScrollKept (thSynth &synth, const char *file)
     delete w;
 }
 
+static bool key (NodeCanvas *c, CanvasContent::Key k, unsigned mods = 0)
+{
+    return c->keyPressed(k, mods);
+}
+
+/* Wires: a click selects one and changes nothing, Delete cuts it, Escape
+   or a click on a box lets go of it. A right-click on a wire offers to cut
+   it, and one on a box to delete that box -- not whatever was selected. */
+void checkWires (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-wires-");
+    const string text =
+        "name \"Wires\";\n"
+        "node ionode { channels = 1; out0 = mix->out; play = env->play; };\n"
+        "node a osc::simple { freq = 1; };\n"
+        "node b osc::simple { freq = 2; };\n"
+        "node env env::adsr { trigger = ionode->trigger; };\n"
+        "node mix mixer::mul { in0 = a->out; in1 = env->out; };\n"
+        "io ionode;\n"
+        "\n"
+        "# @layout  Node editor positions.\n"
+        "# @layout a 0 0\n# @layout b 0 300\n# @layout env 0 600\n"
+        "# @layout mix 600 300\n"
+        "# @layout ionode#in 300 900\n# @layout ionode#out 900 300\n";
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1200, 900);
+    w->present();
+
+    pump(0.05);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    const auto reopen = [&] ()
+    {
+        {
+            ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+            out << text;
+        }
+
+        return !canvases.empty() && ed->open(copy);
+    };
+
+    if (!reopen())
+    {
+        ok(false, "an editor opens the wires patch");
+        delete w;
+        return;
+    }
+
+    pump(0.1);
+
+    NodeCanvasWidget *canvas = canvases[0];
+    using K = CanvasContent;
+
+    const auto box = [&] (const string &name)
+    {
+        return ed->graph().boxByName(name);
+    };
+
+    /* The wire into mix.in0, and the middle of its curve. */
+    const auto wire = [&] (double &x, double &y)
+    {
+        const NodeGraph &g = ed->graph();
+
+        for (int e = 0; e < (int)g.edges().size(); e++)
+            if (g.boxes()[g.edges()[e].toBox].name == "mix" &&
+                g.boxes()[g.edges()[e].toBox].ports[g.edges()[e].toPort]
+                    .name == "in0")
+            {
+                double xs[4], ys[4];
+
+                g.edgeCurve(e, xs, ys);
+                x = (xs[0] + 3 * xs[1] + 3 * xs[2] + xs[3]) / 8;
+                y = (ys[0] + 3 * ys[1] + 3 * ys[2] + ys[3]) / 8;
+
+                return e;
+            }
+
+        return -1;
+    };
+
+    const auto menuButton = [&] (const string &starts)
+    {
+        std::vector<Gtk::Button *> buttons;
+
+        if (ed->ctxPopover_.get_child() != NULL)
+            collectWidgets(ed->ctxPopover_.get_child(), buttons);
+
+        for (Gtk::Button *b : buttons)
+            if (b->get_label().find(starts) == 0)
+                return b;
+
+        return (Gtk::Button *)NULL;
+    };
+
+    double x, y;
+
+    /* ---- a click, Delete, Escape ---- */
+    canvas->setSelected(box("a"));
+
+    const int e = wire(x, y);
+
+    canvas->onPressed(1, x, y);
+    canvas->onReleased(1, x, y);
+
+    ok(e >= 0 && canvas->selectedWire() == e && canvas->selection().empty() &&
+       ed->text() == text,
+       "a click on a wire selects it, lets go of the boxes, and changes "
+       "nothing");
+
+    ok(key(canvas, K::KEY_ESCAPE) && canvas->selectedWire() < 0,
+       "Escape lets go of the wire");
+
+    canvas->onPressed(1, x, y);
+    canvas->onReleased(1, x, y);
+    canvas->setSelected(box("b"));
+
+    ok(canvas->selectedWire() < 0, "selecting a box lets go of the wire");
+
+    canvas->onPressed(1, x, y);
+    canvas->onReleased(1, x, y);
+
+    ok(key(canvas, K::KEY_DELETE) && canvas->selectedWire() < 0 &&
+       ed->text().find("in0 = a->out") == string::npos,
+       "Delete cuts the selected wire");
+
+    /* ---- the right-click menus ---- */
+    reopen();
+    pump(0.05);
+    wire(x, y);
+    canvas->onRightPressed(1, x, y);
+
+    Gtk::Button *cut = menuButton("Disconnect a.out -> mix.in0");
+
+    if (cut != NULL)
+        g_signal_emit_by_name(cut->gobj(), "clicked");
+
+    ok(cut != NULL && ed->text().find("in0 = a->out") == string::npos,
+       "a right-click on a wire offers Disconnect, which cuts it");
+
+    reopen();
+    pump(0.05);
+    canvas->setSelected(box("a"));
+
+    {
+        const NodeGraph::Box &bb = ed->graph().boxes()[box("b")];
+
+        canvas->onRightPressed(1, bb.x + 20, bb.y + 20);
+    }
+
+    Gtk::Button *del = menuButton("Delete b");
+
+    if (del != NULL)
+        g_signal_emit_by_name(del->gobj(), "clicked");
+
+    ok(del != NULL && box("b") < 0 && box("a") >= 0,
+       "a right-click on a box offers to delete it, and deletes that box, "
+       "not the one selected");
+
+    ed->ctxPopover_.popdown();
+    delete w;
+    std::filesystem::remove(copy);
+}
+
 /* The canvas from the keyboard: arrows between boxes by where they are,
    Shift+arrows moving the selection, Escape, Select All and Delete; Shift
    to add a box to the selection; keys held while a press is under way;
@@ -4086,6 +4258,7 @@ int run (const string &pluginPath, const char *file)
     checkScrollKept(synth, file);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
+    checkWires(synth);
     checkFailedOpen(synth, file);
     checkLayoutRestored(synth, file);
     checkNoScratchFile(synth, file);

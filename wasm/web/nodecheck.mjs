@@ -548,6 +548,53 @@ process.stdout.write(
 
         M._tw_node_signals_clear();
     }
+
+    /* A click on a wire selects it and cuts nothing; Delete then asks for
+       it to be cut. At the middle of the curve, which with its handles
+       level either side is halfway between its ends -- the first wire
+       whose middle is clear of every box. */
+    {
+        M._tw_node_canvas_key(1, 0);
+
+        let wire = -1, cutOnClick = false;
+
+        for (let e = 0; e < M._tw_graph_edge_count() && wire < 0; e++)
+        {
+            const fb = M._tw_graph_edge_from_box(e);
+            const tb = M._tw_graph_edge_to_box(e);
+            /* A port's place is an offset from its box's corner. */
+            const px = (b, p) => M._tw_graph_box_x(b) + M._tw_graph_port_x(b, p);
+            const py = (b, p) => M._tw_graph_box_y(b) + M._tw_graph_port_y(b, p);
+            const x = (px(fb, M._tw_graph_edge_from_port(e)) +
+                       px(tb, M._tw_graph_edge_to_port(e))) / 2;
+            const y = (py(fb, M._tw_graph_edge_from_port(e)) +
+                       py(tb, M._tw_graph_edge_to_port(e))) / 2;
+
+            M._tw_node_signals_clear();
+            M._tw_node_canvas_press(x, y, 1, 1, 0);
+            M._tw_node_canvas_release(x, y, 1);
+
+            cutOnClick ||= queued().includes(4);
+
+            if (queued().includes(11))
+                wire = e;
+        }
+
+        M._tw_node_signals_clear();
+
+        const asked = wire >= 0 && M._tw_node_canvas_key(6, 0) === 1 &&
+                      queued().includes(4) &&
+                      M._tw_node_signal_a(queued().indexOf(4)) === wire;
+
+        if (wire >= 0 && !cutOnClick && asked)
+            process.stdout.write('ok    a click on a wire selects it and ' +
+                                 'cuts nothing; Delete asks for it cut\n');
+        else
+            fail(`wire ${wire}, cut on a click ${cutOnClick}, Delete ` +
+                 `asked ${asked}`);
+
+        M._tw_node_signals_clear();
+    }
 }
 
 /* ---- a new patch, and a node added to it -------------------------------- */

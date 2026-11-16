@@ -3095,6 +3095,62 @@ try
               `Delete takes ${name}, still the one selected after the ` +
               'rebuilds, out of the .dsp');
 
+        /* The right-click menu's Delete, on a node nobody selected: that
+           node goes, and not the one selected. */
+        {
+            const picked = await page.evaluate(() =>
+            {
+                const n = window.solo.node();
+                const nodes = [];
+
+                for (let i = 0; i < n.boxes; i++)
+                    /* An expression is named for its arg: `osc.freq'. */
+                    if (n.box(i).kind === 0 && !n.box(i).name.includes('.'))
+                        nodes.push({ ...n.box(i), i });
+
+                return nodes.length >= 2 ? nodes.slice(0, 2) : null;
+            });
+
+            if (picked === null)
+                check(false, 'the patch has two nodes to choose between');
+            else
+            {
+                const [kept, gone] = picked;
+                const box = await page.$eval('#nodecanvas', (c) =>
+                {
+                    const r = c.getBoundingClientRect();
+
+                    return { x: r.x, y: r.y };
+                });
+
+                await page.mouse.click(box.x + kept.x + 8, box.y + kept.y + 8);
+                await page.mouse.click(box.x + gone.x + 8, box.y + gone.y + 8,
+                                       { button: 'right' });
+
+                const was = await dsp();
+                const item = page.locator('#nodemenu button',
+                                          { hasText: `Delete ${gone.name}` });
+
+                if (await item.count() === 0)
+                    check(false, `the menu on ${gone.name} offers no Delete`);
+                else
+                {
+                    await item.first().click();
+                    await page.waitForFunction(
+                        (t) => document.getElementById('dsp').value !== t,
+                        was, { timeout: 10000 }).catch(() => {});
+                    await page.evaluate(() => window.solo.settled());
+
+                    const now = await dsp();
+
+                    check(!now.includes(`node ${gone.name} `) &&
+                          now.includes(`node ${kept.name} `),
+                          `the menu's Delete on ${gone.name} takes it, and ` +
+                          `not ${kept.name}, which was selected`);
+                }
+            }
+        }
+
         await page.evaluate((t) =>
         {
             document.getElementById('dsp').value = t;

@@ -86,7 +86,11 @@ Drag boxes, Ctrl+wheel to zoom, hover for detail.
 **Wiring.** Drag from a port to another port. The rubber band snaps to the port
 it would land on and turns red when the drop would be refused, so the refusal is
 visible before the button comes up rather than after. Output-to-input and
-input-to-output are the same gesture. Clicking a wire removes it.
+input-to-output are the same gesture. A click on a wire selects it, and Delete
+cuts it: a wire is thin, and one cut by a click that missed the box beside it
+was a wire nobody meant to lose. A right-click on a wire offers Disconnect, and
+on a node or a control Delete -- of the selection when that box is in it, else
+of the box alone, since a right-click does not select.
 
 **Selecting.** A click selects a box and shows its parameters. A drag on empty
 canvas is a rubber band, and dragging any box of a selection moves the whole of

@@ -67,6 +67,8 @@ const SIG = {
     PROBE: 8,
     NUDGED: 9,
     DELETE: 10,
+    WIRE_SELECTED: 11,
+    WIRE_CONTEXT: 12,
 };
 
 /* CanvasContent::Key, by a keydown's key, and Ctrl+A by its key code, so
@@ -393,6 +395,15 @@ export async function createNodeView ({ files, root = document,
                     deleteSelection();
                     break;
 
+                case SIG.WIRE_SELECTED:
+                    if (a >= 0)
+                        onStatus(`The wire ${wireName(a)}.  Delete cuts it.`);
+                    break;
+
+                case SIG.WIRE_CONTEXT:
+                    offerWire(a, sig.x, sig.y);
+                    break;
+
                 /* A wire: from a box's port to another's. The graph knows
                    which end is which; the names are what the file wants. */
                 case SIG.CONNECT:
@@ -452,14 +463,25 @@ export async function createNodeView ({ files, root = document,
         if (box < 0 || port < 0)
             return;
 
-        const node = call('tw_graph_box_name', ['number'], [box]);
-        const arg = call('tw_graph_port_name', ['number', 'number'],
-                         [box, port]);
+        cut(call('tw_graph_box_name', ['number'], [box]),
+            call('tw_graph_port_name', ['number', 'number'], [box, port]));
+    }
 
+    function cut (node, arg)
+    {
         if (edit('tw_edit_disconnect',
                  ['string', 'string', 'string', 'number'], [node, arg, 0]))
             onStatus(`Disconnected ${node}.${arg}.`);
     }
+
+    const end = (box, port) =>
+        `${call('tw_graph_box_name', ['number'], [box])}.` +
+        call('tw_graph_port_name', ['number', 'number'], [box, port]);
+
+    /* `from.out -> to.in', as the desktop's status bar and menu name one. */
+    const wireName = (e) =>
+        `${end(M._tw_graph_edge_from_box(e), M._tw_graph_edge_from_port(e))}` +
+        ` -> ${end(M._tw_graph_edge_to_box(e), M._tw_graph_edge_to_port(e))}`;
 
     /* A wire the canvas asked for, in the names the file uses. */
     function connect (fromBox, fromPort, toBox, toPort)
@@ -497,17 +519,13 @@ export async function createNodeView ({ files, root = document,
        or stop watching it. The canvas says where the pointer was and on
        what, and nothing about the menu itself -- what can be done to a
        port is the editor's business on the desktop too. */
-    function offerProbe (box, port, x, y)
+    /* The menu's parts: an item, a title, and showing it beside the
+       pointer -- or hiding it, with nothing in it to offer. */
+    function menuAt (x, y)
     {
         const menu = $('nodemenu');
 
         menu.replaceChildren();
-
-        if (probe === null || box < 0)
-        {
-            menu.hidden = true;
-            return;
-        }
 
         /* Closed by an item or Escape, it gives the focus back to the
            canvas it was asked for on, not to the page. */
@@ -557,6 +575,58 @@ export async function createNodeView ({ files, root = document,
                 menu.hidden = true;
         };
 
+        /* Beside the pointer, in the page's own coordinates: the canvas
+           said where in its own pixels, and the element says where it
+           is. Held inside the window by placePopover, since a pane can
+           be narrower than this menu is. */
+        const show = () =>
+        {
+            if (!menu.querySelector('button'))
+            {
+                menu.hidden = true;
+                return;
+            }
+
+            const at = $('nodecanvas').getBoundingClientRect();
+
+            placePopover(menu, at.left + window.scrollX + x,
+                         at.top + window.scrollY + y);
+            menu.querySelector('button')?.focus();
+        };
+
+        return { item, title, show };
+    }
+
+    function offerWire (edge, x, y)
+    {
+        if (edge < 0)
+            return;
+
+        /* By name, resolved when clicked: a peer's edit in between
+           renumbers the wires. */
+        const { item, title, show } = menuAt(x, y);
+        const to = end(M._tw_graph_edge_to_box(edge),
+                       M._tw_graph_edge_to_port(edge));
+
+        title(wireName(edge));
+        item('Disconnect', () =>
+        {
+            const dot = to.lastIndexOf('.');
+
+            cut(to.slice(0, dot), to.slice(dot + 1));
+        });
+        show();
+    }
+
+    function offerProbe (box, port, x, y)
+    {
+        if (box < 0)
+        {
+            $('nodemenu').hidden = true;
+            return;
+        }
+
+        const { item, title, show } = menuAt(x, y);
         const node = call('tw_graph_box_name', ['number'], [box]);
         const onPort = port >= 0 && !M._tw_graph_port_is_input(box, port);
 
@@ -570,11 +640,11 @@ export async function createNodeView ({ files, root = document,
 
             title(`${node}.${arg}`);
 
-            if (channel < 0)
+            if (probe !== null && channel < 0)
                 item('nothing is playing this instrument', () => {});
-            else if (already >= 0)
+            else if (probe !== null && already >= 0)
                 item('Stop watching', () => stopProbe(already));
-            else
+            else if (probe !== null)
                 for (let i = 0; i < M._tw_visual_count(); i++)
                 {
                     const visual = call('tw_visual_name', ['number'], [i]);
@@ -600,12 +670,6 @@ export async function createNodeView ({ files, root = document,
                     mine.push(i);
             });
 
-            if (mine.length === 0)
-            {
-                menu.hidden = true;
-                return;
-            }
-
             title(node);
 
             for (const i of mine)
@@ -613,15 +677,34 @@ export async function createNodeView ({ files, root = document,
                      () => stopProbe(i));
         }
 
-        /* Beside the pointer, in the page's own coordinates: the canvas
-           said where in its own pixels, and the element says where it
-           is. Held inside the window by placePopover, since a pane can
-           be narrower than this menu is. */
-        const at = $('nodecanvas').getBoundingClientRect();
+        /* The box itself, as Delete would take it: the selection when the
+           box is in it, else the box alone -- a right-click does not
+           select, and taking whatever was would take the wrong thing. */
+        const kind = M._tw_graph_box_kind(box);
 
-        placePopover(menu, at.left + window.scrollX + x,
-                     at.top + window.scrollY + y);
-        menu.querySelector('button')?.focus();
+        if ((kind === BOX.NODE && !isExpr(box)) || kind === BOX.CONTROL)
+            item(`Delete ${node}`, () =>
+            {
+                for (let b = 0; b < M._tw_graph_box_count(); b++)
+                    if (call('tw_graph_box_name', ['number'], [b]) === node &&
+                        M._tw_graph_box_kind(b) === kind)
+                    {
+                        let held = false;
+
+                        for (let i = 0;
+                             i < M._tw_node_canvas_selection_count(); i++)
+                            held ||= M._tw_node_canvas_selection_at(i) === b;
+
+                        if (!held)
+                            M._tw_node_canvas_select(b);
+
+                        drain();
+                        deleteSelection();
+                        return;
+                    }
+            });
+
+        show();
     }
 
     function stopProbe (which)

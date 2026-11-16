@@ -165,7 +165,7 @@ NodeCanvas::NodeCanvas (void)
       bandOn_(false), bandX0_(0), bandY0_(0), bandX1_(0), bandY1_(0),
       wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
       wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
-      hoverEdge_(-1), dragSlider_(-1),
+      hoverEdge_(-1), dragSlider_(-1), selEdge_(-1),
       drawCount_(0), drawMicros_(0.0)
 {
 }
@@ -186,6 +186,7 @@ void NodeCanvas::setGraph (NodeGraph *graph)
     bandOn_ = false;
     wireBox_ = wirePort_ = wireTargetBox_ = wireTargetPort_ = -1;
     hoverEdge_ = -1;
+    selEdge_ = -1;
     dragSlider_ = -1;
 
     m_signal_selected_(-1);
@@ -223,6 +224,9 @@ void NodeCanvas::clearSelection (void)
  * That only holds while the selection really is just this box. */
 void NodeCanvas::setSelected (int box)
 {
+    if (box >= 0)
+        dropWire();
+
     if (box == selBox_ && sel_.size() == (box < 0 ? 0u : 1u))
         return;
 
@@ -239,6 +243,9 @@ void NodeCanvas::setSelected (int box)
 
 void NodeCanvas::setSelection (const std::vector<int> &boxes, int shown)
 {
+    if (!boxes.empty())
+        dropWire();
+
     sel_ = boxes;
     selBox_ = std::find(sel_.begin(), sel_.end(), shown) != sel_.end()
               ? shown : sel_.size() == 1 ? sel_[0] : -1;
@@ -352,6 +359,12 @@ bool NodeCanvas::keyPressed (Key key, unsigned mods)
         if (busy())
             return true;
 
+        if (selEdge_ >= 0)
+        {
+            dropWire();
+            return true;
+        }
+
         /* Nothing held is nothing to let go of: the key is the shell's. */
         if (sel_.empty() && selBox_ < 0)
             return false;
@@ -375,6 +388,16 @@ bool NodeCanvas::keyPressed (Key key, unsigned mods)
 
     if (key == KEY_DELETE)
     {
+        if (selEdge_ >= 0)
+        {
+            const int edge = selEdge_;
+
+            dropWire();
+            m_signal_disconnect_(edge);
+
+            return true;
+        }
+
         if (sel_.empty())
             return false;
 
@@ -493,7 +516,22 @@ void NodeCanvas::onRightPressed (int nPress, double x, double y)
         pp = -1;
     }
 
-    m_signal_context_(pb, pp, x, y);
+    const int edge = pb < 0 ? graph_->edgeAt(gx, gy) : -1;
+
+    if (edge >= 0)
+        m_signal_wire_context_(edge, x, y);
+    else
+        m_signal_context_(pb, pp, x, y);
+}
+
+void NodeCanvas::dropWire (void)
+{
+    if (selEdge_ < 0)
+        return;
+
+    selEdge_ = -1;
+    m_signal_wire_selected_(-1);
+    requestRedraw();
 }
 
 void NodeCanvas::onPressed (int nPress, double x, double y, unsigned mods)
@@ -560,17 +598,24 @@ void NodeCanvas::onPressed (int nPress, double x, double y, unsigned mods)
         return;
     }
 
-    /* Clicking a wire and pressing Delete is one interaction too many for
-       something this small, so a click on a wire removes it. The window
-       confirms nothing -- Revert is right there, and nothing has been written
-       to the file yet. */
+    /* A click on a wire selects it, and Delete cuts it: a wire is thin, and
+       one cut by a click that missed the box beside it was a wire nobody
+       meant to lose. The boxes let go, so Delete means one thing. */
     const int edge = graph_->edgeAt(gx, gy);
 
     if (edge >= 0 && graph_->boxAt(gx, gy) < 0)
     {
-        m_signal_disconnect_(edge);
+        if (!sel_.empty() || selBox_ >= 0)
+            setSelection(std::vector<int>(), -1);
+
+        selEdge_ = edge;
+        m_signal_wire_selected_(edge);
+        requestRedraw();
+
         return;
     }
+
+    dropWire();
 
     int hit = graph_->boxAt(gx, gy);
 
@@ -1397,7 +1442,7 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
 }
 
 void NodeCanvas::drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
-                           bool highlit)
+                           bool highlit, bool selected)
 {
     const NodeGraph::Edge &e = graph_->edges()[edge];
 
@@ -1411,12 +1456,16 @@ void NodeCanvas::drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
     cr->move_to(xs[0], ys[0]);
     cr->curve_to(xs[1], ys[1], xs[2], ys[2], xs[3], ys[3]);
 
-    if (highlit)
+    if (selected)
     {
-        /* A wire under the pointer is about to be removed if clicked, so it
-           gets the warning colour rather than a subtle emphasis. */
-        cr->set_source_rgb(COL_CUT);
+        cr->set_source_rgb(COL_SELECT);
         cr->set_line_width(2.6);
+        cr->unset_dash();
+    }
+    else if (highlit)
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->set_line_width(2.4);
         cr->unset_dash();
     }
     else if (e.feedback)
@@ -1521,7 +1570,7 @@ void NodeCanvas::drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
     /* Wires first so boxes sit on top of them; a wire disappearing behind a
        box reads better than one crossing its face. */
     for (size_t e = 0; e < graph_->edges().size(); e++)
-        drawEdge(cr, (int)e, (int)e == hoverEdge_);
+        drawEdge(cr, (int)e, (int)e == hoverEdge_, (int)e == selEdge_);
 
     const vector<NodeGraph::Box> &boxes = graph_->boxes();
 

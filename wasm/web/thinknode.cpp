@@ -282,7 +282,9 @@ enum {
     SIG_CONTEXT,
     SIG_PROBE,
     SIG_NUDGED,
-    SIG_DELETE
+    SIG_DELETE,
+    SIG_WIRE_SELECTED,
+    SIG_WIRE_CONTEXT
 };
 
 const Signal *signalAt (int i)
@@ -394,6 +396,25 @@ WebNodeCanvas *canvas (void)
     canvas_->signal_delete_requested().connect([]()
         {
             signals_.push_back(Signal(SIG_DELETE));
+        });
+
+    canvas_->signal_wire_selected().connect([](int edge)
+        {
+            Signal s(SIG_WIRE_SELECTED);
+
+            s.a = edge;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_wire_context_requested().connect(
+        [](int edge, double x, double y)
+        {
+            Signal s(SIG_WIRE_CONTEXT);
+
+            s.a = edge;
+            s.x = x;
+            s.y = y;
+            signals_.push_back(s);
         });
 
     /* What goes inside a probe panel. The canvas has already clipped to

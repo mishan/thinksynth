@@ -342,6 +342,10 @@ protected:
     int probeForBox (int box) const;
 
     void onContextRequested (int box, int port, double x, double y);
+    void onWireSelected (int edge);
+    void onWireContext (int edge, double x, double y);
+    void popMenu (Gtk::Widget *menu, double x, double y);
+    string wireName (int edge) const;
 
     /* ---- the enlarged view ----
      *
