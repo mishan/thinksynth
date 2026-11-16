@@ -1429,6 +1429,12 @@ Speech (formant synthesizer, ARPAbet)
 | `breath` | in | Aspiration under the voicing, for a whisper |  | 0 to 1 |  |  |
 | `source` | in | A signal for the mouth to shape, as much as `talk' says: a synth, for a talk box |  | -1 to 1 | full scale |  |
 | `talk` | in | The source: 0 the voice's own, 1 `source' |  | 0 to 1 |  |  |
+| `jitter` | in | How far each glottal cycle's period strays from `freq', at random; 1 is a healthy voice |  | 0 to 5 | percent |  |
+| `shimmer` | in | How far each glottal cycle's level strays, at random; 0.6 is a healthy voice |  | 0 to 3 | dB |  |
+| `track` | in | How far the first formant rises to stay above a fundamental that passes it, as a soprano's does |  | 0 to 1 |  |  |
+| `tilt` | in | How much brighter the glottal source's upper harmonics are at `effort' 1 than at 0 |  | 0 to 24 | dB |  |
+| `effort` | in | How hard the voice is pushed, for `tilt': 0 soft and dark, 0.5 the plain source, 1 loud and bright |  | 0 to 1 |  |  |
+| `ring` | in | A boost around 3 kHz on the voicing: the singer's formant, which carries over an orchestra |  | 0 to 12 | dB |  |
 | `out` | out | The voice |  | -1 to 1 | full scale |  |
 | `play` | out | 1 until the last phoneme has been said |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
