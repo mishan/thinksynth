@@ -115,6 +115,8 @@ c74b47c8c74a2325  sampled_cellos.dsp
 c74b47c8c74a2325  sampled_drums.dsp
 c74b47c8c74a2325  sampled_flute.dsp
 c74b47c8c74a2325  sampled_horn.dsp
+c74b47c8c74a2325  sampled_orchperc.dsp
+c74b47c8c74a2325  sampled_timpani.dsp
 c74b47c8c74a2325  sampled_trumpet.dsp
 c74b47c8c74a2325  sampled_upright.dsp
 c74b47c8c74a2325  sampled_violins.dsp
