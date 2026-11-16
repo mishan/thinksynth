@@ -1304,7 +1304,8 @@ add_test(NAME fxcheck
                  "${PROJECT_SOURCE_DIR}/dsp/fx/eq.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/freeze.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/blur.dsp"
-                 "${PROJECT_SOURCE_DIR}/dsp/fx/sieve.dsp")
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/sieve.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/shift.dsp")
 
 if(THINK_GUI)
   # Needs no corpus and no display -- it draws to an image surface.

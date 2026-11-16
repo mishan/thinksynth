@@ -58,6 +58,7 @@ c4ed38ef5cd6d115  fx/limiter.dsp
 d733bc1dfbc1bc9d  fx/resynth.dsp
 bac03487cddb15f1  fx/reverse.dsp
 7692d0cd88b54aed  fx/rotary.dsp
+e3be667d779bcc51  fx/shift.dsp
 c145615318854d8d  fx/shimmer.dsp
 e5d65e95739f0219  fx/sieve.dsp
 a09f71327d2e4571  fx/space.dsp
