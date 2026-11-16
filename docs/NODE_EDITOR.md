@@ -92,6 +92,10 @@ was a wire nobody meant to lose. A right-click on a wire offers Disconnect, and
 on a node or a control Delete -- of the selection when that box is in it, else
 of the box alone, since a right-click does not select.
 
+**Adding a node.** The palette's Add, a double-click or Enter puts the node in
+the middle of the view, beside one already there rather than on it; a plugin
+dragged from the palette onto the canvas lands where it is dropped.
+
 **Selecting.** A click selects a box and shows its parameters. A drag on empty
 canvas is a rubber band, and dragging any box of a selection moves the whole of
 it. Shift with a click adds a box to the selection or takes it out, and Shift

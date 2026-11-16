@@ -167,6 +167,7 @@ public:
     using NodeEditor::onControlChanged;
     using NodeEditor::onRevert;
     using NodeEditor::onPaletteAdd;
+    using NodeEditor::onPaletteDrop;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -2930,6 +2931,103 @@ void checkToolbarFits (thSynth &synth)
     delete ed;
 }
 
+/* A node from the palette arrives where it can be seen: in the middle of
+   the view, scrolled or not, the next one beside it rather than on it; and
+   one dropped on the canvas, centered where it was let go. */
+void checkAddPlaced (thSynth &synth, const char *file)
+{
+    const string copy = thUtil::tempFile("editorcheck-place-");
+
+    std::filesystem::copy_file(file, copy,
+        std::filesystem::copy_options::overwrite_existing);
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(600, 400);
+    w->present();
+
+    pump(0.05);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    if (canvases.empty() || !ed->open(copy))
+    {
+        ok(false, "an editor opens %s", file);
+        delete w;
+        return;
+    }
+
+    pump(0.1);
+
+    NodeCanvasWidget *canvas = canvases[0];
+
+    /* Scrolled into the graph a way, as somebody working on it would be. */
+    {
+        Gtk::ScrolledWindow *sw = NULL;
+
+        for (Gtk::Widget *a = canvas; a != NULL && sw == NULL;
+             a = a->get_parent())
+            sw = dynamic_cast<Gtk::ScrolledWindow *>(a);
+
+        if (sw != NULL)
+        {
+            sw->get_hadjustment()->set_value(200);
+            sw->get_vadjustment()->set_value(100);
+        }
+
+        pump(0.05);
+    }
+
+    double vx, vy, vw, vh;
+
+    canvas->visibleRect(vx, vy, vw, vh);
+
+    const auto added = [&] () -> const NodeGraph::Box *
+    {
+        const int b = canvas->selected();
+
+        return b >= 0 ? &ed->graph().boxes()[b] : NULL;
+    };
+
+    ed->onPaletteAdd("osc::simple");
+
+    const NodeGraph::Box *one = added();
+    const double ox = one ? one->x : -1, oy = one ? one->y : -1;
+
+    ok(one != NULL && one->x >= vx && one->x + one->w <= vx + vw &&
+       one->y >= vy && one->y + one->h <= vy + vh,
+       "a node added from the palette lands in view (%g, %g in %g, %g "
+       "%gx%g)", ox, oy, vx, vy, vw, vh);
+
+    ed->onPaletteAdd("osc::simple");
+
+    const NodeGraph::Box *two = added();
+
+    ok(two != NULL && two != one &&
+       (std::fabs(two->x - ox) >= 12 || std::fabs(two->y - oy) >= 12),
+       "...and the next beside it, not on it");
+
+    ed->onPaletteDrop("osc::simple", 100, 80);
+
+    double gx, gy;
+
+    canvas->toContent(100, 80, gx, gy);
+
+    const NodeGraph::Box *dropped = added();
+
+    ok(dropped != NULL &&
+       std::fabs(dropped->x + dropped->w / 2 - gx) < 1 &&
+       std::fabs(dropped->y + dropped->h / 2 - gy) < 1,
+       "a plugin dropped on the canvas is centered where it was let go");
+
+    delete w;
+    std::filesystem::remove(copy);
+}
+
 /* Tab leaves the graph and the parameter panel, with a node selected as
    without: the keyboard's way through the editor is not a dead end. */
 void checkTabLeaves (thSynth &synth, const char *file)
@@ -4406,6 +4504,7 @@ int run (const string &pluginPath, const char *file)
     checkScrollKept(synth, file);
     checkTabLeaves(synth, file);
     checkToolbarFits(synth);
+    checkAddPlaced(synth, file);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);

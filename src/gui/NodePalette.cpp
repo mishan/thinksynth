@@ -61,6 +61,40 @@ NodePalette::NodePalette (void)
 
             expander->set_child(*label);
             item->set_child(*expander);
+
+            /* A plugin's row drags out to the canvas, which adds it where
+               it is dropped. Not a category, and not the control row: a
+               control is a form to fill in first. */
+            Glib::RefPtr<Gtk::DragSource> drag = Gtk::DragSource::create();
+
+            /* The item by pointer: the controller lives on the item's own
+               child, and a RefPtr held there would keep both alive. */
+            Gtk::ListItem *at = item.get();
+
+            drag->set_actions(Gdk::DragAction::COPY);
+            drag->signal_prepare().connect(
+                [at] (double, double) -> Glib::RefPtr<Gdk::ContentProvider>
+                {
+                    Glib::RefPtr<Gtk::TreeListRow> treeRow =
+                        std::dynamic_pointer_cast<Gtk::TreeListRow>(
+                            at->get_item());
+                    Glib::RefPtr<PaletteRow> row =
+                        treeRow ? std::dynamic_pointer_cast<PaletteRow>(
+                                      treeRow->get_item())
+                                : Glib::RefPtr<PaletteRow>();
+
+                    if (!row || row->isCategory() ||
+                        row->spelling() == CONTROL_SPELLING)
+                        return nullptr;
+
+                    Glib::Value<Glib::ustring> v;
+
+                    v.init(v.value_type());
+                    v.set(row->spelling());
+
+                    return Gdk::ContentProvider::create(v);
+                }, false);
+            expander->add_controller(drag);
         });
 
     factory->signal_bind().connect(
