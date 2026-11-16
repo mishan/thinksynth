@@ -34,12 +34,38 @@ NodeCanvasWidget::NodeCanvasWidget (void)
     click_->signal_pressed().connect(
         [this] (int n, double x, double y)
         {
-            onPressed(n, x, y,
-                      modsOf(click_->get_current_event_state()));
+            const unsigned mods = modsOf(click_->get_current_event_state()) |
+                                  (spaceHeld_ ? MOD_PAN : 0);
+
+            if (mods & MOD_PAN)
+                set_cursor("grabbing");
+
+            onPressed(n, x, y, mods);
         });
     click_->signal_released().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onReleased));
+        [this] (int n, double x, double y)
+        {
+            onReleased(n, x, y);
+            set_cursor(spaceHeld_ ? "grab" : "");
+        });
     add_controller(click_);
+
+    /* The middle button pans, as it does in most things with a canvas. */
+    pan_ = Gtk::GestureClick::create();
+    pan_->set_button(2);
+    pan_->signal_pressed().connect(
+        [this] (int n, double x, double y)
+        {
+            set_cursor("grabbing");
+            onPressed(n, x, y, MOD_PAN);
+        });
+    pan_->signal_released().connect(
+        [this] (int n, double x, double y)
+        {
+            onReleased(n, x, y);
+            set_cursor(spaceHeld_ ? "grab" : "");
+        });
+    add_controller(pan_);
 
     /* So the editor's keys -- Ctrl+Z -- go to the graph clicked on, not to
        whatever had the focus before. */
@@ -70,6 +96,16 @@ NodeCanvasWidget::NodeCanvasWidget (void)
             const unsigned mods = modsOf(state);
             Key key = KEY_NONE;
 
+            /* Held, a left drag pans; repeats while held say nothing new. */
+            if (keyval == GDK_KEY_space)
+            {
+                if (!spaceHeld_)
+                    set_cursor("grab");
+
+                spaceHeld_ = true;
+                return true;
+            }
+
             switch (keyval)
             {
                 case GDK_KEY_Escape:    key = KEY_ESCAPE; break;
@@ -88,7 +124,27 @@ NodeCanvasWidget::NodeCanvasWidget (void)
 
             return key != KEY_NONE && keyPressed(key, mods);
         }, false);
+    keys_->signal_key_released().connect(
+        [this] (guint keyval, guint, Gdk::ModifierType)
+        {
+            if (keyval == GDK_KEY_space)
+            {
+                spaceHeld_ = false;
+                set_cursor("");
+            }
+        });
     add_controller(keys_);
+
+    /* Space let go of elsewhere is never heard here. */
+    Glib::RefPtr<Gtk::EventControllerFocus> focus =
+        Gtk::EventControllerFocus::create();
+
+    focus->signal_leave().connect([this]
+        {
+            spaceHeld_ = false;
+            set_cursor("");
+        });
+    add_controller(focus);
 
     /* A shortcut rather than a keysym in the controller above: a trigger
        matches the key that is A on the layout the keyboard has, a Russian

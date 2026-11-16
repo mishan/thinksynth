@@ -81,7 +81,8 @@ Two invariants worth not breaking:
 
 ## 3. Interaction
 
-Drag boxes, Ctrl+wheel to zoom, hover for detail.
+Drag boxes, Ctrl+wheel to zoom, hover for detail. A drag with the middle
+button, or with Space held, moves the view rather than anything in it.
 
 **Wiring.** Drag from a port to another port. The rubber band snaps to the port
 it would land on and turns red when the drop would be refused, so the refusal is

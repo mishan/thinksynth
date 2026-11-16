@@ -2931,6 +2931,93 @@ void checkToolbarFits (thSynth &synth)
     delete ed;
 }
 
+/* A drag with the pan modifier -- the middle button, or Space held --
+   moves the view with the pointer and changes nothing in the graph, on a
+   box as on the background. */
+void checkPan (thSynth &synth, const char *file)
+{
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(600, 400);
+    w->present();
+
+    pump(0.05);
+
+    std::vector<NodeCanvasWidget *> canvases;
+
+    collectWidgets(ed, canvases);
+
+    Gtk::ScrolledWindow *sw = NULL;
+
+    for (Gtk::Widget *a = canvases.empty() ? NULL : canvases[0];
+         a != NULL && sw == NULL; a = a->get_parent())
+        sw = dynamic_cast<Gtk::ScrolledWindow *>(a);
+
+    if (sw == NULL || !ed->open(file))
+    {
+        ok(false, "an editor opens %s", file);
+        delete w;
+        return;
+    }
+
+    pump(0.1);
+
+    NodeCanvasWidget *canvas = canvases[0];
+    Glib::RefPtr<Gtk::Adjustment> h = sw->get_hadjustment();
+    Glib::RefPtr<Gtk::Adjustment> v = sw->get_vadjustment();
+
+    h->set_value(200);
+    v->set_value(100);
+    pump(0.05);
+
+    const string text = ed->text();
+
+    /* In the canvas's own pixels, which move with the scroll: the pointer
+       held still on the screen is the drawing sliding under it. */
+    const auto pan = [&] (double fromX, double fromY, double byX, double byY)
+    {
+        const double x0 = h->get_value() + fromX, y0 = v->get_value() + fromY;
+
+        canvas->onPressed(1, x0, y0, CanvasContent::MOD_PAN);
+
+        for (int i = 1; i <= 4; i++)
+        {
+            const double sx = h->get_value(), sy = v->get_value();
+
+            canvas->onMotion(sx + fromX + byX * i / 4,
+                             sy + fromY + byY * i / 4);
+        }
+
+        canvas->onReleased(1, h->get_value() + fromX + byX,
+                           v->get_value() + fromY + byY);
+    };
+
+    pan(300, 200, -50, -30);
+
+    ok(h->get_value() == 250 && v->get_value() == 130 &&
+       ed->text() == text && canvas->selection().empty(),
+       "a pan drag moves the view with the pointer (%g, %g) and nothing "
+       "in the graph", h->get_value(), v->get_value());
+
+    /* On a box, too: the pan, not a drag of the box. */
+    {
+        const NodeGraph::Box &b = ed->graph().boxes()[0];
+        const double bx = b.x, by = b.y;
+        const double fromX = b.x + 6 - h->get_value();
+        const double fromY = b.y + 6 - v->get_value();
+
+        pan(fromX, fromY, 40, 20);
+
+        ok(ed->graph().boxes()[0].x == bx && ed->graph().boxes()[0].y == by &&
+           ed->text() == text,
+           "...and on a box it pans, and leaves the box where it was");
+    }
+
+    delete w;
+}
+
 /* A node from the palette arrives where it can be seen: in the middle of
    the view, scrolled or not, the next one beside it rather than on it; and
    one dropped on the canvas, centered where it was let go. */
@@ -4505,6 +4592,7 @@ int run (const string &pluginPath, const char *file)
     checkTabLeaves(synth, file);
     checkToolbarFits(synth);
     checkAddPlaced(synth, file);
+    checkPan(synth, file);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);

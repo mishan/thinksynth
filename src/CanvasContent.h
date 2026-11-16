@@ -101,7 +101,8 @@ public:
     enum Mod
     {
         MOD_SHIFT = 1,
-        MOD_CTRL = 2
+        MOD_CTRL = 2,
+        MOD_PAN = 4         /* the middle button, or Space held */
     };
 
     /* ---- what the shell calls ---- */
