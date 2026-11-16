@@ -562,6 +562,10 @@ private:
        So the text is the record, and Revert is what undoes it. */
     Gtk::Button newBtn_;
     Gtk::Button deleteBtn_;
+    Gtk::MenuButton fileBtn_;
+    Gtk::Popover filePopover_;
+
+    void nameDelete (const string &what);
 
     Gtk::Label titleLbl_;   /* what the window title used to say */
     Gtk::Box toolbar_{Gtk::Orientation::HORIZONTAL};

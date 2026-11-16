@@ -51,12 +51,9 @@
 NodeEditor::NodeEditor (thSynth *synth)
     : Gtk::Box(Gtk::Orientation::VERTICAL),
       synth_(synth), tree_(NULL), channel_(-1), selStatus_(false),
-      newBtn_("New..."), deleteBtn_("Delete node"),
-      arrangeBtn_("Auto-arrange"), saveBtn_("Save"), saveAsBtn_("Save As..."),
+      newBtn_("New..."),
+      saveBtn_("Save"), saveAsBtn_("Save As..."),
       revertBtn_("Revert"),
-      zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1"),
-      zoomFitBtn_("Fit"),
-      paletteBtn_("Palette"), paramsBtn_("Parameters"),
       paletteWidth_(210), paramsWidth_(240), pendingParams_(-1),
       gestures_(0)
 {
@@ -67,33 +64,53 @@ NodeEditor::NodeEditor (thSynth *synth)
     toolbar_.set_margin_bottom(4);
     /* Where the window title used to be. A widget has no title bar, and the
        filename and the dirty marker still have to be somewhere -- they say
-       which file every button on this bar would act on. */
+       which file every edit is to. At the start of the status line, which
+       has the pane's width: the toolbar has none to spare. */
     titleLbl_.set_xalign(0.0);
     titleLbl_.set_ellipsize(Pango::EllipsizeMode::START);
-    titleLbl_.set_width_chars(18);
+    titleLbl_.set_width_chars(6);
     titleLbl_.set_max_width_chars(40);
+    titleLbl_.set_margin_start(6);
 
     /* A box packs in one direction now -- there is no pack_end -- so the
        right-hand group is reached by appending everything in the order it is
        read and putting an expanding nothing between the two halves. That is
        the widget GTK4 leaves you for the job, and it is at least honest about
        what pack_end was doing. */
-    /* The two panels' toggles first, where the toolbar starts: it scrolls
-       sideways in a narrow pane, and the far end of it is what goes out of
-       sight. */
+    /* The three panels' toggles first, where the toolbar starts: it
+       scrolls sideways in a pane narrower than all of it, and the far end
+       is what goes out of sight. Then the file and what is done to it, the
+       graph, and the view -- icons where a word would not fit, each named
+       for a screen reader and a tooltip. New, Save As and Revert go in a
+       menu: they are asked for far less often than Save. */
     toolbar_.append(paletteBtn_);
     toolbar_.append(paramsBtn_);
+    toolbar_.append(listBtn_);
     toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
-    toolbar_.append(titleLbl_);
-    toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
-    toolbar_.append(newBtn_);
-    toolbar_.append(deleteBtn_);
-    toolbar_.append(arrangeBtn_);
+
+    {
+        Gtk::Box *menu = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 2));
+
+        for (Gtk::Button *b : { &newBtn_, &saveAsBtn_, &revertBtn_ })
+        {
+            b->set_has_frame(false);
+            b->signal_clicked().connect([this] { filePopover_.popdown(); });
+            menu->append(*b);
+        }
+
+        filePopover_.set_child(*menu);
+        fileBtn_.set_label("File");
+        fileBtn_.set_popover(filePopover_);
+        fileBtn_.set_tooltip_text("New, Save As and Revert");
+        toolbar_.append(fileBtn_);
+    }
+
     toolbar_.append(saveBtn_);
-    toolbar_.append(saveAsBtn_);
-    toolbar_.append(revertBtn_);
     toolbar_.append(undoBtn_);
     toolbar_.append(redoBtn_);
+    toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
+    toolbar_.append(deleteBtn_);
+    toolbar_.append(arrangeBtn_);
 
     {
         Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
@@ -102,10 +119,35 @@ NodeEditor::NodeEditor (thSynth *synth)
         toolbar_.append(*gap);
     }
 
-    toolbar_.append(zoomFitBtn_);
     toolbar_.append(zoomOutBtn_);
     toolbar_.append(zoomResetBtn_);
     toolbar_.append(zoomInBtn_);
+    toolbar_.append(zoomFitBtn_);
+
+    for (auto [b, icon, name] :
+         { std::tuple<Gtk::Button *, const char *, const char *>(
+               &deleteBtn_, "edit-delete-symbolic", "Delete node"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &arrangeBtn_, "view-grid-symbolic", "Auto-arrange"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &zoomOutBtn_, "zoom-out-symbolic", "Zoom out"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &zoomResetBtn_, "zoom-original-symbolic", "Actual size"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &zoomInBtn_, "zoom-in-symbolic", "Zoom in"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &zoomFitBtn_, "zoom-fit-best-symbolic", "Fit the graph"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &paletteBtn_, "sidebar-show-symbolic", "Palette"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &paramsBtn_, "sidebar-show-right-symbolic", "Parameters"),
+           std::tuple<Gtk::Button *, const char *, const char *>(
+               &listBtn_, "view-list-bullet-symbolic", "List") })
+    {
+        b->set_icon_name(icon);
+        nameAs(*b, name);
+        b->set_tooltip_text(name);
+    }
 
     /* Both panels start collapsed, so the graph has the pane: the editor
        is one pane of a window now, not a window of its own, and the graph
@@ -118,14 +160,10 @@ NodeEditor::NodeEditor (thSynth *synth)
     paramScroll_.set_visible(false);
     paletteBtn_.set_tooltip_text("Show or hide the plugin palette");
     paramsBtn_.set_tooltip_text("Show or hide the parameter panel");
-
-    listBtn_.set_label("_List");
-    listBtn_.set_use_underline(true);
     listBtn_.set_tooltip_text("Show or hide the graph as a list of its "
                               "nodes and wires");
     listBtn_.set_active(false);
     outlineScroll_.set_visible(false);
-    toolbar_.append(listBtn_);
     listBtn_.signal_toggled().connect([this]
     {
         outlineScroll_.set_visible(listBtn_.get_active());
@@ -230,7 +268,16 @@ NodeEditor::NodeEditor (thSynth *synth)
     append(toolbarScroll_);
     outer_.set_vexpand(true);
     append(outer_);
-    append(status_);
+
+    {
+        Gtk::Box *foot = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
+
+        status_.set_hexpand(true);
+        foot->append(titleLbl_);
+        foot->append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
+        foot->append(status_);
+        append(*foot);
+    }
 
     arrangeBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onArrange));
@@ -308,10 +355,6 @@ NodeEditor::NodeEditor (thSynth *synth)
     keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
     add_controller(keys);
 
-    /* Read out as "plus", "minus" and "one colon one" otherwise. */
-    nameAs(zoomInBtn_, "Zoom in");
-    nameAs(zoomOutBtn_, "Zoom out");
-    nameAs(zoomResetBtn_, "Actual size");
 
     /* Tab stops -- a split's handle moves from the keys, and the graph
        takes the focus for Undo and its scroller's arrows -- that a screen
@@ -1156,6 +1199,13 @@ void NodeEditor::onNudged (int box)
     writeLayout();
 }
 
+/* An icon: what it would take is its name and its tooltip. */
+void NodeEditor::nameDelete (const string &what)
+{
+    nameAs(deleteBtn_, what);
+    deleteBtn_.set_tooltip_text(what);
+}
+
 bool NodeEditor::deletable (const NodeGraph::Box &b)
 {
     return !b.isIoSource && !b.isIoSink && !b.isExpr;
@@ -1190,10 +1240,10 @@ void NodeEditor::onSelected (int box)
        for a real box, so after a group it stayed on "Delete 5" -- greyed out,
        but still offering to remove five things nobody had chosen any more. */
     if (box >= 0 && box < (int)graph_.boxes().size())
-        deleteBtn_.set_label(graph_.boxes()[box].isControl ? "Delete control"
-                                                           : "Delete node");
+        nameDelete(graph_.boxes()[box].isControl ? "Delete control"
+                                                 : "Delete node");
     else
-        deleteBtn_.set_label("Delete node");
+        nameDelete("Delete node");
 
     if (box >= 0 && box < (int)graph_.boxes().size())
         say(graph_.boxes()[box].name + ", " + graph_.boxes()[box].plugin);
@@ -1244,7 +1294,7 @@ void NodeEditor::onSelectionChanged (int n)
     char buf[48];
 
     snprintf(buf, sizeof(buf), "Delete %d", can);
-    deleteBtn_.set_label(buf);
+    nameDelete(buf);
 
     snprintf(buf, sizeof(buf), "%d nodes selected.", (int)sel.size());
     setSelectionStatus(buf);
