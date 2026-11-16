@@ -199,8 +199,9 @@ browser, the page's MIDI out button does the same through Web MIDI
 (Chromium and Firefox). Either can also send MIDI clock, so a drum machine or
 a DAW follows the piece's tempo and transport.
 
-The sampled instruments (`sampled_*.dsp`: strings, horn, trumpet, flute,
-upright piano, a drum kit, timpani and orchestral percussion) play
+The sampled instruments (`sampled_*.dsp`: strings, horn, trumpet, trombone,
+tuba, flute, oboe, clarinet, bassoon, upright piano, a drum kit, timpani and
+orchestral percussion) play
 public-domain recordings that are not in this repository: they are published
 as a release of their own, built by the `sample packs` workflow.
 `scripts/packs.py install` (it needs ffmpeg)
