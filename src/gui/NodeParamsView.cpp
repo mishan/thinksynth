@@ -22,6 +22,7 @@
 
 #include "NodeGraph.h"
 #include "NodeParamsView.h"
+#include "../DspCategories.h"
 
 NodeParamsView::NodeParamsView (void)
 {
@@ -36,6 +37,13 @@ NodeParamsView::NodeParamsView (void)
 void NodeParamsView::setBox (const NodeGraph *graph, int box)
 {
     model_.setBox(graph, box);
+    showingHeader_ = false;
+
+    if ((graph == NULL || box < 0) && haveHeader_)
+    {
+        showHeader();
+        return;
+    }
 
     thPanel built;
 
@@ -59,6 +67,54 @@ void NodeParamsView::setBox (const NodeGraph *graph, int box)
     setPanel(empty);
 }
 
+void NodeParamsView::setHeader (const Header &h)
+{
+    header_ = h;
+    haveHeader_ = true;
+
+    if (showingHeader_)
+        showHeader();
+}
+
+/* With nothing selected, the patch itself: what the patch selector shows
+   of it, and the empty column there used to be put to use. */
+void NodeParamsView::showHeader (void)
+{
+    thPanel p;
+
+    p.kind = thPanel::NODE_VALUE;
+    p.title = "This patch";
+    p.subtitle = "Click a node to see its parameters.";
+
+    const auto field = [&] (const char *id, const char *label,
+                            const string &value)
+    {
+        thPanelRow r;
+
+        r.id = id;
+        r.label = label;
+        r.kind = thPanelRow::TEXT;
+        r.editable = true;
+        r.text = value;
+        p.rows.push_back(r);
+
+        return &p.rows.back();
+    };
+
+    field("name", "Name", header_.name);
+    field("author", "Author", header_.author);
+
+    thPanelRow *cat = field("category", "Category", header_.category);
+
+    for (int i = 0; thDspCategories[i] != NULL; i++)
+        cat->suggestions.push_back(thDspCategories[i]);
+
+    field("description", "Description", header_.description);
+
+    setPanel(p);
+    showingHeader_ = true;
+}
+
 /* What was typed, turned into an intent by the provider and handed on.
  *
  * Nothing is written here, and nothing can be: a node's value lives in the
@@ -69,6 +125,12 @@ void NodeParamsView::setBox (const NodeGraph *graph, int box)
  * it, and in both the right answer is to leave the file alone. */
 void NodeParamsView::onEdited (const string &row, const string &valueText)
 {
+    if (showingHeader_)
+    {
+        signal_header_edited_(row, valueText);
+        return;
+    }
+
     thPanelEdit edit;
 
     const thPanelResult result = model_.propose(row, valueText, edit);

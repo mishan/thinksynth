@@ -56,6 +56,12 @@
  *      a reference left behind names something that is not there -- a file
  *      that no longer loads, in either editor
  *
+ * And for every header field -- name, author, description, category:
+ *  15. set it to something new, reparse and confirm the tree says it; put it
+ *      back and confirm the file is byte identical; take it out and put it
+ *      back in, and confirm the same -- a field added goes where the corpus
+ *      keeps it
+ *
  * And for every wire:
  *
  *   5. disconnect it, reparse, confirm the parameter is no longer driven
@@ -506,11 +512,101 @@ int main (int argc, char **argv)
     }
 
     int failed = 0, files = 0, edits = 0, skipped = 0, inserted = 0;
+
+    /* The header edits the corpus cannot show: every shipped file has all
+       four fields, in one order. */
+    {
+        const string body =
+            "node ionode { channels = 1; out0 = o->out; play = 1; };\n"
+            "node o osc::simple { freq = ionode->note; };\nio ionode;\n";
+        struct Case {
+            const char *what, *before, *field, *value;
+            NodeEdit::Result result;
+            const char *after;
+        };
+        const Case cases[] = {
+            { "a header put in a file with none, after its comments",
+              "# A patch\n\n", "name", "Bare", NodeEdit::OK,
+              "# A patch\n\nname \"Bare\";\n\n" },
+            { "a field put in after the one before it",
+              "name \"X\";\ndescription \"D\";\n", "author", "A",
+              NodeEdit::OK,
+              "name \"X\";\nauthor \"A\";\ndescription \"D\";\n" },
+            { "a field put in before the one after it",
+              "author \"A\";\n", "name", "X", NodeEdit::OK,
+              "name \"X\";\nauthor \"A\";\n" },
+            { "a quote refused, the file untouched",
+              "name \"X\";\n", "author", "say \"hi\"", NodeEdit::UNWRITABLE,
+              "name \"X\";\n" },
+            { "a field the format has not, refused",
+              "name \"X\";\n", "license", "GPL", NodeEdit::REFUSED,
+              "name \"X\";\n" },
+            { "a value with no space before its quote, found",
+              "name \"X\";\nauthor\"A\";\n", "author", "B", NodeEdit::OK,
+              "name \"X\";\nauthor\"B\";\n" },
+            { "a value on the line after its keyword, found",
+              "name \"X\";\nauthor\n    \"A\";\n", "author", "B",
+              NodeEdit::OK, "name \"X\";\nauthor\n    \"B\";\n" },
+            { "a field taken out of a line it shares, the other left",
+              "name \"X\"; author \"A\"; category \"Keys\";\n", "author",
+              "", NodeEdit::OK, "name \"X\"; category \"Keys\";\n" },
+            { "a field set on a line it shares",
+              "name \"X\"; author \"A\"; category \"Keys\";\n",
+              "category", "Bass", NodeEdit::OK,
+              "name \"X\"; author \"A\"; category \"Bass\";\n" },
+            { "a field put in a CRLF file ends its line as the file does",
+              "name \"X\";\r\ndescription \"D\";\r\n", "author", "A",
+              NodeEdit::OK,
+              "name \"X\";\r\nauthor \"A\";\r\ndescription \"D\";\r\n" },
+            { "a field taken out of a CRLF file takes its whole line",
+              "name \"X\";\r\nauthor \"A\";\r\n", "author", "",
+              NodeEdit::OK, "name \"X\";\r\n" },
+            { "an author inside a node's braces is not the header's",
+              "node q misc::note { author \"Z\"; };\n", "author", "A",
+              NodeEdit::OK,
+              "author \"A\";\n\nnode q misc::note { author \"Z\"; };\n" },
+        };
+
+        /* The header last, with a comment and no line ending after it. */
+        {
+            string text = body + "name \"X\"; # the header", why;
+            const NodeEdit::Result r =
+                NodeEdit::Text::setInfo(text, "author", "A", why);
+
+            if (r != NodeEdit::OK ||
+                text != body + "name \"X\"; # the header\nauthor \"A\";")
+            {
+                printf("FAIL  setInfo: a field put in after a last line "
+                       "with no line ending -> %s\n%s",
+                       NodeEdit::resultText(r), text.c_str());
+                failed++;
+            }
+            else if (!quiet)
+                printf("ok    setInfo: a field put in after a last line "
+                       "with no line ending\n");
+        }
+
+        for (const Case &c : cases)
+        {
+            string text = string(c.before) + body, why;
+            const NodeEdit::Result r =
+                NodeEdit::Text::setInfo(text, c.field, c.value, why);
+
+            if (r != c.result || text != string(c.after) + body)
+            {
+                printf("FAIL  setInfo: %s -> %s (%s)\n%s", c.what,
+                       NodeEdit::resultText(r), why.c_str(), text.c_str());
+                failed++;
+            }
+            else if (!quiet)
+                printf("ok    setInfo: %s\n", c.what);
+        }
+    }
     int unwritable = 0, noops = 0, respelt = 0;
     int wiresCut = 0, wireNoops = 0;
     int controlsMoved = 0, controlNoops = 0, controlsRespelt = 0;
     int metaNoops = 0, metaChanged = 0, metaRestored = 0, metaClamped = 0;
-    int removals = 0;
+    int removals = 0, infos = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -1132,6 +1228,89 @@ int main (int argc, char **argv)
             removals++;
         }
 
+        /* 15. every header field changed, restored, removed and re-added */
+        for (const char *field : { "name", "author", "description",
+                                   "category" })
+        {
+            if (problems >= 4)
+                break;
+
+            const auto said = [&] (const string &text, string &out)
+            {
+                thSynthTree *t = synth.parseTreeText(argv[f], text);
+
+                if (t == NULL)
+                    return false;
+
+                const string which = field;
+
+                if (which == "name")
+                    out = t->name();
+                else if (which == "description")
+                    out = t->desc();
+                else if (which == "category")
+                    out = t->category();
+                else
+                {
+                    thArg *a = t->getChanArg("author");
+
+                    out = a != NULL ? a->comment() : string();
+                }
+
+                delete t;
+                return true;
+            };
+
+            string was, why;
+
+            if (!said(original, was) || was.empty())
+                continue;
+
+            string text = original, now;
+            NodeEdit::Result r =
+                NodeEdit::Text::setInfo(text, field, "Changed " + was, why);
+
+            if (r != NodeEdit::OK || !said(text, now) ||
+                now != "Changed " + was)
+            { printf("FAIL  %s: %s set -> %s (%s), reads back \"%s\"\n",
+                     argv[f], field, NodeEdit::resultText(r), why.c_str(),
+                     now.c_str());
+              problems++; continue; }
+
+            r = NodeEdit::Text::setInfo(text, field, was, why);
+
+            if (r != NodeEdit::OK || text != original)
+            { printf("FAIL  %s: %s put back is not the file\n", argv[f],
+                     field);
+              showFirstDiff(original, text);
+              problems++; continue; }
+
+            /* A name the file cannot do without. */
+            if (string(field) == "name")
+            {
+                string bare = original;
+
+                if (NodeEdit::Text::setInfo(bare, field, "", why) !=
+                    NodeEdit::REFUSED || bare != original)
+                { printf("FAIL  %s: an empty name was taken\n", argv[f]);
+                  problems++; }
+
+                infos++;
+                continue;
+            }
+
+            if (NodeEdit::Text::setInfo(text, field, "", why) != NodeEdit::OK ||
+                !said(text, now) || !now.empty() ||
+                NodeEdit::Text::setInfo(text, field, was, why) != NodeEdit::OK ||
+                text != original)
+            { printf("FAIL  %s: %s taken out and put back is not the file\n",
+                     argv[f], field);
+              showFirstDiff(original, text);
+              problems++; continue; }
+
+            infos++;
+        }
+
         if (problems)
             failed++;
         else if (!quiet)
@@ -1163,6 +1342,8 @@ int main (int argc, char **argv)
     printf("  %d values clamped by a range narrowed past them\n", metaClamped);
     printf("  %d nodes and controls removed, one at a time, each leaving a "
            "file that parses\n", removals);
+    printf("  %d header fields changed, restored, and taken out and put "
+           "back, each byte-identical\n", infos);
 
     if (metaChanged != metaRestored)
         printf("  (%d retyped but not restored)\n", metaChanged - metaRestored);

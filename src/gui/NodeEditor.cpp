@@ -411,6 +411,8 @@ NodeEditor::NodeEditor (thSynth *synth)
 
     palette_.signal_add().connect(
         sigc::mem_fun(*this, &NodeEditor::onPaletteAdd));
+    params_.signal_header_edited().connect(
+        sigc::mem_fun(*this, &NodeEditor::onHeaderEdited));
 
     canvas_.set_has_tooltip(true);
     canvas_.signal_query_tooltip().connect(
@@ -996,6 +998,7 @@ bool NodeEditor::reload (const NodeLayout::PosMap *carry)
     delete tree_;
     tree_ = tree;
     graph_ = g;
+    params_.setHeader(header());
     ctlText_.clear();
 
     for (const NodeGraph::Box &b : graph_.boxes())
@@ -1232,6 +1235,49 @@ void NodeEditor::onNudged (int box)
                     "nudge" + which);
 
     writeLayout();
+}
+
+/* The header as the parse read it: what the patch selector shows. */
+NodeParamsView::Header NodeEditor::header (void) const
+{
+    NodeParamsView::Header h;
+
+    if (tree_ == NULL)
+        return h;
+
+    const thArg *author = tree_->getChanArg("author");
+
+    h.name = tree_->name();
+    h.author = author != NULL ? author->comment() : string();
+    h.description = tree_->desc();
+    h.category = tree_->category();
+
+    return h;
+}
+
+void NodeEditor::onHeaderEdited (string field, string value)
+{
+    if (source_.empty())
+        return;
+
+    const string was = text_;
+    Gesture gesture(*this, "set the " + field);
+    string why;
+
+    if (NodeEdit::Text::setInfo(text_, field, value, why) != NodeEdit::OK)
+    {
+        setStatus("Cannot set the " + field + ": " + why + ".");
+        say(status_.get_text());
+        params_.setHeader(header());
+        return;
+    }
+
+    if (text_ == was || !reloadAfter(was))
+        return;
+
+    setStatus(value.empty() ? "The " + field + " is gone."
+                            : "The " + field + " is now \"" + value + "\".");
+    say(status_.get_text());
 }
 
 /* An icon: what it would take is its name and its tooltip. */

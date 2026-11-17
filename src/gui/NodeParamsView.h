@@ -42,8 +42,25 @@ class NodeParamsView : public PanelView
 public:
     NodeParamsView (void);
 
-    /* Shows a box's parameters. A negative index clears the panel. */
+    /* Shows a box's parameters. A negative index shows the patch's header,
+       once there is one to show. */
     void setBox (const NodeGraph *graph, int box);
+
+    /* The patch's header, for when no node is selected. */
+    struct Header {
+        string name, author, description, category;
+    };
+
+    void setHeader (const Header &h);
+
+    /* A header field committed: `name', `author', `description' or
+       `category', and what it now says. */
+    typedef sigc::signal<void(string, string)> type_signal_header_edited;
+
+    type_signal_header_edited signal_header_edited (void)
+    {
+        return signal_header_edited_;
+    }
 
     /* A value committed: box index, param name, new value. The shape
        NodeEditor was already written against. */
@@ -57,8 +74,13 @@ public:
 private:
     void onEdited (const string &row, const string &valueText);
 
+    void showHeader (void);
+
     NodePanel model_;
     type_signal_param_edited signal_param_edited_;
+    type_signal_header_edited signal_header_edited_;
+    Header header_;
+    bool haveHeader_ = false, showingHeader_ = false;
 };
 
 #endif /* NODE_PARAMS_VIEW_H */

@@ -46,6 +46,7 @@
 
 #include "think.h"
 #include "gthPatchfile.h"
+#include "DspCategories.h"
 
 /* Renders one note into `out' (windows * channels * windowlen floats). */
 static bool renderNote (const string &pluginPath, const char *file,
@@ -122,23 +123,7 @@ static bool checkDeterminism (const string &pluginPath, const char *file,
     return true;
 }
 
-/* Where a shipped graph may be filed.
- *
- * The groups mostly fall out of the description lines, and the arguable ones
- * are arguable in one direction each: a plucked string is its own thing
- * rather than a lead, and a graph promoted out of the old drawers because it
- * was interesting rather than because it was useful is an experiment and
- * says so. Effects is dsp/fx/, which is the one place a directory already
- * carries meaning the format relies on.
- *
- * A list and not an enum. `category' is free text in the grammar; this is the
- * discipline the shipped corpus is held to and nothing else, which is the
- * difference between a category and a schema. See docs/DSP_FORMAT.md
- * "Choosing a file". */
-static const char *const kCategories[] = {
-    "Bass", "Drums", "Effects", "Experiments", "Keys", "Leads and stabs",
-    "Plucked", "Strings and pads", "Synths", NULL
-};
+static const char *const *const kCategories = thDspCategories;
 
 static bool knownCategory (const string &category)
 {

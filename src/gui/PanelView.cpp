@@ -631,7 +631,44 @@ Gtk::Widget *PanelView::makeText (size_t at)
     entry->signal_activate().connect(
         sigc::bind(sigc::mem_fun(*this, &PanelView::onEntry), at));
 
-    return entry;
+    if (row.suggestions.empty())
+        return entry;
+
+    /* The suggestions beside the field, which stays free text: one chosen
+       is put in and committed, as Enter would. */
+    Gtk::Box *box = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 2));
+    Gtk::MenuButton *more = manage(new Gtk::MenuButton);
+    Gtk::Popover *pop = manage(new Gtk::Popover);
+    Gtk::Box *list = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 2));
+
+    for (const string &s : row.suggestions)
+    {
+        Gtk::Button *b = manage(new Gtk::Button(s));
+
+        b->set_has_frame(false);
+        b->signal_clicked().connect([this, at, entry, pop, s]
+        {
+            pop->popdown();
+            entry->set_text(s);
+            onEntry(at);
+        });
+        list->append(*b);
+    }
+
+    pop->set_child(*list);
+    more->set_popover(*pop);
+    more->set_icon_name("pan-down-symbolic");
+    nameAs(*more, row.label + " suggestions");
+    more->set_tooltip_text("Choose one of the usual ones");
+    more->set_sensitive(row.editable);
+
+    /* The row's label names what makeRow is handed, which is the box. */
+    nameAs(*entry, row.label);
+
+    box->append(*entry);
+    box->append(*more);
+
+    return box;
 }
 
 /* Shown, not offered. Hiding an output outright would be worse: seeing what

@@ -264,6 +264,15 @@ public:
         static Result removeControl (string &source, const string &name,
                                      int &removed, string &why);
 
+        /* A header statement -- `name', `author', `description' or
+           `category' -- set to `value', or taken out for an empty one. A
+           field the file has not goes where every shipped file keeps it, in
+           that order. Refused for an empty name, which a patch cannot do
+           without, and UNWRITABLE for a quote or a line break, which the
+           lexer's strings cannot hold. */
+        static Result setInfo (string &source, const string &field,
+                               const string &value, string &why);
+
         /* A new patch's text. No `replace': nothing exists to be
            replaced. */
         static Result createFile (string &source, const string &name,

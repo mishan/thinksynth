@@ -169,6 +169,7 @@ public:
     using NodeEditor::onPaletteAdd;
     using NodeEditor::onPaletteDrop;
     using NodeEditor::tipAt;
+    using NodeEditor::header;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -2932,6 +2933,124 @@ void checkToolbarFits (thSynth &synth)
     delete ed;
 }
 
+/* With nothing selected, the parameter panel is the patch's header: the
+   fields the file says, each typed into and entered one Undo step, the
+   category offered from the list the shipped files keep to, and a value the
+   format cannot hold refused with the file untouched. */
+void checkHeader (thSynth &synth, const char *file)
+{
+    const string copy = thUtil::tempFile("editorcheck-header-");
+
+    std::filesystem::copy_file(file, copy,
+        std::filesystem::copy_options::overwrite_existing);
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(900, 600);
+    w->present();
+
+    pump(0.05);
+
+    std::vector<NodeCanvasWidget *> canvases;
+    std::vector<NodeParamsView *> panels;
+
+    collectWidgets(ed, canvases);
+    collectWidgets(ed, panels);
+
+    if (canvases.empty() || panels.size() != 1 || !ed->open(copy))
+    {
+        ok(false, "an editor opens %s", file);
+        delete w;
+        return;
+    }
+
+    ed->showPanels(false, true);
+    canvases[0]->setSelected(-1);
+    pump(0.1);
+
+    const auto entries = [&] ()
+    {
+        std::vector<Gtk::Entry *> out;
+
+        collectWidgets(panels[0], out);
+
+        return out;
+    };
+
+    const auto enter = [&] (size_t which, const string &text)
+    {
+        std::vector<Gtk::Entry *> e = entries();
+
+        if (which >= e.size())
+            return false;
+
+        e[which]->set_text(text);
+        g_signal_emit_by_name(e[which]->gobj(), "activate");
+
+        return true;
+    };
+
+    std::vector<Gtk::Entry *> e = entries();
+
+    ok(e.size() == 4 && e[0]->get_text().raw() == ed->header().name &&
+       !ed->header().name.empty() &&
+       e[1]->get_text().raw() == ed->header().author,
+       "with nothing selected the panel shows the patch's header (%zu "
+       "fields)", e.size());
+
+    const string before = ed->text();
+
+    enter(1, "Somebody Else");
+
+    const bool set = ed->text().find("author \"Somebody Else\";") !=
+                     string::npos;
+
+    ed->onUndo();
+
+    ok(set && ed->text() == before,
+       "a field typed into and entered goes into the file, one Undo step");
+
+    {
+        std::vector<Gtk::MenuButton *> menus;
+        Gtk::Button *keys = NULL;
+
+        collectWidgets(panels[0], menus);
+
+        if (menus.size() == 1 && menus[0]->get_popover() != NULL)
+        {
+            std::vector<Gtk::Button *> choices;
+
+            collectWidgets(menus[0]->get_popover(), choices);
+
+            for (Gtk::Button *b : choices)
+                if (b->get_label() == "Experiments")
+                    keys = b;
+        }
+
+        if (keys != NULL)
+            g_signal_emit_by_name(keys->gobj(), "clicked");
+
+        ok(keys != NULL &&
+           ed->text().find("category \"Experiments\";") != string::npos,
+           "the category is offered from the usual ones, and one chosen "
+           "goes in");
+    }
+
+    const string held = ed->text();
+
+    enter(1, "say \"hi\"");
+
+    ok(ed->text() == held && ed->status().find("Cannot set the author") == 0 &&
+       entries()[1]->get_text().raw() == ed->header().author,
+       "a quote is refused, the file untouched and the field put back: %s",
+       ed->status().c_str());
+
+    delete w;
+    std::filesystem::remove(copy);
+}
+
 /* A control's strip has room for a few letters of its label and a value
    cut to five characters. Hovered, it says all of both: the label, and
    the value as the parameter panel spells it, with its range. */
@@ -4670,6 +4789,7 @@ int run (const string &pluginPath, const char *file)
     checkAddPlaced(synth, file);
     checkPan(synth, file);
     checkStripTip(synth);
+    checkHeader(synth, file);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);
