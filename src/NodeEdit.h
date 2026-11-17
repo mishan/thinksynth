@@ -264,6 +264,21 @@ public:
         static Result removeControl (string &source, const string &name,
                                      int &removed, string &why);
 
+        /* Replaces the arithmetic `node'.`arg' is written as with `text',
+           the whole statement on its last line if it ran over several,
+           the comments of the lines before kept above it. Refused for an
+           arg that is not arithmetic, one a line shares, and text that
+           could not stand between a `=' and a `;'. Whether the result
+           parses is the caller's to find out. */
+        static Result setExpression (string &source, const string &node,
+                                     const string &arg, const string &text,
+                                     string &why);
+
+        /* True if setExpression may replace `node'.`arg', with the text
+           the file writes it as -- its lines joined by single spaces. */
+        static bool expression (const string &source, const string &node,
+                                const string &arg, string &text);
+
         /* Renames a node: its block, the `io' line if it is the io node,
            and every `<node>->port' reading it. An array is renamed by its
            plain name, every element with it; one element is refused. So is

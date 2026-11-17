@@ -3206,3 +3206,118 @@ NodeEdit::Result NodeEdit::Text::renameControl (string &source,
 
     return OK;
 }
+
+/* Where `node'.`arg''s arithmetic is, if it is arithmetic this may replace:
+   not a number, a wire or a name, and not on a line others share. */
+static NodeEdit::Result findExpression (const string &source,
+                                        const vector<string> &lines,
+                                        const string &node, const string &arg,
+                                        size_t &line, string::size_type &from,
+                                        size_t &last, string::size_type &to,
+                                        string &why)
+{
+    size_t open = 0, close = 0;
+    bool element = false;
+
+    if (NodeEdit::Text::shared(source, node, arg))
+    {
+        why = "`" + node + "." + arg + "' is written by a line others "
+              "share; edit it in the text";
+        return NodeEdit::REFUSED;
+    }
+
+    if (!findNodeBlock(lines, node, open, close, &element) ||
+        !findAssign(lines, open, close, arg, line, from, last, to))
+    {
+        why = "no `" + node + "." + arg + "' in the file";
+        return NodeEdit::NO_NODE;
+    }
+
+    const string rhs = rhsOf(lines, line, from, last, to);
+
+    if (element || isTextRhs(rhs) || !isExpressionRhs(rhs))
+    {
+        why = element ? "`" + node + "' is one element of an array; edit "
+                        "the array's block in the text"
+                      : "`" + node + "." + arg + "' is not arithmetic";
+        return NodeEdit::REFUSED;
+    }
+
+    return NodeEdit::OK;
+}
+
+bool NodeEdit::Text::expression (const string &source, const string &node,
+                                 const string &arg, string &text)
+{
+    vector<string> lines;
+    bool endsWithNewline = true;
+    size_t line = 0, last = 0;
+    string::size_type from = 0, to = 0;
+    string why;
+
+    splitLines(source, lines, endsWithNewline);
+
+    if (findExpression(source, lines, node, arg, line, from, last, to, why) !=
+        OK)
+        return false;
+
+    text = rhsOf(lines, line, from, last, to);
+    return true;
+}
+
+NodeEdit::Result NodeEdit::Text::setExpression (string &source,
+                                                const string &node,
+                                                const string &arg,
+                                                const string &text,
+                                                string &why)
+{
+    why.clear();
+
+    const string want = trim(text);
+    vector<thLexToken> t;
+
+    if (want.empty())
+    {
+        why = "nothing typed; cut the wire to take the arithmetic away";
+        return REFUSED;
+    }
+
+    /* What could not stand between this `=' and its `;': a comment would
+       take the `;' with it, the rest would end the statement or the block. */
+    bool lone = want.find_first_of("#\n") == string::npos &&
+                thLexString(want, t);
+
+    for (size_t i = 0; lone && t[i].kind != thLexToken::END; i++)
+        lone = t[i].kind != thLexToken::STRING && !isPunct(t, i, ";") &&
+               !isPunct(t, i, "{") && !isPunct(t, i, "}");
+
+    if (!lone)
+    {
+        why = "an expression cannot hold a `;', a brace, a string or a "
+              "comment";
+        return UNWRITABLE;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+    size_t line = 0, last = 0;
+    string::size_type from = 0, to = 0;
+
+    splitLines(source, lines, endsWithNewline);
+
+    const Result r = findExpression(source, lines, node, arg, line, from,
+                                    last, to, why);
+
+    if (r != OK)
+        return r;
+
+    const string rhs = rhsOf(lines, line, from, last, to);
+
+    if (rhs == want && line == last)
+        return OK;
+
+    setRhs(lines, line, from, last, to, want);
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
