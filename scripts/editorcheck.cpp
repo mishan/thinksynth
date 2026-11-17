@@ -172,6 +172,7 @@ public:
     using NodeEditor::header;
     using NodeEditor::onEditControl;
     using NodeEditor::rename;
+    using NodeEditor::onExpressionEdited;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -2509,7 +2510,7 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
 
             std::set<string> held;
             const string shown = keys(held);
-            const int op = (int)pick(9);
+            const int op = (int)pick(10);
             const string prev = want;
             const string before = ed->text();
             string what, join;
@@ -2706,21 +2707,47 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
 
                 ed->rename(b, to);
             }
-            else if (op >= 7)
+            else if (op == 7)
             {
-                vector<string> &from = op == 7 ? past : future;
-                vector<string> &to = op == 7 ? future : past;
+                /* An expression typed over: now and then with text that
+                   will not parse. */
+                vector<int> exprs;
+
+                for (size_t b = 0; b < nb; b++)
+                    if (g.boxes()[b].isExpr)
+                        exprs.push_back((int)b);
+
+                if (exprs.empty())
+                    continue;
+
+                const NodeGraph::Box &x = g.boxes()[exprs[pick(exprs.size())]];
+                const string node = x.exprNode, arg = x.exprArg;
+                const string text = pick(4) == 0 ? x.exprText + " *"
+                                                 : "(" + x.exprText + ") * 2";
+
+                what = "expression " + node + "." + arg;
+
+                if (NodeEdit::Text::setExpression(want, node, arg, text,
+                                                  why) != NodeEdit::OK)
+                    refused++;
+
+                ed->onExpressionEdited(node, arg, text);
+            }
+            else if (op >= 8)
+            {
+                vector<string> &from = op == 8 ? past : future;
+                vector<string> &to = op == 8 ? future : past;
 
                 if (from.empty())
                     continue;
 
-                what = op == 7 ? "undo" : "redo";
+                what = op == 8 ? "undo" : "redo";
                 to.push_back(before);
                 want = from.back();
                 from.pop_back();
                 lastJoin.clear();
 
-                if (op == 7)
+                if (op == 8)
                     ed->onUndo();
                 else
                     ed->onRedo();
@@ -2787,7 +2814,7 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
                 }
             }
 
-            if (op < 7 && ed->text() != before)
+            if (op < 8 && ed->text() != before)
             {
                 if (join.empty() || join != lastJoin)
                     past.push_back(before);
@@ -3286,6 +3313,153 @@ void checkRename (thSynth &synth)
     ok(ed->text().find("@gain = 0.5;") != string::npos &&
        ed->text().find("amp = @gain;") != string::npos && box("@gain") >= 0,
        "a control's dialog renames it on Apply");
+
+    delete w;
+    std::filesystem::remove(copy);
+}
+
+/* An expression typed over, in its own box's panel or its arg's row on
+   its node: spliced in, the box redrawn from it, one Undo step. Text that
+   does not parse or could not stand in a statement is refused, the field
+   put back. */
+void checkExpression (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-expr-");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Expr\";\n"
+               "@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n"
+               "node ionode { channels = 1; out0 = osc->out; play = 1; };\n"
+               "node osc osc::simple {\n"
+               "    freq = ionode->note  # pitch\n"
+               "        * 2;\n"
+               "    amp = @lvl*0.5;\n"
+               "};\n"
+               "io ionode;\n";
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1000, 600);
+    w->present();
+
+    pump(0.2);
+
+    std::vector<NodeCanvasWidget *> canvases;
+    std::vector<NodeParamsView *> panels;
+
+    collectWidgets(ed, canvases);
+    collectWidgets(ed, panels);
+
+    if (canvases.empty() || panels.size() != 1 || !ed->open(copy))
+    {
+        ok(false, "an editor opens a patch with expressions");
+        delete w;
+        std::filesystem::remove(copy);
+        return;
+    }
+
+    NodeCanvasWidget *canvas = canvases[0];
+
+    ed->showPanels(false, true);
+
+    const auto box = [&] (const string &name)
+    {
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].name == name)
+                return (int)b;
+
+        return -1;
+    };
+
+    /* The entry on `name''s panel holding `was', if there is one. */
+    const auto field = [&] (const string &name, const string &was)
+        -> Gtk::Entry *
+    {
+        canvas->setSelected(box(name));
+        pump(0.05);
+
+        std::vector<Gtk::Entry *> e;
+
+        collectWidgets(panels[0], e);
+
+        for (Gtk::Entry *x : e)
+            if (x->get_text().raw() == was)
+                return x;
+
+        return NULL;
+    };
+
+    const auto enter = [&] (Gtk::Entry *e, const string &text)
+    {
+        if (e == NULL)
+            return false;
+
+        e->set_text(text);
+        g_signal_emit_by_name(e->gobj(), "activate");
+        pump(0.05);
+
+        return true;
+    };
+
+    const auto agrees = [&] ()
+    {
+        NodeGraph fresh;
+        thSynthTree *tree = synth.parseTreeText("expr", ed->text());
+        string why;
+        const bool good = tree != NULL && fresh.build(tree) &&
+                          graphsAgree(fresh, ed->graph(), why);
+
+        delete tree;
+
+        return good;
+    };
+
+    const string before = ed->text();
+
+    /* Shown as the file spells it, so entering it untouched is nothing. */
+    const bool shown = enter(field("osc.amp", "@lvl*0.5"), "@lvl*0.5");
+
+    ok(shown && ed->text() == before && !ed->undoBtn_.get_sensitive(),
+       "an expression's field holds the file's own text, and entering it "
+       "untouched changes nothing");
+
+    const bool typed = enter(field("osc.amp", "@lvl*0.5"), "@lvl * 0.25");
+    const int amp = box("osc.amp");
+
+    ok(typed && ed->text().find("    amp = @lvl * 0.25;\n") != string::npos &&
+       amp >= 0 && ed->graph().boxes()[amp].exprText == "@lvl * 0.25" &&
+       canvas->selected() == amp && agrees(),
+       "an expression's box takes typed arithmetic, and is drawn from it: %s",
+       ed->status().c_str());
+
+    ed->onUndo();
+
+    ok(ed->text() == before, "and one Undo puts the old arithmetic back");
+
+    const bool row = enter(field("osc", "ionode->note * 2"),
+                           "ionode->note * 3");
+
+    ok(row && ed->text().find("    # pitch\n    freq = ionode->note * 3;\n") !=
+                  string::npos && agrees(),
+       "the arg's row on its node takes it too, a statement over two lines "
+       "joined onto one: %s", ed->status().c_str());
+
+    const string held = ed->text();
+
+    for (const char *bad : { "@lvl *", "@lvl; play = 0" })
+    {
+        enter(field("osc.amp", "@lvl*0.5"), bad);
+
+        ok(ed->text() == held && ed->status().find("Cannot") == 0 &&
+           field("osc.amp", "@lvl*0.5") != NULL,
+           "\"%s\" is refused and the field put back: %s", bad,
+           ed->status().c_str());
+    }
 
     delete w;
     std::filesystem::remove(copy);
@@ -5031,6 +5205,7 @@ int run (const string &pluginPath, const char *file)
     checkStripTip(synth);
     checkHeader(synth, file);
     checkRename(synth);
+    checkExpression(synth);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);

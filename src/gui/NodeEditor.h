@@ -133,6 +133,10 @@ protected:
        with the status saying why, if it was refused. */
     bool rename (int box, const string &to);
     void onRenamed (int box, string to) { rename(box, to); }
+
+    /* Arithmetic typed over `node'.`arg''s, in the box's panel or the
+       arg's row: spliced in and the graph parsed again from it. */
+    void onExpressionEdited (string node, string arg, string text);
     void onSelected (int box);
 
     /* A rubber band gathered several boxes; `n' of them. */

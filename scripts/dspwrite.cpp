@@ -59,6 +59,11 @@
  *      name; rename it back and confirm the file is byte identical; rename
  *      it onto another's name and confirm that is refused
  *
+ * And for every expression:
+ *  17. set it to the file's own text of it, and confirm that is the file or,
+ *      joined onto one line, the same graph; set it to twice that, and
+ *      confirm it parses and reads back as written
+ *
  * And for every header field -- name, author, description, category:
  *  15. set it to something new, reparse and confirm the tree says it; put it
  *      back and confirm the file is byte identical; take it out and put it
@@ -743,11 +748,109 @@ int main (int argc, char **argv)
         }
     }
 
+    /* An arg's arithmetic replaced with typed text. */
+    {
+        struct Case {
+            const char *what, *node, *arg, *text, *before;
+            NodeEdit::Result result;
+            const char *after;
+        };
+        const Case cases[] = {
+            { "arithmetic replaced where it stands",
+              "o", "amp", "@lvl * 0.25",
+              "node o a::b { freq = 2; amp = @lvl * 0.5;  # soft\n};\n",
+              NodeEdit::OK,
+              "node o a::b { freq = 2; amp = @lvl * 0.25;  # soft\n};\n" },
+            { "arithmetic over three lines joined onto the last, its "
+              "comments kept above",
+              "o", "freq", "ionode->note * 2",
+              "node o a::b {\n    freq = ionode->note  # the note\n"
+              "        * exp2(@cents\n        / 1200);  # cents\n};\n",
+              NodeEdit::OK,
+              "node o a::b {\n    # the note\n"
+              "    freq = ionode->note * 2;  # cents\n};\n" },
+            { "the same arithmetic changes nothing",
+              "o", "amp", "@lvl * 0.5", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::OK, "node o a::b { amp = @lvl * 0.5; };\n" },
+            { "typed text that is a wire, taken",
+              "o", "amp", "lfo->out", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::OK, "node o a::b { amp = lfo->out; };\n" },
+            { "a number refused: its own row writes it",
+              "o", "amp", "@lvl * 2", "node o a::b { amp = 0.5; };\n",
+              NodeEdit::REFUSED, "node o a::b { amp = 0.5; };\n" },
+            { "a wire refused: drawing one writes it",
+              "o", "amp", "@lvl * 2", "node o a::b { amp = lfo->out; };\n",
+              NodeEdit::REFUSED, "node o a::b { amp = lfo->out; };\n" },
+            { "an arg that is not there",
+              "o", "mul", "@lvl * 2", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::NO_NODE, "node o a::b { amp = @lvl * 0.5; };\n" },
+            { "an array's block refused",
+              "t[1]", "amp", "@lvl * 2",
+              "node t[2] a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::REFUSED, "node t[2] a::b { amp = @lvl * 0.5; };\n" },
+            { "nothing typed refused",
+              "o", "amp", "  ", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::REFUSED, "node o a::b { amp = @lvl * 0.5; };\n" },
+            { "a second statement refused",
+              "o", "amp", "1; freq = 2", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::UNWRITABLE, "node o a::b { amp = @lvl * 0.5; };\n" },
+            { "a comment refused, which would take the `;' with it",
+              "o", "amp", "@lvl # half", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::UNWRITABLE, "node o a::b { amp = @lvl * 0.5; };\n" },
+            { "a brace refused",
+              "o", "amp", "@lvl }", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::UNWRITABLE, "node o a::b { amp = @lvl * 0.5; };\n" },
+            { "a string refused",
+              "o", "amp", "\"x\" * 2", "node o a::b { amp = @lvl * 0.5; };\n",
+              NodeEdit::UNWRITABLE, "node o a::b { amp = @lvl * 0.5; };\n" },
+            { "a wire spelt with spaces refused",
+              "o", "amp", "@lvl * 2", "node o a::b { amp = lfo -> out; };\n",
+              NodeEdit::REFUSED, "node o a::b { amp = lfo -> out; };\n" },
+            { "arithmetic over a wire spelt with spaces, taken",
+              "o", "amp", "lfo->out", "node o a::b { amp = lfo -> out * 2; };\n",
+              NodeEdit::OK, "node o a::b { amp = lfo->out; };\n" },
+            { "an arg written twice refused: which one is meant is unsaid",
+              "o", "amp", "@lvl * 2",
+              "node o a::b { amp = @lvl * 0.5;\n  amp = @lvl * 0.25; };\n",
+              NodeEdit::REFUSED,
+              "node o a::b { amp = @lvl * 0.5;\n  amp = @lvl * 0.25; };\n" },
+            { "an arg written twice on one line refused",
+              "o", "amp", "@lvl * 2",
+              "node o a::b { amp = @lvl * 0.5; amp = @lvl * 0.25; };\n",
+              NodeEdit::REFUSED,
+              "node o a::b { amp = @lvl * 0.5; amp = @lvl * 0.25; };\n" },
+            { "a name in quotes refused: it is not arithmetic",
+              "o", "file", "@x * 2", "node o a::b { file = \"k.wav\"; };\n",
+              NodeEdit::REFUSED, "node o a::b { file = \"k.wav\"; };\n" },
+            { "a line the io node writes per channel refused",
+              "ionode", "out0", "m0->out",
+              "node ionode { channels = 2; out[] = m[]->out * 0.5; };\n",
+              NodeEdit::REFUSED,
+              "node ionode { channels = 2; out[] = m[]->out * 0.5; };\n" },
+        };
+
+        for (const Case &c : cases)
+        {
+            string text = c.before, why;
+            const NodeEdit::Result r =
+                NodeEdit::Text::setExpression(text, c.node, c.arg, c.text, why);
+
+            if (r != c.result || text != c.after)
+            {
+                printf("FAIL  setExpression: %s -> %s (%s)\n%s", c.what,
+                       NodeEdit::resultText(r), why.c_str(), text.c_str());
+                failed++;
+            }
+            else if (!quiet)
+                printf("ok    setExpression: %s\n", c.what);
+        }
+    }
+
     int unwritable = 0, noops = 0, respelt = 0;
     int wiresCut = 0, wireNoops = 0;
     int controlsMoved = 0, controlNoops = 0, controlsRespelt = 0;
     int metaNoops = 0, metaChanged = 0, metaRestored = 0, metaClamped = 0;
-    int removals = 0, infos = 0, renames = 0;
+    int removals = 0, infos = 0, renames = 0, expressions = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -1596,6 +1699,73 @@ int main (int argc, char **argv)
                     renames++;
                 }
             }
+
+            /* 17. every expression set to the file's own text of it: the
+               file, or on one line the same graph; and set to that times
+               two, which reads back as written. */
+            const string none = "@\x01";
+            vector<string> want, got;
+
+            for (size_t b = 0; b < g.boxes().size() && problems < 4; b++)
+            {
+                const NodeGraph::Box &bx = g.boxes()[b];
+                string own, text = original, why;
+
+                if (!bx.isExpr || !NodeEdit::Text::expression(
+                                      original, bx.exprNode, bx.exprArg, own))
+                    continue;
+
+                NodeEdit::Result r = NodeEdit::Text::setExpression(
+                    text, bx.exprNode, bx.exprArg, own, why);
+
+                /* The shape has its wires, not its arithmetic. */
+                const auto reads = [&] (const string &t, string &out)
+                {
+                    thSynthTree *tree = synth.parseTreeText(argv[f], t);
+                    NodeGraph h;
+                    const bool built = tree != NULL && h.build(tree);
+
+                    delete tree;
+
+                    for (size_t k = 0; built && k < h.boxes().size(); k++)
+                        if (h.boxes()[k].isExpr && h.boxes()[k].name == bx.name)
+                        {
+                            out = h.boxes()[k].exprText;
+                            return true;
+                        }
+
+                    return false;
+                };
+                string now;
+
+                if (r != NodeEdit::OK ||
+                    (text != original &&
+                     (!shape(original, none, none, want) ||
+                      !shape(text, none, none, got) || got != want ||
+                      !reads(text, now) || now != bx.exprText)))
+                { printf("FAIL  %s: %s set to its own \"%s\" -> %s (%s) is "
+                         "neither the file nor the same graph\n", argv[f],
+                         bx.name.c_str(), own.c_str(), NodeEdit::resultText(r),
+                         why.c_str());
+                  showFirstDiff(original, text);
+                  problems++; continue; }
+
+                const string twice = "(" + own + ") * 2";
+
+                text = original;
+                r = NodeEdit::Text::setExpression(text, bx.exprNode,
+                                                  bx.exprArg, twice, why);
+
+                if (r != NodeEdit::OK || !reads(text, now) ||
+                    !NodeEdit::Text::expression(text, bx.exprNode, bx.exprArg,
+                                                now) || now != twice)
+                { printf("FAIL  %s: %s set to \"%s\" -> %s (%s) reads back "
+                         "\"%s\"\n", argv[f], bx.name.c_str(), twice.c_str(),
+                         NodeEdit::resultText(r), why.c_str(), now.c_str());
+                  problems++; continue; }
+
+                expressions++;
+            }
         }
 
         if (problems)
@@ -1633,6 +1803,8 @@ int main (int argc, char **argv)
            "back, each byte-identical\n", infos);
     printf("  %d nodes and controls renamed, each the same graph, and "
            "back, each byte-identical\n", renames);
+    printf("  %d expressions set to their own text, each the file or the "
+           "same graph, and to twice it\n", expressions);
 
     if (metaChanged != metaRestored)
         printf("  (%d retyped but not restored)\n", metaChanged - metaRestored);
