@@ -5981,6 +5981,8 @@ static bool buildPanel (int kind, int a, int b)
                last built -- which is the numbering everything else about
                the node editor is in. See twnode.h. */
             nodePanel_.setBox(twGraph(), a);
+            nodePanel_.setText(twGraphText());
+            nodePanel_.setHeader(twGraphHeader());
 
             return nodePanel_.build(openPanel_);
     }
@@ -6181,6 +6183,57 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
     panelWhy_ = "no such panel";
 
     return 0;
+}
+
+/* What an edit of a node panel's `row' to `valueText' means, for the page
+ * to splice: the thPanelEdit kind, -1 refused (tw_panel_why says why) or -2
+ * text typed back as it stands. A value is answered even then, as the
+ * desktop's is.
+ *
+ * Asked of a provider of its own over `box', like a chanarg edit: the open
+ * panel may be another. */
+static thPanelEdit nodeIntent_;
+
+EMSCRIPTEN_KEEPALIVE int tw_node_propose (int box, const char *row,
+                                          const char *valueText)
+{
+    NodePanel target;
+
+    panelWhy_.clear();
+    target.setBox(twGraph(), box);
+    target.setText(twGraphText());
+    target.setHeader(twGraphHeader());
+
+    const thPanelResult r = target.propose(row != NULL ? row : "",
+                                           valueText != NULL ? valueText : "",
+                                           nodeIntent_);
+
+    if (!r.ok)
+    {
+        panelWhy_ = r.why;
+        return -1;
+    }
+
+    if (!r.changed && nodeIntent_.kind != thPanelEdit::NODE_VALUE)
+        return -2;
+
+    return (int)nodeIntent_.kind;
+}
+
+/* The intent's node, row (an arg or a header field) and value. */
+EMSCRIPTEN_KEEPALIVE const char *tw_node_intent_node (void)
+{
+    return nodeIntent_.node.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_node_intent_row (void)
+{
+    return nodeIntent_.row.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_node_intent_value (void)
+{
+    return nodeIntent_.value;
 }
 
 /* Why the last edit was refused, or "" -- including when it was allowed. */

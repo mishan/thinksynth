@@ -90,6 +90,16 @@ std::string     text_;
 std::string     why_;
 int             removed_ = 0;
 
+/* The text the graph was last built from and what its header says, which
+   the node panel offers (twnode.h). */
+std::string     built_;
+NodePanel::Header header_;
+
+/* A rename this page made, by layout key, and the text it made, for the
+   build of that text to carry the selection across: the build holds it by
+   name, and the name is the thing that changed. */
+std::string     renamedFrom_, renamedTo_, renamedText_;
+
 /* The synth exists to parse and to load plugins. Silent, since nothing
    here plays: a note handed to it would be a note nobody asked for
    (thSynth::setSilent). */
@@ -448,6 +458,16 @@ const NodeGraph *twGraph (void)
     return &graph_;
 }
 
+const std::string *twGraphText (void)
+{
+    return &built_;
+}
+
+const NodePanel::Header *twGraphHeader (void)
+{
+    return &header_;
+}
+
 extern "C" {
 
 /* ---- the graph ---------------------------------------------------------
@@ -477,6 +497,7 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
     NodeGraph g;
 
     const bool ok = g.build(tree);
+    const NodePanel::Header header = NodePanel::headerOf(tree);
 
     delete tree;
 
@@ -492,10 +513,23 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
     /* By name, before the boxes it names are gone: a peer's edit that adds
        a box earlier in the file would otherwise leave the selection on
        the box after the one chosen, one key from Delete. */
-    const NodeCanvas::Held kept =
+    NodeCanvas::Held kept =
         canvas_ != NULL ? canvas_->held() : NodeCanvas::Held();
 
+    if (!renamedFrom_.empty() && renamedText_ == text)
+    {
+        for (std::string &k : kept.keys)
+            k = NodeLayout::renamedKey(k, renamedFrom_, renamedTo_);
+
+        kept.shown = NodeLayout::renamedKey(kept.shown, renamedFrom_,
+                                            renamedTo_);
+    }
+
+    renamedFrom_.clear();
+
     graph_ = g;
+    built_ = text;
+    header_ = header;
 
     /* setGraph and not just a redraw, because every index the canvas was
        holding is an index into the boxes that were here a moment ago: the
@@ -880,6 +914,68 @@ EMSCRIPTEN_KEEPALIVE int tw_edit_remove_control (const char *text,
     removed_ = 0;
 
     return answer(NodeEdit::Text::removeControl(text_, name, removed_, why_));
+}
+
+/* A header field: `name', `author', `description' or `category'. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_set_info (const char *text,
+                                           const char *field,
+                                           const char *value)
+{
+    text_ = text != NULL ? text : "";
+
+    return answer(NodeEdit::Text::setInfo(text_, field, value, why_));
+}
+
+/* A node, or with `control' a control, called `to' from now on: every
+   reference to it, its layout and its probes. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_rename (const char *text, int control,
+                                         const char *from, const char *to)
+{
+    text_ = text != NULL ? text : "";
+
+    const NodeEdit::Result r =
+        control ? NodeEdit::Text::renameControl(text_, from, to, why_)
+                : NodeEdit::Text::renameNode(text_, from, to, why_);
+
+    if (r == NodeEdit::OK)
+    {
+        const std::string at = control ? "@" : "";
+
+        renamedFrom_ = at + from;
+        renamedTo_ = at + to;
+        NodeLayout::Text::rename(text_, renamedFrom_, renamedTo_);
+        renamedText_ = text_;
+    }
+
+    return answer(r);
+}
+
+/* Arithmetic typed over `node'.`arg''s. Refused if the patch would not
+   parse, so a room is never handed one that does not. */
+EMSCRIPTEN_KEEPALIVE int tw_edit_set_expression (const char *text,
+                                                 const char *node,
+                                                 const char *arg,
+                                                 const char *expr)
+{
+    text_ = text != NULL ? text : "";
+
+    NodeEdit::Result r =
+        NodeEdit::Text::setExpression(text_, node, arg, expr, why_);
+
+    if (r == NodeEdit::OK)
+    {
+        thSynthTree *tree = synth()->parseTreeText(TN_FILE, text_);
+
+        if (tree == NULL)
+        {
+            why_ = "that does not parse";
+            r = NodeEdit::REFUSED;
+        }
+
+        delete tree;
+    }
+
+    return answer(r);
 }
 
 /* A new patch: the smallest .dsp that loads. */

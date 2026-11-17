@@ -99,8 +99,10 @@ const edit = (name, types, args) =>
 /* NodeEdit::Result. */
 const OK = 0;
 
-/* thPanel::Kind, for the panel over a box. */
+/* thPanel::Kind, for the panel over a box, and thPanelRow::Kind's number
+   box. */
 const NODE_VALUE = 3;
+const NUMBER = 2;
 
 /* ---- the palette ------------------------------------------------------- */
 
@@ -220,16 +222,16 @@ for (const name of names)
     for (let b = 0; b < built && where === null; b++)
     {
         /* A plain value: not wired, not an output, and a number. Which of a
-           box's params those are is the panel's answer (src/NodePanel.cpp),
-           and `editable' is the whole of it -- the same rule the page draws
-           a box to type in from. */
+           box's params those are is the panel's answer (src/NodePanel.cpp):
+           an offered number box, the same rule the page draws one from. A
+           Name or arithmetic is offered too, as text. */
         if (M._tw_graph_box_kind(b) !== 0 ||
             M._tw_graph_box_settable(b) === 0 ||
             M._tw_panel_open(NODE_VALUE, b, 0) === 0)
             continue;
 
         const row = JSON.parse(M.UTF8ToString(M._tw_panel_json()))
-                        .rows.find((r) => r.editable);
+                        .rows.find((r) => r.editable && r.kind === NUMBER);
 
         if (row === undefined)
             continue;
@@ -837,6 +839,133 @@ process.stdout.write(
                 `ok    ts1.dsp's layout block is ${lines} positions, the ` +
                 'same the desktop writes\n');
     }
+}
+
+/* ---- the panel's text rows: the header, a Name, arithmetic ------------- */
+
+{
+    const fixture =
+        'name "P";\nauthor "A";\ncategory "Bass";\ndescription "D";\n' +
+        '@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n' +
+        'node ionode { channels = 1; out0 = osc->out; play = 1; };\n' +
+        'node osc osc::simple { freq = ionode->note; amp = @lvl*0.5; };\n' +
+        'io ionode;\n' +
+        '# @layout osc 300 200\n# @layout @lvl 20 20\n';
+    const file = path.join(fs.mkdtempSync(path.join(
+        fs.realpathSync(process.env.TMPDIR ?? '/tmp'), 'nodecheck-')),
+        'text.dsp');
+
+    fs.writeFileSync(file, fixture);
+
+    const boxOf = (name) =>
+    {
+        for (let b = 0; b < M._tw_graph_box_count(); b++)
+            if (call('tw_graph_box_name', ['number'], [b]) === name)
+                return b;
+
+        return -1;
+    };
+
+    const panelOf = (box) =>
+        M._tw_panel_open(NODE_VALUE, box, 0) === 0
+            ? null : JSON.parse(M.UTF8ToString(M._tw_panel_json()));
+
+    M.ccall('tw_graph_build', 'number', ['string'], [fixture]);
+
+    const osc = panelOf(boxOf('osc'));
+    const row = (p, id) => p?.rows.find((r) => r.id === id);
+    const header = panelOf(-1);
+
+    if (row(osc, '#name')?.text !== 'osc' ||
+        row(osc, 'amp')?.text !== '@lvl*0.5' || !row(osc, 'amp')?.editable)
+        fail('a node\'s panel has its Name and its arithmetic as the file ' +
+             'spells it');
+    else if (header?.title !== 'This patch' ||
+             row(header, 'author')?.text !== 'A')
+        fail('with nothing selected the panel is the patch\'s header');
+    else
+        process.stdout.write('ok    the panel offers a Name, arithmetic in ' +
+                             'the file\'s spelling, and the header\n');
+
+    /* thPanelEdit::Kind, and what an edit of each row becomes. */
+    const NODE_INFO = 4, NODE_RENAME = 5, NODE_EXPRESSION = 6, ECHO = -2;
+    const intents = [
+        ['a header field', -1, 'author', 'B', NODE_INFO, '', 'author'],
+        ['a name', boxOf('osc'), '#name', 'voice', NODE_RENAME, '', '#name'],
+        ['arithmetic', boxOf('osc'), 'amp', '@lvl*0.25', NODE_EXPRESSION,
+         'osc', 'amp'],
+        ['a name typed back', boxOf('osc'), '#name', 'osc', ECHO, null, null],
+    ];
+
+    for (const [what, box, id, typed, kind, node, field] of intents)
+    {
+        const got = M.ccall('tw_node_propose', 'number',
+                            ['number', 'string', 'string'], [box, id, typed]);
+
+        if (got !== kind ||
+            (node !== null &&
+             (M.UTF8ToString(M._tw_node_intent_node()) !== node ||
+              M.UTF8ToString(M._tw_node_intent_row()) !== field)))
+            fail(`propose: ${what} is ${got}, not ${kind}`);
+    }
+
+    /* Each edit the desktop's, byte for byte. */
+    const edits = [
+        ['tw_edit_set_info', ['string', 'string'], ['author', 'B'],
+         ['set-info', 'author', 'B']],
+        ['tw_edit_rename', ['number', 'string', 'string'], [0, 'osc', 'voice'],
+         ['rename-node', 'osc', 'voice']],
+        ['tw_edit_rename', ['number', 'string', 'string'], [1, 'lvl', 'gain'],
+         ['rename-control', 'lvl', 'gain']],
+        ['tw_edit_set_expression', ['string', 'string', 'string'],
+         ['osc', 'amp', '@lvl * 0.25'],
+         ['set-expression', 'osc', 'amp', '@lvl * 0.25']],
+    ];
+    let same = 0;
+
+    for (const [name, types, args, op] of edits)
+    {
+        const got = edit(name, ['string', ...types], [fixture, ...args]);
+        const want = execFileSync(dspedit, [file, ...op], { encoding: 'utf8' });
+
+        if (got.r !== OK || got.text !== want)
+            fail(`${name} ${args.join(' ')} is not the desktop's edit ` +
+                 `(${got.why})`);
+        else
+            same++;
+    }
+
+    if (same === edits.length)
+        process.stdout.write(`ok    the header, a rename and arithmetic are ` +
+                             'the edits the desktop makes\n');
+
+    const bad = edit('tw_edit_set_expression',
+                     ['string', 'string', 'string', 'string'],
+                     [fixture, 'osc', 'amp', '@lvl *']);
+
+    if (bad.r === OK || bad.why !== 'that does not parse')
+        fail(`arithmetic that does not parse is refused (${bad.why})`);
+
+    /* The selection is held by name across a build, and a rename is the
+       name changing. */
+    M._tw_node_canvas_viewport(0, 0, 900, 600);
+    M._tw_node_canvas_select(boxOf('osc'));
+
+    const renamed = edit('tw_edit_rename', ['string', 'number', 'string',
+                                            'string'],
+                         [fixture, 0, 'osc', 'voice']);
+
+    M.ccall('tw_graph_build', 'number', ['string'], [renamed.text]);
+
+    const held = M._tw_node_canvas_selected();
+
+    if (held < 0 || call('tw_graph_box_name', ['number'], [held]) !== 'voice')
+        fail('a renamed box is still the one selected');
+    else
+        process.stdout.write('ok    a renamed box is still the one ' +
+                             'selected\n');
+
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
 }
 
 process.stdout.write(failures === 0

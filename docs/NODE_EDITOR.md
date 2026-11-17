@@ -115,6 +115,10 @@ and one element of an array, whose block every element shares. Only this file
 changes: a piece that sets `@cut` on the instrument goes on saying `@cut`, and
 a patch that is playing keeps the old name until it is loaded again.
 
+The header, the Name and the arithmetic are rows `NodePanel` builds, so the
+browser's editor has the same three: `tw_node_propose` says what an edit of a
+row means, and the page splices it into the document as it does every other.
+
 **Adding a node.** The palette's Add, a double-click or Enter puts the node in
 the middle of the view, beside one already there rather than on it; a plugin
 dragged from the palette onto the canvas lands where it is dropped.

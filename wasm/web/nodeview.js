@@ -47,13 +47,18 @@
 
 import { createCanvasView, modsOf } from './canvasview.js';
 import { placePopover } from './popover.js';
-import { CHOICE, numberIn, showPanel } from './panel.js';
+import { showPanel } from './panel.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
 
 /* thPanel::Kind, for the panel over the selected box. */
 const NODE_VALUE = 3;
+
+/* What tw_node_propose says an edit of a node panel's row is:
+   thPanelEdit::Kind, or text typed back as it stands. */
+const EDIT_VALUE = 3, EDIT_INFO = 4, EDIT_RENAME = 5, EDIT_EXPRESSION = 6;
+const ECHO = -2;
 
 const SIG = {
     BOX_MOVED: 0,
@@ -883,11 +888,9 @@ export async function createNodeView ({ files, root = document,
      * no ranges in it.
      *
      * An edit is a splice, which is why there is no delivery in the module
-     * for one: a node's value is a number in the `.dsp', so the intent
-     * becomes tw_edit_set_value and the new text goes to whoever owns the
-     * file. A list's spelling is turned back into its number here, off the
-     * row's own choices -- a lookup in what the module handed over, not a
-     * second opinion about what the values are.
+     * for one: what the panel says it means -- a value, a header field, a
+     * name or arithmetic -- is a rewrite of the `.dsp', and the new text goes
+     * to whoever owns the file. See commit().
      */
     function showParams ()
     {
@@ -897,15 +900,11 @@ export async function createNodeView ({ files, root = document,
 
         box.replaceChildren();
 
-        if (selected < 0)
-        {
-            $('nodeselected').textContent = '';
-            return;
-        }
+        /* Nothing selected is the patch's header, once there is a patch. */
+        const node = selected < 0
+            ? '' : call('tw_graph_box_name', ['number'], [selected]);
 
-        const node = call('tw_graph_box_name', ['number'], [selected]);
-
-        if (M._tw_panel_open(NODE_VALUE, selected, 0) === 0)
+        if (text() === '' || M._tw_panel_open(NODE_VALUE, selected, 0) === 0)
         {
             $('nodeselected').textContent = node;
             return;
@@ -915,28 +914,74 @@ export async function createNodeView ({ files, root = document,
 
         $('nodeselected').textContent = `${panel.title} — ${panel.subtitle}`;
 
-        showPanel(box, panel, (name, text) =>
+        const at = selected;
+
+        showPanel(box, panel, (row, typed) => commit(at, row, typed, node));
+    }
+
+    /* What an edit of a panel's row means is the panel's to say -- the one
+     * the desktop draws (src/NodePanel.cpp) -- and this splices it.
+     *
+     * By the box the panel was drawn for, which is the one `node' names.
+     * A refusal is a panel catching up or a box emptied, and goes unsaid, as
+     * it does on the desktop; a splice refused is said by edit(). Either way
+     * the panel is put back to what the file says. */
+    function commit (box, row, typed, node)
+    {
+        const kind = M.ccall('tw_node_propose', 'number',
+                             ['number', 'string', 'string'],
+                             [box, row, typed]);
+        const target = M.UTF8ToString(M._tw_node_intent_node());
+        const arg = M.UTF8ToString(M._tw_node_intent_row());
+        let done = false;
+
+        if (kind === EDIT_VALUE)
+            done = edit('tw_edit_set_value',
+                        ['string', 'string', 'string', 'number'],
+                        [node, arg, M._tw_node_intent_value()]);
+        else if (kind === EDIT_INFO)
+            done = edit('tw_edit_set_info', ['string', 'string', 'string'],
+                        [arg, typed]);
+        else if (kind === EDIT_RENAME)
+            done = rename(box, typed);
+        else if (kind === EDIT_EXPRESSION)
+            done = edit('tw_edit_set_expression',
+                        ['string', 'string', 'string', 'string'],
+                        [target, arg, typed]);
+        else if (kind === ECHO)
+            return;
+
+        if (!done)
+            showParams();
+    }
+
+    /* A node or a control called `to': every reference, its layout and its
+       probes. The build that follows keeps it selected. */
+    function rename (box, to)
+    {
+        const control = M._tw_graph_box_kind(box) === 1;
+        const at = control ? '@' : '';
+        const from = control
+            ? call('tw_graph_box_control', ['number'], [box])
+            : call('tw_graph_box_name', ['number'], [box]);
+
+        /* Before the edit, whose write rebuilds and puts the panels back. */
+        for (const p of probes)
+            if (p.node === at + from)
+                p.node = at + to;
+
+        if (!edit('tw_edit_rename', ['string', 'number', 'string', 'string'],
+                  [control ? 1 : 0, from, to]))
         {
-            const row = panel.rows.find((r) => r.id === name);
+            for (const p of probes)
+                if (p.node === at + to)
+                    p.node = at + from;
 
-            /* Not Number(text): Number('') is 0 and Number(' ') is 0, so an
-               emptied box spliced `arg = 0' into the .dsp and broadcast it
-               to the room. A splice is the one delivery with no propose()
-               behind it -- tw_panel_edit refuses a NODE_VALUE row, because
-               what the intent becomes is a rewrite of the file rather than a
-               write to an arg -- so this is the only place the text is
-               looked at at all. */
-            const value = row?.kind === CHOICE
-                ? row.choices.find((c) => c.name === text)?.value
-                : numberIn(text);
+            return false;
+        }
 
-            if (value === undefined || value === null || Number.isNaN(value))
-                return;
-
-            edit('tw_edit_set_value',
-                 ['string', 'string', 'string', 'number'],
-                 [node, name, value]);
-        });
+        onStatus(`Renamed ${at}${from} to ${at}${to}.`);
+        return true;
     }
 
     /* ---- the outline ----

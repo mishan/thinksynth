@@ -32,6 +32,10 @@
  *   dspedit FILE add-node NODE PLUGIN
  *   dspedit FILE remove-node NODE
  *   dspedit FILE set-control-meta NAME MIN MAX LABEL GROUP
+ *   dspedit FILE set-info FIELD VALUE
+ *   dspedit FILE rename-node FROM TO
+ *   dspedit FILE rename-control FROM TO
+ *   dspedit FILE set-expression NODE ARG TEXT
  *   dspedit FILE layout-write -p PLUGINS
  *
  * The last one is not an edit to the patch but to its layout block: the
@@ -150,6 +154,22 @@ int main (int argc, char **argv)
     else if (op == "set-control-meta" && rest == 5)
         r = NodeEdit::Text::setControlMeta(source, a[0], atof(a[1]),
                                            atof(a[2]), a[3], a[4], why);
+    else if (op == "set-info" && rest == 2)
+        r = NodeEdit::Text::setInfo(source, a[0], a[1], why);
+    else if ((op == "rename-node" || op == "rename-control") && rest == 2)
+    {
+        /* With the layout block, as the editor renames. */
+        const string at = op == "rename-control" ? "@" : "";
+
+        r = at.empty() ? NodeEdit::Text::renameNode(source, a[0], a[1], why)
+                       : NodeEdit::Text::renameControl(source, a[0], a[1],
+                                                       why);
+
+        if (r == NodeEdit::OK)
+            NodeLayout::Text::rename(source, at + a[0], at + a[1]);
+    }
+    else if (op == "set-expression" && rest == 3)
+        r = NodeEdit::Text::setExpression(source, a[0], a[1], a[2], why);
     else
         return usage();
 

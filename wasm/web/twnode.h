@@ -20,7 +20,7 @@
 #define TW_NODE_H 1
 
 /*
- * The one thing thinkweb.cpp wants out of thinknode.cpp.
+ * What thinkweb.cpp wants out of thinknode.cpp: the graph, for the panels.
  *
  * The two are separate translation units in one module because they share
  * nothing: one is the scheduler and the synth that sounds, the other is the
@@ -35,10 +35,18 @@
  * exactly where it was.
  */
 
+#include <string>
+
+#include "NodePanel.h"
+
 class NodeGraph;
 
 /* The graph thinknode.cpp last built, or NULL before the first
    tw_graph_build. Valid until the next one, which replaces every box. */
 const NodeGraph *twGraph (void);
+
+/* The text that graph was built from, and its header. */
+const std::string *twGraphText (void);
+const NodePanel::Header *twGraphHeader (void);
 
 #endif /* TW_NODE_H */

@@ -2807,7 +2807,7 @@ async function editTogether (pages)
     const before = await A.page.evaluate(
         (name) => window.jam.file(name), file);
 
-    const input = await A.page.$('#nodeparams input');
+    const input = await A.page.$('#nodeparams input[type="number"]');
 
     if (input === null)
     {
