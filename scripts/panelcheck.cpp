@@ -811,6 +811,175 @@ static void checkNodes (const string &pluginPath, const string &file)
     delete tree;
 }
 
+/* The rows that rewrite the text rather than a value: the patch's header
+   with nothing selected, a box's Name, and an arg's arithmetic in the file's
+   own spelling. Offered only to a caller that has the text. */
+static void checkNodeText (const string &pluginPath)
+{
+    const string text =
+        "name \"P\";\nauthor \"A\";\ncategory \"Bass\";\ndescription \"D\";\n"
+        "@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n"
+        "node ionode { channels = 1; out0 = osc->out; play = 1; };\n"
+        "node osc osc::simple {\n    freq = ionode->note  # pitch\n"
+        "        * 2;\n    amp = @lvl*0.5;\n    mul = 1.5;\n};\n"
+        "node t[2] osc::simple { amp = @lvl * 0.5; };\n"
+        "io ionode;\n";
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    thSynthTree *tree = synth.parseTreeText("panelcheck", text);
+    NodeGraph graph;
+
+    if (tree == NULL || !graph.build(tree))
+    {
+        fail("the text fixture builds a graph", "");
+        delete tree;
+        return;
+    }
+
+    delete tree;
+
+    const auto box = [&] (const string &name)
+    {
+        for (size_t i = 0; i < graph.boxes().size(); i++)
+            if (graph.boxes()[i].name == name)
+                return (int)i;
+
+        return -1;
+    };
+
+    const NodePanel::Header header = { "P", "A", "D", "Bass" };
+    NodePanel panel;
+    thPanel built;
+
+    /* Without the text, as the browser had it: nothing new offered. */
+    panel.setBox(&graph, box("osc"));
+    panel.build(built);
+
+    const thPanelRow *amp = built.find("amp");
+
+    check(built.find("#name") == NULL && amp != NULL &&
+          amp->kind == thPanelRow::READONLY && !amp->editable,
+          "without the text, no Name and arithmetic is only shown");
+
+    panel.setBox(&graph, -1);
+    check(!panel.build(built), "and no header with nothing selected");
+
+    panel.setText(&text);
+    panel.setHeader(&header);
+
+    struct Row {
+        const char *what, *box, *row;
+        bool present;
+        thPanelRow::Kind kind;
+        bool editable;
+        const char *text;
+    };
+    const Row rows[] = {
+        { "a node's Name, first", "osc", "#name", true, thPanelRow::TEXT, true,
+          "osc" },
+        { "a control's Name is its own", "@lvl", "#name", true,
+          thPanelRow::TEXT, true, "lvl" },
+        { "an arg's arithmetic as the file spells it", "osc", "amp", true,
+          thPanelRow::TEXT, true, "@lvl*0.5" },
+        { "and over two lines, joined", "osc", "freq", true,
+          thPanelRow::TEXT, true, "ionode->note * 2" },
+        { "a number still a number", "osc", "mul", true,
+          thPanelRow::NUMBER, true, "1.5" },
+        { "an expression's box offers its arithmetic", "osc.amp", "#expr",
+          true, thPanelRow::TEXT, true, "@lvl*0.5" },
+        { "and has no Name of its own", "osc.amp", "#name",
+          false, thPanelRow::READONLY, false, NULL },
+        { "an array's arithmetic, which every element shares, is shown",
+          "t[0].amp", "#expr", true, thPanelRow::READONLY, false, NULL },
+    };
+
+    for (const Row &r : rows)
+    {
+        panel.setBox(&graph, box(r.box));
+        panel.build(built);
+
+        const thPanelRow *got = built.find(r.row);
+
+        check(!r.present ? got == NULL
+                         : got != NULL && got->kind == r.kind &&
+                               got->editable == r.editable &&
+                               (r.text == NULL || got->text == r.text),
+              r.what, got ? got->text : string("(no row)"));
+    }
+
+    panel.setBox(&graph, box("osc"));
+    panel.build(built);
+    check(!built.rows.empty() && built.rows[0].id == "#name",
+          "the Name comes before the parameters");
+
+    panel.setBox(&graph, box("osc.amp"));
+    panel.build(built);
+    check(built.title == "osc.amp", "an expression's panel is titled by it",
+          built.title);
+
+    panel.setBox(&graph, -1);
+
+    const bool head = panel.build(built);
+    const thPanelRow *cat = built.find("category");
+
+    check(head && built.title == "This patch" && built.rows.size() == 4 &&
+          built.find("author") && built.find("author")->text == "A" &&
+          cat && cat->editable && !cat->suggestions.empty(),
+          "with nothing selected, the header, its category offered from "
+          "the usual list");
+
+    /* What each becomes. */
+    struct Intent {
+        const char *what, *box, *row, *text;
+        bool ok;
+        thPanelEdit::Kind kind;
+        const char *node, *field;
+    };
+    const Intent intents[] = {
+        { "a header field", NULL, "author", "B", true,
+          thPanelEdit::NODE_INFO, "", "author" },
+        { "a node's new name", "osc", "#name", "voice", true,
+          thPanelEdit::NODE_RENAME, "", "#name" },
+        { "an arg's arithmetic", "osc", "amp", "@lvl*0.25", true,
+          thPanelEdit::NODE_EXPRESSION, "osc", "amp" },
+        { "an expression box's, as its arg's", "osc.amp", "#expr",
+          "@lvl*0.25", true, thPanelEdit::NODE_EXPRESSION, "osc", "amp" },
+        { "a number, as before", "osc", "mul", "2", true,
+          thPanelEdit::NODE_VALUE, "", "mul" },
+        { "arithmetic only shown, refused", "t[0].amp", "#expr", "1 * 2",
+          false, thPanelEdit::NODE_EXPRESSION, "", "" },
+        { "a header field it has not, refused", NULL, "license", "GPL",
+          false, thPanelEdit::NODE_INFO, "", "" },
+    };
+
+    for (const Intent &i : intents)
+    {
+        thPanelEdit edit;
+
+        panel.setBox(&graph, i.box ? box(i.box) : -1);
+
+        const thPanelResult r = panel.propose(i.row, i.text, edit);
+
+        check(r.ok == i.ok &&
+                  (!i.ok || (edit.kind == i.kind && edit.node == i.node &&
+                             edit.row == i.field && edit.valueText == i.text &&
+                             edit.a == (i.box ? box(i.box) : -1))),
+              string("propose: ") + i.what, r.why);
+    }
+
+    thPanelEdit edit;
+
+    /* A stale index is no node, not the header. */
+    panel.setBox(&graph, 9999);
+    check(!panel.build(built) && !panel.propose("author", "B", edit).ok,
+          "a box that is not there shows no header and takes no field");
+
+    panel.setText(NULL);
+    panel.setBox(&graph, box("osc"));
+
+    check(!panel.propose("#name", "voice", edit).ok,
+          "and a Name is refused to a caller without the text");
+}
+
 /* ---- a composer stage's panel ---------------------------------------- */
 
 /* The piece.
@@ -2288,6 +2457,7 @@ int main (int argc, char **argv)
     }
 
     checkNodes(pluginPath, graph);
+    checkNodeText(pluginPath);
     checkStages(pluginPath, piece);
     checkRate(pluginPath, instrument);
 

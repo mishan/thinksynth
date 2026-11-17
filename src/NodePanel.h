@@ -44,6 +44,12 @@
  *                         the next one overwrites
  *   a wire, a control,    shown, with where the value comes from, because
  *   a note, a name        the thing to change is the wire and not the field
+ *   arithmetic            shown; given the patch's text, offered as text in
+ *                         the file's own spelling
+ *
+ * Given the text a box has a Name row too, and given the header an empty
+ * selection is the patch's own fields. Those intents are text for the caller
+ * to splice -- setInfo, a rename, setExpression -- like a value's.
  */
 
 #include <string>
@@ -57,22 +63,36 @@ class NodePanel
 public:
     NodePanel (void);
 
-    /* Which box of which graph. A negative box, or no graph, is an empty
-     * panel.
+    /* Which box of which graph. A negative box, or no graph, is the
+     * header's panel, or an empty one without a header.
      *
      * The graph is borrowed and not owned, and a panel is exactly as stale
      * as it is: rebuilding the graph from changed text makes new boxes, and
      * the caller re-opens the panel from the same rebuild. */
     void setBox (const NodeGraph *graph, int box);
 
+    /* The patch's text, borrowed. With it a node or a control has a Name
+       row and an arg written as arithmetic its text in the file's own
+       spelling, both offered; without it, neither. */
+    void setText (const string *text) { text_ = text; }
+
+    /* The patch's header, borrowed: what an empty selection shows, each
+       field offered. NULL for an empty panel there. */
+    struct Header {
+        string name, author, description, category;
+    };
+
+    void setHeader (const Header *header) { header_ = header; }
+
     /* The panel. Its title is the node's name and its subtitle the plugin's
-       spelling, because a panel over one node of thirty has to say which.
-       False for a box with no parameters at all. */
+       spelling, because a panel over one node of thirty has to say which;
+       the header's is "This patch". False for one with no rows. */
     bool build (thPanel &out) const;
 
-    /* What an edit of `row' to `valueText' means: a NODE_VALUE intent whose
-       `a' is the box. Refuses a row that is shown rather than offered, which
-       is how a stale panel over a rewired graph fails.
+    /* What an edit of `row' to `valueText' means: an intent whose `a' is
+       the box -- a value, a header field, a name or arithmetic. Refuses a
+       row that is shown rather than offered, which is how a stale panel
+       over a rewired graph fails.
      *
      * There is no deliver(). See the header. */
     thPanelResult propose (const string &row, const string &valueText,
@@ -89,8 +109,12 @@ public:
     static bool settable (const NodeGraph *graph, int box);
 
 private:
+    bool written (const string &node, const string &arg, string &out) const;
+
     const NodeGraph *graph_;
     int box_;
+    const string *text_ = NULL;
+    const Header *header_ = NULL;
 };
 
 #endif /* NODE_PANEL_H */
