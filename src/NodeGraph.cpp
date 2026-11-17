@@ -676,6 +676,7 @@ bool NodeGraph::build (thSynthTree *tree)
 
             boxes_.push_back(b);
             controlOf[a->first] = (int)boxes_.size() - 1;
+            byName_[b.name] = (int)boxes_.size() - 1;
         }
     }
 
