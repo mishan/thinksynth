@@ -2946,9 +2946,12 @@ void checkStripTip (thSynth &synth)
                "@rel = 14112;\n@rel.widget = 1;\n@rel.min = 0;\n"
                "@rel.max = 882000;\n"
                "@rel.label = \"Release of the long tail\";\n"
+               "@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
+               "@wave.max = 5;\n"
                "node ionode { channels = 1; out0 = env->out; "
                "play = env->play; };\n"
                "node env env::adsr { trigger = ionode->trigger; r = @rel; };\n"
+               "node o osc::simple { waveform = @wave; };\n"
                "io ionode;\n";
     }
 
@@ -2970,31 +2973,33 @@ void checkStripTip (thSynth &synth)
 
     pump(0.1);
 
-    int strip = -1;
+    std::vector<NodeCanvasWidget *> canvases;
 
-    for (size_t b = 0; b < ed->graph().boxes().size(); b++)
-        if (ed->graph().boxes()[b].isControl)
-            strip = (int)b;
+    collectWidgets(ed, canvases);
 
-    string tip;
+    /* At a zoom of one and unscrolled, the canvas's pixels are the
+       graph's. */
+    canvases[0]->setZoom(1);
 
-    if (strip >= 0)
+    const auto tipOn = [&] (const string &ctl)
     {
-        const NodeGraph::Box &s = ed->graph().boxes()[strip];
-        std::vector<NodeCanvasWidget *> canvases;
+        for (const NodeGraph::Box &s : ed->graph().boxes())
+            if (s.isControl && s.ctlArg == ctl)
+                return ed->tipAt(s.x + 4, s.y + s.h / 2);
 
-        collectWidgets(ed, canvases);
+        return string("no such control");
+    };
 
-        /* At a zoom of one and unscrolled, the canvas's pixels are the
-           graph's. */
-        canvases[0]->setZoom(1);
-        tip = ed->tipAt(s.x + 4, s.y + s.h / 2);
-    }
+    const string tip = tipOn("rel");
 
-    ok(tip.find("Release of the long tail") != string::npos &&
-       tip.find("14112") != string::npos && tip.find("882000") != string::npos,
+    ok(tip == "Release of the long tail (@rel): 14112, from 0 to 882000",
        "a strip hovered says its whole label and its value in full: %s",
        tip.c_str());
+
+    const string wave = tipOn("wave");
+
+    ok(wave == "wave (@wave): Triangle, from 0 to 5",
+       "...and a value the plugin names, by its name: %s", wave.c_str());
 
     ok(ed->tipAt(-1, -1).empty(), "...and the background says nothing");
 

@@ -414,9 +414,12 @@ NodeEditor::NodeEditor (thSynth *synth)
 
     canvas_.set_has_tooltip(true);
     canvas_.signal_query_tooltip().connect(
-        [this] (int x, int y, bool, const Glib::RefPtr<Gtk::Tooltip> &tip)
+        [this] (int x, int y, bool keyboard,
+                const Glib::RefPtr<Gtk::Tooltip> &tip)
         {
-            const string text = tipAt(x, y);
+            /* Asked from the keys, there is no pointer: x and y say
+               nothing. */
+            const string text = keyboard ? string() : tipAt(x, y);
 
             if (text.empty())
                 return false;
@@ -1252,8 +1255,10 @@ string NodeEditor::tipAt (double x, double y) const
         return "";
 
     const NodeGraph::Box &c = graph_.boxes()[b];
-    const int places = thPanelDecimals(std::max(std::fabs(c.ctlMin),
-                                                std::fabs(c.ctlMax)));
+    /* Whole numbers for a control that steps by one, as ArgPanel has it. */
+    const int places = c.ctlStep == 1
+                       ? 0 : thPanelDecimals(std::max(std::fabs(c.ctlMin),
+                                                      std::fabs(c.ctlMax)));
     const string &named = c.ctlValueName();
 
     return c.ctlLabel + " (@" + c.ctlArg + "): " +
