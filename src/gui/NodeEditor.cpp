@@ -415,6 +415,9 @@ NodeEditor::NodeEditor (thSynth *synth)
         sigc::mem_fun(*this, &NodeEditor::onHeaderEdited));
     params_.signal_renamed().connect(
         sigc::mem_fun(*this, &NodeEditor::onRenamed));
+    params_.signal_expression_edited().connect(
+        sigc::mem_fun(*this, &NodeEditor::onExpressionEdited));
+    params_.setText(&text_);
 
     canvas_.set_has_tooltip(true);
     canvas_.signal_query_tooltip().connect(
@@ -1370,6 +1373,43 @@ bool NodeEditor::rename (int box, const string &to)
     say(status_.get_text());
 
     return true;
+}
+
+void NodeEditor::onExpressionEdited (string node, string arg, string text)
+{
+    if (source_.empty())
+        return;
+
+    const string what = node + "." + arg;
+    Gesture gesture(*this, "edit " + what);
+    string edited = text_, why;
+    const NodeEdit::Result r =
+        NodeEdit::Text::setExpression(edited, node, arg, text, why);
+
+    if (r == NodeEdit::OK && edited == text_)
+        return;
+
+    if (r == NodeEdit::OK)
+    {
+        const string was = text_;
+
+        text_ = edited;
+
+        if (reparse())
+        {
+            setStatus(what + " is now " + text + ".");
+            say(status_.get_text());
+            refreshOutline();
+            return;
+        }
+
+        text_ = was;
+        why = "that does not parse";
+    }
+
+    setStatus("Cannot set " + what + ": " + why + ".");
+    say(status_.get_text());
+    params_.setBox(&graph_, canvas_.selected());
 }
 
 /* An icon: what it would take is its name and its tooltip. */

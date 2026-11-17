@@ -20,12 +20,14 @@
 
 #include <gtkmm.h>
 
+#include "NodeEdit.h"
 #include "NodeGraph.h"
 #include "NodeParamsView.h"
 #include "../DspCategories.h"
 
-/* Not a word, so never a parameter's name. */
+/* Not words, so never a parameter's name. */
 static const char *const NAME_ROW = "#name";
+static const char *const EXPR_ROW = "#expr";
 
 NodeParamsView::NodeParamsView (void)
 {
@@ -64,6 +66,55 @@ void NodeParamsView::setBox (const NodeGraph *graph, int box)
     }
 
     named_ = -1;
+    exprArgs_.clear();
+
+    /* The arithmetic an arg is written as, in the file's own spelling, typed
+       over in its row; an expression's own box offers it alone. Only where
+       the text can be replaced: a line an array or the io node's `[]'
+       shares is the file's to edit. */
+    if (graph != NULL && box >= 0 && box < (int)graph->boxes().size())
+    {
+        const NodeGraph::Box &b = graph->boxes()[box];
+        string written;
+
+        exprNode_ = b.isExpr ? b.exprNode : b.name;
+
+        if (b.isExpr)
+        {
+            thPanelRow r;
+
+            built.title = b.name;
+            built.subtitle = "An arg written as arithmetic";
+            r.id = EXPR_ROW;
+            r.label = "Expression";
+            r.kind = thPanelRow::READONLY;
+            r.text = b.exprText;
+
+            if (text_ != NULL &&
+                NodeEdit::Text::expression(*text_, b.exprNode, b.exprArg,
+                                           written))
+            {
+                r.kind = thPanelRow::TEXT;
+                r.editable = true;
+                r.text = written;
+                exprArgs_[EXPR_ROW] = b.exprArg;
+            }
+
+            built.rows.insert(built.rows.begin(), r);
+        }
+        else
+            for (thPanelRow &r : built.rows)
+                for (const NodeGraph::Param &p : b.params)
+                    if (p.name == r.id && p.isExpr && text_ != NULL &&
+                        NodeEdit::Text::expression(*text_, b.name, p.name,
+                                                   written))
+                    {
+                        r.kind = thPanelRow::TEXT;
+                        r.editable = true;
+                        r.text = written;
+                        exprArgs_[r.id] = p.name;
+                    }
+    }
 
     /* A node's or a control's name, to rename it by. A probe and an
        expression have none of their own in the text. */
@@ -152,6 +203,12 @@ void NodeParamsView::onEdited (const string &row, const string &valueText)
     if (row == NAME_ROW && named_ >= 0)
     {
         signal_renamed_(named_, valueText);
+        return;
+    }
+
+    if (exprArgs_.count(row))
+    {
+        signal_expression_edited_(exprNode_, exprArgs_[row], valueText);
         return;
     }
 

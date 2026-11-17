@@ -236,15 +236,25 @@ signal leaf, one output wired to the arg. The box is named `<node>.<arg>`,
 which is stable across loads and is therefore what a `# @layout` or `# @probe`
 line stores — `thSynth::armProbe` resolves it to the last node of the chain.
 
-**Read-only.** `canConnect` refuses a wire into one, out of one, and onto the
-arg one drives; `NodeEdit::setValue` and `connect` refuse an arg whose
+**Edited as text.** `canConnect` refuses a wire into one, out of one, and onto
+the arg one drives; `NodeEdit::setValue` and `connect` refuse an arg whose
 right-hand side is arithmetic, and leave the file untouched. The value in the
 file is a graph, and replacing one term of it with a wire is exactly the
-re-emission splicing exists to prevent. Editing the text in place is a later
-step.
+re-emission splicing exists to prevent. What changes it is typing: the box's
+panel has its Expression, and the arg's row on its node is the same field,
+both holding the file's own text rather than the box's folded rendering, so
+`exp2(5 / 1200.0)` stays five cents until it is typed over.
+`NodeEdit::Text::setExpression` puts what is entered in place of the whole
+right-hand side; one written over several lines comes back on its last, the
+comments of the lines before kept above it. Text that will not parse is
+refused and the field put back, as is anything that could not stand between
+the `=` and its `;` -- a `;`, a brace, a string or a comment. Only an arg
+already written as arithmetic is offered: a number has its own box and a wire
+is drawn. A line an array's elements or the io node's channels share stays
+read-only.
 
-The one edit that works is removing the whole thing: `disconnect` rewrites the
-arg to `= 0`, as it does for any other wire.
+Removing the whole thing is cutting its wire: `disconnect` rewrites the arg to
+`= 0`, as it does for any other wire.
 
 Deleting a node or a control an expression *reads* is a smaller edit than that,
 and used to be a larger one. The reference has to go — left alone it resolves
@@ -509,7 +519,7 @@ display, and skips itself without one. The rest are run by hand.
 | `editorcheck` | yes | the editor itself, through its handlers and the canvas's gestures: Save's bytes for every file in the corpus held against the same edits made with `NodeEdit::Text`, in the opposite order, and the positions read back out of what was saved; a saved layout opened as saved and kept through a probe; an edit undone by hand leaving nothing to save; a slider or a value the text will not take refused when it is made; a value set on one element of an array reaching every element; a file that fails to open, or no temporary directory, losing nothing; every kind of edit undone and redone, by button and by key, with what a running synth hears; random Undo and Redo among the random edits, each giving back exactly the step's text |
 | `historycheck` | yes | `NodeHistory` with no toolkit: steps back and forth, edits to one arg joined and an Undo ending the join, the cap; what changed in the sound between two graphs, and when that is not all that changed |
 | `dspgraph` | yes | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
-| `dspwrite` | yes | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
+| `dspwrite` | yes | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it; every header field changed and put back; every node and control renamed, the same graph, and back byte for byte; every expression set to the text its box shows, the same graph |
 | `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |
 | `dsplayout` | no | layer counts against the critical-path floor, and the wrap-mode cut profile |
 | `dsplive` | no | that moving a control changes the sound of a ringing note |
