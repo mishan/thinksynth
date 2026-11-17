@@ -24,6 +24,9 @@
 #include "NodeParamsView.h"
 #include "../DspCategories.h"
 
+/* Not a word, so never a parameter's name. */
+static const char *const NAME_ROW = "#name";
+
 NodeParamsView::NodeParamsView (void)
 {
     /* Wide enough for a name and a number box beside it. The editor's pane
@@ -47,24 +50,39 @@ void NodeParamsView::setBox (const NodeGraph *graph, int box)
 
     thPanel built;
 
-    if (model_.build(built))
-    {
-        setPanel(built);
-        return;
-    }
-
     /* Nothing selected, or a box with no parameters at all. Both are
        states worth saying rather than an empty column. */
-    thPanel empty;
+    if (!model_.build(built))
+    {
+        built = thPanel();
+        built.kind = thPanel::NODE_VALUE;
+        built.a = box;
+        built.title = (graph == NULL || box < 0) ? "No node selected"
+                                                 : "No parameters";
+        built.subtitle = (graph == NULL || box < 0)
+            ? "Click a node to see its parameters." : "";
+    }
 
-    empty.kind = thPanel::NODE_VALUE;
-    empty.a = box;
-    empty.title = (graph == NULL || box < 0) ? "No node selected"
-                                             : "No parameters";
-    empty.subtitle = (graph == NULL || box < 0)
-        ? "Click a node to see its parameters." : "";
+    named_ = -1;
 
-    setPanel(empty);
+    /* A node's or a control's name, to rename it by. A probe and an
+       expression have none of their own in the text. */
+    if (graph != NULL && box >= 0 && box < (int)graph->boxes().size() &&
+        !graph->boxes()[box].isProbe && !graph->boxes()[box].isExpr)
+    {
+        const NodeGraph::Box &b = graph->boxes()[box];
+        thPanelRow r;
+
+        r.id = NAME_ROW;
+        r.label = "Name";
+        r.kind = thPanelRow::TEXT;
+        r.editable = true;
+        r.text = b.isControl ? b.ctlArg : b.name;
+        built.rows.insert(built.rows.begin(), r);
+        named_ = box;
+    }
+
+    setPanel(built);
 }
 
 void NodeParamsView::setHeader (const Header &h)
@@ -128,6 +146,12 @@ void NodeParamsView::onEdited (const string &row, const string &valueText)
     if (showingHeader_)
     {
         signal_header_edited_(row, valueText);
+        return;
+    }
+
+    if (row == NAME_ROW && named_ >= 0)
+    {
+        signal_renamed_(named_, valueText);
         return;
     }
 

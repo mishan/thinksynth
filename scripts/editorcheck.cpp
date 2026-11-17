@@ -170,6 +170,8 @@ public:
     using NodeEditor::onPaletteDrop;
     using NodeEditor::tipAt;
     using NodeEditor::header;
+    using NodeEditor::onEditControl;
+    using NodeEditor::rename;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -607,7 +609,7 @@ void checkNodePanel (thSynth &synth, const char *file)
 
     pump(0.2);
 
-    /* A spin button per offered row and none for the rest. Every shipped
+    /* A spin button per offered number and none for the rest. Every shipped
        graph has more parameters shown than offered -- outputs, wires,
        controls -- so this is not the trivial case. */
     std::vector<Gtk::SpinButton *> spins;
@@ -617,7 +619,8 @@ void checkNodePanel (thSynth &synth, const char *file)
     size_t offered = 0;
 
     for (size_t i = 0; i < panel->panel().rows.size(); i++)
-        if (panel->panel().rows[i].editable)
+        if (panel->panel().rows[i].editable &&
+            panel->panel().rows[i].kind != thPanelRow::TEXT)
             offered++;
 
     ok(offered > 0 && offered < panel->panel().rows.size(),
@@ -2506,7 +2509,7 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
 
             std::set<string> held;
             const string shown = keys(held);
-            const int op = (int)pick(8);
+            const int op = (int)pick(9);
             const string prev = want;
             const string before = ed->text();
             string what, join;
@@ -2660,21 +2663,64 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
                 else
                     NodeLayout::Text::write(want, ed->graph());
             }
-            else if (op >= 6)
+            else if (op == 5)
             {
-                vector<string> &from = op == 6 ? past : future;
-                vector<string> &to = op == 6 ? future : past;
+                /* A node or a control renamed: now and then onto a name
+                   another has, which is refused. */
+                vector<int> named;
+
+                for (size_t b = 0; b < nb; b++)
+                {
+                    const NodeGraph::Box &x = g.boxes()[b];
+
+                    if (!x.isExpr && !x.isProbe &&
+                        x.name.find('[') == string::npos)
+                        named.push_back((int)b);
+                }
+
+                if (named.empty())
+                    continue;
+
+                const int b = named[pick(named.size())];
+                const int o = named[pick(named.size())];
+                const bool control = g.boxes()[b].isControl;
+                const string at = control ? "@" : "";
+                const string from = control ? g.boxes()[b].ctlArg
+                                            : g.boxes()[b].name;
+                const string to =
+                    pick(4) == 0 && g.boxes()[o].isControl == control
+                        ? (control ? g.boxes()[o].ctlArg : g.boxes()[o].name)
+                        : from + "r";
+
+                what = "rename " + at + from + " to " + at + to;
+
+                const NodeEdit::Result r =
+                    control
+                        ? NodeEdit::Text::renameControl(want, from, to, why)
+                        : NodeEdit::Text::renameNode(want, from, to, why);
+
+                if (r == NodeEdit::OK)
+                    NodeLayout::Text::rename(want, at + from, at + to);
+                else
+                    refused++;
+
+                ed->rename(b, to);
+            }
+            else if (op >= 7)
+            {
+                vector<string> &from = op == 7 ? past : future;
+                vector<string> &to = op == 7 ? future : past;
 
                 if (from.empty())
                     continue;
 
-                what = op == 6 ? "undo" : "redo";
+                what = op == 7 ? "undo" : "redo";
                 to.push_back(before);
                 want = from.back();
                 from.pop_back();
                 lastJoin.clear();
 
-                if (op == 6)
+                if (op == 7)
                     ed->onUndo();
                 else
                     ed->onRedo();
@@ -2720,7 +2766,7 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
 
             made++;
 
-            if (op == 0 || op == 2 || op == 3 || op >= 6)
+            if (op == 0 || op == 2 || op == 3 || op >= 7)
             {
                 std::set<string> left, now;
                 const string showing = keys(now);
@@ -2741,7 +2787,7 @@ void checkRandomEdits (thSynth &synth, const string &pluginPath)
                 }
             }
 
-            if (op < 6 && ed->text() != before)
+            if (op < 7 && ed->text() != before)
             {
                 if (join.empty() || join != lastJoin)
                     past.push_back(before);
@@ -3046,6 +3092,200 @@ void checkHeader (thSynth &synth, const char *file)
        entries()[1]->get_text().raw() == ed->header().author,
        "a quote is refused, the file untouched and the field put back: %s",
        ed->status().c_str());
+
+    delete w;
+    std::filesystem::remove(copy);
+}
+
+/* A selected box's Name, typed into and entered, renames it: the block,
+   what reads it, its place and its probe, one Undo step. A name the patch
+   has is refused and the field put back. A control's dialog renames it too. */
+void checkRename (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-rename-");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Rename\";\n"
+               "@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n"
+               "@cut = 0.5;\n@cut.widget = 1;\n@cut.min = 0;\n@cut.max = 1;\n"
+               "node ionode { channels = 1; out0 = osc->out; play = 1; };\n"
+               "node osc osc::simple { freq = ionode->note; amp = @lvl; "
+               "mul = @cut; };\n"
+               "io ionode;\n";
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(1000, 600);
+    w->present();
+
+    pump(0.2);
+
+    std::vector<NodeCanvasWidget *> canvases;
+    std::vector<NodeParamsView *> panels;
+
+    collectWidgets(ed, canvases);
+    collectWidgets(ed, panels);
+
+    if (canvases.empty() || panels.size() != 1 || ed->visuals_.empty() ||
+        !ed->open(copy))
+    {
+        ok(false, "an editor opens a patch to rename in");
+        delete w;
+        std::filesystem::remove(copy);
+        return;
+    }
+
+    NodeCanvasWidget *canvas = canvases[0];
+
+    ed->showPanels(false, true);
+
+    const auto box = [&] (const string &name)
+    {
+        for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+            if (ed->graph().boxes()[b].name == name)
+                return (int)b;
+
+        return -1;
+    };
+
+    /* The selected box's Name field, `text' entered into it. */
+    const auto rename = [&] (const string &name, const string &text)
+    {
+        canvas->setSelected(box(name));
+        pump(0.05);
+
+        std::vector<Gtk::Entry *> e;
+
+        collectWidgets(panels[0], e);
+
+        if (e.empty() || e[0]->get_text().raw() != name.substr(
+                                                       name[0] == '@'))
+            return false;
+
+        e[0]->set_text(text);
+        g_signal_emit_by_name(e[0]->gobj(), "activate");
+        pump(0.05);
+
+        return true;
+    };
+
+    ed->armProbe("osc", "out", ed->visuals_.begin()->first);
+    ed->onProbeActivated(ed->firstPanel());
+
+    {
+        const NodeGraph::Box &b = ed->graph().boxes()[box("osc")];
+        const double x = b.x + 6, y = b.y + 6;
+
+        canvas->onPressed(1, x, y);
+        canvas->onMotion(x + 40, y + 25);
+        canvas->onReleased(1, x + 40, y + 25);
+    }
+
+    const double x0 = ed->graph().boxes()[box("osc")].x;
+    const double y0 = ed->graph().boxes()[box("osc")].y;
+
+    const string before = ed->text();
+    const bool typed = rename("osc", "voice");
+    const string after = ed->text();
+    const int moved = box("voice");
+
+    ok(typed && after.find("node voice osc::simple") != string::npos &&
+       after.find("out0 = voice->out") != string::npos &&
+       after.find("# @layout voice ") != string::npos &&
+       after.find("# @probe voice out ") != string::npos &&
+       box("osc") < 0 && moved >= 0 &&
+       ed->graph().boxes()[moved].x == x0 &&
+       ed->graph().boxes()[moved].y == y0 &&
+       ed->probes_.size() == 1 && ed->probes_[0].node == "voice" &&
+       ed->panels() == 1 && canvas->selected() == moved,
+       "a node's Name entered renames it where it stands, its probe and "
+       "selection with it: %s", ed->status().c_str());
+
+    pump(0.1);
+
+    ok(ed->enlarged_.size() == 1 && ed->enlarged_[0].node == "voice" &&
+       ed->enlarged_[0].win->get_title().raw().compare(0, 10,
+                                                       "voice.out ") == 0,
+       "and its probe's big view goes on showing it");
+
+    ed->onUndo();
+
+    ok(ed->text() == before && box("osc") >= 0 && box("voice") < 0,
+       "and one Undo puts the old name back");
+
+    rename("osc", "ionode");
+
+    std::vector<Gtk::Entry *> e;
+
+    collectWidgets(panels[0], e);
+
+    ok(ed->text() == before &&
+       ed->status().find("Cannot rename osc") == 0 && !e.empty() &&
+       e[0]->get_text().raw() == "osc",
+       "a name the patch has is refused and the field put back: %s",
+       ed->status().c_str());
+
+    rename("@lvl", "level");
+
+    ok(ed->text().find("@level = 0.5;") != string::npos &&
+       ed->text().find("amp = @level;") != string::npos && box("@level") >= 0,
+       "a control's Name renames it and what reads it");
+
+    /* The dialog a control's right-click opens: a new name and Apply. The
+       form is the open dialog with somewhere to type. */
+    const auto form = [&] (Gtk::Entry *&name) -> Gtk::Dialog *
+    {
+        for (Gtk::Window *t : Gtk::Window::list_toplevels())
+        {
+            Gtk::Dialog *d = dynamic_cast<Gtk::Dialog *>(t);
+            std::vector<Gtk::Entry *> fields;
+
+            if (d != NULL && d->get_visible())
+                collectWidgets(d, fields);
+
+            if (!fields.empty())
+            {
+                name = fields[0];
+                return d;
+            }
+        }
+
+        return NULL;
+    };
+
+    ed->onEditControl(box("@level"));
+    pump(0.05);
+
+    Gtk::Entry *name = NULL;
+    Gtk::Dialog *dlg = form(name);
+
+    if (dlg != NULL)
+    {
+        const string held = ed->text();
+
+        name->set_text("cut");
+        dlg->response(Gtk::ResponseType::OK);
+        pump(0.05);
+
+        ok(ed->text() == held && form(name) == dlg,
+           "a control's dialog keeps a name another has open, to correct");
+    }
+
+    if ((dlg = form(name)) != NULL)
+    {
+        name->set_text("gain");
+        dlg->response(Gtk::ResponseType::OK);
+        pump(0.05);
+    }
+
+    ok(ed->text().find("@gain = 0.5;") != string::npos &&
+       ed->text().find("amp = @gain;") != string::npos && box("@gain") >= 0,
+       "a control's dialog renames it on Apply");
 
     delete w;
     std::filesystem::remove(copy);
@@ -4790,6 +5030,7 @@ int run (const string &pluginPath, const char *file)
     checkPan(synth, file);
     checkStripTip(synth);
     checkHeader(synth, file);
+    checkRename(synth);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);
