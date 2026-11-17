@@ -1741,19 +1741,19 @@ void NodeEditor::onAskControlResponse (int response, ControlForm *form)
 
     string complaint;
 
+    const string name = form->name->get_text().raw();
     bool taken = false;
 
     for (const NodeGraph::Box &b : graph_.boxes())
-        taken = taken || (b.isControl && b.ctlArg == form->name->get_text() &&
+        taken = taken || (b.isControl && b.ctlArg == name &&
                           b.ctlArg != form->was);
 
-    if (!NodeEdit::validName(form->name->get_text()))
+    if (!NodeEdit::validName(name))
         complaint = "A control name must start with a letter and contain "
                     "only letters, digits and underscores, and not be one "
                     "of the format's own words.";
     else if (taken)
-        complaint = "The patch already has a control called @" +
-                    form->name->get_text() + ".";
+        complaint = "The patch already has a control called @" + name + ".";
     else if (!NodeEdit::validLabel(form->label->get_text()))
         complaint = "A label cannot contain a quote -- the .dsp string syntax "
                     "has no way to escape one.";
