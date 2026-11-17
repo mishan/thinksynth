@@ -541,6 +541,23 @@ int main (int argc, char **argv)
             { "a field the format has not, refused",
               "name \"X\";\n", "license", "GPL", NodeEdit::REFUSED,
               "name \"X\";\n" },
+            { "a value with no space before its quote, found",
+              "name \"X\";\nauthor\"A\";\n", "author", "B", NodeEdit::OK,
+              "name \"X\";\nauthor\"B\";\n" },
+            { "a value on the line after its keyword, found",
+              "name \"X\";\nauthor\n    \"A\";\n", "author", "B",
+              NodeEdit::OK, "name \"X\";\nauthor\n    \"B\";\n" },
+            { "a field taken out of a line it shares, the other left",
+              "name \"X\"; author \"A\"; category \"Keys\";\n", "author",
+              "", NodeEdit::OK, "name \"X\"; category \"Keys\";\n" },
+            { "a field set on a line it shares",
+              "name \"X\"; author \"A\"; category \"Keys\";\n",
+              "category", "Bass", NodeEdit::OK,
+              "name \"X\"; author \"A\"; category \"Bass\";\n" },
+            { "an author inside a node's braces is not the header's",
+              "node q misc::note { author \"Z\"; };\n", "author", "A",
+              NodeEdit::OK,
+              "author \"A\";\n\nnode q misc::note { author \"Z\"; };\n" },
         };
 
         for (const Case &c : cases)

@@ -1976,8 +1976,9 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
     return OK;
 }
 
-/* Found line by line, outside every brace: inside a node, `name' would be
-   an arg called that, and a statement is never split across lines. */
+/* Found as the parser finds it: outside every brace, comment and string, a
+   field's word starting a statement, then its string, then `;' -- with any
+   space or line break between, and other statements on the same line. */
 NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
                                           const string &value, string &why)
 {
@@ -2011,75 +2012,143 @@ NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
         return REFUSED;
     }
 
-    size_t from[N], to[N];
+    /* Each field's statement, from its word to past its `;', and its value
+       between the quotes. */
+    size_t from[N], to[N], open[N], shut[N];
     bool has[N] = { false, false, false, false };
-    size_t top = string::npos;     /* the first line that is not a comment */
+    size_t top = string::npos;     /* the first thing not a comment */
     int depth = 0;
+    bool start = true;             /* the next word starts a statement */
+    const size_t n = source.size();
 
-    for (size_t pos = 0; pos < source.size(); )
+    const auto skip = [&] (size_t i)
     {
-        size_t eol = source.find('\n', pos);
-        const size_t next = eol == string::npos ? source.size() : eol + 1;
-
-        if (eol == string::npos)
-            eol = source.size();
-
-        const string line = source.substr(pos, eol - pos);
-        const size_t lead = line.find_first_not_of(" \t");
-        const bool comment = lead == string::npos || line[lead] == '#';
-
-        if (!comment && top == string::npos)
-            top = pos;
-
-        for (int k = 0; !comment && depth == 0 && k < N; k++)
+        while (i < n)
         {
-            const size_t len = strlen(ORDER[k]);
-            const size_t q = line.find_first_not_of(" \t", lead + len);
-
-            if (!has[k] && line.compare(lead, len, ORDER[k]) == 0 &&
-                q != string::npos && q > lead + len && line[q] == '"')
-            {
-                has[k] = true;
-                from[k] = pos;
-                to[k] = next;
-            }
-        }
-
-        bool quoted = false;
-
-        for (size_t i = 0; !comment && i < line.size(); i++)
-        {
-            if (line[i] == '"')
-                quoted = !quoted;
-            else if (!quoted && line[i] == '#')
+            if (isspace((unsigned char)source[i]))
+                i++;
+            else if (source[i] == '#')
+                while (i < n && source[i] != '\n')
+                    i++;
+            else
                 break;
-            else if (!quoted && line[i] == '{')
-                depth++;
-            else if (!quoted && line[i] == '}')
-                depth--;
         }
 
-        pos = next;
+        return i;
+    };
+
+    for (size_t i = skip(0); i < n; i = skip(i))
+    {
+        const char c = source[i];
+
+        if (top == string::npos)
+            top = i;
+
+        if (c == '"')
+        {
+            const size_t q = source.find('"', i + 1);
+
+            i = q == string::npos ? n : q + 1;
+            start = false;
+            continue;
+        }
+
+        if (isalpha((unsigned char)c) || c == '_')
+        {
+            size_t e = i;
+
+            while (e < n && (isalnum((unsigned char)source[e]) ||
+                             source[e] == '_'))
+                e++;
+
+            const string word = source.substr(i, e - i);
+
+            for (int k = 0; start && depth == 0 && k < N; k++)
+            {
+                const size_t q = skip(e);
+                const size_t qe = q < n && source[q] == '"'
+                                  ? source.find('"', q + 1) : string::npos;
+                const size_t semi = qe == string::npos ? string::npos
+                                                       : skip(qe + 1);
+
+                if (word == ORDER[k] && !has[k] && semi < n &&
+                    source[semi] == ';')
+                {
+                    has[k] = true;
+                    from[k] = i;
+                    to[k] = semi + 1;
+                    open[k] = q + 1;
+                    shut[k] = qe;
+                }
+            }
+
+            i = e;
+            start = false;
+            continue;
+        }
+
+        if (c == '{')
+            depth++;
+        else if (c == '}')
+            depth--;
+
+        start = c == ';' || c == '{' || c == '}';
+        i++;
     }
 
-    const string stmt = field + " \"" + value + "\";\n";
+    const string stmt = field + " \"" + value + "\";";
+
+    /* The rest of a statement's line, if nothing but space and a comment:
+       where one goes in after it, and what goes with it when it goes. */
+    const auto lineEnd = [&] (size_t i)
+    {
+        const size_t e = source.find('\n', i);
+        const size_t stop = e == string::npos ? n : e;
+        const size_t k = source.find_first_not_of(" \t", i);
+
+        return k == string::npos || k >= stop || source[k] == '#'
+               ? (e == string::npos ? n : e + 1) : string::npos;
+    };
+
+    const auto lineStart = [&] (size_t i)
+    {
+        const size_t b = i == 0 ? string::npos : source.rfind('\n', i - 1);
+
+        return b == string::npos ? 0 : b + 1;
+    };
+
+    /* A statement with nothing else on its line. */
+    const auto alone = [&] (int k)
+    {
+        return source.find_first_not_of(" \t", lineStart(from[k])) ==
+               from[k] && lineEnd(to[k]) != string::npos;
+    };
 
     if (has[at])
     {
-        const string line = source.substr(from[at], to[at] - from[at]);
-        const size_t open = line.find('"');
-        const size_t shut = line.find('"', open + 1);
-
-        if (shut == string::npos)
+        if (!value.empty())
         {
-            why = "the " + field + " line has no closing quote";
-            return UNWRITABLE;
+            source.replace(open[at], shut[at] - open[at], value);
+            return OK;
         }
 
-        if (value.empty())
-            source.erase(from[at], to[at] - from[at]);
+        /* Alone on its line, the line goes; sharing one, the statement and
+           the space after it. */
+        if (alone(at))
+        {
+            const size_t bol = lineStart(from[at]);
+
+            source.erase(bol, lineEnd(to[at]) - bol);
+        }
         else
-            source.replace(from[at] + open + 1, shut - open - 1, value);
+        {
+            size_t e = to[at];
+
+            while (e < n && (source[e] == ' ' || source[e] == '\t'))
+                e++;
+
+            source.erase(from[at], e - from[at]);
+        }
 
         return OK;
     }
@@ -2090,23 +2159,28 @@ NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
     for (int k = at - 1; k >= 0; k--)
         if (has[k])
         {
-            source.insert(to[k], stmt);
+            const size_t eol = lineEnd(to[k]);
+
+            if (eol != string::npos)
+                source.insert(eol, stmt + "\n");
+            else
+                source.insert(to[k], " " + stmt);
+
             return OK;
         }
 
     for (int k = at + 1; k < N; k++)
         if (has[k])
         {
-            source.insert(from[k], stmt);
+            source.insert(from[k], stmt + (alone(k) ? "\n" : " "));
             return OK;
         }
 
     /* No header at all: after the comments at the top, set off from what
        follows. */
-    if (top == string::npos)
-        top = source.size();
+    top = top == string::npos ? n : lineStart(top);
 
-    source.insert(top, stmt + "\n");
+    source.insert(top, stmt + "\n\n");
 
     return OK;
 }
