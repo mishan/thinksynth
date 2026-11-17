@@ -57,6 +57,7 @@
 #include "PanelModel.h"
 
 class NodeGraph;
+class thSynthTree;
 
 class NodePanel
 {
@@ -83,6 +84,10 @@ public:
     };
 
     void setHeader (const Header *header) { header_ = header; }
+
+    /* What a parsed patch says of itself: its header statements, and the
+       author's, which the parser keeps as a chanarg's comment. */
+    static Header headerOf (const thSynthTree *tree);
 
     /* The panel. Its title is the node's name and its subtitle the plugin's
        spelling, because a panel over one node of thirty has to say which;

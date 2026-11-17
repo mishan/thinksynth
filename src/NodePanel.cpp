@@ -23,6 +23,8 @@
 
 #include <cmath>
 
+#include "think.h"
+
 #include "DspCategories.h"
 #include "NodeEdit.h"
 #include "NodeGraph.h"
@@ -293,6 +295,23 @@ static thPanelRow textRow (const string &id, const string &label,
     r.text = text;
 
     return r;
+}
+
+NodePanel::Header NodePanel::headerOf (const thSynthTree *tree)
+{
+    Header h;
+
+    if (tree == NULL)
+        return h;
+
+    const thArg *author = tree->getChanArg("author");
+
+    h.name = tree->name();
+    h.author = author != NULL ? author->comment() : string();
+    h.description = tree->desc();
+    h.category = tree->category();
+
+    return h;
 }
 
 bool NodePanel::build (thPanel &out) const

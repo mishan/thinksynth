@@ -1245,19 +1245,7 @@ void NodeEditor::onNudged (int box)
 /* The header as the parse read it: what the patch selector shows. */
 NodeParamsView::Header NodeEditor::header (void) const
 {
-    NodeParamsView::Header h;
-
-    if (tree_ == NULL)
-        return h;
-
-    const thArg *author = tree_->getChanArg("author");
-
-    h.name = tree_->name();
-    h.author = author != NULL ? author->comment() : string();
-    h.description = tree_->desc();
-    h.category = tree_->category();
-
-    return h;
+    return NodePanel::headerOf(tree_);
 }
 
 void NodeEditor::onHeaderEdited (string field, string value)
@@ -1318,10 +1306,7 @@ bool NodeEditor::rename (int box, const string &to)
 
     const auto as = [&] (const string &k)
     {
-        if (k == key || k == key + "#in" || k == key + "#out")
-            return now + k.substr(key.size());
-
-        return k;
+        return NodeLayout::renamedKey(k, key, now);
     };
 
     NodeLayout::PosMap kept;

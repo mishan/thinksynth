@@ -134,6 +134,11 @@ public:
 
     /* The key a box is stored under. */
     static string keyFor (const NodeGraph &graph, int box);
+
+    /* `k' as it is once `key' -- a node's name or a control's `@name' --
+       is called `to': the io node's halves go with it. */
+    static string renamedKey (const string &k, const string &key,
+                              const string &to);
 };
 
 #endif /* NODE_LAYOUT_H */

@@ -63,6 +63,15 @@ string NodeLayout::keyFor (const NodeGraph &graph, int box)
     return b.name;
 }
 
+string NodeLayout::renamedKey (const string &k, const string &key,
+                               const string &to)
+{
+    if (k == key || k == key + "#in" || k == key + "#out")
+        return to + k.substr(key.size());
+
+    return k;
+}
+
 /* ---- over the text -------------------------------------------------------
  *
  * The same three operations over the file's bytes, for a caller with no
@@ -380,7 +389,7 @@ void NodeLayout::Text::rename (string &source, const string &key,
 
             const string word = source.substr(w, e - w);
 
-            if (word == key || word == key + "#in" || word == key + "#out")
+            if (renamedKey(word, key, to) != word)
             {
                 source.replace(w, key.size(), to);
                 eol = eol + to.size() - key.size();

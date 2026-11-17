@@ -2812,7 +2812,7 @@ try
                                    null, { timeout: 15000 });
 
         const was = await page.$eval('#dsp', (e) => e.value);
-        const field = await page.$('#nodeparams input');
+        const field = await page.$('#nodeparams input[type="number"]');
 
         if (field === null)
             check(false, `${node.name} has nothing to type into`);
@@ -2839,6 +2839,59 @@ try
                   `setting ${node.name}.${arg} rewrote the .dsp: ` +
                   `${(line ?? '').trim()}`);
         }
+
+        /* The rows that rewrite the text: the selected box's Name, and with
+           nothing selected the patch's header. Each is put back after. */
+        const dsp = () => page.$eval('#dsp', (e) => e.value);
+        const changed = (before) => page.waitForFunction(
+            (b) => document.getElementById('dsp').value !== b, before,
+            { timeout: 15000 }).catch(() => {});
+        const enter = async (row, text) =>
+        {
+            const before = await dsp();
+            const input = page.locator(
+                `#nodeparams .panelrow[data-row="${row}"] input`);
+
+            await input.fill(text);
+            await input.press('Enter');
+            await changed(before);
+
+            return dsp();
+        };
+        const before = await dsp();
+        const to = `${node.name}r`;
+        const renamed = await enter('#name', to);
+        const kept = await page.evaluate(() =>
+        {
+            const n = window.solo.node();
+
+            return n.selected >= 0 ? n.box(n.selected).name : null;
+        });
+
+        check(renamed.includes(`node ${to} `) &&
+              !renamed.includes(`node ${node.name} `) && kept === to,
+              `${node.name}'s Name renamed it, and it is still the one ` +
+              `selected: ${kept}`);
+        check(await enter('#name', node.name) === before,
+              'and named back, the .dsp is as it was');
+
+        await page.focus('#nodecanvas');
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => window.solo.node().selected < 0,
+                                   null, { timeout: 15000 }).catch(() => {});
+
+        const author = page.locator(
+            '#nodeparams .panelrow[data-row="author"] input');
+        const by = await author.count() === 1 ? await author.inputValue()
+                                              : null;
+
+        check(by !== null &&
+              (await enter('author', 'Somebody Else')).includes(
+                  'author "Somebody Else";'),
+              'with nothing selected the panel is the patch\'s header, and ' +
+              'its author typed over is in the .dsp');
+        check(by !== null && await enter('author', by) === before,
+              'and put back, the .dsp is as it was');
     }
 
     /* The graph as a list (nodeview.js, outline), driven from the keys: a
