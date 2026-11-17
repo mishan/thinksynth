@@ -62,6 +62,11 @@ public:
         return signal_header_edited_;
     }
 
+    /* A box's Name committed: box index and the name typed. */
+    typedef sigc::signal<void(int, string)> type_signal_renamed;
+
+    type_signal_renamed signal_renamed (void) { return signal_renamed_; }
+
     /* A value committed: box index, param name, new value. The shape
        NodeEditor was already written against. */
     typedef sigc::signal<void(int, string, double)> type_signal_param_edited;
@@ -79,6 +84,8 @@ private:
     NodePanel model_;
     type_signal_param_edited signal_param_edited_;
     type_signal_header_edited signal_header_edited_;
+    type_signal_renamed signal_renamed_;
+    int named_ = -1;    /* the box whose Name row is showing */
     Header header_;
     bool haveHeader_ = false, showingHeader_ = false;
 };

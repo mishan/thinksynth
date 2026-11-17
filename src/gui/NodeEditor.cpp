@@ -413,6 +413,8 @@ NodeEditor::NodeEditor (thSynth *synth)
         sigc::mem_fun(*this, &NodeEditor::onPaletteAdd));
     params_.signal_header_edited().connect(
         sigc::mem_fun(*this, &NodeEditor::onHeaderEdited));
+    params_.signal_renamed().connect(
+        sigc::mem_fun(*this, &NodeEditor::onRenamed));
 
     canvas_.set_has_tooltip(true);
     canvas_.signal_query_tooltip().connect(
@@ -1280,6 +1282,96 @@ void NodeEditor::onHeaderEdited (string field, string value)
     say(status_.get_text());
 }
 
+bool NodeEditor::rename (int box, const string &to)
+{
+    if (source_.empty() || box < 0 || box >= (int)graph_.boxes().size())
+        return false;
+
+    const bool control = graph_.boxes()[box].isControl;
+    const string from = control ? graph_.boxes()[box].ctlArg
+                                : graph_.boxes()[box].name;
+    const string key = (control ? "@" : "") + from;
+    const string now = (control ? "@" : "") + to;
+
+    if (to == from)
+        return true;
+
+    Gesture gesture(*this, "rename " + key);
+    const string was = text_;
+    string why;
+    const NodeEdit::Result r =
+        control ? NodeEdit::Text::renameControl(text_, from, to, why)
+                : NodeEdit::Text::renameNode(text_, from, to, why);
+
+    if (r != NodeEdit::OK)
+    {
+        setStatus("Cannot rename " + key + ": " + why + ".");
+        say(status_.get_text());
+        params_.setBox(&graph_, box);
+        return false;
+    }
+
+    NodeLayout::Text::rename(text_, key, now);
+
+    const auto as = [&] (const string &k)
+    {
+        if (k == key || k == key + "#in" || k == key + "#out")
+            return now + k.substr(key.size());
+
+        return k;
+    };
+
+    NodeLayout::PosMap kept;
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+        if (graph_.boxes()[b].attachedTo < 0)
+            kept[as(NodeLayout::keyFor(graph_, (int)b))] =
+                make_pair(graph_.boxes()[b].x, graph_.boxes()[b].y);
+
+    const NodeCanvas::Held before = canvas_.held();
+    NodeCanvas::Held held = before;
+
+    for (string &k : held.keys)
+        k = as(k);
+
+    held.shown = as(held.shown);
+
+    /* Read back from the text, which now names them by the new name. */
+    disarmAllProbes();
+
+    if (!reload(&kept))
+    {
+        text_ = was;
+        reload();
+        holdQuietly(before);
+        updateDirty();
+        setStatus("Cannot rename " + key + ": the patch would not parse.");
+        say(status_.get_text());
+        return false;
+    }
+
+    holdQuietly(held);
+
+    /* Drawn by name, so a big view of a probe on it follows it. */
+    for (Enlarged &e : enlarged_)
+        if (!control && e.node == from)
+        {
+            e.node = to;
+            e.win->set_title(to + e.win->get_title().raw().substr(from.size()));
+            e.area->set_draw_func(
+                sigc::bind(sigc::mem_fun(*this, &NodeEditor::paintEnlarged),
+                           to, e.arg));
+        }
+
+    setStatus("Renamed " + key + " to " + now + "." +
+              (attached() ? "  The patch playing keeps the old name until it "
+                            "is loaded again."
+                          : ""));
+    say(status_.get_text());
+
+    return true;
+}
+
 /* An icon: what it would take is its name and its tooltip. */
 void NodeEditor::nameDelete (const string &what)
 {
@@ -1552,6 +1644,7 @@ void NodeEditor::askControl (const ControlFormSetup &setup,
     ControlForm *form = new ControlForm;
 
     form->done = done;
+    form->was = setup.name;
     form->dlg = new Gtk::Dialog(setup.title, *top, true);
 
     form->dlg->add_button("Cancel", Gtk::ResponseType::CANCEL);
@@ -1579,18 +1672,6 @@ void NodeEditor::askControl (const ControlFormSetup &setup,
     form->group->set_text(setup.group);
     form->group->set_activates_default(true);
     form->group->set_placeholder_text("optional");
-
-    /* Renaming would have to rewrite every `in1 = @old' in the file as well as
-       the block, which is removeControl and addControl and a different thing to
-       offer. Insensitive rather than absent, so the dialog still says which
-       control it is about. */
-    if (setup.nameFixed)
-    {
-        form->name->set_sensitive(false);
-        form->name->set_tooltip_text(
-            "A control cannot be renamed here: every node reading @" +
-            setup.name + " would have to be rewritten too.");
-    }
 
     form->min = manage(new Gtk::SpinButton(
         Gtk::Adjustment::create(setup.min, -1000000, 1000000, 0.1, 1), 0.1, 4));
@@ -1632,11 +1713,8 @@ void NodeEditor::askControl (const ControlFormSetup &setup,
        hint says what it buys: four sliders sharing one draw as a titled block
        against the node they drive rather than as four unrelated rows. */
     hint->set_markup(
-        setup.nameFixed
-            ? "<small>Sliders sharing a <i>group</i> are drawn as one titled "
-              "block.</small>"
-            : "<small>The name is what nodes read as <tt>@name</tt>.  Sliders "
-              "sharing a <i>group</i> are drawn as one titled block.</small>");
+        "<small>The name is what nodes read as <tt>@name</tt>.  Sliders "
+        "sharing a <i>group</i> are drawn as one titled block.</small>");
     hint->set_xalign(0.0);
     hint->set_wrap(true);
     hint->set_max_width_chars(44);
@@ -1663,9 +1741,19 @@ void NodeEditor::onAskControlResponse (int response, ControlForm *form)
 
     string complaint;
 
-    if (!NodeEdit::validName(form->name->get_text()))
-        complaint = "A control name must start with a letter or underscore "
-                    "and contain only letters, digits and underscores.";
+    const string name = form->name->get_text().raw();
+    bool taken = false;
+
+    for (const NodeGraph::Box &b : graph_.boxes())
+        taken = taken || (b.isControl && b.ctlArg == name &&
+                          b.ctlArg != form->was);
+
+    if (!NodeEdit::validName(name))
+        complaint = "A control name must start with a letter and contain "
+                    "only letters, digits and underscores, and not be one "
+                    "of the format's own words.";
+    else if (taken)
+        complaint = "The patch already has a control called @" + name + ".";
     else if (!NodeEdit::validLabel(form->label->get_text()))
         complaint = "A label cannot contain a quote -- the .dsp string syntax "
                     "has no way to escape one.";
@@ -1712,7 +1800,6 @@ void NodeEditor::onPaletteAddControl (void)
     setup.title = "New control";
     setup.okText = "Add";
     setup.name = NodeCatalog::suggestName("ctl", taken);
-    setup.nameFixed = false;
     setup.askValue = true;
     setup.value = 0.5;
     setup.min = 0;
@@ -1781,7 +1868,6 @@ void NodeEditor::onEditControl (int box)
     setup.title = "Control @" + b.ctlArg;
     setup.okText = "Apply";
     setup.name = b.ctlArg;
-    setup.nameFixed = true;
     setup.askValue = false;
     setup.value = b.ctlValue;
     setup.min = b.ctlMin;
@@ -1805,7 +1891,12 @@ void NodeEditor::onEditControl (int box)
 void NodeEditor::editControlFromForm (ControlForm *form)
 {
     const string name = form->name->get_text();
-    Gesture gesture(*this, "retype @" + name);
+    Gesture gesture(*this, (name == form->was ? "retype @" : "rename @") +
+                               form->was);
+
+    if (!rename(graph_.boxByName("@" + form->was), name))
+        return;
+
     const string label = form->label->get_text();
     const string group = form->group->get_text();
     const double min = form->min->get_value();

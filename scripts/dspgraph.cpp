@@ -346,6 +346,16 @@ int main (int argc, char **argv)
 
         int problems = 0;
 
+        /* every node and control found by its name: the editor looks a box
+           up by name wherever an index might have gone stale */
+        for (size_t b = 0; b < boxes.size(); b++)
+            if (!boxes[b].isIoSource &&
+                !boxes[b].isExpr && !boxes[b].isProbe &&
+                g.boxByName(boxes[b].name) != (int)b)
+            { printf("FAIL  %s: %s is not found by its name\n", argv[f],
+                     boxes[b].name.c_str());
+              problems++; }
+
         /* every wire attached at both ends, to ports facing the right way */
         for (size_t e = 0; e < edges.size(); e++)
         {

@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "think.h"
+#include "thLexer.h"
 #include "thUnits.h"
 #include "NodeEdit.h"
 
@@ -1728,10 +1729,10 @@ NodeEdit::Result NodeEdit::Text::setChanArg (string &source, const string &name,
 
 bool NodeEdit::validName (const string &name)
 {
-    /* The lexer's WORD is [A-Za-z_][A-Za-z0-9_]*, and a name that does not
+    /* The lexer's WORD is [A-Za-z][A-Za-z0-9_]*, and a name that does not
        match comes back as something else entirely -- or as a parse error on
        the next load, which is a bad way to find out. */
-    if (name.empty() || isdigit((unsigned char)name[0]))
+    if (name.empty() || !isalpha((unsigned char)name[0]))
         return false;
 
     for (string::size_type i = 0; i < name.size(); i++)
@@ -1742,6 +1743,7 @@ bool NodeEdit::validName (const string &name)
        file that parses as something the author did not write. */
     static const char *reserved[] = {
         "node", "io", "name", "author", "description", "desc", "category",
+        "nil",
         "th_max", "th_min", "th_range", "th_midimax", "th_sample", "ms", NULL
     };
 
@@ -3005,6 +3007,201 @@ NodeEdit::Result NodeEdit::createFile (const string &filename,
     {
         why = "could not write " + filename;
         return IO_ERROR;
+    }
+
+    return OK;
+}
+
+/* A rename is a respelling of tokens, so it goes by the lexer's: what is in
+   a comment or a string is never a name, wherever it sits on a line. */
+static bool lexed (const string &source, vector<thLexToken> &t, string &why)
+{
+    if (thLexString(source, t))
+        return true;
+
+    why = "the text does not read: " + t[t.size() - 2].text;
+    return false;
+}
+
+static bool isPunct (const vector<thLexToken> &t, size_t i, const char *p)
+{
+    return t[i].kind == thLexToken::PUNCT && t[i].text == p;
+}
+
+/* `to' in place of the tokens at `at', which are in order. */
+static void respell (string &source, const vector<thLexToken> &t,
+                     const vector<size_t> &at, const string &to)
+{
+    for (size_t k = at.size(); k-- > 0;)
+        source.replace(t[at[k]].off, t[at[k]].end - t[at[k]].off, to);
+}
+
+NodeEdit::Result NodeEdit::Text::renameNode (string &source, const string &node,
+                                             const string &to, string &why)
+{
+    why.clear();
+
+    if (node.find('[') != string::npos)
+    {
+        why = "`" + node + "' is one element of an array; rename the array";
+        return REFUSED;
+    }
+
+    vector<thLexToken> t;
+
+    if (!lexed(source, t, why))
+        return REFUSED;
+
+    /* The name a `node' or `io' statement gives, or one read as
+       `name->port' or `name[i]->port'. Nothing else a word can be is
+       followed by `->'. */
+    const auto names = [&] (size_t i, bool &declares)
+    {
+        declares = i > 0 && t[i - 1].kind == thLexToken::WORD &&
+                   t[i - 1].text == "node";
+
+        if (declares || (i > 0 && t[i - 1].kind == thLexToken::WORD &&
+                         t[i - 1].text == "io"))
+            return true;
+
+        size_t j = i + 1;
+
+        if (isPunct(t, j, "["))
+        {
+            while (t[j].kind != thLexToken::END && !isPunct(t, j, "]"))
+                j++;
+
+            if (t[j].kind != thLexToken::END)
+                j++;
+        }
+
+        return isPunct(t, j, "->");
+    };
+
+    vector<size_t> at;
+    bool found = false, taken = false;
+
+    for (size_t i = 0; t[i].kind != thLexToken::END; i++)
+    {
+        bool declares = false;
+
+        if (t[i].kind != thLexToken::WORD ||
+            (t[i].text != node && t[i].text != to) || !names(i, declares))
+            continue;
+
+        if (t[i].text == node)
+        {
+            found = found || declares;
+            at.push_back(i);
+        }
+        else
+            taken = true;
+    }
+
+    if (!found)
+    {
+        why = "no `node " + node + "' block in the file";
+        return NO_NODE;
+    }
+
+    if (to == node)
+        return OK;
+
+    if (!validName(to))
+    {
+        why = "`" + to + "' is not a name the format can read back";
+        return REFUSED;
+    }
+
+    if (taken)
+    {
+        why = "the patch already has a node called " + to;
+        return REFUSED;
+    }
+
+    respell(source, t, at, to);
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::Text::renameControl (string &source,
+                                                const string &name,
+                                                const string &to, string &why)
+{
+    why.clear();
+
+    vector<thLexToken> t;
+
+    if (!lexed(source, t, why))
+        return REFUSED;
+
+    vector<size_t> at;
+    bool found = false, taken = false, pending = false, within = false;
+    int depth = 0;
+
+    for (size_t i = 0; t[i].kind != thLexToken::END; i++)
+    {
+        /* A `controller' block binds a knob by its name in a string:
+           `roll = "bright"'. `base' is a note, not a knob. */
+        if (t[i].kind == thLexToken::WORD && t[i].text == "controller" &&
+            depth == 0)
+            pending = true;
+        else if (isPunct(t, i, "{"))
+        {
+            within = within || (pending && depth == 0);
+            pending = false;
+            depth++;
+        }
+        else if (isPunct(t, i, "}") && depth > 0 && --depth == 0)
+            within = false;
+        else if (isPunct(t, i, ";") && depth == 0)
+            pending = false;
+        else if (within && t[i].kind == thLexToken::STRING &&
+                 t[i].text == name && i >= 2 && isPunct(t, i - 1, "=") &&
+                 t[i - 2].text != "base")
+            at.push_back(i);
+
+        if (i == 0 || t[i].kind != thLexToken::WORD ||
+            !isPunct(t, i - 1, "@"))
+            continue;
+
+        if (t[i].text == name)
+        {
+            found = found || isPunct(t, i + 1, "=");
+            at.push_back(i);
+        }
+        else if (t[i].text == to)
+            taken = true;
+    }
+
+    if (!found)
+    {
+        why = "no `@" + name + "' in the file";
+        return NO_NODE;
+    }
+
+    if (to == name)
+        return OK;
+
+    if (!validName(to))
+    {
+        why = "`" + to + "' is not a name the format can read back";
+        return REFUSED;
+    }
+
+    if (taken)
+    {
+        why = "the patch already has a control called @" + to;
+        return REFUSED;
+    }
+
+    /* A string's span has its quotes; the name is between them. */
+    for (size_t k = at.size(); k-- > 0;)
+    {
+        const thLexToken &w = t[at[k]];
+        const size_t q = w.kind == thLexToken::STRING ? 1 : 0;
+
+        source.replace(w.off + q, w.end - w.off - 2 * q, to);
     }
 
     return OK;

@@ -127,6 +127,12 @@ protected:
 
     NodeParamsView::Header header (void) const;
     void onHeaderEdited (string field, string value);
+
+    /* Renames the node or control `box' is, carrying what is kept by name
+       -- its place, the selection, its probes -- to the new one. False,
+       with the status saying why, if it was refused. */
+    bool rename (int box, const string &to);
+    void onRenamed (int box, string to) { rename(box, to); }
     void onSelected (int box);
 
     /* A rubber band gathered several boxes; `n' of them. */
@@ -176,13 +182,14 @@ protected:
         Gtk::SpinButton *min;
         Gtk::SpinButton *max;
         Gtk::SpinButton *value;
+        string was;     /* the name it opened with */
         sigc::slot<void (ControlForm *)> done;
     };
 
     /* What the form starts out holding.
      *
      * A struct rather than a longer argument list because adding a control and
-     * retyping one disagree about six of these and agree about the validation,
+     * retyping one disagree about most of these and agree about the validation,
      * and the validation is the part worth having in one place -- a name the
      * lexer will not read back, a label with a quote in it and an inverted
      * range are refusals whichever operation asked. */
@@ -190,7 +197,6 @@ protected:
         string title;       /* the dialog's title                          */
         string okText;      /* what the accepting button says              */
         string name;
-        bool nameFixed;     /* retyping: renaming is a different operation */
         bool askValue;      /* adding: nothing else has said what it is    */
         double value, min, max;
         string label, group;
@@ -203,7 +209,8 @@ protected:
     void onAskControlResponse (int response, ControlForm *form);
     void addControlFromForm (ControlForm *form);
 
-    /* Right-click on a control box: retype its range, label and group. */
+    /* Right-click on a control box: rename it, or retype its range, label
+       and group. */
     void onEditControl (int box);
     void editControlFromForm (ControlForm *form);
     void onNewFile (void);

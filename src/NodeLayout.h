@@ -86,6 +86,12 @@ public:
         static bool read (const string &source, PosMap &out);
         static bool readProbes (const string &source, vector<ProbeRef> &out);
 
+        /* Points the `# @layout' and `# @probe' lines for `key' -- a
+           node's name or a control's `@name' -- at `to', for a rename.
+           The io node's `#in' and `#out' halves go with it. */
+        static void rename (string &source, const string &key,
+                            const string &to);
+
         /* Rewrites the layout block in `source'. Two things are
            normalised rather than preserved: line endings come out as \n,
            and trailing blank lines are dropped -- otherwise the blank

@@ -103,6 +103,18 @@ emptied takes the statement out, but for the name, which a patch cannot do
 without. The category is free text, offered from the list the shipped files
 keep to (`src/DspCategories.h`).
 
+**Renaming.** A selected node or control has a Name field at the top of its
+parameters, and a control's right-click dialog takes a new name too. The block
+and everything reading it are respelt by the lexer's tokens -- `node` and `io`,
+every `name->port` and `name[i]->port`, every `@name`, a `controller` block's
+`roll = "name"` -- so a comment or any other string that says the name is left
+as it is (`NodeEdit::Text::renameNode` and `renameControl`). The box keeps its place, its probes and the selection
+(`NodeLayout::Text::rename` carries their lines), in one Undo step. A name
+another node or control has is refused, as is one the lexer would not read back
+and one element of an array, whose block every element shares. Only this file
+changes: a piece that sets `@cut` on the instrument goes on saying `@cut`, and
+a patch that is playing keeps the old name until it is loaded again.
+
 **Adding a node.** The palette's Add, a double-click or Enter puts the node in
 the middle of the view, beside one already there rather than on it; a plugin
 dragged from the palette onto the canvas lands where it is dropped.
@@ -277,8 +289,8 @@ and they are strips on their hosts now. On a 17-layer patch that is 440 pixels.
 
 ### Retyping one
 
-Right-click a control — its box, or the strip it is drawn as — for its range,
-label and group. The range is the thing a slider can neither show nor change: a
+Right-click a control — its box, or the strip it is drawn as — for its name,
+range, label and group. The range is the thing a slider can neither show nor change: a
 cutoff declared `0..1` has a slider that reaches a tenth of the filter, and
 nothing on the canvas says so or offers to fix it.
 
