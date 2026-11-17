@@ -264,6 +264,21 @@ public:
         static Result removeControl (string &source, const string &name,
                                      int &removed, string &why);
 
+        /* Renames a node: its block, the `io' line if it is the io node,
+           and every `<node>->port' reading it. An array is renamed by its
+           plain name, every element with it; one element is refused. So is
+           a name another node has or the lexer would not read back. Comments
+           and strings are left as they are, and so are the editor's
+           `# @layout' lines, which NodeLayout::Text::rename carries. */
+        static Result renameNode (string &source, const string &node,
+                                  const string &to, string &why);
+
+        /* Renames a control: its `@name' block, every `@name' reading
+           it and a `controller' block's `axis = "name"' binding it, with
+           the same refusals. */
+        static Result renameControl (string &source, const string &name,
+                                     const string &to, string &why);
+
         /* A header statement -- `name', `author', `description' or
            `category' -- set to `value', or taken out for an empty one. A
            field the file has not goes where every shipped file keeps it, in

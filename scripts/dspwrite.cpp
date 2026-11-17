@@ -55,6 +55,9 @@
  *      every reference to it, wherever a statement puts that reference, and
  *      a reference left behind names something that is not there -- a file
  *      that no longer loads, in either editor
+ *  16. rename it, and confirm the parse is the same graph under the new
+ *      name; rename it back and confirm the file is byte identical; rename
+ *      it onto another's name and confirm that is refused
  *
  * And for every header field -- name, author, description, category:
  *  15. set it to something new, reparse and confirm the tree says it; put it
@@ -91,6 +94,7 @@
 #include <sys/stat.h>
 #endif
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -101,6 +105,7 @@
 #include "think.h"
 #include "NodeGraph.h"
 #include "NodeEdit.h"
+#include "NodeLayout.h"
 
 static bool slurp (const string &path, string &out)
 {
@@ -602,11 +607,147 @@ int main (int argc, char **argv)
                 printf("ok    setInfo: %s\n", c.what);
         }
     }
+    /* Renames, as the editor makes them: the patch, then its layout. */
+    {
+        struct Case {
+            const char *what;
+            bool control;
+            const char *from, *to, *before;
+            NodeEdit::Result result;
+            const char *after;
+        };
+        const Case cases[] = {
+            { "a node's block, its readers, its layout and its probe",
+              false, "osc", "lfo",
+              "node osc osc::simple { };\n"
+              "node f filt::svf { in = osc->out; };\n"
+              "# @layout osc 1 2\n# @layout oscx 3 4\n"
+              "# @probe osc out meter\n",
+              NodeEdit::OK,
+              "node lfo osc::simple { };\n"
+              "node f filt::svf { in = lfo->out; };\n"
+              "# @layout lfo 1 2\n# @layout oscx 3 4\n"
+              "# @probe lfo out meter\n" },
+            { "an arg and a port of the same name left alone",
+              false, "osc", "lfo",
+              "node osc a::b { osc = osc->osc; };\n", NodeEdit::OK,
+              "node lfo a::b { osc = lfo->osc; };\n" },
+            { "a reader in arithmetic over two lines",
+              false, "osc", "lfo",
+              "node osc a::b { };\nnode f a::b { in = 2 *\n    osc->out; };\n",
+              NodeEdit::OK,
+              "node lfo a::b { };\nnode f a::b { in = 2 *\n    lfo->out; };\n" },
+            { "comments, strings and a control of the same name left alone",
+              false, "osc", "lfo",
+              "# osc->out\nname \"osc\";\n@osc = 1;\n"
+              "node osc a::b { in = @osc; };\n",
+              NodeEdit::OK,
+              "# osc->out\nname \"osc\";\n@osc = 1;\n"
+              "node lfo a::b { in = @osc; };\n" },
+            { "a name another starts with left alone",
+              false, "os", "q",
+              "node os a::b { };\nnode myos a::b { };\n"
+              "node osc a::b { in = os->out + myos->out; };\n",
+              NodeEdit::OK,
+              "node q a::b { };\nnode myos a::b { };\n"
+              "node osc a::b { in = q->out + myos->out; };\n" },
+            { "an array and every element read",
+              false, "tone", "voice",
+              "node tone[2] a::b { };\n"
+              "node t a::b { in0 = tone[1]->out; in1 = tone[]->out; };\n",
+              NodeEdit::OK,
+              "node voice[2] a::b { };\n"
+              "node t a::b { in0 = voice[1]->out; in1 = voice[]->out; };\n" },
+            { "one element of an array refused",
+              false, "tone[1]", "voice", "node tone[2] a::b { };\n",
+              NodeEdit::REFUSED, "node tone[2] a::b { };\n" },
+            { "the io node, its line and both its halves",
+              false, "ionode", "main",
+              "node ionode { out0 = ionode->in0; };\nio ionode;\n"
+              "# @layout ionode#in 0 0\n# @layout ionode#out 5 0\n",
+              NodeEdit::OK,
+              "node main { out0 = main->in0; };\nio main;\n"
+              "# @layout main#in 0 0\n# @layout main#out 5 0\n" },
+            { "a name another node has refused",
+              false, "a", "b", "node a x::y { };\nnode b[2] x::y { };\n",
+              NodeEdit::REFUSED, "node a x::y { };\nnode b[2] x::y { };\n" },
+            { "a name the lexer will not read refused",
+              false, "a", "2a", "node a x::y { };\n",
+              NodeEdit::REFUSED, "node a x::y { };\n" },
+            { "a node that is not there",
+              false, "z", "y", "node a x::y { };\n",
+              NodeEdit::NO_NODE, "node a x::y { };\n" },
+            { "a node renamed to its own name changes nothing",
+              false, "a", "a", "node a x::y { };\n",
+              NodeEdit::OK, "node a x::y { };\n" },
+            { "a control's block, its readers and its layout",
+              true, "a", "cut",
+              "@a = 0.5;\n@a.min = 0;\n@ab = 1;\n"
+              "node n x::y { in = @a + @ab; a = a->out; };\n"
+              "# @layout @a 3 4\n# @layout a 5 6\n",
+              NodeEdit::OK,
+              "@cut = 0.5;\n@cut.min = 0;\n@ab = 1;\n"
+              "node n x::y { in = @cut + @ab; a = a->out; };\n"
+              "# @layout @cut 3 4\n# @layout a 5 6\n" },
+            { "a name another control has refused",
+              true, "a", "ab", "@a = 0.5;\n@ab = 1;\n",
+              NodeEdit::REFUSED, "@a = 0.5;\n@ab = 1;\n" },
+            { "a control that is not there",
+              true, "z", "y", "@a = 0.5;\n",
+              NodeEdit::NO_NODE, "@a = 0.5;\n" },
+            { "a controller's binding of a control, and no other string",
+              true, "bright", "shine",
+              "@bright = 1;\nnode n x::y { file = \"bright\"; };\n"
+              "controller box {\n    base = \"bright\";\n"
+              "    roll = \"bright\" { smooth = 0.05; };\n"
+              "    tilt = \"brights\";\n};\n",
+              NodeEdit::OK,
+              "@shine = 1;\nnode n x::y { file = \"bright\"; };\n"
+              "controller box {\n    base = \"bright\";\n"
+              "    roll = \"shine\" { smooth = 0.05; };\n"
+              "    tilt = \"brights\";\n};\n" },
+            { "a name the lexer reads as a stray character refused",
+              false, "a", "_a", "node a x::y { };\n",
+              NodeEdit::REFUSED, "node a x::y { };\n" },
+            { "a node named for a keyword refused",
+              false, "a", "nil", "node a x::y { };\n",
+              NodeEdit::REFUSED, "node a x::y { };\n" },
+            { "a control named for a keyword refused",
+              true, "a", "nil", "@a = 0.5;\n",
+              NodeEdit::REFUSED, "@a = 0.5;\n" },
+        };
+
+        for (const Case &c : cases)
+        {
+            string text = c.before, why;
+            const NodeEdit::Result r =
+                c.control
+                    ? NodeEdit::Text::renameControl(text, c.from, c.to, why)
+                    : NodeEdit::Text::renameNode(text, c.from, c.to, why);
+
+            if (r == NodeEdit::OK)
+                NodeLayout::Text::rename(text,
+                                         (c.control ? "@" : "") +
+                                             string(c.from),
+                                         (c.control ? "@" : "") +
+                                             string(c.to));
+
+            if (r != c.result || text != c.after)
+            {
+                printf("FAIL  rename: %s -> %s (%s)\n%s", c.what,
+                       NodeEdit::resultText(r), why.c_str(), text.c_str());
+                failed++;
+            }
+            else if (!quiet)
+                printf("ok    rename: %s\n", c.what);
+        }
+    }
+
     int unwritable = 0, noops = 0, respelt = 0;
     int wiresCut = 0, wireNoops = 0;
     int controlsMoved = 0, controlNoops = 0, controlsRespelt = 0;
     int metaNoops = 0, metaChanged = 0, metaRestored = 0, metaClamped = 0;
-    int removals = 0, infos = 0;
+    int removals = 0, infos = 0, renames = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -1311,6 +1452,152 @@ int main (int argc, char **argv)
             infos++;
         }
 
+        /* 16. every node and every control renamed: the graph is the same
+           graph under the new name, and renaming it back is the file. */
+        {
+            /* Every box and wire, by name, with `from' read as `to'. An
+               expression box is `host.arg' and an element `name[i]'. */
+            const auto shape = [&] (const string &text, const string &from,
+                                    const string &to, vector<string> &out)
+            {
+                thSynthTree *t = synth.parseTreeText(argv[f], text);
+                NodeGraph h;
+
+                if (t == NULL)
+                    return false;
+
+                const bool built = h.build(t);
+
+                delete t;
+
+                if (!built)
+                    return false;
+
+                const auto as = [&] (const string &name)
+                {
+                    const char next = name.size() > from.size()
+                                          ? name[from.size()] : 0;
+
+                    if (name.compare(0, from.size(), from) == 0 &&
+                        (next == 0 || next == '.' || next == '['))
+                        return to + name.substr(from.size());
+
+                    return name;
+                };
+                /* A control's port is its name, and an expression's leaf
+                   is an `@name' or a `node->port'. */
+                const auto port = [&] (int box, int at)
+                {
+                    const NodeGraph::Box &bx = h.boxes()[box];
+                    string p = at >= 0 && at < (int)bx.ports.size()
+                                   ? bx.ports[at].name : string();
+
+                    if (bx.name == from && "@" + p == from)
+                        return to.substr(1);
+
+                    if (p == from && from[0] == '@')
+                        return to;
+
+                    if (p.compare(0, from.size() + 2, from + "->") == 0)
+                        p = to + p.substr(from.size());
+
+                    return p;
+                };
+
+                out.clear();
+
+                for (const NodeGraph::Box &bx : h.boxes())
+                    out.push_back(as(bx.name) + (bx.isIoSource ? "#in" : "") +
+                                  (bx.isIoSink ? "#out" : ""));
+
+                for (const NodeGraph::Edge &e : h.edges())
+                    out.push_back(as(h.boxes()[e.fromBox].name) + "->" +
+                                  port(e.fromBox, e.fromPort) + " => " +
+                                  as(h.boxes()[e.toBox].name) + "." +
+                                  port(e.toBox, e.toPort));
+
+                std::sort(out.begin(), out.end());
+                return true;
+            };
+
+            vector<string> names, controls;
+
+            for (const NodeGraph::Box &bx : g.boxes())
+                if (bx.isControl)
+                    controls.push_back(bx.ctlArg);
+                else if (!bx.isExpr && !bx.isProbe && !bx.isIoSink &&
+                         bx.name.find('[') == string::npos)
+                    names.push_back(bx.name);
+
+            for (int kind = 0; kind < 2; kind++)
+            {
+                const bool control = kind == 1;
+                const vector<string> &list = control ? controls : names;
+
+                for (size_t i = 0; i < list.size() && problems < 4; i++)
+                {
+                    const string from = list[i], to = "renamed_" + from;
+                    const string pf = (control ? "@" : "") + from;
+                    const string pt = (control ? "@" : "") + to;
+                    const auto rename = [&] (string &text, const string &a,
+                                             const string &b, string &why)
+                    {
+                        return control
+                                   ? NodeEdit::Text::renameControl(text, a, b,
+                                                                   why)
+                                   : NodeEdit::Text::renameNode(text, a, b,
+                                                                why);
+                    };
+
+                    string text = original, why;
+                    vector<string> want, got;
+                    NodeEdit::Result r = rename(text, from, to, why);
+
+                    if (r != NodeEdit::OK ||
+                        !shape(original, pf, pt, want) ||
+                        !shape(text, pf, pf, got) || got != want)
+                    {
+                        size_t k = 0;
+
+                        while (k < want.size() && k < got.size() &&
+                               want[k] == got[k])
+                            k++;
+
+                        printf("FAIL  %s: renaming %s -> %s (%s) is not the "
+                               "same graph: wanted [%s], got [%s]\n", argv[f],
+                               pf.c_str(), NodeEdit::resultText(r),
+                               why.c_str(),
+                               k < want.size() ? want[k].c_str() : "",
+                               k < got.size() ? got[k].c_str() : "");
+                        problems++;
+                        continue;
+                    }
+
+                    r = rename(text, to, from, why);
+
+                    if (r != NodeEdit::OK || text != original)
+                    { printf("FAIL  %s: %s renamed and back is not the "
+                             "file\n", argv[f], pf.c_str());
+                      showFirstDiff(original, text);
+                      problems++; continue; }
+
+                    /* Onto a name the patch already has. */
+                    if (list.size() > 1)
+                    {
+                        const string other = list[(i + 1) % list.size()];
+
+                        if (rename(text, from, other, why) !=
+                                NodeEdit::REFUSED || text != original)
+                        { printf("FAIL  %s: %s renamed onto %s was taken\n",
+                                 argv[f], pf.c_str(), other.c_str());
+                          problems++; continue; }
+                    }
+
+                    renames++;
+                }
+            }
+        }
+
         if (problems)
             failed++;
         else if (!quiet)
@@ -1344,6 +1631,8 @@ int main (int argc, char **argv)
            "file that parses\n", removals);
     printf("  %d header fields changed, restored, and taken out and put "
            "back, each byte-identical\n", infos);
+    printf("  %d nodes and controls renamed, each the same graph, and "
+           "back, each byte-identical\n", renames);
 
     if (metaChanged != metaRestored)
         printf("  (%d retyped but not restored)\n", metaChanged - metaRestored);

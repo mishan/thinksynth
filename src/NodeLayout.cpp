@@ -355,3 +355,38 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
 
     return true;
 }
+
+void NodeLayout::Text::rename (string &source, const string &key,
+                               const string &to)
+{
+    for (size_t at = 0; at < source.size();)
+    {
+        size_t eol = source.find('\n', at);
+
+        if (eol == string::npos)
+            eol = source.size();
+
+        for (const char *tag : { LAYOUT_TAG, PROBE_TAG })
+        {
+            const size_t w = at + strlen(tag);
+
+            if (source.compare(at, strlen(tag), tag) != 0)
+                continue;
+
+            size_t e = source.find_first_of(" \t\r", w);
+
+            if (e == string::npos || e > eol)
+                e = eol;
+
+            const string word = source.substr(w, e - w);
+
+            if (word == key || word == key + "#in" || word == key + "#out")
+            {
+                source.replace(w, key.size(), to);
+                eol = eol + to.size() - key.size();
+            }
+        }
+
+        at = eol + 1;
+    }
+}
