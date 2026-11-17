@@ -20,14 +20,8 @@
 
 #include <gtkmm.h>
 
-#include "NodeEdit.h"
 #include "NodeGraph.h"
 #include "NodeParamsView.h"
-#include "../DspCategories.h"
-
-/* Not words, so never a parameter's name. */
-static const char *const NAME_ROW = "#name";
-static const char *const EXPR_ROW = "#expr";
 
 NodeParamsView::NodeParamsView (void)
 {
@@ -41,19 +35,16 @@ NodeParamsView::NodeParamsView (void)
 
 void NodeParamsView::setBox (const NodeGraph *graph, int box)
 {
+    graph_ = graph;
+    box_ = box;
+    model_.setText(text_);
+    model_.setHeader(haveHeader_ ? &header_ : NULL);
     model_.setBox(graph, box);
-    showingHeader_ = false;
-
-    if ((graph == NULL || box < 0) && haveHeader_)
-    {
-        showHeader();
-        return;
-    }
 
     thPanel built;
 
-    /* Nothing selected, or a box with no parameters at all. Both are
-       states worth saying rather than an empty column. */
+    /* Nothing selected and no header yet, or a box with no parameters at
+       all. Both are states worth saying rather than an empty column. */
     if (!model_.build(built))
     {
         built = thPanel();
@@ -65,74 +56,6 @@ void NodeParamsView::setBox (const NodeGraph *graph, int box)
             ? "Click a node to see its parameters." : "";
     }
 
-    named_ = -1;
-    exprArgs_.clear();
-
-    /* The arithmetic an arg is written as, in the file's own spelling, typed
-       over in its row; an expression's own box offers it alone. Only where
-       the text can be replaced: a line an array or the io node's `[]'
-       shares is the file's to edit. */
-    if (graph != NULL && box >= 0 && box < (int)graph->boxes().size())
-    {
-        const NodeGraph::Box &b = graph->boxes()[box];
-        string written;
-
-        exprNode_ = b.isExpr ? b.exprNode : b.name;
-
-        if (b.isExpr)
-        {
-            thPanelRow r;
-
-            built.title = b.name;
-            built.subtitle = "An arg written as arithmetic";
-            r.id = EXPR_ROW;
-            r.label = "Expression";
-            r.kind = thPanelRow::READONLY;
-            r.text = b.exprText;
-
-            if (text_ != NULL &&
-                NodeEdit::Text::expression(*text_, b.exprNode, b.exprArg,
-                                           written))
-            {
-                r.kind = thPanelRow::TEXT;
-                r.editable = true;
-                r.text = written;
-                exprArgs_[EXPR_ROW] = b.exprArg;
-            }
-
-            built.rows.insert(built.rows.begin(), r);
-        }
-        else
-            for (thPanelRow &r : built.rows)
-                for (const NodeGraph::Param &p : b.params)
-                    if (p.name == r.id && p.isExpr && text_ != NULL &&
-                        NodeEdit::Text::expression(*text_, b.name, p.name,
-                                                   written))
-                    {
-                        r.kind = thPanelRow::TEXT;
-                        r.editable = true;
-                        r.text = written;
-                        exprArgs_[r.id] = p.name;
-                    }
-    }
-
-    /* A node's or a control's name, to rename it by. A probe and an
-       expression have none of their own in the text. */
-    if (graph != NULL && box >= 0 && box < (int)graph->boxes().size() &&
-        !graph->boxes()[box].isProbe && !graph->boxes()[box].isExpr)
-    {
-        const NodeGraph::Box &b = graph->boxes()[box];
-        thPanelRow r;
-
-        r.id = NAME_ROW;
-        r.label = "Name";
-        r.kind = thPanelRow::TEXT;
-        r.editable = true;
-        r.text = b.isControl ? b.ctlArg : b.name;
-        built.rows.insert(built.rows.begin(), r);
-        named_ = box;
-    }
-
     setPanel(built);
 }
 
@@ -141,47 +64,8 @@ void NodeParamsView::setHeader (const Header &h)
     header_ = h;
     haveHeader_ = true;
 
-    if (showingHeader_)
-        showHeader();
-}
-
-/* With nothing selected, the patch itself: what the patch selector shows
-   of it, and the empty column there used to be put to use. */
-void NodeParamsView::showHeader (void)
-{
-    thPanel p;
-
-    p.kind = thPanel::NODE_VALUE;
-    p.title = "This patch";
-    p.subtitle = "Click a node to see its parameters.";
-
-    const auto field = [&] (const char *id, const char *label,
-                            const string &value)
-    {
-        thPanelRow r;
-
-        r.id = id;
-        r.label = label;
-        r.kind = thPanelRow::TEXT;
-        r.editable = true;
-        r.text = value;
-        p.rows.push_back(r);
-
-        return &p.rows.back();
-    };
-
-    field("name", "Name", header_.name);
-    field("author", "Author", header_.author);
-
-    thPanelRow *cat = field("category", "Category", header_.category);
-
-    for (int i = 0; thDspCategories[i] != NULL; i++)
-        cat->suggestions.push_back(thDspCategories[i]);
-
-    field("description", "Description", header_.description);
-
-    setPanel(p);
-    showingHeader_ = true;
+    if (graph_ == NULL || box_ < 0)
+        setBox(graph_, box_);
 }
 
 /* What was typed, turned into an intent by the provider and handed on.
@@ -194,30 +78,35 @@ void NodeParamsView::showHeader (void)
  * it, and in both the right answer is to leave the file alone. */
 void NodeParamsView::onEdited (const string &row, const string &valueText)
 {
-    if (showingHeader_)
-    {
-        signal_header_edited_(row, valueText);
-        return;
-    }
-
-    if (row == NAME_ROW && named_ >= 0)
-    {
-        signal_renamed_(named_, valueText);
-        return;
-    }
-
-    if (exprArgs_.count(row))
-    {
-        signal_expression_edited_(exprNode_, exprArgs_[row], valueText);
-        return;
-    }
-
     thPanelEdit edit;
 
     const thPanelResult result = model_.propose(row, valueText, edit);
 
     if (!result.ok)
         return;
+
+    /* Text typed back as it stands. A value is reported even so; see
+       below. */
+    if (!result.changed && edit.kind != thPanelEdit::NODE_VALUE)
+        return;
+
+    switch (edit.kind)
+    {
+        case thPanelEdit::NODE_INFO:
+            signal_header_edited_(edit.row, edit.valueText);
+            return;
+
+        case thPanelEdit::NODE_RENAME:
+            signal_renamed_(edit.a, edit.valueText);
+            return;
+
+        case thPanelEdit::NODE_EXPRESSION:
+            signal_expression_edited_(edit.node, edit.row, edit.valueText);
+            return;
+
+        default:
+            break;
+    }
 
     /* Reported even when the value is the one the file already holds, which
      * is the one case the channel panel drops.

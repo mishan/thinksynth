@@ -23,8 +23,20 @@
 
 #include <cmath>
 
+#include "DspCategories.h"
+#include "NodeEdit.h"
 #include "NodeGraph.h"
 #include "NodePanel.h"
+
+/* Not words, so never a parameter's name. */
+static const char *const NAME_ROW = "#name";
+static const char *const EXPR_ROW = "#expr";
+
+/* The header's fields, as the panel lists them. */
+static const char *const FIELDS[][2] = {
+    { "name", "Name" }, { "author", "Author" }, { "category", "Category" },
+    { "description", "Description" }
+};
 
 NodePanel::NodePanel (void)
     : graph_(NULL), box_(-1)
@@ -114,6 +126,15 @@ static string describe (const NodeGraph::Param &p, const string &why)
     }
 
     return desc;
+}
+
+static bool exprParam (const NodeGraph::Box *b, const string &arg)
+{
+    for (const NodeGraph::Param &p : b->params)
+        if (p.name == arg)
+            return p.isExpr;
+
+    return false;
 }
 
 static thPanelRow rowFor (const NodeGraph::Param &p)
@@ -251,6 +272,29 @@ static thPanelRow rowFor (const NodeGraph::Param &p)
     return row;
 }
 
+/* `node'.`arg' as the file writes it, where it is arithmetic the text can
+   have replaced. */
+bool NodePanel::written (const string &node, const string &arg,
+                         string &out) const
+{
+    return text_ != NULL &&
+           NodeEdit::Text::expression(*text_, node, arg, out);
+}
+
+static thPanelRow textRow (const string &id, const string &label,
+                           const string &text)
+{
+    thPanelRow r;
+
+    r.id = id;
+    r.label = label;
+    r.kind = thPanelRow::TEXT;
+    r.editable = true;
+    r.text = text;
+
+    return r;
+}
+
 bool NodePanel::build (thPanel &out) const
 {
     out = thPanel();
@@ -258,9 +302,35 @@ bool NodePanel::build (thPanel &out) const
     out.a = box_;
 
     const NodeGraph::Box *b = boxOf(graph_, box_);
+    thPanelBuilder build;
 
+    /* With nothing selected, the patch itself: what the patch selector
+       shows of it. */
     if (b == NULL)
-        return false;
+    {
+        if (header_ == NULL || box_ >= 0)
+            return false;
+
+        const string *values[] = { &header_->name, &header_->author,
+                                   &header_->category, &header_->description };
+
+        out.title = "This patch";
+        out.subtitle = "Click a node to see its parameters.";
+
+        for (int i = 0; i < 4; i++)
+        {
+            thPanelRow r = textRow(FIELDS[i][0], FIELDS[i][1], *values[i]);
+
+            if (i == 2)
+                for (int c = 0; thDspCategories[c] != NULL; c++)
+                    r.suggestions.push_back(thDspCategories[c]);
+
+            build.add(r, "", "");
+        }
+
+        build.finish(out);
+        return true;
+    }
 
     /* Which node, and what it is: a panel over one box of thirty has to say
        which one, and the plugin's spelling is how a reader knows what the
@@ -268,10 +338,46 @@ bool NodePanel::build (thPanel &out) const
     out.title = b->name;
     out.subtitle = b->plugin;
 
-    thPanelBuilder build;
+    string text;
+
+    /* A probe and an expression have no name of their own in the text. */
+    if (text_ != NULL && !b->isProbe && !b->isExpr)
+        build.add(textRow(NAME_ROW, "Name",
+                          b->isControl ? b->ctlArg : b->name), "", "");
+
+    /* The arithmetic an arg is written as, in the file's own spelling:
+       the box's rendering folds constants, and entering it untouched would
+       write the fold over the author's. A line an array or the io node's
+       `[]' shares is only shown. */
+    if (b->isExpr)
+    {
+        thPanelRow r = textRow(EXPR_ROW, "Expression", b->exprText);
+
+        if (!written(b->exprNode, b->exprArg, text))
+        {
+            r.kind = thPanelRow::READONLY;
+            r.editable = false;
+        }
+        else
+            r.text = text;
+
+        out.subtitle = "An arg written as arithmetic";
+        build.add(r, "", "");
+    }
 
     for (size_t i = 0; i < b->params.size(); i++)
-        build.add(rowFor(b->params[i]), "", "");
+    {
+        thPanelRow r = rowFor(b->params[i]);
+
+        if (b->params[i].isExpr && written(b->name, b->params[i].name, text))
+        {
+            r.kind = thPanelRow::TEXT;
+            r.editable = true;
+            r.text = text;
+        }
+
+        build.add(r, "", "");
+    }
 
     build.finish(out);
 
@@ -288,9 +394,60 @@ thPanelResult NodePanel::propose (const string &row, const string &valueText,
     out.a = box_;
 
     const NodeGraph::Box *b = boxOf(graph_, box_);
+    string text;
+
+    /* Text typed back as it stands is allowed and nothing to do. */
+    const auto against = [&] (const string &now)
+    {
+        return valueText == now ? thPanelResult::echo() : thPanelResult();
+    };
 
     if (b == NULL)
+    {
+        const string *values[] = { NULL, NULL, NULL, NULL };
+
+        if (header_ != NULL)
+        {
+            values[0] = &header_->name;
+            values[1] = &header_->author;
+            values[2] = &header_->category;
+            values[3] = &header_->description;
+        }
+
+        for (int i = 0; header_ != NULL && box_ < 0 && i < 4; i++)
+            if (row == FIELDS[i][0])
+            {
+                out.kind = thPanelEdit::NODE_INFO;
+                return against(*values[i]);
+            }
+
         return thPanelResult::refuse("no such node");
+    }
+
+    if (row == NAME_ROW)
+    {
+        if (text_ == NULL || b->isProbe || b->isExpr)
+            return thPanelResult::refuse("no name to change here");
+
+        out.kind = thPanelEdit::NODE_RENAME;
+        return against(b->isControl ? b->ctlArg : b->name);
+    }
+
+    /* An expression's box speaks for its arg. */
+    const bool own = row == EXPR_ROW && b->isExpr;
+    const string node = own ? b->exprNode : b->name;
+    const string arg = own ? b->exprArg : row;
+
+    if ((own || exprParam(b, row)) && written(node, arg, text))
+    {
+        out.kind = thPanelEdit::NODE_EXPRESSION;
+        out.node = node;
+        out.row = arg;
+        return against(text);
+    }
+
+    if (row == EXPR_ROW)
+        return thPanelResult::refuse("that arithmetic is edited in the text");
 
     size_t at = 0;
 

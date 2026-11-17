@@ -258,11 +258,16 @@ struct thPanel
    see the header comment. */
 struct thPanelEdit
 {
-    enum Kind { CHANARG = 0, KNOB, GEN_PARAM, NODE_VALUE };
+    /* NODE_INFO is a header field, `row' naming it; NODE_RENAME a new name
+       for box `a'; NODE_EXPRESSION arithmetic for `node'.`row'. Each is
+       text in `valueText' for the caller to splice. */
+    enum Kind { CHANARG = 0, KNOB, GEN_PARAM, NODE_VALUE, NODE_INFO,
+                NODE_RENAME, NODE_EXPRESSION };
 
     Kind kind;
 
     string row;
+    string node;
 
     /* The authored spelling: "4000", "Square", "@sweep", "\"C4 E4 G4\"".
        What a .gen line would carry, and what a command posts. */

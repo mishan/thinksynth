@@ -19,8 +19,6 @@
 #ifndef NODE_PARAMS_VIEW_H
 #define NODE_PARAMS_VIEW_H
 
-#include <map>
-
 #include "NodePanel.h"
 #include "PanelView.h"
 
@@ -49,14 +47,12 @@ public:
     void setBox (const NodeGraph *graph, int box);
 
     /* The patch's header, for when no node is selected. */
-    struct Header {
-        string name, author, description, category;
-    };
+    typedef NodePanel::Header Header;
 
     void setHeader (const Header &h);
 
-    /* The patch's text, which an expression's row shows in its own
-       spelling. Read at each setBox; NULL offers none. */
+    /* The patch's text, which the Name and arithmetic rows rewrite. Read
+       at each setBox; NULL offers neither. */
     void setText (const string *text) { text_ = text; }
 
     /* A header field committed: `name', `author', `description' or
@@ -94,21 +90,16 @@ public:
 private:
     void onEdited (const string &row, const string &valueText);
 
-    void showHeader (void);
-
     NodePanel model_;
     type_signal_param_edited signal_param_edited_;
     type_signal_header_edited signal_header_edited_;
     type_signal_renamed signal_renamed_;
-    int named_ = -1;    /* the box whose Name row is showing */
     type_signal_expression_edited signal_expression_edited_;
-
-    /* The node whose arithmetic the panel offers, and which args, by row. */
-    string exprNode_;
-    std::map<string, string> exprArgs_;
+    const NodeGraph *graph_ = NULL;
+    int box_ = -1;
     const string *text_ = NULL;
     Header header_;
-    bool haveHeader_ = false, showingHeader_ = false;
+    bool haveHeader_ = false;
 };
 
 #endif /* NODE_PARAMS_VIEW_H */
