@@ -168,6 +168,7 @@ public:
     using NodeEditor::onRevert;
     using NodeEditor::onPaletteAdd;
     using NodeEditor::onPaletteDrop;
+    using NodeEditor::tipAt;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -2931,6 +2932,76 @@ void checkToolbarFits (thSynth &synth)
     delete ed;
 }
 
+/* A control's strip has room for a few letters of its label and a value
+   cut to five characters. Hovered, it says all of both: the label, and
+   the value as the parameter panel spells it, with its range. */
+void checkStripTip (thSynth &synth)
+{
+    const string copy = thUtil::tempFile("editorcheck-tip-");
+
+    {
+        ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << "name \"Tip\";\n"
+               "@rel = 14112;\n@rel.widget = 1;\n@rel.min = 0;\n"
+               "@rel.max = 882000;\n"
+               "@rel.label = \"Release of the long tail\";\n"
+               "node ionode { channels = 1; out0 = env->out; "
+               "play = env->play; };\n"
+               "node env env::adsr { trigger = ionode->trigger; r = @rel; };\n"
+               "io ionode;\n";
+    }
+
+    TestEditor *ed = Gtk::manage(new TestEditor(&synth));
+    Gtk::Window *w = new Gtk::Window();
+
+    w->set_child(*ed);
+    w->set_default_size(800, 500);
+    w->present();
+
+    pump(0.05);
+
+    if (!ed->open(copy))
+    {
+        ok(false, "an editor opens the tip patch");
+        delete w;
+        return;
+    }
+
+    pump(0.1);
+
+    int strip = -1;
+
+    for (size_t b = 0; b < ed->graph().boxes().size(); b++)
+        if (ed->graph().boxes()[b].isControl)
+            strip = (int)b;
+
+    string tip;
+
+    if (strip >= 0)
+    {
+        const NodeGraph::Box &s = ed->graph().boxes()[strip];
+        std::vector<NodeCanvasWidget *> canvases;
+
+        collectWidgets(ed, canvases);
+
+        /* At a zoom of one and unscrolled, the canvas's pixels are the
+           graph's. */
+        canvases[0]->setZoom(1);
+        tip = ed->tipAt(s.x + 4, s.y + s.h / 2);
+    }
+
+    ok(tip.find("Release of the long tail") != string::npos &&
+       tip.find("14112") != string::npos && tip.find("882000") != string::npos,
+       "a strip hovered says its whole label and its value in full: %s",
+       tip.c_str());
+
+    ok(ed->tipAt(-1, -1).empty(), "...and the background says nothing");
+
+    delete w;
+    std::filesystem::remove(copy);
+}
+
 /* A drag with the pan modifier -- the middle button, or Space held --
    moves the view with the pointer and changes nothing in the graph, on a
    box as on the background. */
@@ -4593,6 +4664,7 @@ int run (const string &pluginPath, const char *file)
     checkToolbarFits(synth);
     checkAddPlaced(synth, file);
     checkPan(synth, file);
+    checkStripTip(synth);
     checkSelectionKept(synth);
     checkCanvasKeys(synth);
     checkWires(synth);

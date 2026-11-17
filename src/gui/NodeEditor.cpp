@@ -412,6 +412,20 @@ NodeEditor::NodeEditor (thSynth *synth)
     palette_.signal_add().connect(
         sigc::mem_fun(*this, &NodeEditor::onPaletteAdd));
 
+    canvas_.set_has_tooltip(true);
+    canvas_.signal_query_tooltip().connect(
+        [this] (int x, int y, bool, const Glib::RefPtr<Gtk::Tooltip> &tip)
+        {
+            const string text = tipAt(x, y);
+
+            if (text.empty())
+                return false;
+
+            tip->set_text(text);
+
+            return true;
+        }, false);
+
     /* A plugin dragged in from the palette lands where it is dropped. */
     {
         Glib::RefPtr<Gtk::DropTarget> drop = Gtk::DropTarget::create(
@@ -1222,6 +1236,30 @@ void NodeEditor::nameDelete (const string &what)
 {
     nameAs(deleteBtn_, what);
     deleteBtn_.set_tooltip_text(what);
+}
+
+/* What a control's strip has no room for: its whole label, and its value
+   as the parameter panel spells it, with the range. Nothing elsewhere. */
+string NodeEditor::tipAt (double x, double y) const
+{
+    double gx, gy;
+
+    canvas_.toContent(x, y, gx, gy);
+
+    const int b = graph_.boxAt(gx, gy);
+
+    if (b < 0 || !graph_.boxes()[b].isControl)
+        return "";
+
+    const NodeGraph::Box &c = graph_.boxes()[b];
+    const int places = thPanelDecimals(std::max(std::fabs(c.ctlMin),
+                                                std::fabs(c.ctlMax)));
+    const string &named = c.ctlValueName();
+
+    return c.ctlLabel + " (@" + c.ctlArg + "): " +
+           (named.empty() ? thPanelSpell(c.ctlValue, places) : named) +
+           ", from " + thPanelSpell(c.ctlMin, places) + " to " +
+           thPanelSpell(c.ctlMax, places);
 }
 
 bool NodeEditor::deletable (const NodeGraph::Box &b)
