@@ -125,6 +125,10 @@ struct thPanelRow
        that does nothing is worse than no row. */
     vector<pair<string, int> > choices;
 
+    /* Values to offer for a TEXT row, which stays free text: the patch
+       header's category, from the list the shipped files keep to. */
+    vector<string> suggestions;
+
     /* The units this row's number may be written in, `units' being whichever
      * of them it is written in now. Empty where the unit is a fact rather
      * than a choice, which is every row but a composer's duration.

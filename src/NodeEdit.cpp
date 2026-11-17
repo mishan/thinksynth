@@ -1976,6 +1976,141 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
     return OK;
 }
 
+/* Found line by line, outside every brace: inside a node, `name' would be
+   an arg called that, and a statement is never split across lines. */
+NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
+                                          const string &value, string &why)
+{
+    static const char *const ORDER[] = {
+        "name", "author", "description", "category"
+    };
+    const int N = 4;
+    int at = -1;
+
+    why.clear();
+
+    for (int i = 0; i < N; i++)
+        if (field == ORDER[i])
+            at = i;
+
+    if (at < 0)
+    {
+        why = "a patch's header has no " + field;
+        return REFUSED;
+    }
+
+    if (!validLabel(value))
+    {
+        why = "the format's strings cannot hold a quote or a line break";
+        return UNWRITABLE;
+    }
+
+    if (at == 0 && value.empty())
+    {
+        why = "a patch needs a name";
+        return REFUSED;
+    }
+
+    size_t from[N], to[N];
+    bool has[N] = { false, false, false, false };
+    size_t top = string::npos;     /* the first line that is not a comment */
+    int depth = 0;
+
+    for (size_t pos = 0; pos < source.size(); )
+    {
+        size_t eol = source.find('\n', pos);
+        const size_t next = eol == string::npos ? source.size() : eol + 1;
+
+        if (eol == string::npos)
+            eol = source.size();
+
+        const string line = source.substr(pos, eol - pos);
+        const size_t lead = line.find_first_not_of(" \t");
+        const bool comment = lead == string::npos || line[lead] == '#';
+
+        if (!comment && top == string::npos)
+            top = pos;
+
+        for (int k = 0; !comment && depth == 0 && k < N; k++)
+        {
+            const size_t len = strlen(ORDER[k]);
+            const size_t q = line.find_first_not_of(" \t", lead + len);
+
+            if (!has[k] && line.compare(lead, len, ORDER[k]) == 0 &&
+                q != string::npos && q > lead + len && line[q] == '"')
+            {
+                has[k] = true;
+                from[k] = pos;
+                to[k] = next;
+            }
+        }
+
+        bool quoted = false;
+
+        for (size_t i = 0; !comment && i < line.size(); i++)
+        {
+            if (line[i] == '"')
+                quoted = !quoted;
+            else if (!quoted && line[i] == '#')
+                break;
+            else if (!quoted && line[i] == '{')
+                depth++;
+            else if (!quoted && line[i] == '}')
+                depth--;
+        }
+
+        pos = next;
+    }
+
+    const string stmt = field + " \"" + value + "\";\n";
+
+    if (has[at])
+    {
+        const string line = source.substr(from[at], to[at] - from[at]);
+        const size_t open = line.find('"');
+        const size_t shut = line.find('"', open + 1);
+
+        if (shut == string::npos)
+        {
+            why = "the " + field + " line has no closing quote";
+            return UNWRITABLE;
+        }
+
+        if (value.empty())
+            source.erase(from[at], to[at] - from[at]);
+        else
+            source.replace(from[at] + open + 1, shut - open - 1, value);
+
+        return OK;
+    }
+
+    if (value.empty())
+        return OK;
+
+    for (int k = at - 1; k >= 0; k--)
+        if (has[k])
+        {
+            source.insert(to[k], stmt);
+            return OK;
+        }
+
+    for (int k = at + 1; k < N; k++)
+        if (has[k])
+        {
+            source.insert(from[k], stmt);
+            return OK;
+        }
+
+    /* No header at all: after the comments at the top, set off from what
+       follows. */
+    if (top == string::npos)
+        top = source.size();
+
+    source.insert(top, stmt + "\n");
+
+    return OK;
+}
+
 NodeEdit::Result NodeEdit::Text::createFile (string &source, const string &name,
                                        const string &author, string &why)
 {

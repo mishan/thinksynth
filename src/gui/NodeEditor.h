@@ -124,6 +124,9 @@ protected:
     /* What a pointer at `x', `y' on the canvas, in its own pixels, is
        told: empty for nothing. */
     string tipAt (double x, double y) const;
+
+    NodeParamsView::Header header (void) const;
+    void onHeaderEdited (string field, string value);
     void onSelected (int box);
 
     /* A rubber band gathered several boxes; `n' of them. */
