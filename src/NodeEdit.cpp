@@ -554,9 +554,18 @@ static bool isExpressionRhs (const string &rhs)
                 i = j + 1;
         }
 
-        if (t[0] != '@' && i + 1 < t.size() && t[i] == '-' && t[i + 1] == '>')
+        /* The lexer takes `lfo -> out' as it takes `lfo->out'. */
+        size_t k = i;
+
+        while (k < t.size() && (t[k] == ' ' || t[k] == '\t'))
+            k++;
+
+        if (t[0] != '@' && k + 1 < t.size() && t[k] == '-' && t[k + 1] == '>')
         {
-            i += 2;
+            i = k + 2;
+
+            while (i < t.size() && (t[i] == ' ' || t[i] == '\t'))
+                i++;
 
             while (i < t.size() &&
                    (isalnum((unsigned char)t[i]) || t[i] == '_'))
@@ -3231,6 +3240,26 @@ static NodeEdit::Result findExpression (const string &source,
     {
         why = "no `" + node + "." + arg + "' in the file";
         return NodeEdit::NO_NODE;
+    }
+
+    /* The parser takes the last of two; which one an edit means is
+       anybody's guess. */
+    {
+        vector<string> after(lines);
+        size_t l = 0, z = 0;
+        string::size_type a = 0, e = 0;
+
+        for (size_t k = open; k < last; k++)
+            after[k] = string(after[k].size(), ' ');
+
+        after[last].replace(0, to, to, ' ');
+
+        if (findAssign(after, last, close, arg, l, a, z, e))
+        {
+            why = "`" + node + "." + arg + "' is written more than once; "
+                  "edit it in the text";
+            return NodeEdit::REFUSED;
+        }
     }
 
     const string rhs = rhsOf(lines, line, from, last, to);
