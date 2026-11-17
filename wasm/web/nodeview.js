@@ -47,7 +47,7 @@
 
 import { createCanvasView, modsOf } from './canvasview.js';
 import { placePopover } from './popover.js';
-import { showPanel } from './panel.js';
+import { numberIn, showPanel } from './panel.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
@@ -716,6 +716,14 @@ export async function createNodeView ({ files, root = document,
            select, and taking whatever was would take the wrong thing. */
         const kind = M._tw_graph_box_kind(box);
 
+        if (kind === BOX.CONTROL)
+        {
+            const ctl = call('tw_graph_box_control', ['number'], [box]);
+
+            item(`Name, range, label and group of @${ctl}\u2026`,
+                 () => editControl(ctl));
+        }
+
         if ((kind === BOX.NODE && !isExpr(box)) || kind === BOX.CONTROL)
             item(`Delete ${node}`, () =>
             {
@@ -874,6 +882,224 @@ export async function createNodeView ({ files, root = document,
         if (edit('tw_edit_add_node', ['string', 'string', 'string'],
                  [name, plugin]))
             onStatus(`Added ${name} (${plugin}).`);
+    }
+
+    /* ---- a control's form ----
+     *
+     * The desktop's New control and right-click dialogs, as one <dialog>: a
+     * name, a value when adding, a range, a label and a group. The answer is
+     * tried against the text before anything is written, and a refusal is
+     * said in the form, which stays open to be put right -- a name the lexer
+     * would not read back, one another control has, a quote in a label. */
+    function controlForm (setup, apply)
+    {
+        $('nodecontrol')?.remove();
+
+        const dlg = document.createElement('dialog');
+        const form = document.createElement('form');
+        const heading = document.createElement('h3');
+        const why = document.createElement('p');
+        const hint = document.createElement('p');
+        const fields = {};
+
+        dlg.id = 'nodecontrol';
+        dlg.ariaLabel = setup.title;
+        heading.textContent = setup.title;
+        form.append(heading);
+
+        const field = (key, text, type, value, placeholder = '') =>
+        {
+            const label = document.createElement('label');
+            const input = document.createElement('input');
+
+            input.type = type;
+            input.name = key;
+            input.value = value;
+            input.placeholder = placeholder;
+
+            if (type === 'number')
+                input.step = 'any';
+
+            label.append(`${text} `, input);
+            form.append(label);
+            fields[key] = input;
+        };
+
+        field('name', 'Name', 'text', setup.name);
+
+        if (setup.value !== undefined)
+            field('value', 'Value', 'number', setup.value);
+
+        field('min', 'Minimum', 'number', setup.min);
+        field('max', 'Maximum', 'number', setup.max);
+        field('label', 'Label', 'text', setup.label, 'optional');
+        field('group', 'Group', 'text', setup.group, 'optional');
+
+        hint.textContent = 'The name is what nodes read as @name.  Sliders ' +
+                           'sharing a group are drawn as one titled block.';
+        why.setAttribute('role', 'alert');
+
+        const cancel = document.createElement('button');
+        const ok = document.createElement('button');
+
+        cancel.type = 'button';
+        cancel.textContent = 'Cancel';
+        cancel.onclick = () => dlg.close();
+        ok.type = 'submit';
+        ok.textContent = setup.ok;
+        form.append(hint, why, cancel, ok);
+
+        form.onsubmit = (e) =>
+        {
+            e.preventDefault();
+
+            const got = {
+                name: fields.name.value.trim(),
+                value: fields.value ? numberIn(fields.value.value) : 0,
+                min: numberIn(fields.min.value),
+                max: numberIn(fields.max.value),
+                label: fields.label.value,
+                group: fields.group.value,
+            };
+
+            if ([got.value, got.min, got.max].some((n) => n === null))
+                why.textContent = 'Each of the numbers wants a number.';
+            else if (!(got.max > got.min))
+                why.textContent = 'The maximum must be above the minimum.';
+            else
+            {
+                const refused = apply(got);
+
+                if (refused === null)
+                    dlg.close();
+                else
+                    why.textContent = refused;
+            }
+        };
+
+        dlg.onclose = () =>
+        {
+            dlg.remove();
+            $('nodecanvas').focus();
+        };
+
+        dlg.append(form);
+        (root.body ?? document.body).append(dlg);
+        dlg.showModal();
+        fields.name.select();
+    }
+
+    /* Edits in a row over one text, written once: null, or the sentence
+       the first refused one came with. */
+    function chain (steps)
+    {
+        let next = text();
+
+        for (const [name, types, args] of steps)
+        {
+            const r = M.ccall(name, 'number', ['string', ...types],
+                              [next, ...args]);
+
+            if (r !== OK)
+                return `${call('tw_edit_result_text', ['number'], [r])}: ` +
+                       M.UTF8ToString(M._tw_edit_why());
+
+            next = M.UTF8ToString(M._tw_edit_text());
+        }
+
+        files.write(file, next);
+        return null;
+    }
+
+    const boxNamed = (name) =>
+    {
+        for (let b = 0; b < M._tw_graph_box_count(); b++)
+            if (call('tw_graph_box_name', ['number'], [b]) === name)
+                return b;
+
+        return -1;
+    };
+
+    const META = ['string', 'number', 'number', 'string', 'string'];
+
+    function addControl ()
+    {
+        if (file === null)
+            return;
+
+        /* A name nothing else uses, offered as a starting point, as the
+           palette names a node: ctl, then ctl2. */
+        const taken = new Set();
+
+        for (let b = 0; b < M._tw_graph_box_count(); b++)
+            if (M._tw_graph_box_kind(b) === BOX.CONTROL)
+                taken.add(call('tw_graph_box_control', ['number'], [b]));
+
+        let name = 'ctl';
+
+        for (let n = 2; taken.has(name); n++)
+            name = `ctl${n}`;
+
+        controlForm({ title: 'New control', ok: 'Add', name, value: 0.5,
+                      min: 0, max: 1, label: '', group: '' }, (c) =>
+        {
+            const refused = chain([['tw_edit_add_control',
+                                    ['string', 'number', ...META.slice(1)],
+                                    [c.name, c.value, c.min, c.max, c.label,
+                                     c.group]]]);
+
+            if (refused === null)
+            {
+                M._tw_node_canvas_select(boxNamed(`@${c.name}`));
+                drain();
+                onStatus(`Added @${c.name}.  Drag from its output to a ` +
+                         'parameter to use it.');
+            }
+
+            return refused;
+        });
+    }
+
+    /* A control's name, range, label and group, from its right-click. The
+       range first and the name last, so the text written is the rename's,
+       which is what carries the selection across. */
+    function editControl (was)
+    {
+        const box = boxNamed(`@${was}`);
+
+        if (box < 0)
+            return;
+
+        controlForm({
+            title: `Control @${was}`, ok: 'Apply', name: was,
+            min: M._tw_graph_box_control_min(box),
+            max: M._tw_graph_box_control_max(box),
+            label: call('tw_graph_box_control_label', ['number'], [box]),
+            group: call('tw_graph_box_control_group', ['number'], [box]),
+        }, (c) =>
+        {
+            const steps = [['tw_edit_set_control_meta', META,
+                            [was, c.min, c.max, c.label, c.group]]];
+
+            if (c.name !== was)
+                steps.push(['tw_edit_rename', ['number', 'string', 'string'],
+                            [1, was, c.name]]);
+
+            const watched = probes.filter((p) => p.node === `@${was}`);
+
+            for (const p of watched)
+                p.node = `@${c.name}`;
+
+            const refused = chain(steps);
+
+            if (refused !== null)
+                for (const p of watched)
+                    p.node = `@${was}`;
+            else
+                onStatus(`@${c.name} now runs ${c.min} to ${c.max}.`);
+
+            return refused;
+        });
     }
 
     /* The params panel: the selected box's args, described by the module
@@ -1355,6 +1581,7 @@ export async function createNodeView ({ files, root = document,
     showPalette();
 
     $('nodeadd').addEventListener('click', addNode);
+    $('nodeaddcontrol').addEventListener('click', addControl);
     $('nodefile').addEventListener('change',
                                    () => showFile($('nodefile').value));
     $('nodefit').addEventListener('click', () =>

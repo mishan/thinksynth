@@ -304,7 +304,8 @@ and they are strips on their hosts now. On a 17-layer patch that is 440 pixels.
 ### Retyping one
 
 Right-click a control — its box, or the strip it is drawn as — for its name,
-range, label and group. The range is the thing a slider can neither show nor change: a
+range, label and group. The browser's editor has the same form, there and on
+its Add control button; a refusal is said in the form, which stays open. The range is the thing a slider can neither show nor change: a
 cutoff declared `0..1` has a slider that reaches a tenth of the filter, and
 nothing on the canvas says so or offers to fix it.
 

@@ -3185,6 +3185,7 @@ try
             else
             {
                 const [kept, gone] = picked;
+
                 const box = await page.$eval('#nodecanvas', (c) =>
                 {
                     const r = c.getBoundingClientRect();
@@ -3201,7 +3202,9 @@ try
                                           { hasText: `Delete ${gone.name}` });
 
                 if (await item.count() === 0)
-                    check(false, `the menu on ${gone.name} offers no Delete`);
+                    check(false, `the menu on ${gone.name} offers no Delete: ` +
+                          (await page.locator('#nodemenu button')
+                              .allTextContents()).join(' | '));
                 else
                 {
                     await item.first().click();
@@ -3218,6 +3221,105 @@ try
                           `not ${kept.name}, which was selected`);
                 }
             }
+        }
+
+        await page.evaluate((t) =>
+        {
+            document.getElementById('dsp').value = t;
+        }, original);
+        await page.click('#load');
+        await page.evaluate(() => window.solo.settled());
+    }
+
+    /* A control's form (nodeview.js, controlForm): Add control asks for one
+       and adds it, a name another has keeps the form open saying why, and
+       the right-click form renames and retypes it in one write. The patch
+       is put back after. */
+    {
+        const dsp = () => page.$eval('#dsp', (e) => e.value);
+        const original = await dsp();
+        const changed = (before) => page.waitForFunction(
+            (b) => document.getElementById('dsp').value !== b, before,
+            { timeout: 15000 }).catch(() => {});
+        const form = page.locator('#nodecontrol');
+        const set = (name, value) =>
+            form.locator(`input[name="${name}"]`).fill(String(value));
+        const selected = () => page.evaluate(() =>
+        {
+            const n = window.solo.node();
+
+            return n.selected >= 0 ? n.box(n.selected).name : null;
+        });
+
+        await page.click('#nodeaddcontrol');
+
+        const offered = await form.locator('input[name="name"]').inputValue()
+            .catch(() => null);
+
+        await set('max', 2);
+        await set('label', 'Brightness');
+        await form.locator('button[type="submit"]').click();
+        await changed(original);
+
+        const added = await dsp();
+
+        check(offered !== null && added.includes(`@${offered} = 0.5;`) &&
+              added.includes(`@${offered}.label = "Brightness";`) &&
+              await form.count() === 0 &&
+              await selected() === `@${offered}`,
+              `Add control added @${offered}, labelled, and selected it`);
+
+        await page.click('#nodeaddcontrol');
+        await set('name', offered);
+        await form.locator('button[type="submit"]').click();
+
+        const said = await form.locator('[role="alert"]').textContent()
+            .catch(() => '');
+
+        check(await dsp() === added && await form.isVisible() &&
+              /already/.test(said),
+              `a name another control has keeps the form open: ${said}`);
+
+        await page.keyboard.press('Escape');
+        await page.locator('#nodescroll').scrollIntoViewIfNeeded();
+
+        const at = await page.evaluate((name) =>
+        {
+            const n = window.solo.node();
+            const r = document.getElementById('nodecanvas')
+                .getBoundingClientRect();
+
+            for (let i = 0; i < n.boxes; i++)
+                if (n.box(i).name === name)
+                    return { x: r.x + n.box(i).x + 8, y: r.y + n.box(i).y + 8 };
+
+            return null;
+        }, `@${offered}`);
+
+        if (at === null)
+            check(false, `@${offered} is not on the canvas`);
+        else
+        {
+            await page.mouse.click(at.x, at.y, { button: 'right' });
+            await page.locator('#nodemenu button',
+                               { hasText: `of @${offered}` }).first().click();
+
+            const label = await form.locator('input[name="label"]')
+                .inputValue().catch(() => null);
+
+            await set('name', 'bright');
+            await set('max', 3);
+            await form.locator('button[type="submit"]').click();
+            await changed(added);
+
+            const edited = await dsp();
+
+            check(label === 'Brightness' && edited.includes('@bright = 0.5;') &&
+                  edited.includes('@bright.max = 3;') &&
+                  !edited.includes(`@${offered}`) &&
+                  await selected() === '@bright',
+                  'its right-click form renamed and retyped it, still ' +
+                  'selected');
         }
 
         await page.evaluate((t) =>

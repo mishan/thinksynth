@@ -95,6 +95,9 @@ int             removed_ = 0;
 std::string     built_;
 NodePanel::Header header_;
 
+/* Each control's label as the file declares it, by name. */
+std::map<std::string, std::string> labels_;
+
 /* A rename this page made, by layout key, and the text it made, for the
    build of that text to carry the selection across: the build holds it by
    name, and the name is the thing that changed. */
@@ -498,6 +501,11 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
 
     const bool ok = g.build(tree);
     const NodePanel::Header header = NodePanel::headerOf(tree);
+    std::map<std::string, std::string> labels;
+
+    for (const NodeGraph::Box &b : g.boxes())
+        if (b.isControl && tree->getChanArg(b.ctlArg) != NULL)
+            labels[b.ctlArg] = tree->getChanArg(b.ctlArg)->label();
 
     delete tree;
 
@@ -530,6 +538,7 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
     graph_ = g;
     built_ = text;
     header_ = header;
+    labels_ = labels;
 
     /* setGraph and not just a redraw, because every index the canvas was
        holding is an index into the boxes that were here a moment ago: the
@@ -645,6 +654,38 @@ EMSCRIPTEN_KEEPALIVE double tw_graph_box_control_value (int b)
     const NodeGraph::Box *box = boxAt(b);
 
     return box != NULL ? box->ctlValue : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_graph_box_control_min (int b)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    return box != NULL ? box->ctlMin : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_graph_box_control_max (int b)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    return box != NULL ? box->ctlMax : 0.0;
+}
+
+/* The label the file declares, "" for none. Not the box's, which falls
+   back to the control's name: a form handed that and accepted untouched
+   would label every unlabelled control with its own name. */
+EMSCRIPTEN_KEEPALIVE const char *tw_graph_box_control_label (int b)
+{
+    const NodeGraph::Box *box = boxAt(b);
+    const auto at = box != NULL ? labels_.find(box->ctlArg) : labels_.end();
+
+    return at != labels_.end() ? at->second.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_graph_box_control_group (int b)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    return box != NULL ? box->ctlGroup.c_str() : "";
 }
 
 /* ---- a box's ports, which is what a wire names ---- */
