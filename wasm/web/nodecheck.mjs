@@ -900,7 +900,8 @@ process.stdout.write(
     for (const [what, box, id, typed, kind, node, field] of intents)
     {
         const got = M.ccall('tw_node_propose', 'number',
-                            ['number', 'string', 'string'], [box, id, typed]);
+                            ['number', 'string', 'string', 'string'],
+                            [box, id, typed, fixture]);
 
         if (got !== kind ||
             (node !== null &&
@@ -908,6 +909,17 @@ process.stdout.write(
               M.UTF8ToString(M._tw_node_intent_row()) !== field)))
             fail(`propose: ${what} is ${got}, not ${kind}`);
     }
+
+    /* Typed back over a document that has moved on since the build -- a
+       peer's half-typed line -- it is an edit, since the splice writes over
+       that document and not the one the panel shows. */
+    const moved = M.ccall('tw_node_propose', 'number',
+                          ['number', 'string', 'string', 'string'],
+                          [boxOf('osc'), '#name', 'osc', fixture + 'node ']);
+
+    if (moved !== NODE_RENAME)
+        fail(`a name typed back over a moved document is ${moved}, not an ` +
+             'edit');
 
     /* Each edit the desktop's, byte for byte. */
     const edits = [

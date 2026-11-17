@@ -929,8 +929,8 @@ export async function createNodeView ({ files, root = document,
     function commit (box, row, typed, node)
     {
         const kind = M.ccall('tw_node_propose', 'number',
-                             ['number', 'string', 'string'],
-                             [box, row, typed]);
+                             ['number', 'string', 'string', 'string'],
+                             [box, row, typed, text()]);
         const target = M.UTF8ToString(M._tw_node_intent_node());
         const arg = M.UTF8ToString(M._tw_node_intent_row());
         let done = false;

@@ -6186,16 +6186,20 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
 }
 
 /* What an edit of a node panel's `row' to `valueText' means, for the page
- * to splice: the thPanelEdit kind, -1 refused (tw_panel_why says why) or -2
- * text typed back as it stands. A value is answered even then, as the
- * desktop's is.
+ * to splice into `current', the document as it is now: the thPanelEdit
+ * kind, -1 refused (tw_panel_why says why) or -2 text typed back as it
+ * stands. A value is answered even then, as the desktop's is, and so is any
+ * edit when `current' is not the text the panel was built from -- a peer's
+ * half-typed line in a room -- since then the panel's text is not what the
+ * splice will write over.
  *
  * Asked of a provider of its own over `box', like a chanarg edit: the open
  * panel may be another. */
 static thPanelEdit nodeIntent_;
 
 EMSCRIPTEN_KEEPALIVE int tw_node_propose (int box, const char *row,
-                                          const char *valueText)
+                                          const char *valueText,
+                                          const char *current)
 {
     NodePanel target;
 
@@ -6214,7 +6218,8 @@ EMSCRIPTEN_KEEPALIVE int tw_node_propose (int box, const char *row,
         return -1;
     }
 
-    if (!r.changed && nodeIntent_.kind != thPanelEdit::NODE_VALUE)
+    if (!r.changed && nodeIntent_.kind != thPanelEdit::NODE_VALUE &&
+        current != NULL && *twGraphText() == current)
         return -2;
 
     return (int)nodeIntent_.kind;
