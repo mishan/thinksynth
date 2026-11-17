@@ -82,7 +82,10 @@ Two invariants worth not breaking:
 ## 3. Interaction
 
 Drag boxes, Ctrl+wheel to zoom, hover for detail. A drag with the middle
-button, or with Space held, moves the view rather than anything in it.
+button, or with Space held, moves the view rather than anything in it. A
+control's strip shows a few letters of its label and its value in five
+characters, `14.1k'; hovered, it says the whole label and the value as the
+parameter panel spells it, with its range.
 
 **Wiring.** Drag from a port to another port. The rubber band snaps to the port
 it would land on and turns red when the drop would be refused, so the refusal is

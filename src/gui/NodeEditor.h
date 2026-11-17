@@ -120,6 +120,10 @@ protected:
     /* What Delete can take: not the io node, which a .dsp cannot load
        without, and not an expression, which is an arg's text. */
     static bool deletable (const NodeGraph::Box &b);
+
+    /* What a pointer at `x', `y' on the canvas, in its own pixels, is
+       told: empty for nothing. */
+    string tipAt (double x, double y) const;
     void onSelected (int box);
 
     /* A rubber band gathered several boxes; `n' of them. */
