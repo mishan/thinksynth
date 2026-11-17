@@ -2098,13 +2098,16 @@ NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
 
     const string stmt = field + " \"" + value + "\";";
 
+    /* A line ends as the file's do: a checkout on Windows is CRLF. */
+    const string nl = source.find("\r\n") != string::npos ? "\r\n" : "\n";
+
     /* The rest of a statement's line, if nothing but space and a comment:
        where one goes in after it, and what goes with it when it goes. */
     const auto lineEnd = [&] (size_t i)
     {
         const size_t e = source.find('\n', i);
         const size_t stop = e == string::npos ? n : e;
-        const size_t k = source.find_first_not_of(" \t", i);
+        const size_t k = source.find_first_not_of(" \t\r", i);
 
         return k == string::npos || k >= stop || source[k] == '#'
                ? (e == string::npos ? n : e + 1) : string::npos;
@@ -2162,7 +2165,7 @@ NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
             const size_t eol = lineEnd(to[k]);
 
             if (eol != string::npos)
-                source.insert(eol, stmt + "\n");
+                source.insert(eol, stmt + nl);
             else
                 source.insert(to[k], " " + stmt);
 
@@ -2172,7 +2175,7 @@ NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
     for (int k = at + 1; k < N; k++)
         if (has[k])
         {
-            source.insert(from[k], stmt + (alone(k) ? "\n" : " "));
+            source.insert(from[k], stmt + (alone(k) ? nl : " "));
             return OK;
         }
 
@@ -2180,7 +2183,7 @@ NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
        follows. */
     top = top == string::npos ? n : lineStart(top);
 
-    source.insert(top, stmt + "\n\n");
+    source.insert(top, stmt + nl + nl);
 
     return OK;
 }
