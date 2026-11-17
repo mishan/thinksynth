@@ -2928,6 +2928,7 @@ try
         }
 
         const picked = await page.evaluate(() => ({
+            deletable: !document.getElementById('nodedelete').disabled,
             selected: window.solo.node().selected,
             current: document.querySelector(
                 '#nodelist button[aria-current="true"]')?.textContent,
@@ -2941,6 +2942,8 @@ try
               (picked.current === picked.focus ? '' :
                ` (row ${chosen} of ${listed}, selected ${picked.selected}, ` +
                `the focus on ${picked.on}: ${(picked.focus ?? '').slice(0, 60)})`));
+        check(picked.deletable,
+              'and the toolbar\'s Delete is offered for the node chosen');
 
 
         /* The rest needs that node, and a list without one has said so

@@ -1291,6 +1291,7 @@ export async function createNodeView ({ files, root = document,
     {
         selected = b;
         M._tw_node_canvas_select(b);
+        offerDelete();
 
         const zoom = M._tw_node_canvas_zoom();
 
