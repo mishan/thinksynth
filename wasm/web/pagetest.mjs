@@ -3283,7 +3283,7 @@ try
         await page.keyboard.press('Escape');
         await page.locator('#nodescroll').scrollIntoViewIfNeeded();
 
-        const at = await page.evaluate((name) =>
+        const where = (name) => page.evaluate((name) =>
         {
             const n = window.solo.node();
             const r = document.getElementById('nodecanvas')
@@ -3294,7 +3294,8 @@ try
                     return { x: r.x + n.box(i).x + 8, y: r.y + n.box(i).y + 8 };
 
             return null;
-        }, `@${offered}`);
+        }, name);
+        const at = await where(`@${offered}`);
 
         if (at === null)
             check(false, `@${offered} is not on the canvas`);
@@ -3320,6 +3321,36 @@ try
                   await selected() === '@bright',
                   'its right-click form renamed and retyped it, still ' +
                   'selected');
+
+            /* Open again, and somebody else -- here the text box, as a
+               peer's edit arrives in a room -- sets the maximum under it.
+               Only the label is typed, so only the label is written. */
+            const now = await where('@bright');
+
+            await page.mouse.click(now.x, now.y, { button: 'right' });
+            await page.locator('#nodemenu button',
+                               { hasText: 'of @bright' }).first().click();
+            await page.evaluate(() =>
+            {
+                const box = document.getElementById('dsp');
+
+                box.value = box.value.replace('@bright.max = 3;',
+                                              '@bright.max = 5;');
+                box.dispatchEvent(new Event('input'));
+            });
+            await set('label', 'Shine');
+
+            const under = await dsp();
+
+            await form.locator('button[type="submit"]').click();
+            await changed(under);
+
+            const merged = await dsp();
+
+            check(merged.includes('@bright.max = 5;') &&
+                  merged.includes('@bright.label = "Shine";'),
+                  'a field changed under an open form is kept, and only ' +
+                  'what was typed is written');
         }
 
         await page.evaluate((t) =>

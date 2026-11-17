@@ -895,6 +895,10 @@ export async function createNodeView ({ files, root = document,
     {
         $('nodecontrol')?.remove();
 
+        /* For this file and no other: in a room the one shown can change
+           under an open form, and that closes it (showFile). */
+        const on = file;
+
         const dlg = document.createElement('dialog');
         const form = document.createElement('form');
         const heading = document.createElement('h3');
@@ -962,7 +966,10 @@ export async function createNodeView ({ files, root = document,
                 group: fields.group.value,
             };
 
-            if ([got.value, got.min, got.max].some((n) => n === null))
+            if (file !== on)
+                why.textContent = `This was for ${on}, which is not the ` +
+                                  'file shown now.';
+            else if ([got.value, got.min, got.max].some((n) => n === null))
                 why.textContent = 'Each of the numbers wants a number.';
             else if (!(got.max > got.min))
                 why.textContent = 'The maximum must be above the minimum.';
@@ -1070,16 +1077,30 @@ export async function createNodeView ({ files, root = document,
         if (box < 0)
             return;
 
-        controlForm({
-            title: `Control @${was}`, ok: 'Apply', name: was,
-            min: M._tw_graph_box_control_min(box),
-            max: M._tw_graph_box_control_max(box),
-            label: call('tw_graph_box_control_label', ['number'], [box]),
-            group: call('tw_graph_box_control_group', ['number'], [box]),
-        }, (c) =>
+        const meta = (b) => ({
+            min: M._tw_graph_box_control_min(b),
+            max: M._tw_graph_box_control_max(b),
+            label: call('tw_graph_box_control_label', ['number'], [b]),
+            group: call('tw_graph_box_control_group', ['number'], [b]),
+        });
+        const opened = meta(box);
+
+        controlForm({ title: `Control @${was}`, ok: 'Apply', name: was,
+                      ...opened }, (c) =>
         {
+            /* What is there now, for each field not typed into: in a room
+               a peer may have changed one since the form opened, and
+               writing the form's copy back would undo them. */
+            const at = boxNamed(`@${was}`);
+
+            if (at < 0)
+                return `@${was} is not in the patch any more.`;
+
+            const now = meta(at);
+            const pick = (k) => (c[k] === opened[k] ? now[k] : c[k]);
             const steps = [['tw_edit_set_control_meta', META,
-                            [was, c.min, c.max, c.label, c.group]]];
+                            [was, pick('min'), pick('max'), pick('label'),
+                             pick('group')]]];
 
             if (c.name !== was)
                 steps.push(['tw_edit_rename', ['number', 'string', 'string'],
@@ -1096,7 +1117,8 @@ export async function createNodeView ({ files, root = document,
                 for (const p of watched)
                     p.node = `@${was}`;
             else
-                onStatus(`@${c.name} now runs ${c.min} to ${c.max}.`);
+                onStatus(`@${c.name} now runs ${pick('min')} to ` +
+                         `${pick('max')}.`);
 
             return refused;
         });
@@ -1563,6 +1585,7 @@ export async function createNodeView ({ files, root = document,
         {
             watching?.();
             file = name;
+            $('nodecontrol')?.close();
 
             /* Somebody else's edit to this file -- another peer's, or the
                text editor's on this page -- is a rebuild like our own. */
