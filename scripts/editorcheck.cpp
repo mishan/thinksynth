@@ -2994,8 +2994,9 @@ void checkHeader (thSynth &synth, const char *file)
 
     std::vector<Gtk::Entry *> e = entries();
 
-    ok(e.size() == 4 && e[0]->get_text() == ed->header().name &&
-       !ed->header().name.empty() && e[1]->get_text() == ed->header().author,
+    ok(e.size() == 4 && e[0]->get_text().raw() == ed->header().name &&
+       !ed->header().name.empty() &&
+       e[1]->get_text().raw() == ed->header().author,
        "with nothing selected the panel shows the patch's header (%zu "
        "fields)", e.size());
 
@@ -3042,7 +3043,7 @@ void checkHeader (thSynth &synth, const char *file)
     enter(1, "say \"hi\"");
 
     ok(ed->text() == held && ed->status().find("Cannot set the author") == 0 &&
-       entries()[1]->get_text() == ed->header().author,
+       entries()[1]->get_text().raw() == ed->header().author,
        "a quote is refused, the file untouched and the field put back: %s",
        ed->status().c_str());
 
