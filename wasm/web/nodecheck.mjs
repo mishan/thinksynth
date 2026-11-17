@@ -980,6 +980,45 @@ process.stdout.write(
     fs.rmSync(path.dirname(file), { recursive: true, force: true });
 }
 
+/* ---- a control's range, label and group, for its form ---------------- */
+
+{
+    const fixture =
+        '@a = 0.5;\n@a.widget = 1;\n@a.min = 0.25;\n@a.max = 2;\n' +
+        '@a.label = "Cut off";\n@a.group = "Filter";\n' +
+        '@b = 1;\n@b.widget = 1;\n@b.min = 0;\n@b.max = 4;\n' +
+        'node ionode { channels = 1; out0 = osc->out; play = 1; };\n' +
+        'node osc osc::simple { freq = ionode->note; amp = @a; mul = @b; };\n' +
+        'io ionode;\n';
+
+    M.ccall('tw_graph_build', 'number', ['string'], [fixture]);
+
+    const of = (name) =>
+    {
+        for (let b = 0; b < M._tw_graph_box_count(); b++)
+            if (call('tw_graph_box_name', ['number'], [b]) === name)
+                return {
+                    min: M._tw_graph_box_control_min(b),
+                    max: M._tw_graph_box_control_max(b),
+                    label: call('tw_graph_box_control_label', ['number'], [b]),
+                    group: call('tw_graph_box_control_group', ['number'], [b]),
+                };
+
+        return null;
+    };
+    const a = of('@a'), b = of('@b');
+
+    /* The label as the file says it: none is none, not the name the strip
+       falls back to, or a form accepted untouched would write one. */
+    if (a?.min !== 0.25 || a?.max !== 2 || a?.label !== 'Cut off' ||
+        a?.group !== 'Filter' || b?.label !== '' || b?.group !== '')
+        fail(`a control's form starts from what the file says: ` +
+             JSON.stringify([a, b]));
+    else
+        process.stdout.write('ok    a control\'s range, label and group are ' +
+                             'what the file says, an absent label empty\n');
+}
+
 process.stdout.write(failures === 0
     ? '\nthe node editor\'s model runs in the browser, and edits the way ' +
       'the desktop edits\n'
