@@ -85,6 +85,11 @@ void NodeParamsView::onEdited (const string &row, const string &valueText)
     if (!result.ok)
         return;
 
+    /* Text typed back as it stands. A value is reported even so; see
+       below. */
+    if (!result.changed && edit.kind != thPanelEdit::NODE_VALUE)
+        return;
+
     switch (edit.kind)
     {
         case thPanelEdit::NODE_INFO:

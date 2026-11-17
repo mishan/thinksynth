@@ -396,13 +396,29 @@ thPanelResult NodePanel::propose (const string &row, const string &valueText,
     const NodeGraph::Box *b = boxOf(graph_, box_);
     string text;
 
+    /* Text typed back as it stands is allowed and nothing to do. */
+    const auto against = [&] (const string &now)
+    {
+        return valueText == now ? thPanelResult::echo() : thPanelResult();
+    };
+
     if (b == NULL)
     {
+        const string *values[] = { NULL, NULL, NULL, NULL };
+
+        if (header_ != NULL)
+        {
+            values[0] = &header_->name;
+            values[1] = &header_->author;
+            values[2] = &header_->category;
+            values[3] = &header_->description;
+        }
+
         for (int i = 0; header_ != NULL && box_ < 0 && i < 4; i++)
             if (row == FIELDS[i][0])
             {
                 out.kind = thPanelEdit::NODE_INFO;
-                return thPanelResult();
+                return against(*values[i]);
             }
 
         return thPanelResult::refuse("no such node");
@@ -414,7 +430,7 @@ thPanelResult NodePanel::propose (const string &row, const string &valueText,
             return thPanelResult::refuse("no name to change here");
 
         out.kind = thPanelEdit::NODE_RENAME;
-        return thPanelResult();
+        return against(b->isControl ? b->ctlArg : b->name);
     }
 
     /* An expression's box speaks for its arg. */
@@ -427,7 +443,7 @@ thPanelResult NodePanel::propose (const string &row, const string &valueText,
         out.kind = thPanelEdit::NODE_EXPRESSION;
         out.node = node;
         out.row = arg;
-        return thPanelResult();
+        return against(text);
     }
 
     if (row == EXPR_ROW)

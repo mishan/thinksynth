@@ -968,6 +968,27 @@ static void checkNodeText (const string &pluginPath)
 
     thPanelEdit edit;
 
+    /* Each of them typed back as it stands: allowed, and nothing to do. */
+    const Intent echoes[] = {
+        { "a header field", NULL, "author", "A", true,
+          thPanelEdit::NODE_INFO, "", "author" },
+        { "a name", "osc", "#name", "osc", true, thPanelEdit::NODE_RENAME, "",
+          "#name" },
+        { "arithmetic as the file spells it", "osc", "amp", "@lvl*0.5", true,
+          thPanelEdit::NODE_EXPRESSION, "osc", "amp" },
+    };
+
+    for (const Intent &i : echoes)
+    {
+        panel.setBox(&graph, i.box ? box(i.box) : -1);
+
+        const thPanelResult r = panel.propose(i.row, i.text, edit);
+
+        check(r.ok && !r.changed && edit.kind == i.kind,
+              string("echo: ") + i.what + " typed back changes nothing",
+              r.why);
+    }
+
     /* A stale index is no node, not the header. */
     panel.setBox(&graph, 9999);
     check(!panel.build(built) && !panel.propose("author", "B", edit).ok,
