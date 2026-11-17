@@ -484,6 +484,15 @@ export async function createNodeView ({ files, root = document,
                     break;
             }
         }
+
+        offerDelete();
+    }
+
+    /* The toolbar's Delete, for whatever is selected: there is nothing to
+       take without a selection. */
+    function offerDelete ()
+    {
+        $('nodedelete').disabled = M._tw_node_canvas_selection_count() === 0;
     }
 
     /* The wire at `edge', cut. The lookup is the desktop's
@@ -879,9 +888,16 @@ export async function createNodeView ({ files, root = document,
         const name = call('tw_catalog_suggest', ['string'],
                           [plugin.replace(/^.*::/, '')]);
 
+        /* Where the view is, beside a box already there, and selected --
+           its parameters the ones showing, as on the desktop. */
         if (edit('tw_edit_add_node', ['string', 'string', 'string'],
                  [name, plugin]))
+        {
+            M.ccall('tw_graph_place', 'number', ['string'], [name]);
+            drain();
+            writeLayout();
             onStatus(`Added ${name} (${plugin}).`);
+        }
     }
 
     /* ---- a control's form ----
@@ -1551,6 +1567,7 @@ export async function createNodeView ({ files, root = document,
         selected = M._tw_node_canvas_selected();
         view.viewport();
         showParams();
+        offerDelete();
         paint();
     }
 
@@ -1611,6 +1628,37 @@ export async function createNodeView ({ files, root = document,
     {
         M._tw_node_canvas_zoom_to_fit();
         paint();
+    });
+
+    /* The desktop's steps. */
+    const zoomTo = (z) =>
+    {
+        M._tw_node_canvas_set_zoom(z);
+        paint();
+    };
+
+    $('nodezoomin').addEventListener('click',
+        () => zoomTo(M._tw_node_canvas_zoom() * 1.25));
+    $('nodezoomout').addEventListener('click',
+        () => zoomTo(M._tw_node_canvas_zoom() / 1.25));
+    $('nodezoom1').addEventListener('click', () => zoomTo(1));
+
+    /* Hand placement discarded, so it is an edit: the layout block is
+       written again from the arranged graph. */
+    $('nodearrange').addEventListener('click', () =>
+    {
+        if (file === null)
+            return;
+
+        M._tw_graph_arrange();
+        writeLayout();
+        onStatus('Arranged.');
+    });
+
+    $('nodedelete').addEventListener('click', () =>
+    {
+        deleteSelection();
+        offerDelete();
     });
     $('nodeview').addEventListener('toggle', refit);
 
@@ -1754,5 +1802,6 @@ export async function createNodeView ({ files, root = document,
              },
              boxes: () => M._tw_graph_box_count(),
              probes: () => probes.length,
+             zoom: () => M._tw_node_canvas_zoom(),
              selected: () => selected };
 }

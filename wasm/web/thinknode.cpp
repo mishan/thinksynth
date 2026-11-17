@@ -555,6 +555,42 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
     return (int)graph_.boxes().size();
 }
 
+/* The node `name' just added, put in the middle of what the canvas shows
+   and selected, as the desktop's palette puts one. False if there is no
+   such box. The page writes the layout block after. */
+EMSCRIPTEN_KEEPALIVE int tw_graph_place (const char *name)
+{
+    const int box = graph_.boxByName(name != NULL ? name : "");
+
+    if (box < 0)
+        return 0;
+
+    double x, y, w, h;
+
+    canvas()->visibleRect(x, y, w, h);
+    graph_.placeNear(box, x + w / 2, y + h / 2);
+    canvas()->setGraph(&graph_);
+    canvas()->setSelected(box);
+
+    return 1;
+}
+
+/* Every box where the layout puts it, hand placement discarded, the
+   selection kept. The page writes the layout block after. */
+EMSCRIPTEN_KEEPALIVE void tw_graph_arrange (void)
+{
+    const NodeCanvas::Held kept =
+        canvas_ != NULL ? canvas_->held() : NodeCanvas::Held();
+
+    graph_.layout();
+
+    if (canvas_ != NULL)
+    {
+        canvas_->setGraph(&graph_);
+        canvas_->hold(kept);
+    }
+}
+
 /* The saved positions in the text, applied over the computed layout. How
    many boxes were moved. */
 EMSCRIPTEN_KEEPALIVE int tw_graph_apply_layout (const char *text)

@@ -20,6 +20,7 @@
 
 #include <stdio.h>
 #include <algorithm>
+#include <cmath>
 
 #include <filesystem>
 
@@ -1888,6 +1889,33 @@ void NodeGraph::removeProbe (int box)
     for (size_t b = 0; b < boxes_.size(); b++)
         if (boxes_[b].attachedTo > box)
             boxes_[b].attachedTo--;
+}
+
+void NodeGraph::placeNear (int index, double cx, double cy)
+{
+    if (index < 0 || index >= (int)boxes_.size())
+        return;
+
+    double x = std::max(0.0, cx - boxes_[index].w / 2);
+    double y = std::max(0.0, cy - boxes_[index].h / 2);
+
+    for (bool clear = false; !clear; )
+    {
+        clear = true;
+
+        for (int b = 0; b < (int)boxes_.size(); b++)
+            if (b != index && boxes_[b].attachedTo < 0 &&
+                std::fabs(boxes_[b].x - x) < 12 &&
+                std::fabs(boxes_[b].y - y) < 12)
+            {
+                x += 24;
+                y += 24;
+                clear = false;
+            }
+    }
+
+    moveBox(index, x, y);
+    refreshExtent();
 }
 
 void NodeGraph::moveBox (int index, double x, double y)
