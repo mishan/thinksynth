@@ -567,6 +567,25 @@ int main (int argc, char **argv)
               "author \"A\";\n\nnode q misc::note { author \"Z\"; };\n" },
         };
 
+        /* The header last, with a comment and no line ending after it. */
+        {
+            string text = body + "name \"X\"; # the header", why;
+            const NodeEdit::Result r =
+                NodeEdit::Text::setInfo(text, "author", "A", why);
+
+            if (r != NodeEdit::OK ||
+                text != body + "name \"X\"; # the header\nauthor \"A\";")
+            {
+                printf("FAIL  setInfo: a field put in after a last line "
+                       "with no line ending -> %s\n%s",
+                       NodeEdit::resultText(r), text.c_str());
+                failed++;
+            }
+            else if (!quiet)
+                printf("ok    setInfo: a field put in after a last line "
+                       "with no line ending\n");
+        }
+
         for (const Case &c : cases)
         {
             string text = string(c.before) + body, why;

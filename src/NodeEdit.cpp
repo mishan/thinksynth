@@ -2164,7 +2164,12 @@ NodeEdit::Result NodeEdit::Text::setInfo (string &source, const string &field,
         {
             const size_t eol = lineEnd(to[k]);
 
-            if (eol != string::npos)
+            /* A last line with no ending gets one first, or the statement
+               would join the line -- inside a comment, if it has one. */
+            if (eol != string::npos && eol == n && n > 0 &&
+                source[n - 1] != '\n')
+                source.insert(eol, nl + stmt);
+            else if (eol != string::npos)
                 source.insert(eol, stmt + nl);
             else
                 source.insert(to[k], " " + stmt);
