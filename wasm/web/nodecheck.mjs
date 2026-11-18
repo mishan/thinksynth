@@ -1174,12 +1174,13 @@ process.stdout.write(
 
     M._tw_probe_unpanel(panel);
 
-    const gone = M.ccall('tw_layout_write', 'number', ['string'],
-                         [fixture]) ? M.UTF8ToString(M._tw_edit_text()) : '';
+    const rewrote = M.ccall('tw_layout_write', 'number', ['string'],
+                            [fixture]);
+    const gone = M.UTF8ToString(M._tw_edit_text());
 
     if (read.join(' ') !== 'osc out scope' || panel < 0 || !kept ||
         !written.includes('# @probe osc out scope') ||
-        !written.includes('# @layout osc 400 300') ||
+        !written.includes('# @layout osc 400 300') || !rewrote ||
         gone.includes('# @probe'))
         fail(`a probe is read from its line, kept by a panel, and gone with ` +
              `it: ${JSON.stringify({ read, panel, kept })}`);

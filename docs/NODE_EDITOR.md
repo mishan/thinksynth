@@ -156,8 +156,8 @@ a window of its own. Probes are written into the file's layout block, so a
 patch opens with the ones it was saved with. The browser's editor keeps them
 the same way, and in a room that makes them the room's: the lines are in the
 shared file, so every peer's editor shows them, each drawing from its own
-tap. A double-click there draws the panel large in a dialog beside the
-graph.
+tap. A double-click there draws the panel large in a dialog over the page,
+which leaves the graph where it was.
 
 **The graph as a list.** List, the third toggle on the toolbar, shows every
 node as a row and, for the chosen one, its wires as buttons: connect,

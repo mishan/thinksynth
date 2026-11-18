@@ -1083,6 +1083,10 @@ async function loadPatch ()
     {
         aimed.delete(PATCH_CHANNEL);
         placed.delete(PATCH_CHANNEL);
+
+        /* A load disarms every tap on the channel, and the graph asked for
+           its taps before this one was sent. */
+        nodes?.rearm();
     }
 
     status(ok ? `Loaded ${$('patch').value}. Play.`
@@ -2185,6 +2189,8 @@ async function loadPiece ()
         it = await quietly(async () =>
         {
             const loaded = await synth.loadPiece($('gen').value);
+
+            nodes?.rearm();
 
             if (loaded.errors.length === 0)
                 aiming = await patch.aim(
@@ -4045,6 +4051,7 @@ window.solo = {
         boxes: nodes.boxes(),
         selected: nodes.selected(),
         probes: nodes.probes(),
+        fed: nodes.fed(),
         zoom: nodes.zoom(),
         held: nodes.held(),
         hit: (x, y) => nodes.hit(x, y),

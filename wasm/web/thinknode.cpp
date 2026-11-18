@@ -1424,11 +1424,15 @@ EMSCRIPTEN_KEEPALIVE int tw_probe_panel (const char *node, const char *arg,
     if (node == NULL || arg == NULL || visual == NULL)
         return -1;
 
+    /* By the output as well as the name: the io node is two boxes of one
+       name, and only one of them has the port. */
     int host = -1;
 
     for (size_t i = 0; i < graph_.boxes().size() && host < 0; i++)
-        if (graph_.boxes()[i].name == node)
-            host = (int)i;
+        if (graph_.boxes()[i].name == node && !graph_.boxes()[i].isProbe)
+            for (const NodeGraph::Port &p : graph_.boxes()[i].ports)
+                if (p.name == arg && !p.isInput)
+                    host = (int)i;
 
     if (host < 0)
         return -1;

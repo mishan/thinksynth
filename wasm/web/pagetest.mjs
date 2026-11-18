@@ -3736,6 +3736,22 @@ try
                   `watching ${port.node}.${port.name} writes "${line}" and ` +
                   'touches nothing else in the patch');
 
+            /* And draws what the patch plays: the tap asked of the patch
+               the watch reloaded, not of the one it replaced. A note, so
+               there is something to draw. */
+            const fedWas = (await page.evaluate(() => window.solo.node())).fed;
+
+            await page.keyboard.press('Escape');
+            await page.keyboard.down('z');
+            await page.waitForFunction(
+                (w) => window.solo.node().fed > w, fedWas,
+                { timeout: 10000 }).catch(() => {});
+            await page.keyboard.up('z');
+
+            check((await page.evaluate(() => window.solo.node())).fed > fedWas,
+                  `${port.node}.${port.name}'s display is fed from the ` +
+                  'patch as loaded now');
+
             /* The panel sits above its node; a double-click on it. */
             const panel = await page.evaluate(() =>
             {
@@ -3764,8 +3780,20 @@ try
 
             const big = await page.locator('#nodeprobebig').isVisible()
                 .catch(() => false);
-            const width = await page.$eval('#nodeprobebig canvas',
-                                           (c) => c.width).catch(() => 0);
+            /* Drawn, not merely sized: something on the canvas that is
+               not its background. */
+            const width = await page.$eval('#nodeprobebig canvas', (c) =>
+            {
+                const px = c.getContext('2d')
+                    .getImageData(0, 0, c.width, c.height).data;
+
+                for (let i = 4; i < px.length; i += 4)
+                    if (px[i] !== px[0] || px[i + 1] !== px[1] ||
+                        px[i + 2] !== px[2] || px[i + 3] !== px[3])
+                        return c.width;
+
+                return 0;
+            }).catch(() => 0);
 
             await page.keyboard.press('Escape');
 
@@ -3804,15 +3832,23 @@ try
                 return null;
             }, port);
 
-            at = await canvasAt();
-            await page.mouse.click(at.x + moved.x, at.y + moved.y,
-                                   { button: 'right' });
-            await page.locator('#nodemenu button', { hasText: 'Stop watching' })
-                .first().click().catch(() => {});
-            await changed(watched);
+            if (!moved)
+                check(false, `${port.node}.${port.name} is not in the graph ` +
+                             'to stop watching');
+            else
+            {
+                at = await canvasAt();
+                await page.mouse.click(at.x + moved.x, at.y + moved.y,
+                                       { button: 'right' });
+                await page.locator('#nodemenu button',
+                                   { hasText: 'Stop watching' })
+                    .first().click().catch(() => {});
+                await changed(watched);
 
-            check(!(await dsp()).includes('# @probe') && await probes() === 0,
-                  'and stopping takes the line out of the file');
+                check(!(await dsp()).includes('# @probe') &&
+                      await probes() === 0,
+                      'and stopping takes the line out of the file');
+            }
         }
 
         await setText(original);
