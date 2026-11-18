@@ -1604,6 +1604,53 @@ async function pasteTogether (pages)
     await A.page.evaluate(() => window.jam.stop());
 }
 
+/* Ctrl+Z in the room's code editor takes back one's own typing and not a
+ * peer's that came after it. */
+async function undoOwnEdits (pages)
+{
+    const [A, B] = pages;
+
+    await enter(pages, 'jamundo', PIECE);
+
+    const name = await A.page.evaluate(() => window.jam.piece());
+    const was = await A.page.evaluate((n) => window.jam.file(n), name);
+    const text = (page) => page.evaluate((n) => window.jam.file(n), name);
+    const type = async (page, line) =>
+    {
+        await page.click(`#tabs button:text-is("${name}")`);
+        await page.click('.cm-content');
+        await page.keyboard.press('Control+Home');
+        await page.keyboard.type(line);
+    };
+    const everywhere = (want) => Promise.all(pages.map(({ page }) =>
+        page.waitForFunction(([n, w]) => window.jam.file(n) === w,
+                             [name, want], { timeout: 10000 })
+            .then(() => true, () => false)));
+
+    await type(A.page, '# A\'s line\n');
+    await everywhere('# A\'s line\n' + was);
+    await type(B.page, '# B\'s line\n');
+
+    if (!(await everywhere('# B\'s line\n# A\'s line\n' + was))
+            .every(Boolean))
+    {
+        fail(`the two lines typed into ${name} did not reach both pages`);
+        return;
+    }
+
+    await A.page.click('.cm-content');
+    await A.page.keyboard.press('Control+z');
+
+    const want = '# B\'s line\n' + was;
+
+    if ((await everywhere(want)).every(Boolean))
+        ok(`${A.label}'s Ctrl+Z takes back ${A.label}'s line and leaves ` +
+           `${B.label}'s, on both pages`);
+    else
+        fail(`${name} after ${A.label}'s Ctrl+Z begins ` +
+             JSON.stringify((await text(A.page)).split('\n', 2)));
+}
+
 /* Keys into a piece, from both pages: hands.gen, which composes nothing
  * but what it is played. One page sits on the quantizer's channel and
  * plays quantised, the other on an arpeggiator's and plays a bar ahead. A
@@ -3542,6 +3589,7 @@ try
     await switchTogether(pages, browsers[0]);
     await sectionsTogether(pages, browsers[0]);
     await pasteTogether(pages);
+    await undoOwnEdits(pages);
 
     /* ---- and talks ---- */
 

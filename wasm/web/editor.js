@@ -32,10 +32,11 @@
  * only its source boxes (sourcebox.js).
  */
 
-import { minimalSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers } from '@codemirror/view';
-import { indentWithTab } from '@codemirror/commands';
+import { EditorView, drawSelection, highlightSpecialChars, keymap,
+         lineNumbers } from '@codemirror/view';
+import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
 
@@ -105,12 +106,18 @@ export class Editor
         const state = EditorState.create({
             doc: text.toString(),
             extensions: [
-                minimalSetup,
+                /* minimalSetup without its history, which would take
+                   Ctrl+Z ahead of the Y.UndoManager's and undo a peer's
+                   edits along with one's own. */
+                highlightSpecialChars(),
+                drawSelection(),
+                syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
                 lineNumbers(),
                 EditorView.lineWrapping,
                 languageFor(name) ?? [],
                 pageLook,
-                keymap.of([...yUndoManagerKeymap, indentWithTab]),
+                keymap.of([...yUndoManagerKeymap, ...defaultKeymap,
+                           indentWithTab]),
                 EditorView.contentAttributes.of({ 'aria-label': name,
                                                   tabindex: '0' }),
                 yCollab(text, this.awareness, { undoManager: undo }),
