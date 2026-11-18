@@ -583,6 +583,10 @@ if(THINK_GUI)
   # The one harness here that needs a display, because what it measures is a real
   # widget's real draw path. A measuring instrument rather than a gate, so it is
   # not in the ctest list below -- run it by hand, under xvfb-run if need be.
+  # The canvas's gestures and keys against a bare NodeCanvas: no widget and
+  # no display, so a gate on every runner that builds the GUI.
+  think_harness(canvascheck NODEMODEL NODECANVAS)
+
   think_harness(canvasbench NODEMODEL VISUALHOST NODECANVAS
                 EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp")
@@ -1445,6 +1449,10 @@ if(THINK_GUI)
   # load.
   set_tests_properties(composercheck PROPERTIES
       ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+
+  # No display wanted: the canvas is driven bare.
+  add_test(NAME canvascheck
+           COMMAND canvascheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
   # Needs a display too. THINK_DSP_PATH for editorcheck's reason below: the
   # patch's .dsp is named bare and resolved against a corpus.

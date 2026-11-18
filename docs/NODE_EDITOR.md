@@ -535,6 +535,7 @@ display, and skips itself without one. The rest are run by hand.
 | `dspwrite` | yes | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it; every header field changed and put back; every node and control renamed, the same graph, and back byte for byte; every expression set to the text its box shows, the same graph |
 | `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |
 | `dsplayout` | no | layer counts against the critical-path floor, and the wrap-mode cut profile |
+| `canvascheck` | yes | the canvas's gestures and keys against a bare `NodeCanvas`, no widget and no display: a click that moves nothing, a drag, a click on nothing, a band, Shift-click, a group dragged, a wire selected and then cut, Delete, Escape, Ctrl+A, the arrows, a nudge, Ctrl+arrow left to the scroller, a pan |
 | `dsplive` | no | that moving a control changes the sound of a ringing note |
 | `dspab` | yes | two renders compared bitwise, for changes meant to be inaudible |
 
