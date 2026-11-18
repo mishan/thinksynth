@@ -318,7 +318,7 @@ set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 ear.js evolve.js evolveui.js
                 growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
-                layouts.js packs.js takes.js manifest.json
+                layouts.js packs.js takes.js history.js manifest.json
                 silent.js horizon.js lookahead.js thinksynth.js)
 set(SITE_OUTPUTS "")
 
