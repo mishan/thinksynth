@@ -128,6 +128,7 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 10
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
@@ -303,6 +304,7 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 10
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
@@ -448,6 +450,7 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 10
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
@@ -547,6 +550,7 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 10
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
@@ -983,6 +987,10 @@ jobs:
       # no timeout of its own. Same module and same reasoning as the jam job,
       # which needs one for jamtest's two live peers.
       #
+      # Both legs: Playwright's --with-deps below installs through apt too.
+      - name: The apt mirror
+        run: sudo sh .github/apt-mirror.sh
+
       # The chromium leg only: browsertest.mjs is offline, and mictest.mjs
       # runs there.
       - name: Install dependencies
@@ -1169,7 +1177,7 @@ jobs:
 
       - name: Install dependencies
         timeout-minutes: 10
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+        run: sudo sh .github/apt-mirror.sh && sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
       # A sound card, of sorts, for jamtest below. It opens a live
       # AudioContext in both browsers, because two peers agreeing on a
