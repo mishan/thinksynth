@@ -93,6 +93,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
@@ -148,6 +149,7 @@ jobs:
 
       - name: Install flatpak-builder
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
 

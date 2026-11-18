@@ -32,6 +32,7 @@ jobs:
       - name: Install dependencies
         timeout-minutes: 10
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build flex pkg-config \
