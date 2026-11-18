@@ -1,0 +1,44 @@
+# For listenpagecheck: two instruments heard and one that is not, over two
+# bars of 4/4 at 120.
+
+name "Listen";
+description "Two bars for the listening page's check.";
+
+tempo 120;
+meter 4;
+
+section all 2 bars { };
+section end;
+
+scale chroma "C3 D3 E3 F3 G3 A3 B3 C4 D4 E4 F4 G4";
+
+instrument lead { dsp "pluck.dsp"; };
+instrument bass { dsp "sub.dsp"; };
+instrument ghost { dsp "pluck.dsp"; amp = 0; };
+
+chain lead {
+    stage src gen::lsystem {
+        axiom = "+++++++F+F+F_-F__";
+        depth = 0;  notes = chroma;
+        step = 1 beats;  hold = 0.9 beats;  vel = 90;
+    };
+    sink { instrument = lead; };
+};
+
+chain bass {
+    stage src gen::lsystem {
+        axiom = "F___ ++++F___";
+        depth = 0;  notes = chroma;
+        step = 1 beats;  hold = 0.9 beats;  vel = 90;
+    };
+    sink { instrument = bass; };
+};
+
+chain ghost {
+    stage src gen::lsystem {
+        axiom = "F_______";
+        depth = 0;  notes = chroma;
+        step = 1 beats;  hold = 0.9 beats;  vel = 90;
+    };
+    sink { instrument = ghost; };
+};

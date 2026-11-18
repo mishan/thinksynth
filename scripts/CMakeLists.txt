@@ -1094,6 +1094,24 @@ add_test(NAME genwav.nodelevels
                  -DWORK=${PROJECT_BINARY_DIR}/genwav-nodelevels
                  -P "${PROJECT_SOURCE_DIR}/cmake/RunGenwavNodeLevels.cmake")
 
+# scripts/listenpage.py on a two-bar piece: the page it builds against the
+# piece's own tape (listenpagecheck.py says what is checked). Skipped
+# without ffmpeg, which the page's MP3s need.
+find_package(Python3 COMPONENTS Interpreter)
+
+if(Python3_Interpreter_FOUND)
+  add_test(NAME listenpage
+           COMMAND Python3::Interpreter
+                   "${PROJECT_SOURCE_DIR}/scripts/listenpagecheck.py"
+                   "${PROJECT_SOURCE_DIR}/scripts/listenpage.py"
+                   $<TARGET_FILE:genwav>
+                   "${PROJECT_BINARY_DIR}/plugins/"
+                   "${PROJECT_SOURCE_DIR}/scripts/guard/listenpage.gen"
+                   "${PROJECT_BINARY_DIR}/listenpage")
+  set_tests_properties(listenpage PROPERTIES SKIP_RETURN_CODE 77
+      ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+endif()
+
 add_test(NAME genwav.video
          COMMAND "${CMAKE_COMMAND}"
                  -DGENWAV=$<TARGET_FILE:genwav>
