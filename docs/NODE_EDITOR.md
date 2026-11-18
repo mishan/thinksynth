@@ -24,11 +24,25 @@ behaviour and layout.
 | Everything-else writer | `src/NodeEdit.{h,cpp}` |
 | Parameter panel: what a param is | `src/NodePanel.{h,cpp}` over `src/PanelModel.h` |
 | Parameter panel: the gtk widget | `src/gui/NodeParamsView.{h,cpp}` over `src/gui/PanelView.{h,cpp}` |
-| Plugin palette | `NodeCatalog`, `src/gui/NodePalette.{h,cpp}` |
+| Plugin palette | `src/NodeCatalog.{h,cpp}`, `src/gui/NodePalette.{h,cpp}` |
+| The browser's editor: the page's half, its forms and menus | `wasm/web/nodeview.js` |
+| The browser's canvas shell: drawing, pointer, panning and pinch | `wasm/web/canvasview.js` |
+| The browser's panels drawn | `wasm/web/panel.js` |
+| The browser's graph, canvas and edits: the module's exports | `wasm/web/thinknode.cpp` |
+| The browser's panel family, and what a node panel's edit means | `wasm/web/thinkweb.cpp` (`tw_panel_*`, `tw_node_propose`) |
 
 `NodeEditor` parses its own tree through `thSynth::parseTreeText()`, which neither
 registers nor owns the result, so looking at a DSP cannot disturb the tree a
 channel is playing.
+
+**The browser's editor** is the page's Patch graph pane, on the solo page and
+in a room. Its File list is the `.dsp` files the page has: the one playing in
+patch mode, or the ones a piece's instruments name. An edit is spliced into
+that text with the same `NodeEdit::Text` and `NodeLayout::Text` calls the
+desktop makes; on the solo page the patch then loads again, and in a room the
+splice is the shared document's, so every peer has it. There is no Save, since
+the text is the file, and no Undo yet (see below). When what is playing uses
+only the shipped patches there is nothing to edit, and the pane says so.
 
 `thPluginManager` loads plugins by name and cannot enumerate them, so
 `NodeCatalog` walks the plugin directory instead, and the palette shows the
@@ -39,16 +53,16 @@ the slowest thing in the window.
 
 ## 2. The graph model
 
-The corpus is small, and that shapes everything: median 13 nodes, 30 edges and 8
-layers; worst 56, 134 and 17. No layout algorithm is going to struggle and no
-canvas needs virtualisation.
+The corpus is small, and that shapes everything: a typical patch is a dozen
+or so nodes in under ten layers, and the largest a hundred-odd boxes. No
+layout algorithm is going to struggle and no canvas needs virtualisation.
 
 **The io node is split into a source box and a sink box.** Treated as one vertex
-it appears in a cycle in 89 of 92 files, which is an artefact; split, 87 of 92
-are acyclic. It also reads better — signal flowing left to right from MIDI in to
+it appears in a cycle in nearly every file, which is an artefact; split, nearly
+every file is acyclic. It also reads better — signal flowing left to right from MIDI in to
 audio out. Which arg goes to which half is
 [a correctness question with a real answer](DSP_FORMAT.md#the-io-node), not a
-display preference: before it was worked out, 1000 of the 1347 ports on the
+display preference: before it was worked out, most of the ports on the
 audio-out box were phantoms.
 
 **One file has genuine feedback**: `scripts/guard/feedback.dsp`. Layered
@@ -56,7 +70,7 @@ layout handles a cycle the usual way — pick a feedback arc set, reverse those
 edges for layering, draw them as back-edges — and this is the only graph left
 to run that on, which is why it is kept.
 
-There were five. `effects/reverb01` had a cycle the effect format now refuses
+There used to be more. `effects/reverb01` had a cycle the effect format now refuses
 outright and `effects/whistlesynth01` wrote `fm = osc1->out`, which
 `osc::fmop` has an arg for; `fx/resynth.dsp` replaced the second.
 `noargs/smoothie` and `old/randompw` became `dsp/waveguide.dsp` and
@@ -65,9 +79,9 @@ around the graph. `noargs/dfb` could not be — an oscillator FM'd by a delay
 line fed from itself is the cycle — so it moved to `scripts/guard/` as the
 specimen rather than being deleted.
 
-**`ARG_STATE` args never appear.** 69 args are internal plugin state and no
+**`ARG_STATE` args never appear.** They are internal plugin state, and no
 shipped `.dsp` references one. Wiring a delay line's internal buffer invites
-exactly the kind of divergence that makes `old/test.dsp` peak at 1.75e5.
+exactly the kind of divergence that made an old test patch peak at 1.75e5.
 
 Two invariants worth not breaking:
 
@@ -87,7 +101,14 @@ browser's editor too, and there a finger on nothing does the same: held still
 a moment first, it draws a band; two fingers pinch. A
 control's strip shows a few letters of its label and its value in five
 characters, `14.1k'; hovered, it says the whole label and the value as the
-parameter panel spells it, with its range.
+parameter panel spells it, with its range, in the browser too
+(`NodeCanvas::tipAt`).
+
+**The toolbar.** New, Save As and Revert are in its File menu; then Save,
+Undo and Redo, Delete, Auto-arrange, and the zoom steps -- out, 1:1, in and
+Fit. The browser's has Add node and Add control, Delete, Arrange and the same
+zoom steps; its File list picks which of the page's files to show, and it has
+no New, Save As or Revert, since those files are the page's.
 
 **Wiring.** Drag from a port to another port. The rubber band snaps to the port
 it would land on and turns red when the drop would be refused, so the refusal is
@@ -96,7 +117,8 @@ input-to-output are the same gesture. A click on a wire selects it, and Delete
 cuts it: a wire is thin, and one cut by a click that missed the box beside it
 was a wire nobody meant to lose. A right-click on a wire offers Disconnect, and
 on a node or a control Delete -- of the selection when that box is in it, else
-of the box alone, since a right-click does not select.
+of the box alone, since a right-click does not select. The browser's menu is the
+same, and offers the probes on an output (below).
 
 **The patch's header.** With nothing selected, the parameter panel shows the
 file's `name`, `author`, `category` and `description`, what the patch selector
@@ -136,19 +158,22 @@ with a band adds what it gathers.
 boxes sit; Shift+arrows move the selection 10 pixels, 1 with Ctrl too, and a
 run of presses is one Undo. Delete or Backspace deletes the selection, all but
 the io node and expressions, which stay; Escape lets go of it; Ctrl+A selects
-every box; Ctrl+S saves (Cmd on macOS). Keys wait while a drag is under way, and
-Ctrl+arrow is left to the scroller. The canvas takes the keys in
-`NodeCanvas::keyPressed`, so the browser's editor has them too; there a held
-Shift+arrow is written to the file when the key comes up, since every write
-reloads the patch or goes to every peer, and a rebuild before that drops it
-rather than writing an old graph's positions over the new text. Ctrl+Z there
-says the graph has no Undo yet rather than undoing the piece. A screen reader
+every box. Keys wait while a drag is under way, and Ctrl+arrow is left to the
+scroller. The canvas takes these in `NodeCanvas::keyPressed`, so the browser's
+editor has them too; there a held Shift+arrow is written to the file when the
+key comes up, since every write reloads the patch or goes to every peer, and a
+rebuild before that drops it rather than writing an old graph's positions over
+the new text. Ctrl+S saves on the desktop (Cmd on macOS); in the browser it
+says there is nothing to save, and Ctrl+Z says the graph has no Undo yet rather
+than undoing the piece. A screen reader
 hears what a key did -- the box an arrow reached, a group, a wire, a delete, an
 Undo: the desktop announces it (GTK 4.14 and up, with an accessibility bus),
 and the browser writes it in a live line under the graph, since the page's
 status is the patch reload's a moment after every edit. A rebuild keeps the selection by name
 (`NodeCanvas::held`), so a peer's edit that renumbers the boxes leaves the same
-ones selected.
+ones selected. An edit keeps the scroll position too, and an arrow or a nudge
+that takes the selection out of sight brings it back into view
+(`CanvasContent::showRect`), in both editors.
 
 **Probes.** Right-click an output to watch it with a visual module: a panel
 sits above the node, drawing what it produces, and a double-click opens it in
@@ -162,14 +187,17 @@ which leaves the graph where it was.
 **The graph as a list.** List, the third toggle on the toolbar, shows every
 node as a row and, for the chosen one, its wires as buttons: connect,
 disconnect, watch and delete, each the canvas's own gesture. It is the
-keyboard's and a screen reader's way into the graph.
+keyboard's and a screen reader's way into the graph. The browser's editor has it
+too, as "Nodes and wires, as a list" under the graph.
 
-**When edits reach the file.** Every edit goes into the editor's copy of the
-patch's text as it is made, and reaches disk only on Save — a file rewritten on
+**When edits reach the file.** On the desktop every edit goes into the
+editor's copy of the patch's text as it is made, and reaches disk only on Save — a file rewritten on
 every gesture would be alarming. The edits are the splices the browser's editor
 makes, `NodeEdit::Text` and `NodeLayout::Text`, so the two agree byte for byte
-about what an edit is. Save adds the layout block and writes the text; Revert
-reads the file again, as a step Undo can take back.
+about what an edit is. Save adds the layout block and writes the text -- into
+the piece, for an instrument a piece carries, rather than to a file; Revert
+reads it again, as a step Undo can take back. The browser's editor has neither:
+an edit there is in the page's text, and so in the patch, as it is made.
 
 **Unsaved means the text is not the file.** Nothing else is held aside, so an
 edit undone by hand leaves nothing to save: a value typed back goes in the
@@ -203,7 +231,9 @@ status bar says why.
 
 **Fit is a button, not a behaviour.** An earlier revision fitted the graph to the
 window on opening; that was removed, because shrinking every patch until it fits
-makes a wide one unreadable and disguises the fact that it is wide. Fit never
+makes a wide one unreadable and disguises the fact that it is wide. The
+exception is the browser on a phone-width screen, where 1:1 shows one box at a
+time and the whole graph small is the only map of it. Fit never
 magnifies past 1:1 — a four-node patch blown up to fill the window looks broken,
 and the point is only to bring an oversized one down.
 
@@ -218,11 +248,11 @@ works like any other.
 
 ### Attached, not free-standing
 
-**197 of 206 controls drive exactly one parameter**, and no control anywhere
+**Nearly every control drives exactly one parameter**, and no control anywhere
 drives two parameters on the same node. So the ordinary case is a control that
 belongs to precisely one box, and it is drawn as a strip stacked on top of that
-box — label, track, value on one line, no title bar. A host carries between one
-and five, median one.
+box — label, track, value on one line, no title bar. A host usually carries one,
+and at most a handful.
 
 **Above, not beside.** Beside was the first attempt and it cost every column its
 own width again: `ts1.dsp` went from 2148 pixels wide to 3058 while using only
@@ -272,16 +302,17 @@ Deleting a node or a control an expression *reads* is a smaller edit than that,
 and used to be a larger one. The reference has to go — left alone it resolves
 to nothing and the arg silently reads zero — but nothing around it does, and
 replacing the whole right-hand side with `0` took the rest of the author's
-arithmetic with it. Deleting `@detune` turned `ladder.dsp`'s `freq = freq->out
+arithmetic with it. Deleting `@detune` turned `ladder.dsp`'s `freq = vib->out
 + @detune` into `freq = 0`: the oscillator lost its pitch rather than its
 detune, and the edit reported success. So `removeControl` now writes the value
-the control held in place of the reference (`freq = freq->out + 1.3`) and
+the control held in place of the reference (`freq = vib->out + 1.3`) and
 `removeNode` writes `0` in place of its own, since a departed output has no
 value to stand for. A plain `a = @cut` still becomes `a = 0`, and so does an
 expression reading a control whose value carries a unit — no expression may
-hold one, so there is nothing to splice in.
+hold one — or is arithmetic itself, since then there is no one number to
+splice in.
 
-### The nine that are shared
+### The few that are shared
 
 A control read by several nodes cannot attach to any one of them. Those stay
 boxes with visible wires — and that is the useful reading rather than a fallback:
@@ -305,9 +336,10 @@ attached above     1703 x 542    1486                3336
 plus a tighter gap 1502 x 542    1486                2920
 ```
 
-18% shorter for exactly the same width. `LAYER_GAP` then came down from 70 to 44:
-it was 70 because a control in layer 0 could have a long wire crossing a column,
-and they are strips on their hosts now. On a 17-layer patch that is 440 pixels.
+Measured at the time over the corpus as it was: 18% shorter for exactly the
+same width. `LAYER_GAP` then came down from 70 to 44: it was 70 because a
+control in layer 0 could have a long wire crossing a column, and they are
+strips on their hosts now. On a 17-layer patch that is 440 pixels.
 
 ### Retyping one
 
@@ -336,17 +368,16 @@ byte for byte, and a range narrowed and put back cannot.
 **A range is a number like any other**, and gets the treatment
 [DSP_FORMAT.md](DSP_FORMAT.md#splice-do-not-re-emit) already describes for one.
 It is compared by value rather than by spelling, so `@lvl.max = th_max` survives
-a write of 1 with its six characters intact — the same reason 229 uses of
-`th_max` and `th_min` survive a save anywhere else. Arithmetic is refused
+a write of 1 with its six characters intact — the same reason every `th_max`
+and `th_min` survives a save anywhere else. Arithmetic is refused
 outright rather than folded to whatever it evaluates to today, and refusing the
 maximum refuses the minimum with it: half a range this editor cannot read back
-is worse than none of it. No shipped `.dsp` spells a range either way — all 412
-range lines are literals — so `dspnew` writes the files that do.
+is worse than none of it. No shipped `.dsp` spells a range either way — every
+range line is a literal — so `dspnew` writes the files that do.
 
-**The name is not editable here.** Renaming would have to rewrite every
-`in1 = @old` in the file as well as the block, which is `removeControl` and
-`addControl` and a different thing to offer. The field is shown and
-insensitive, so the dialog still says which control it is about.
+A new name in the same form renames the control, as the panel's Name row
+does (`NodeEdit::Text::renameControl`, above): the range goes in first and the
+name last, in one write.
 
 Like adding a node, this goes into the text and parses it again at once. A
 range decides how the strip is drawn and what the slider can reach, and both
@@ -358,7 +389,7 @@ any other edit.
 
 A parameter whose plugin reads it `switch ((int)x)` is a list, not a range.
 `waveform` has six cases, so five sixths of a continuous slider's travel picks a
-waveform that is already picked, and the eight shipped patches that drive one
+waveform that is already picked, and the shipped patches that drove one used to
 declare `.max = 5.1` or `5.5` — padding, so that a slider which could not
 reliably land on 5 could still truncate to it.
 
@@ -392,11 +423,9 @@ this is for the reader rather than for the sound; `argtype` renders the arg
 left out, the default written and a literal `0` written, and compares all
 three, to keep that true.
 
-The parameter panel keeps a spin button rather than a list, with the names in
-its tooltip. That column commits on Enter or on focus leaving, and one row
-behaving differently is the worse trade — and the number is what gets written to
-the `.dsp`, so seeing it is not useless. The overview panel, which has no such
-constraint, uses a dropdown.
+The parameter panel offers a node arg with named values as a dropdown, on the
+desktop and in the browser alike, from its first named entry to its last
+(`NodePanel`'s CHOICE row); what goes into the `.dsp` is the number.
 
 ### Groups
 
@@ -428,8 +457,8 @@ and getting it wrong means a slider that cannot reach the value you want. The
 dialog loops rather than validating once, so a rejected name can be corrected
 instead of throwing the whole thing away.
 
-It is the same dialog that retypes an existing control, with the name fixed and
-the value left out: the two disagree about which fields to show and agree about
+It is the same dialog that retypes an existing control, with the value left
+out -- a new name there renames it: the two disagree about which fields to show and agree about
 what makes an answer unusable, and the validation is the half worth having in
 one place. A name the lexer will not read back, a label with a quote in it and
 an inverted range are refusals whichever operation asked.
@@ -467,14 +496,14 @@ to be loaded again, and the status bar says so.
 ## 7. Why the layout will not get much narrower
 
 `ts1.dsp` is an eleven-stage signal chain at 1888 pixels; the deepest in the
-corpus is seventeen layers at about 2900. Twenty-five of the eighty-one graphs
-are wider than 1600. That is what the patches *are*, and three separate levers
+corpus is seventeen layers at about 2900, and a good part of the corpus is wider
+than 1600. That is what the patches *are*, and three separate levers
 were measured and found nearly exhausted.
 
 **The layering is already optimal.** Longest-path puts every node at its
 critical-path depth, and no drawing in which every wire goes forwards can have
-fewer columns than the critical path. `scripts/dsplayout` checks it: 80 of 81
-graphs are already at the floor. Coffman-Graham and friends bound the number of
+fewer columns than the critical path. `scripts/dsplayout` checks it: all but
+the odd graph are already at the floor. Coffman-Graham and friends bound the number of
 nodes *per layer*, which makes a graph taller and can make it deeper — the
 opposite of what is wanted here.
 
@@ -485,7 +514,8 @@ clips. Perhaps 12% is available, on a 172-pixel layer of which 128 is the box.
 
 **Wrapping works and is off anyway.** `NodeGraph::setWrapWidth` cuts the column
 sequence into bands and stacks them, the way a long circuit is drawn on several
-rows of a schematic, and it hits the target exactly:
+rows of a schematic, and it hits the target exactly (measured over the corpus
+as it was then):
 
 ```
   wrap 0      mean 1502 x  542   widest 2920   25 over 1600   0 wrapped
@@ -508,9 +538,8 @@ input to the mixer. Wrapping trades a scrollbar for a tangle.
 
 The profile above is kept as the measurement that settled it. `bd9.dsp` was one
 of the 2003-04 drawers and has gone; the widest graph now is
-`dsp/fx/vocoder.dsp` at 80 boxes and 160 wires, which is a broader fan still —
-sixteen parallel bands — so the argument is if anything stronger than when it
-was made.
+`dsp/fx/vocoder.dsp`, a broader fan still -- a band per filter, all in
+parallel -- so the argument is if anything stronger than when it was made.
 
 The code stays, defaulted off, and `dspgraph -w 1500` runs every layout invariant
 against it so it is not untested code pretending otherwise. If a patch ever turns
@@ -523,13 +552,18 @@ own `.dsp` files and need no corpus: the cases that matter — a control two
 nodes disagree about, a value list with a hole in it, a `.dsp` overriding its
 plugin — are ones no shipped file contains. `dspgraph`, `dspwrite` and `dspab`
 run over the corpus. `editorcheck` drives a real editor, so it wants a
-display, and skips itself without one. The rest are run by hand.
+display, and skips itself without one. The browser's editor is checked by
+`wasm/web/nodecheck.mjs`, which holds every edit the module makes against
+`scripts/dspedit`'s bytes, and `pagetest.mjs`, which drives the page; both run
+in CI. The rest are run by hand.
 
 | Harness | Gate | Covers |
 |---|---|---|
 | `argtype` | yes | a plugin's step, value names, description and default; the pass that carries the type to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; that no drag and no written value can land on a hole in a value list or off the step; that a node written with its plugin's declared defaults, with zeroes, and with neither all render bit-identically; and that every declared default is what a bare node of its plugin loads holding |
 | `exprcheck` | yes | a constant expression still folding to a value and no node, precedence and the unary minus included; an expression rendering bitwise against the nodes it stands for; every box's text re-parsing to the graph behind it; one read-only box per expression with every port attached; `canConnect`, `setValue` and `connect` refusing one and changing no byte; `disconnect` rewriting the whole arg to 0; `removeControl` and `removeNode` replacing the reference and not the arg; a node added beside one and removed again byte for byte |
-| `editorcheck` | yes | the editor itself, through its handlers and the canvas's gestures: Save's bytes for every file in the corpus held against the same edits made with `NodeEdit::Text`, in the opposite order, and the positions read back out of what was saved; a saved layout opened as saved and kept through a probe; an edit undone by hand leaving nothing to save; a slider or a value the text will not take refused when it is made; a value set on one element of an array reaching every element; a file that fails to open, or no temporary directory, losing nothing; every kind of edit undone and redone, by button and by key, with what a running synth hears; random Undo and Redo among the random edits, each giving back exactly the step's text |
+| `editorcheck` | yes | the editor itself, through its handlers and the canvas's gestures: Save's bytes for every file in the corpus held against the same edits made with `NodeEdit::Text`, in the opposite order, and the positions read back out of what was saved; a saved layout opened as saved and kept through a probe; an edit undone by hand leaving nothing to save; a slider or a value the text will not take refused when it is made; a value set on one element of an array reaching every element; a file that fails to open, or no temporary directory, losing nothing; every kind of edit undone and redone, by button and by key, with what a running synth hears; random Undo and Redo, renames and expression edits among the random edits, each giving back exactly the step's text; the keys and the selection, the header, renaming, arithmetic typed over, the middle button and Space dragging the view, and the view kept across edits |
+| `panelcheck` | yes | what `NodePanel` offers for a box and what an edit of each row means: a value, a list's names, the header with nothing selected, a Name, arithmetic in the file's spelling, and each text typed back as it stands asking for nothing |
+| `dspprobe` | yes | a probe on every output of every node in the corpus, three voices sounding, reading bit for bit what that node and arg hold when looked up by name |
 | `historycheck` | yes | `NodeHistory` with no toolkit: steps back and forth, edits to one arg joined and an Undo ending the join, the cap; what changed in the sound between two graphs, and when that is not all that changed |
 | `dspgraph` | yes | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
 | `dspwrite` | yes | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it; every header field changed and put back; every node and control renamed, the same graph, and back byte for byte; every expression set to the text its box shows, the same graph |
@@ -537,9 +571,9 @@ display, and skips itself without one. The rest are run by hand.
 | `dsplayout` | no | layer counts against the critical-path floor, and the wrap-mode cut profile |
 | `canvascheck` | yes | the canvas's gestures and keys against a bare `NodeCanvas`, no widget and no display: a click that moves nothing, a drag, a click on nothing, a band, Shift-click, a group dragged, a wire selected and then cut, Delete, Escape, Ctrl+A, the arrows, a nudge, Ctrl+arrow left to the scroller, a pan |
 | `dsplive` | no | that moving a control changes the sound of a ringing note |
-| `dspab` | yes | two renders compared bitwise, for changes meant to be inaudible |
+| `dspab` (the test is `dspab.windows`) | yes | two renders compared bitwise, for changes meant to be inaudible |
 
-Three things worth repeating about how these are written:
+Worth repeating about how these are written:
 
 - **A round-trip check must scramble first.** Asserting that positions survive a
   save is worthless if the test writes out the positions `layout()` just
@@ -552,10 +586,11 @@ Three things worth repeating about how these are written:
   of it.
 - **`dspnew`'s last assertion is the point.** Everything above it can pass while
   the result is a file that loads and makes no sound, which is not authoring.
-- **`dsplive` reports its non-effects separately rather than as errors.** 151
-  controls change the sound of a ringing note and 55 do not — `@a`, `@d` and `@r`
-  are envelope times, so by the time the change lands the note is in sustain and
-  there is correctly nothing to hear.
+- **`dsplive` reports its non-effects separately rather than as errors.** Most
+  controls change the sound of a ringing note and some do not — `@a`, `@d` and
+  `@r` are envelope times, so by the time the change lands the note is in sustain and
+  there is nothing to hear during it. The note is held and never let go, so this
+  says nothing about `@r` after note-off.
 
 **Layout quality is subjective and cannot be unit-tested**, and neither can the
 feel of a gesture. The bugs that matter here are visual and interactive, and
@@ -580,8 +615,7 @@ finding them means sitting in front of it.
 passes, so `dspgraph` cross-checks them — and they disagreed. `filt::moog`
 produces `out_low`, `out_high` and `out_bandpass` and registered none of them;
 they existed only as string lookups inside the callback. `math::sin` registered
-nothing at all, and `input::alsa` likewise. Six wires were being silently
-dropped. If you are measuring anything over "all args", registered is not the
+nothing at all, and `input::alsa` likewise. Wires were being silently dropped. If you are measuring anything over "all args", registered is not the
 same set as used.
 
 **A stale header next to a test source.** A crash in a throwaway harness turned

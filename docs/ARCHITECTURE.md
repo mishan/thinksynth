@@ -93,7 +93,7 @@ it into an arg the `.dsp` never mentioned. The rest is advice.
 
 They exist because `osc::simple` reads `waveform` as `switch ((int)buf[i])`, so
 3.4 *is* 3 — and a control that can produce 3.4 is a control most of whose
-travel does nothing. The eight shipped patches that drive a waveform all
+travel does nothing. The shipped patches that drive a waveform all
 declared `.max = 5.1` or `5.5` rather than 5, which was an author working around
 exactly that: padding the top of a continuous slider so it could still truncate
 to the last waveform. Those declarations say 5 now.
