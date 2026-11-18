@@ -241,7 +241,7 @@ static thPanelRow rowFor (const NodeGraph::Param &p)
     if (whole && !row.choices.empty())
     {
         /* Where every value has a name, the travel is the list and not
-           whatever the .dsp declared. Eight shipped patches say
+           whatever the .dsp declared. Shipped patches used to say
            `.max = 5.1' for six waveforms -- padding for a slider that could
            not otherwise reach the last one -- and honouring that would
            offer a seventh position that does nothing. */

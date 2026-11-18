@@ -703,7 +703,7 @@ static void checkNodes (const string &pluginPath, const string &file)
               "with the plugin's own names on it",
               to_string(waveform->choices.size()) + " / " + waveform->text);
 
-        /* Eight shipped patches say `.max = 5.1' for six waveforms --
+        /* Shipped patches used to say `.max = 5.1' for six waveforms --
            padding for a slider that could not otherwise reach the last
            one -- and honouring that would offer a seventh position that
            does nothing. */

@@ -225,6 +225,11 @@ Composition
 The browser page
 ----------------
 
+- The node editor has no Undo. The solo page could take NodeHistory as the
+  desktop does; a room's shared document wants Yjs's own Y.UndoManager, so
+  that an Undo takes back only one's own edits, and a design that serves
+  both.  (wasm/web/nodeview.js, src/NodeHistory.h, docs/NODE_EDITOR.md)
+
 - A clicked Life, CA or evolve board is still not written back on the
   page: their pictures are states the piece goes on changing, so capture
   is a deliberate act, and the page has no button for it yet (the desktop's

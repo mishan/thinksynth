@@ -999,8 +999,8 @@ int main (int argc, char **argv)
 
             /* Against the range the track is *drawn* over, which is what the
                file declares except where the control's values are named -- and
-               there the list is the range. Eight shipped patches declare a
-               maximum of 5.1 or 5.5 for six waveforms, padding for a slider
+               there the list is the range. Shipped patches used to declare
+               a maximum of 5.1 or 5.5 for six waveforms, padding for a slider
                that could not otherwise land on the last one.
 
                Box keeps both: the declared numbers stay untouched because
