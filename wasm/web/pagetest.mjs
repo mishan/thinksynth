@@ -3446,6 +3446,154 @@ try
         await page.evaluate(() => window.solo.settled());
     }
 
+    /* The view dragged (canvasview.js, `pans'): the middle button and
+       Space with the main one scroll the graph and move nothing in it; an
+       arrow to a box out of sight brings it into view; and on a touch
+       screen a finger on nothing pans, held still first it bands, and two
+       fingers pinch. */
+    {
+        const dsp = () => page.$eval('#dsp', (e) => e.value);
+        const scroll = () => page.$eval('#nodescroll',
+            (s) => ({ x: s.scrollLeft, y: s.scrollTop, w: s.clientWidth }));
+        const node = () => page.evaluate(() => window.solo.node());
+
+        await page.click('#nodezoom1');
+        await page.locator('#nodescroll').scrollIntoViewIfNeeded();
+        await page.$eval('#nodescroll', (s) => s.scrollTo(0, 0));
+
+        const view = await page.$eval('#nodescroll', (s) =>
+        {
+            const r = s.getBoundingClientRect();
+
+            return { x: r.x, y: r.y, w: r.width, h: r.height };
+        });
+        const first = await page.evaluate(() => window.solo.node().box(0));
+        const onBox = { x: view.x + first.x + 8, y: view.y + first.y + 8 };
+        const text = await dsp();
+
+        await page.mouse.move(onBox.x + 150, onBox.y);
+        await page.mouse.down({ button: 'middle' });
+        await page.mouse.move(onBox.x + 50, onBox.y, { steps: 4 });
+        await page.mouse.up({ button: 'middle' });
+
+        const middle = await scroll();
+
+        await page.focus('#nodecanvas');
+        await page.keyboard.down('Space');
+        await page.mouse.move(onBox.x, onBox.y);
+        await page.mouse.down();
+        await page.mouse.move(onBox.x - 60, onBox.y, { steps: 4 });
+        await page.mouse.up();
+        await page.keyboard.up('Space');
+
+        const spaced = await scroll();
+
+        check(middle.x === 100 && spaced.x === 160 && await dsp() === text,
+              `the middle button and Space drag the view and move nothing: ` +
+              `${middle.x} then ${spaced.x}`);
+
+        /* The first box selected, the view taken to the graph's far right,
+           and an arrow to the box beside it: the view goes to that one. */
+        await page.mouse.click(onBox.x - 160, onBox.y);
+        await page.$eval('#nodescroll', (s) => s.scrollTo(s.scrollWidth, 0));
+        await page.focus('#nodecanvas');
+        await page.keyboard.press('ArrowRight');
+
+        const found = await node();
+        const shown = await scroll();
+        const box = found.selected >= 0
+            ? await page.evaluate((i) => window.solo.node().box(i),
+                                  found.selected)
+            : null;
+
+        check(box !== null && box.x >= shown.x && box.x < shown.x + shown.w,
+              `an arrow to ${box?.name} brought it into view: at ${box?.x}, ` +
+              `the view at ${shown.x}`);
+
+        /* Touches, through Chromium's own emulation, so the page sees the
+           pointer events a finger makes. */
+        const cdp = await page.context().newCDPSession(page);
+
+        await cdp.send('Emulation.setTouchEmulationEnabled',
+                       { enabled: true, maxTouchPoints: 5 });
+        await page.$eval('#nodescroll', (s) => s.scrollTo(0, 0));
+
+        const empty = await page.evaluate((v) =>
+        {
+            const n = window.solo.node();
+            const c = document.getElementById('nodecanvas')
+                .getBoundingClientRect();
+
+            for (let y = 20; y < v.h - 20; y += 10)
+                for (let x = 200; x < v.w - 20; x += 10)
+                    if (!n.hit(x, y))
+                        return { x: c.x + x, y: c.y + y, cx: x, cy: y };
+
+            return null;
+        }, view);
+        const touch = (type, points) =>
+            cdp.send('Input.dispatchTouchEvent', {
+                type,
+                touchPoints: points.map(([x, y], id) => ({ x, y, id })),
+            });
+
+        if (empty === null)
+            check(false, 'the graph has somewhere empty to touch');
+        else
+        {
+            await touch('touchStart', [[empty.x, empty.y]]);
+
+            for (let i = 1; i <= 6; i++)
+                await touch('touchMove', [[empty.x - 20 * i, empty.y]]);
+
+            await touch('touchEnd', []);
+
+            const panned = (await scroll()).x;
+            const was = (await node()).zoom;
+
+            await touch('touchStart', [[empty.x - 30, empty.y],
+                                       [empty.x + 30, empty.y]]);
+
+            for (let i = 1; i <= 5; i++)
+                await touch('touchMove', [[empty.x - 30 - 10 * i, empty.y],
+                                          [empty.x + 30 + 10 * i, empty.y]]);
+
+            await touch('touchEnd', []);
+
+            const pinched = (await node()).zoom;
+
+            check(panned === 120 && pinched > was * 1.5,
+                  `a finger on nothing pans the view (${panned}), two ` +
+                  `pinch it (${was} to ${pinched})`);
+
+            await page.click('#nodezoom1');
+            await page.$eval('#nodescroll', (s) => s.scrollTo(0, 0));
+
+            /* Held, then dragged across the graph's top-left corner: a
+               band, as a mouse drag on nothing draws. */
+            await touch('touchStart', [[empty.x, empty.y]]);
+            await page.waitForTimeout(700);
+
+            for (let i = 1; i <= 8; i++)
+                await touch('touchMove',
+                            [[empty.x - (empty.cx - 4) * i / 8,
+                              empty.y - (empty.cy - 4) * i / 8]]);
+
+            await touch('touchEnd', []);
+
+            const banded = (await node()).held;
+
+            check(banded > 0 && (await scroll()).x === 0,
+                  `a finger held on nothing and dragged draws a band: ` +
+                  `${banded} held, the view not moved`);
+        }
+
+        await cdp.send('Emulation.setTouchEmulationEnabled',
+                       { enabled: false });
+        await cdp.detach();
+        await page.keyboard.press('Escape');
+    }
+
     /* MIDI out (midiout.js): a piece whose instrument names a port. Before
      * access it plays its dsp, and its row says why; with MIDI out on it
      * plays on the fake output, every message scheduled for a time in
