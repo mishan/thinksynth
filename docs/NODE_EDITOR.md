@@ -41,8 +41,9 @@ patch mode, or the ones a piece's instruments name. An edit is spliced into
 that text with the same `NodeEdit::Text` and `NodeLayout::Text` calls the
 desktop makes; on the solo page the patch then loads again, and in a room the
 splice is the shared document's, so every peer has it. There is no Save, since
-the text is the file, and no Undo yet (see below). When what is playing uses
-only the shipped patches there is nothing to edit, and the pane says so.
+the text is the file, and Undo is the solo page's alone so far (see below).
+When what is playing uses only the shipped patches there is nothing to edit,
+and the pane says so.
 
 `thPluginManager` loads plugins by name and cannot enumerate them, so
 `NodeCatalog` walks the plugin directory instead, and the palette shows the
@@ -164,8 +165,8 @@ editor has them too; there a held Shift+arrow is written to the file when the
 key comes up, since every write reloads the patch or goes to every peer, and a
 rebuild before that drops it rather than writing an old graph's positions over
 the new text. Ctrl+S saves on the desktop (Cmd on macOS); in the browser it
-says there is nothing to save, and Ctrl+Z says the graph has no Undo yet rather
-than undoing the piece. A screen reader
+says there is nothing to save, and Ctrl+Z undoes the graph rather than the
+piece -- in a room, says there is no Undo there yet. A screen reader
 hears what a key did -- the box an arrow reached, a group, a wire, a delete, an
 Undo: the desktop announces it (GTK 4.14 and up, with an accessibility bus),
 and the browser writes it in a live line under the graph, since the page's
@@ -213,8 +214,17 @@ arg less than a second apart are one step. A step holds the text and where
 every box was, since a box nobody has moved has no line in the layout block
 and undoing a drag still has to put it back. Opening a file starts the
 history over; switching channels, or a patch loaded elsewhere, keeps it.
-`NodeHistory` knows nothing of GTK or files, so the browser's editor can
-use the same steps.
+
+The solo page's graph has Undo and Redo buttons in its toolbar, and the same
+keys anywhere in its pane, list view included; the page's own Undo stays the
+piece's. A step there is a `TextHistory` (`wasm/web/history.js`, the piece's
+Undo's too) of text alone: the browser keeps every box's place in the layout
+block, so the text is all there is to put back. Each gesture runs inside the
+view's `step()`, which names it as the desktop does and makes all it writes
+one step. There is a history per file and per mode, a patch and a piece's
+instrument being able to share a name, and nothing starts one over: a change
+made some other way -- the text box, a load -- is taken up as a step of its
+own, `change the text`, when the next one is taken.
 
 **A value, a slider, a drag or a probe changes the graph in place; a wire, a
 node added or deleted, or a control's range parses the text again.** A node's
@@ -598,9 +608,8 @@ finding them means sitting in front of it.
 
 ## 9. Still ahead
 
-- **The browser's editor has no Undo yet.** The solo page can take
-  `NodeHistory` as it is; a room's shared document wants Yjs's own
-  `Y.UndoManager`, so that an Undo takes back only one's own edits.
+- **A room's graph has no Undo yet.** It wants the file's `Y.UndoManager`,
+  shared with the code view, so that an Undo takes back only one's own edits.
 - **`dspcheck` should grow a "load this and process it" check** for anything the
   editor writes.
 - **`thSynthTree::buildSynthTree` walks the graph recursively with a `recalc`

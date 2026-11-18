@@ -3009,10 +3009,10 @@ try
 
     /* The canvas from the keys (CanvasContent::Key): an arrow moves the
        selection, a run of Shift+arrows is written once when it stops,
-       Ctrl+Z says there is no Undo here rather than undoing the piece, and
-       Delete takes the selected node out of the .dsp -- the right one,
-       after the rebuilds the nudges made, since a rebuild keeps the
-       selection by name. The patch is put back after. */
+       Ctrl+Z undoes the graph and not the piece, and Delete takes the
+       selected node out of the .dsp -- the right one, after the rebuilds
+       the nudges made, since a rebuild keeps the selection by name. The
+       patch is put back after. */
     {
         const dsp = () => page.$eval('#dsp', (e) => e.value);
         const original = await dsp();
@@ -3132,13 +3132,96 @@ try
 
         const nudged = await dsp();
 
-        await page.keyboard.press('Control+z');
+        /* Undo: three gestures, each one step back under its name, by
+           the keys on the canvas and in the list, then Redo putting them
+           back. Undone again after, and the node chosen again, so what
+           follows starts where it did. */
+        {
+            const key = async (k) =>
+            {
+                await page.keyboard.press(k);
+                await page.evaluate(() => window.solo.settled());
+                return [await dsp(), await said()];
+            };
+            const selName = () => page.evaluate(
+                () => window.solo.node().box(window.solo.node().selected).name);
+            const moved = await selName();
 
-        check((await dsp()) === nudged &&
-              (await page.$eval('#status', (e) => e.textContent))
-                  .includes('No Undo'),
-              'Ctrl+Z on the canvas says there is no Undo here, and undoes ' +
-              'nothing');
+            const [t1] = await key('Shift+ArrowRight');
+
+            await page.selectOption('#nodepalette', 'osc::simple');
+            await page.click('#nodeadd');
+            await page.evaluate(() => window.solo.settled());
+
+            const added = await selName();
+            const t2 = await dsp();
+
+            await page.click('#nodearrange');
+            await page.evaluate(() => window.solo.settled());
+
+            const t3 = await dsp();
+            const tip = await page.$eval('#nodeundo', (b) => b.title);
+
+            await page.focus('#nodecanvas');
+
+            const back = [await key('Control+z')];
+            const kept = await selName();
+
+            back.push(await key('Control+z'), await key('Control+z'));
+            const redoTip = await page.$eval('#noderedo', (b) => b.title);
+            const forth = [await key('Control+Shift+z'),
+                           await key('Control+y')];
+
+            check(new Set([nudged, t1, t2, t3]).size === 4 &&
+                  tip === 'Undo auto-arrange' &&
+                  JSON.stringify(back) === JSON.stringify([
+                      [t2, 'Undid auto-arrange.'], [t1, `Undid add ${added}.`],
+                      [nudged, `Undid move ${moved}.`]]) &&
+                  kept === added && redoTip === `Redo move ${moved}` &&
+                  JSON.stringify(forth) === JSON.stringify([
+                      [t1, `Redid move ${moved}.`],
+                      [t2, `Redid add ${added}.`]]),
+                  'Ctrl+Z on the canvas undoes a nudge, Add node and Arrange ' +
+                  'one at a time and names each, the selection staying on the ' +
+                  'node of its name; Ctrl+Shift+Z and Ctrl+Y redo them: ' +
+                  JSON.stringify({ tip, back: back.map((b) => b[1]), kept,
+                                   redoTip, forth: forth.map((f) => f[1]) }));
+
+            await page.evaluate(() =>
+            {
+                document.getElementById('nodeoutline').open = true;
+            });
+            await page.focus('#nodelist button');
+
+            const fromList = [await key('Control+z'), await key('Control+z')];
+
+            check(JSON.stringify(fromList) === JSON.stringify([
+                      [t1, `Undid add ${added}.`],
+                      [nudged, `Undid move ${moved}.`]]),
+                  'Ctrl+Z in the graph as a list undoes the graph, and again ' +
+                  'after the row it was on went with the node: ' +
+                  JSON.stringify(fromList.map((f) => f[1])));
+
+            await page.click('#noderedo');
+            await page.evaluate(() => window.solo.settled());
+
+            const redone = await dsp();
+
+            await page.click('#nodeundo');
+            await page.evaluate(() => window.solo.settled());
+
+            check(redone === t1 && (await dsp()) === nudged,
+                  'and the buttons redo and undo it');
+
+            await page.locator('#nodelist button').filter(
+                { hasText: new RegExp(`^${moved}\\b`) }).first().focus();
+            await page.keyboard.press('Enter');
+            await page.evaluate(() =>
+            {
+                document.getElementById('nodeoutline').open = false;
+            });
+            await page.focus('#nodecanvas');
+        }
 
         const shown = await page.evaluate(
             () => window.solo.node().box(window.solo.node().selected).name);

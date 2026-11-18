@@ -1201,6 +1201,11 @@ function forgetHistory ()
 
     h?.clear();
 
+    /* And the graph's, for the instruments of the piece that went. */
+    for (const [key, graph] of nodeHistories)
+        if (key.startsWith('piece:'))
+            graph.clear();
+
     showUndo();
 }
 
@@ -3438,6 +3443,7 @@ async function start ()
     {
         nodes = await createNodeView({
             files: nodeFiles,
+            history: nodeHistory,
             onStatus: (text) => status(text, true),
             sampleRate: ctx.sampleRate,
             probe: (channel, node, arg) => synth.probe(channel, node, arg),
@@ -3643,6 +3649,75 @@ const nodeFiles = {
             who.delete(onChange);
             $('dsp').removeEventListener('input', onChange);
         };
+    },
+};
+
+/* The graph's Undo: a history per file and per mode, since a patch and a
+   piece's instrument can share a name. A step is what one gesture on the
+   graph wrote. A change that came another way -- the text box, a load --
+   is a step of its own, taken up when the next one is. */
+const nodeHistories = new Map();
+const OTHER_CHANGE = 'change the text';
+
+const nodeHistory = {
+    of (name)
+    {
+        const key = `${playsPatch() ? 'patch' : 'piece'}:${name}`;
+        let h = nodeHistories.get(key);
+
+        if (h === undefined)
+            nodeHistories.set(key, h = new TextHistory());
+
+        return h;
+    },
+
+    /* Taking up a change the history has not seen. */
+    caughtUp (name)
+    {
+        const h = nodeHistory.of(name);
+
+        h.record(nodeFiles.read(name), OTHER_CHANGE);
+        return h;
+    },
+
+    step (name, what, join, fn)
+    {
+        const h = nodeHistory.caughtUp(name);
+        const done = fn();
+
+        h.record(nodeFiles.read(name), what, join);
+        return done;
+    },
+
+    /* What Undo and Redo would take, null for nothing; read without
+       taking anything up, since a rebuild asks in the middle of a step --
+       but a file seen for the first time starts there, or a change made
+       before the first step would be where it starts. */
+    names (name)
+    {
+        const h = nodeHistory.of(name);
+
+        if (h.text === null)
+            h.record(nodeFiles.read(name));
+
+        if (h.text !== null && h.text !== nodeFiles.read(name))
+            return { undo: OTHER_CHANGE, redo: null };
+
+        return { undo: h.canUndo ? h.undoName : null,
+                 redo: h.canRedo ? h.redoName : null };
+    },
+
+    /* The name of the step taken, null with none to take. */
+    go (name, back)
+    {
+        const h = nodeHistory.caughtUp(name);
+        const s = back ? h.undo() : h.redo();
+
+        if (s === null)
+            return null;
+
+        nodeFiles.write(name, s.text);
+        return s.what;
     },
 };
 
