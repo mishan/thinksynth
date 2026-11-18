@@ -121,7 +121,9 @@ row means, and the page splices it into the document as it does every other.
 
 **Adding a node.** The palette's Add, a double-click or Enter puts the node in
 the middle of the view, beside one already there rather than on it; a plugin
-dragged from the palette onto the canvas lands where it is dropped.
+dragged from the palette onto the canvas lands where it is dropped. The
+browser's Add node places it the same way (`NodeGraph::placeNear`), and its
+toolbar has the desktop's Delete, Arrange and zoom steps too.
 
 **Selecting.** A click selects a box and shows its parameters. A drag on empty
 canvas is a rubber band, and dragging any box of a selection moves the whole of

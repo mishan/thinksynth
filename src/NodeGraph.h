@@ -436,6 +436,11 @@ public:
        previous bounds. */
     void moveBox (int index, double x, double y);
 
+    /* Puts a box just added centered on `cx', `cy', stepped down and along
+       off any box already there, so adds one after another do not stack.
+       Extends the canvas to it. */
+    void placeNear (int index, double cx, double cy);
+
     /* Recomputes width()/height() from where the boxes actually are, after
        dragging has moved them off the laid-out grid. */
     void refreshExtent (void);

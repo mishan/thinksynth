@@ -2928,6 +2928,7 @@ try
         }
 
         const picked = await page.evaluate(() => ({
+            deletable: !document.getElementById('nodedelete').disabled,
             selected: window.solo.node().selected,
             current: document.querySelector(
                 '#nodelist button[aria-current="true"]')?.textContent,
@@ -2941,6 +2942,8 @@ try
               (picked.current === picked.focus ? '' :
                ` (row ${chosen} of ${listed}, selected ${picked.selected}, ` +
                `the focus on ${picked.on}: ${(picked.focus ?? '').slice(0, 60)})`));
+        check(picked.deletable,
+              'and the toolbar\'s Delete is offered for the node chosen');
 
 
         /* The rest needs that node, and a list without one has said so
@@ -3352,6 +3355,88 @@ try
                   'a field changed under an open form is kept, and only ' +
                   'what was typed is written');
         }
+
+        await page.evaluate((t) =>
+        {
+            document.getElementById('dsp').value = t;
+        }, original);
+        await page.click('#load');
+        await page.evaluate(() => window.solo.settled());
+    }
+
+    /* The graph's toolbar: a node added goes where the view is and is
+       selected, its place in the file; the zoom steps and comes back to
+       1:1; Arrange writes the layout; Delete, offered only for a
+       selection, takes it. The patch is put back after. */
+    {
+        const dsp = () => page.$eval('#dsp', (e) => e.value);
+        const original = await dsp();
+        const changed = (before) => page.waitForFunction(
+            (b) => document.getElementById('dsp').value !== b, before,
+            { timeout: 15000 }).catch(() => {});
+        const node = () => page.evaluate(() =>
+        {
+            const n = window.solo.node();
+
+            return { zoom: n.zoom,
+                     selected: n.selected >= 0 ? n.box(n.selected).name
+                                               : null };
+        });
+
+        await page.focus('#nodecanvas');
+        await page.keyboard.press('Escape');
+
+        const offered = await page.$eval('#nodedelete', (b) => !b.disabled);
+
+        await page.selectOption('#nodepalette', 'osc::simple');
+        await page.click('#nodeadd');
+        await changed(original);
+        await page.evaluate(() => window.solo.settled());
+
+        const added = await node();
+        const text = await dsp();
+
+        check(!offered && added.selected !== null &&
+              text.includes(`node ${added.selected} osc::simple`) &&
+              text.includes(`# @layout ${added.selected} `),
+              `Add node put ${added.selected} in the view, selected, its ` +
+              'place in the file; Delete was not offered before');
+
+        await page.click('#nodezoomin');
+
+        const nearer = (await node()).zoom;
+
+        await page.click('#nodezoomout');
+        await page.click('#nodezoomout');
+
+        const further = (await node()).zoom;
+
+        await page.click('#nodezoom1');
+
+        check(Math.abs(nearer - added.zoom * 1.25) < 1e-9 &&
+              Math.abs(further - added.zoom / 1.25) < 1e-9 &&
+              (await node()).zoom === 1,
+              `the zoom steps in and out by a quarter, and 1:1 is 1: ` +
+              `${added.zoom} ${nearer} ${further}`);
+
+        const before = await dsp();
+
+        await page.click('#nodearrange');
+        await changed(before);
+
+        check((await node()).selected === added.selected,
+              `Arrange laid the graph out again, ${added.selected} still ` +
+              'selected');
+
+        const kept = await dsp();
+
+        await page.click('#nodedelete');
+        await changed(kept);
+
+        check(!(await dsp()).includes(`node ${added.selected} `) &&
+              await page.$eval('#nodedelete', (b) => b.disabled),
+              `the toolbar's Delete took ${added.selected}, and is not ` +
+              'offered with nothing left selected');
 
         await page.evaluate((t) =>
         {

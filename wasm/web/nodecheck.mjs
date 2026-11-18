@@ -1019,6 +1019,84 @@ process.stdout.write(
                              'what the file says, an absent label empty\n');
 }
 
+/* ---- a node added where it is looked at, and the graph arranged ------ */
+
+{
+    const fixture =
+        'node ionode { channels = 1; out0 = osc->out; play = 1; };\n' +
+        'node osc osc::simple { freq = ionode->note; };\n' +
+        'io ionode;\n';
+    const boxOf = (name) =>
+    {
+        for (let b = 0; b < M._tw_graph_box_count(); b++)
+            if (call('tw_graph_box_name', ['number'], [b]) === name)
+                return b;
+
+        return -1;
+    };
+
+    M.ccall('tw_graph_build', 'number', ['string'], [fixture]);
+    M._tw_node_canvas_viewport(0, 0, 900, 600);
+    M._tw_node_canvas_set_zoom(1);
+
+    /* Two added one after the other at the same view: the second steps off
+       the first rather than landing on it, and each is the one selected. */
+    let text = fixture;
+    const at = [];
+
+    for (const name of ['lfo', 'lfo2'])
+    {
+        text = edit('tw_edit_add_node', ['string', 'string', 'string'],
+                    [text, name, 'osc::simple']).text;
+        M.ccall('tw_graph_build', 'number', ['string'], [text]);
+        M.ccall('tw_graph_apply_layout', 'number', ['string'], [text]);
+
+        const placed = M.ccall('tw_graph_place', 'number', ['string'],
+                               [name]);
+        const b = boxOf(name);
+
+        at.push({ placed, selected: M._tw_node_canvas_selected() === b,
+                  x: M._tw_graph_box_x(b), y: M._tw_graph_box_y(b) });
+
+        /* As the page does after a place: where it went, into the file. */
+        if (M.ccall('tw_layout_write', 'number', ['string'], [text]))
+            text = M.UTF8ToString(M._tw_edit_text());
+    }
+
+    const [one, two] = at;
+
+    if (!one.placed || !one.selected || !two.selected ||
+        Math.abs(one.x + 100 - 450) > 100 || Math.abs(one.y - 300) > 200 ||
+        (two.x === one.x && two.y === one.y))
+        fail(`a node added is put in the view and selected: ` +
+             JSON.stringify(at));
+    else
+        process.stdout.write('ok    a node added goes where the view is, ' +
+                             'beside one already there, and is selected\n');
+
+    /* Arranged: the computed layout again, the selection kept. */
+    const laid = boxOf('osc');
+    const was = { x: M._tw_graph_box_x(laid), y: M._tw_graph_box_y(laid) };
+
+    M._tw_node_canvas_select(laid);
+    M._tw_graph_arrange();
+
+    const fresh = { x: M._tw_graph_box_x(boxOf('lfo2')),
+                    y: M._tw_graph_box_y(boxOf('lfo2')) };
+
+    M.ccall('tw_graph_build', 'number', ['string'], [text]);
+
+    if (M._tw_node_canvas_selected() !== boxOf('osc') ||
+        fresh.x !== M._tw_graph_box_x(boxOf('lfo2')) ||
+        fresh.y !== M._tw_graph_box_y(boxOf('lfo2')) ||
+        was.x !== M._tw_graph_box_x(boxOf('osc')))
+        fail('Arrange puts every box where the layout does, and keeps the ' +
+             'selection');
+    else
+        process.stdout.write('ok    Arrange puts every box where the layout ' +
+                             'does, the selection kept\n');
+}
+
 process.stdout.write(failures === 0
     ? '\nthe node editor\'s model runs in the browser, and edits the way ' +
       'the desktop edits\n'

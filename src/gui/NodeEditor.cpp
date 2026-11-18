@@ -1613,33 +1613,13 @@ void NodeEditor::addNodeAt (const string &spelling, double cx, double cy)
     if (!reloadAfter(was, false))
         return;
 
-    /* Centered on the point, and stepped down and along off a box already
-       there, so adds one after another do not stack; then selected, so its
-       parameters are the ones showing. */
+    /* Placed on the point, then selected, so its parameters are the ones
+       showing. */
     const int box = graph_.boxByName(name);
 
     if (box >= 0)
     {
-        double x = std::max(0.0, cx - graph_.boxes()[box].w / 2);
-        double y = std::max(0.0, cy - graph_.boxes()[box].h / 2);
-
-        for (bool clear = false; !clear; )
-        {
-            clear = true;
-
-            for (int b = 0; b < (int)graph_.boxes().size(); b++)
-                if (b != box && graph_.boxes()[b].attachedTo < 0 &&
-                    std::fabs(graph_.boxes()[b].x - x) < 12 &&
-                    std::fabs(graph_.boxes()[b].y - y) < 12)
-                {
-                    x += 24;
-                    y += 24;
-                    clear = false;
-                }
-        }
-
-        graph_.moveBox(box, x, y);
-        graph_.refreshExtent();
+        graph_.placeNear(box, cx, cy);
         canvas_.setGraph(&graph_);
         canvas_.setSelected(box);
 
