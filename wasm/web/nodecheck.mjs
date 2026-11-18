@@ -1097,6 +1097,41 @@ process.stdout.write(
                              'does, the selection kept\n');
 }
 
+/* ---- a control's strip, hovered --------------------------------------- */
+
+{
+    const fixture =
+        '@lvl = 0.5;\n@lvl.widget = 1;\n@lvl.min = 0;\n@lvl.max = 1;\n' +
+        '@lvl.label = "Level of the oscillator";\n' +
+        'node ionode { channels = 1; out0 = osc->out; play = 1; };\n' +
+        'node osc osc::simple { freq = ionode->note; amp = @lvl; };\n' +
+        'io ionode;\n';
+
+    M.ccall('tw_graph_build', 'number', ['string'], [fixture]);
+    M._tw_node_canvas_viewport(0, 0, 900, 600);
+    M._tw_node_canvas_set_zoom(1);
+
+    let strip = -1;
+
+    for (let b = 0; b < M._tw_graph_box_count(); b++)
+        if (call('tw_graph_box_name', ['number'], [b]) === '@lvl')
+            strip = b;
+
+    const tip = (x, y) => call('tw_node_canvas_tip', ['number', 'number'],
+                               [x, y]);
+    const over = tip(M._tw_graph_box_x(strip) + 4,
+                     M._tw_graph_box_y(strip) + 4);
+
+    /* Spelled as the panels spell a value with this range. */
+    if (over !== 'Level of the oscillator (@lvl): 0.5000, from 0.0000 to ' +
+                 '1.0000' ||
+        tip(-1, -1) !== '')
+        fail(`a control's strip, hovered, says all of itself: "${over}"`);
+    else
+        process.stdout.write('ok    a control\'s strip, hovered, says its ' +
+                             'whole label, value and range\n');
+}
+
 process.stdout.write(failures === 0
     ? '\nthe node editor\'s model runs in the browser, and edits the way ' +
       'the desktop edits\n'

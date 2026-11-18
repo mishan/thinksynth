@@ -1157,6 +1157,16 @@ EMSCRIPTEN_KEEPALIVE int tw_node_canvas_hit (double x, double y)
            graph_.edgeAt(gx, gy) >= 0;
 }
 
+/* What the strip under `x', `y' has no room for, as the desktop's tooltip
+   says it; "" anywhere else. Valid until the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_node_canvas_tip (double x, double y)
+{
+    static std::string tip;
+
+    tip = canvas()->tipAt(x, y);
+    return tip.c_str();
+}
+
 EMSCRIPTEN_KEEPALIVE double tw_node_canvas_zoom (void)
 {
     return canvas()->zoom();

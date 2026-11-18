@@ -3594,6 +3594,77 @@ try
         await page.keyboard.press('Escape');
     }
 
+    /* A control's strip, hovered: its whole label, its value and its range
+       in the canvas's title, as the desktop's tooltip says them; nothing
+       over the background. */
+    {
+        await page.click('#nodezoom1');
+        await page.locator('#nodescroll').scrollIntoViewIfNeeded();
+        await page.$eval('#nodescroll', (s) => s.scrollTo(0, 0));
+
+        const strip = await page.evaluate(() =>
+        {
+            const n = window.solo.node();
+
+            for (let i = 0; i < n.boxes; i++)
+                if (n.box(i).kind === 1)
+                    return n.box(i);
+
+            return null;
+        });
+        const at = await page.$eval('#nodecanvas', (c) =>
+        {
+            const r = c.getBoundingClientRect();
+
+            return { x: r.x, y: r.y };
+        });
+
+        if (strip === null)
+            check(false, 'the patch has a control to hover');
+        else
+        {
+            await page.mouse.move(at.x + strip.x + 4, at.y + strip.y + 4);
+
+            const said = await page.$eval('#nodecanvas', (c) => c.title);
+
+            /* Changed under a pointer that has not moved -- a peer's edit,
+               here the text box's -- it says what the strip says now. */
+            const was = await page.$eval('#dsp', (e) => e.value);
+            const ctl = strip.name.slice(1);
+
+            await page.evaluate((name) =>
+            {
+                const box = document.getElementById('dsp');
+
+                box.value = box.value.replace(
+                    new RegExp(`^(\\s*@${name}\\.label = ")[^"]*`, 'm'),
+                    '$1Relabelled');
+                box.dispatchEvent(new Event('input'));
+            }, ctl);
+
+            const relabelled = await page.$eval('#nodecanvas', (c) => c.title);
+
+            await page.evaluate((t) =>
+            {
+                const box = document.getElementById('dsp');
+
+                box.value = t;
+                box.dispatchEvent(new Event('input'));
+            }, was);
+
+            await page.mouse.move(at.x + 2, at.y + 2);
+
+            const bare = await page.$eval('#nodecanvas', (c) => c.title);
+
+            check(said.includes(`(${strip.name}): `) && / to /.test(said) &&
+                  bare === '',
+                  `${strip.name}'s strip, hovered, says "${said}"; the ` +
+                  'background says nothing');
+            check(relabelled.startsWith('Relabelled '),
+                  `and relabelled under a still pointer, "${relabelled}"`);
+        }
+    }
+
     /* MIDI out (midiout.js): a piece whose instrument names a port. Before
      * access it plays its dsp, and its row says why; with MIDI out on it
      * plays on the fake output, every message scheduled for a time in

@@ -47,6 +47,11 @@ public:
     void setGraph (NodeGraph *graph);
     const NodeGraph *graph (void) const { return graph_; }
 
+    /* What a control's strip at `x', `y' in the shell's pixels has no room
+       for: its whole label, and its value as the parameter panel spells
+       it, with the range. Empty anywhere else. */
+    string tipAt (double x, double y) const;
+
     /* zoom(), setZoom() and zoomToFit() come from CanvasContent, which is
        where the view transform went when the composer's canvas turned out
        to want exactly it and nothing else here. */

@@ -499,6 +499,17 @@ export async function createNodeView ({ files, root = document,
         offerDelete();
     }
 
+    /* Where the pointer rests over the canvas, in its pixels, so a rebuild
+       -- somebody's edit to the strip under it -- says it again. */
+    let hovered = null;
+
+    function retip ()
+    {
+        $('nodecanvas').title = hovered === null ? '' :
+            call('tw_node_canvas_tip', ['number', 'number'],
+                 [hovered.x, hovered.y]);
+    }
+
     /* The toolbar's Delete, for whatever is selected: there is nothing to
        take without a selection. */
     function offerDelete ()
@@ -1580,6 +1591,7 @@ export async function createNodeView ({ files, root = document,
         view.viewport();
         showParams();
         offerDelete();
+        retip();
         paint();
     }
 
@@ -1631,6 +1643,21 @@ export async function createNodeView ({ files, root = document,
     };
 
     showPalette();
+
+    /* A control's strip has room for a few letters of its label and a
+       value cut to five characters; hovered, it says all of both, as the
+       desktop's tooltip does. Not during a drag, which is changing it. */
+    $('nodecanvas').addEventListener('pointermove', (e) =>
+    {
+        if (e.buttons !== 0 || e.pointerType === 'touch')
+            return;
+
+        const r = $('nodecanvas').getBoundingClientRect();
+
+        hovered = { x: e.clientX - r.left, y: e.clientY - r.top };
+        retip();
+    });
+    $('nodecanvas').addEventListener('pointerleave', () => { hovered = null; });
 
     $('nodeadd').addEventListener('click', addNode);
     $('nodeaddcontrol').addEventListener('click', addControl);
