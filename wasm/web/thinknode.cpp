@@ -183,6 +183,10 @@ public:
 protected:
     void requestRedraw (void) override { dirty_ = true; }
 
+    /* The page's scroller is the shell's, so a scroll is asked of it: the
+       selection an arrow moved to, kept in view. */
+    void scrollShellTo (double x, double y) override;
+
     void resizeShell (int w, int h) override
     {
         width_ = w;
@@ -297,8 +301,18 @@ enum {
     SIG_NUDGED,
     SIG_DELETE,
     SIG_WIRE_SELECTED,
-    SIG_WIRE_CONTEXT
+    SIG_WIRE_CONTEXT,
+    SIG_SCROLL
 };
+
+void WebNodeCanvas::scrollShellTo (double x, double y)
+{
+    Signal s(SIG_SCROLL);
+
+    s.x = x;
+    s.y = y;
+    signals_.push_back(s);
+}
 
 const Signal *signalAt (int i)
 {
@@ -1127,6 +1141,20 @@ EMSCRIPTEN_KEEPALIVE void tw_node_canvas_viewport (double x, double y,
                                                    double w, double h)
 {
     canvas()->setViewport(x, y, w, h);
+}
+
+/* Whether a press at `x', `y' in the shell's pixels would land on a box,
+   a port or a wire. What a finger on nothing does is the page's: it
+   pans. */
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_hit (double x, double y)
+{
+    double gx, gy;
+    int box, port;
+
+    canvas()->toContent(x, y, gx, gy);
+
+    return graph_.boxAt(gx, gy) >= 0 || graph_.portAt(gx, gy, box, port) ||
+           graph_.edgeAt(gx, gy) >= 0;
 }
 
 EMSCRIPTEN_KEEPALIVE double tw_node_canvas_zoom (void)

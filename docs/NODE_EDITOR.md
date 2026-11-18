@@ -82,7 +82,9 @@ Two invariants worth not breaking:
 ## 3. Interaction
 
 Drag boxes, Ctrl+wheel to zoom, hover for detail. A drag with the middle
-button, or with Space held, moves the view rather than anything in it. A
+button, or with Space held, moves the view rather than anything in it, in the
+browser's editor too, and there a finger on nothing does the same: held still
+a moment first, it draws a band; two fingers pinch. A
 control's strip shows a few letters of its label and its value in five
 characters, `14.1k'; hovered, it says the whole label and the value as the
 parameter panel spells it, with its range.

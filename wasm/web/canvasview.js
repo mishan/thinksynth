@@ -66,6 +66,8 @@ export function createCanvasView ({ scroller, canvas, send,
                                     fitOnShow = true,
                                     wheelZooms = false,
                                     takes = (e) => e.key === 'Escape',
+                                    pans = false,
+                                    hit = () => true,
                                     onFrame = () => {} })
 {
     const ctx = canvas.getContext('2d');
@@ -141,29 +143,131 @@ export function createCanvasView ({ scroller, canvas, send,
        drag from wherever that finger is. */
     let pointer = null;
 
-    canvas.addEventListener('pointerdown', (e) =>
+    /* The press the content hears, from wherever it came. */
+    const press = (id, p, button, mods, t) =>
     {
-        if (pointer !== null)
-            return;
-
-        pointer = e.pointerId;
-
-        const p = at(e);
-        const again = e.timeStamp - last.t < DOUBLE_MS &&
+        const again = t - last.t < DOUBLE_MS &&
                       Math.abs(p.x - last.x) <= DOUBLE_PX &&
                       Math.abs(p.y - last.y) <= DOUBLE_PX;
 
-        last = { t: e.timeStamp, x: p.x, y: p.y, n: again ? last.n + 1 : 1 };
+        pointer = id;
+        last = { t, x: p.x, y: p.y, n: again ? last.n + 1 : 1 };
+        send({ type: 'press', ...p, button, nPress: last.n, mods });
+    };
+
+    /* ---- the view dragged ----
+     *
+     * With `pans', the scroller is moved here and the content never hears
+     * of it, which is the shell's half of the desktop's MOD_PAN: the
+     * middle button, or Space held with the main one, drags the view. On
+     * a touch screen a finger on nothing does (`hit' says what is under
+     * it); held still a moment first, it draws the band a mouse drag on
+     * nothing draws; two fingers pinch. A finger on a box is a press like
+     * any other. */
+    const HOLD_MS = 500, STILL_PX = 8;
+    let space = false;
+    let pan = null;             /* the drag, while the view is dragged */
+    let pinch = 0;              /* the fingers' last distance, pinching */
+    const fingers = new Map();  /* touches down, by pointer, for a pinch */
+
+    const apart = () =>
+    {
+        const [a, b] = [...fingers.values()];
+
+        return Math.hypot(a.x - b.x, a.y - b.y);
+    };
+
+    const endPan = () =>
+    {
+        clearTimeout(pan?.hold);
+        pan = null;
+        canvas.style.cursor = space ? 'grab' : '';
+    };
+
+    canvas.addEventListener('pointerdown', (e) =>
+    {
+        if (pans && e.pointerType === 'touch')
+        {
+            fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            /* A second finger: a pinch, unless the first is already
+               pressing on something, which keeps its one gesture. */
+            if (fingers.size === 2 && pointer === null)
+            {
+                endPan();
+                pinch = apart();
+                e.preventDefault();
+                return;
+            }
+        }
+
+        if (pointer !== null || pan !== null || pinch > 0)
+            return;
+
+        const p = at(e);
+        const touch = e.pointerType === 'touch';
 
         canvas.setPointerCapture(e.pointerId);
         canvas.focus();
-        send({ type: 'press', ...p, button: e.button + 1, nPress: last.n,
-               mods: modsOf(e) });
         e.preventDefault();
+
+        if (pans && (e.button === 1 || (space && e.button === 0) ||
+                     (touch && !hit(p.x, p.y))))
+        {
+            pan = { id: e.pointerId, x: e.clientX, y: e.clientY,
+                    left: scroller.scrollLeft, top: scroller.scrollTop,
+                    moved: !touch, at: p, t: e.timeStamp };
+            canvas.style.cursor = 'grabbing';
+
+            if (touch)
+                pan.hold = setTimeout(() =>
+                {
+                    if (pan === null || pan.moved)
+                        return;
+
+                    const { id, at: where, t } = pan;
+
+                    endPan();
+                    press(id, where, 1, 0, t);
+                }, HOLD_MS);
+
+            return;
+        }
+
+        press(e.pointerId, p, e.button + 1, modsOf(e), e.timeStamp);
     });
 
     canvas.addEventListener('pointermove', (e) =>
     {
+        if (fingers.has(e.pointerId))
+            fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (pinch > 0 && fingers.size === 2)
+        {
+            const now = apart();
+
+            if (now > 0)
+                send({ type: 'zoomBy', by: now / pinch });
+
+            pinch = now;
+            return;
+        }
+
+        if (pan !== null && e.pointerId === pan.id)
+        {
+            const dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+
+            pan.moved ||= Math.hypot(dx, dy) > STILL_PX;
+
+            if (pan.moved)
+            {
+                scroller.scrollLeft = pan.left - dx;
+                scroller.scrollTop = pan.top - dy;
+            }
+
+            return;
+        }
+
         if (pointer !== null && e.pointerId !== pointer)
             return;
 
@@ -174,6 +278,34 @@ export function createCanvasView ({ scroller, canvas, send,
 
     const release = (e) =>
     {
+        fingers.delete(e.pointerId);
+
+        if (pinch > 0)
+        {
+            if (fingers.size < 2)
+                pinch = 0;
+
+            return;
+        }
+
+        /* A touch on nothing let go where it landed is a tap: what a click
+           on nothing does, which is to let go of the selection. */
+        if (pan !== null && e.pointerId === pan.id)
+        {
+            const { id, at: where, t, moved } = pan;
+
+            endPan();
+
+            if (!moved)
+            {
+                press(id, where, 1, 0, t);
+                pointer = null;
+                send({ type: 'release', ...where, button: 1 });
+            }
+
+            return;
+        }
+
         if (e.pointerId !== pointer)
             return;
 
@@ -193,6 +325,14 @@ export function createCanvasView ({ scroller, canvas, send,
 
     canvas.addEventListener('keydown', (e) =>
     {
+        if (pans && e.key === ' ')
+        {
+            space = true;
+            canvas.style.cursor = pan !== null ? 'grabbing' : 'grab';
+            e.preventDefault();
+            return;
+        }
+
         if (!takes(e))
             return;
 
@@ -202,6 +342,19 @@ export function createCanvasView ({ scroller, canvas, send,
                    mods: modsOf(e) }) !== false)
             e.preventDefault();
     });
+
+    const spaceUp = () =>
+    {
+        space = false;
+        canvas.style.cursor = pan !== null ? 'grabbing' : '';
+    };
+
+    canvas.addEventListener('keyup', (e) =>
+    {
+        if (e.key === ' ')
+            spaceUp();
+    });
+    canvas.addEventListener('blur', spaceUp);
 
     /* Ctrl+wheel zooms, as it does on the desktop; a plain wheel scrolls,
        which is the scroller's own business and not ours.

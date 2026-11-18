@@ -74,6 +74,7 @@ const SIG = {
     DELETE: 10,
     WIRE_SELECTED: 11,
     WIRE_CONTEXT: 12,
+    SCROLL: 13,
 };
 
 /* CanvasContent::Key, by a keydown's key, and Ctrl+A by its key code, so
@@ -283,6 +284,11 @@ export async function createNodeView ({ files, root = document,
            a time out of a graph six screens wide, and the whole graph
            small is at least a map of it. */
         fitOnShow: matchMedia('(max-width: 40em)').matches,
+
+        /* The middle button and Space drag the view, and on a touch screen
+           a finger on nothing does. */
+        pans: true,
+        hit: (x, y) => M._tw_node_canvas_hit(x, y) !== 0,
     });
 
     /* The shell speaks messages so that the composer view's shell and this
@@ -436,6 +442,11 @@ export async function createNodeView ({ files, root = document,
 
                 case SIG.WIRE_CONTEXT:
                     offerWire(a, sig.x, sig.y);
+                    break;
+
+                /* What an arrow moved to, kept in view. */
+                case SIG.SCROLL:
+                    $('nodescroll').scrollTo(sig.x, sig.y);
                     break;
 
                 /* A wire: from a box's port to another's. The graph knows
@@ -1804,5 +1815,7 @@ export async function createNodeView ({ files, root = document,
              boxes: () => M._tw_graph_box_count(),
              probes: () => probes.length,
              zoom: () => M._tw_node_canvas_zoom(),
+             held: () => M._tw_node_canvas_selection_count(),
+             hit: (x, y) => M._tw_node_canvas_hit(x, y) !== 0,
              selected: () => selected };
 }

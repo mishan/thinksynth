@@ -4046,6 +4046,8 @@ window.solo = {
         selected: nodes.selected(),
         probes: nodes.probes(),
         zoom: nodes.zoom(),
+        held: nodes.held(),
+        hit: (x, y) => nodes.hit(x, y),
         box: (i) => nodes.boxAt(i),
     }),
 };
