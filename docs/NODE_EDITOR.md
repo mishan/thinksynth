@@ -190,13 +190,14 @@ disconnect, watch and delete, each the canvas's own gesture. It is the
 keyboard's and a screen reader's way into the graph. The browser's editor has it
 too, as "Nodes and wires, as a list" under the graph.
 
-**When edits reach the file.** Every edit goes into the editor's copy of the
-patch's text as it is made, and reaches disk only on Save — a file rewritten on
+**When edits reach the file.** On the desktop every edit goes into the
+editor's copy of the patch's text as it is made, and reaches disk only on Save — a file rewritten on
 every gesture would be alarming. The edits are the splices the browser's editor
 makes, `NodeEdit::Text` and `NodeLayout::Text`, so the two agree byte for byte
 about what an edit is. Save adds the layout block and writes the text -- into
 the piece, for an instrument a piece carries, rather than to a file; Revert
-reads it again, as a step Undo can take back.
+reads it again, as a step Undo can take back. The browser's editor has neither:
+an edit there is in the page's text, and so in the patch, as it is made.
 
 **Unsaved means the text is not the file.** Nothing else is held aside, so an
 edit undone by hand leaves nothing to save: a value typed back goes in the
@@ -308,7 +309,8 @@ the control held in place of the reference (`freq = vib->out + 1.3`) and
 `removeNode` writes `0` in place of its own, since a departed output has no
 value to stand for. A plain `a = @cut` still becomes `a = 0`, and so does an
 expression reading a control whose value carries a unit — no expression may
-hold one, so there is nothing to splice in.
+hold one — or is arithmetic itself, since then there is no one number to
+splice in.
 
 ### The few that are shared
 
@@ -587,7 +589,8 @@ Worth repeating about how these are written:
 - **`dsplive` reports its non-effects separately rather than as errors.** Most
   controls change the sound of a ringing note and some do not — `@a`, `@d` and
   `@r` are envelope times, so by the time the change lands the note is in sustain and
-  there is correctly nothing to hear.
+  there is nothing to hear during it. The note is held and never let go, so this
+  says nothing about `@r` after note-off.
 
 **Layout quality is subjective and cannot be unit-tested**, and neither can the
 feel of a gesture. The bugs that matter here are visual and interactive, and
