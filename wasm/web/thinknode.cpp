@@ -629,15 +629,40 @@ EMSCRIPTEN_KEEPALIVE int tw_layout_write (const char *text)
     return NodeLayout::Text::write(text_, graph_) ? 1 : 0;
 }
 
-/* The probes saved in the text: how many, and then each in turn. */
+/* The probes saved in the text: how many, and then each in turn, valid
+   until the next count. The file is where a probe is kept, so a peer's
+   editor and the desktop's show the ones this one armed. */
+static std::vector<NodeLayout::ProbeRef> probesRead_;
+
 EMSCRIPTEN_KEEPALIVE int tw_layout_probe_count (const char *text)
 {
-    static std::vector<NodeLayout::ProbeRef> probes;
+    probesRead_.clear();
 
     if (text != NULL)
-        NodeLayout::Text::readProbes(text, probes);
+        NodeLayout::Text::readProbes(text, probesRead_);
 
-    return (int)probes.size();
+    return (int)probesRead_.size();
+}
+
+static const NodeLayout::ProbeRef *probeRead (int i)
+{
+    return i >= 0 && (size_t)i < probesRead_.size() ? &probesRead_[(size_t)i]
+                                                    : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_layout_probe_node (int i)
+{
+    return probeRead(i) != NULL ? probeRead(i)->node.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_layout_probe_arg (int i)
+{
+    return probeRead(i) != NULL ? probeRead(i)->arg.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_layout_probe_visual (int i)
+{
+    return probeRead(i) != NULL ? probeRead(i)->visual.c_str() : "";
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_graph_box_count (void)
@@ -1411,9 +1436,17 @@ EMSCRIPTEN_KEEPALIVE int tw_probe_panel (const char *node, const char *arg,
     const int box = graph_.addProbe(host, arg, visual, height);
 
     if (box >= 0)
-        graph_.layout();
+        NodeLayout::attachKeeping(graph_);
 
     return box;
+}
+
+/* The probe panel `box' taken off the graph, so the layout block written
+   next has no line for it. The display is the page's to close. */
+EMSCRIPTEN_KEEPALIVE void tw_probe_unpanel (int box)
+{
+    graph_.removeProbe(box);
+    NodeLayout::attachKeeping(graph_);
 }
 
 /* Draw one display on its own, at a size -- the panel drawn large, which

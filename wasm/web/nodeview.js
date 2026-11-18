@@ -47,6 +47,7 @@
 
 import { createCanvasView, modsOf } from './canvasview.js';
 import { placePopover } from './popover.js';
+import { replay } from './replay.js';
 import { numberIn, showPanel } from './panel.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
@@ -132,11 +133,14 @@ export async function createNodeView ({ files, root = document,
     let watching = null;        /* how to stop watching it change */
     let selected = -1;
 
-    /* The probes armed on this patch: the slot the worklet gave back, the
-       display this instance opened for it, and what it is watching. A
-       probe is not in the file -- it is a display -- so these are rebuilt
-       against the graph after every change. */
+    /* The probes the file's `# @probe' lines name: what each watches, the
+       display this page opened for it, the panel it is drawn in, and the
+       tap the worklet gave back -- -1 until one has answered. The lines
+       are the record, as on the desktop, so a peer's editor shows the
+       ones armed here; syncProbes() brings this list into line with them
+       after every rebuild. */
     const probes = [];
+    let asked = 0;              /* the latest tap asked for, to drop older */
 
     /* Which channel the piece put this instrument on, and so which one a
        tap is armed on. Set by the page when it knows. */
@@ -254,13 +258,9 @@ export async function createNodeView ({ files, root = document,
             next = M.UTF8ToString(M._tw_edit_text());
         }
 
-        /* What watched them goes first: a panel would have no host. */
-        const gone = new Set(victims.map((v) => v.node ?? `@${v.control}`));
-
-        for (let i = probes.length - 1; i >= 0; i--)
-            if (gone.has(probes[i].node))
-                stopProbe(i);
-
+        /* What watched them goes with them: a line whose node is gone is
+           passed over by syncProbes(), and the next layout write drops
+           it. */
         selected = -1;
         files.write(file, next);
         onStatus(victims.length === 1
@@ -443,6 +443,16 @@ export async function createNodeView ({ files, root = document,
                 case SIG.WIRE_CONTEXT:
                     offerWire(a, sig.x, sig.y);
                     break;
+
+                /* A probe's panel double-clicked: drawn large. */
+                case SIG.PROBE:
+                {
+                    const p = probes.find((q) => q.box === a);
+
+                    if (p !== undefined)
+                        openBig(p);
+                    break;
+                }
 
                 /* What an arrow moved to, kept in view. */
                 case SIG.SCROLL:
@@ -780,50 +790,135 @@ export async function createNodeView ({ files, root = document,
         show();
     }
 
+    /* Watching is an edit: the panel goes on the graph and the layout
+       block, which keeps probes, is written with it. The rebuild that
+       follows opens the display and arms the tap (syncProbes). */
+    function armProbe (node, arg, visual)
+    {
+        if (M.ccall('tw_probe_panel', 'number',
+                    ['string', 'string', 'string', 'number'],
+                    [node, arg, visual, 0]) < 0)
+            return;
+
+        writeLayout();
+        onStatus(`Watching ${node}.${arg} with a ${visual}.`);
+    }
+
+    /* And stopping, the same the other way: the panel off the graph, and
+       the block written without its line. */
     function stopProbe (which)
     {
         const p = probes[which];
 
-        unprobe?.(p.slot);
-        M._tw_probe_close(p.display);
+        if (p.box >= 0)
+            M._tw_probe_unpanel(p.box);
+
+        retire(p);
         probes.splice(which, 1);
+        writeLayout();
         onStatus(`Stopped watching ${p.node}.${p.arg}.`);
-        rebuild();
     }
 
-    async function armProbe (node, arg, visual)
+    function retire (p)
     {
-        if (probe === null || channel < 0)
-            return;
+        if (p.slot >= 0)
+            unprobe?.(p.slot);
 
-        const { slot, why } = await probe(channel, node, arg);
+        M._tw_probe_close(p.display);
 
-        if (slot < 0)
-        {
-            onStatus(`${node}.${arg} cannot be probed: ${why}`);
-            return;
-        }
-
-        const display = M.ccall('tw_probe_open', 'number',
-                                ['string', 'string', 'string', 'number',
-                                 'number'],
-                                [visual, node, arg, -1, sampleRate]);
-
-        if (display < 0)
-        {
-            unprobe?.(slot);
-            onStatus(`the ${visual} module would not open`);
-            return;
-        }
-
-        probes.push({ slot, display, node, arg, visual, box: -1 });
-        onStatus(`Watching ${node}.${arg} with a ${visual}.`);
-        rebuild();
+        if (big?.p === p)
+            big.dlg.close();
     }
 
-    /* The panels, put back after a rebuild: a probe is not in the patch,
-       so building the graph from the text loses them every time and the
-       page is what remembers. */
+    /* The list made what the text says, against the graph just built: a
+       display opened for each line whose node is there, and closed for
+       any other. Then every tap asked again, because a load disarms them
+       all and a rebuild follows one. */
+    function syncProbes ()
+    {
+        const wanted = [];
+        const lines = M.ccall('tw_layout_probe_count', 'number', ['string'],
+                              [text()]);
+
+        for (let i = 0; i < lines; i++)
+        {
+            const w = {
+                node: call('tw_layout_probe_node', ['number'], [i]),
+                arg: call('tw_layout_probe_arg', ['number'], [i]),
+                visual: call('tw_layout_probe_visual', ['number'], [i]),
+            };
+
+            if (boxNamed(w.node) >= 0)
+                wanted.push(w);
+        }
+
+        const same = (p, w) => p.node === w.node && p.arg === w.arg &&
+                               p.visual === w.visual;
+
+        for (let i = probes.length - 1; i >= 0; i--)
+            if (!wanted.some((w) => same(probes[i], w)))
+            {
+                retire(probes[i]);
+                probes.splice(i, 1);
+            }
+
+        for (const w of wanted)
+        {
+            if (probes.some((p) => same(p, w)))
+                continue;
+
+            const display = M.ccall('tw_probe_open', 'number',
+                                    ['string', 'string', 'string', 'number',
+                                     'number'],
+                                    [w.visual, w.node, w.arg, -1, sampleRate]);
+
+            /* The file names a module this build has not got: worth saying,
+               since the panel not appearing reads as the file losing it. */
+            if (display < 0)
+                onStatus(`No ${w.visual} display for the probe on ` +
+                         `${w.node}.${w.arg} here.`);
+            else
+                probes.push({ ...w, display, slot: -1, box: -1, ask: 0 });
+        }
+
+        tap();
+    }
+
+    /* Each tap asked of the patch as it is loaded now. A reply to an ask
+       a later one has replaced is let go again. */
+    function tap ()
+    {
+        for (const p of probes)
+        {
+            if (p.slot >= 0)
+                unprobe?.(p.slot);
+
+            p.slot = -1;
+
+            if (probe === null || channel < 0)
+                continue;
+
+            const ask = p.ask = ++asked;
+
+            probe(channel, p.node, p.arg).then(({ slot, why }) =>
+            {
+                if (!probes.includes(p) || p.ask !== ask)
+                {
+                    if (slot >= 0)
+                        unprobe?.(slot);
+
+                    return;
+                }
+
+                if (slot < 0)
+                    onStatus(`${p.node}.${p.arg} cannot be probed: ${why}`);
+                else
+                    p.slot = slot;
+            });
+        }
+    }
+
+    /* Each probe's panel on the graph just built. */
     function showProbes ()
     {
         for (const p of probes)
@@ -834,6 +929,83 @@ export async function createNodeView ({ files, root = document,
 
             M._tw_probe_box(p.display, p.box);
         }
+    }
+
+    /* ---- a probe drawn large ----
+     *
+     * A double-click on a panel: the same display at a size a spectrogram
+     * reads at, in a dialog beside the graph rather than over it, so the
+     * patch can go on being edited while it is watched. */
+    let big = null;
+
+    function openBig (p)
+    {
+        big?.dlg.close();
+
+        const dlg = document.createElement('dialog');
+        const heading = document.createElement('h3');
+        const canvas = document.createElement('canvas');
+        const done = document.createElement('button');
+
+        dlg.id = 'nodeprobebig';
+        dlg.className = 'probebig';
+        heading.textContent = `${p.node}.${p.arg} \u2014 ${p.visual}`;
+        dlg.ariaLabel = heading.textContent;
+        done.type = 'button';
+        done.textContent = 'Close';
+        done.onclick = () => dlg.close();
+        dlg.onkeydown = (e) =>
+        {
+            if (e.key === 'Escape')
+                dlg.close();
+        };
+        dlg.onclose = () =>
+        {
+            dlg.remove();
+
+            if (big?.dlg === dlg)
+                big = null;
+
+            $('nodecanvas').focus({ preventScroll: true });
+        };
+
+        dlg.append(heading, canvas, done);
+        (root.body ?? document.body).append(dlg);
+        dlg.show();
+        done.focus({ preventScroll: true });
+        big = { p, dlg, canvas };
+        drawBig();
+    }
+
+    function drawBig ()
+    {
+        if (big === null)
+            return;
+
+        const { p, canvas } = big;
+        const dpr = globalThis.devicePixelRatio || 1;
+        const w = canvas.clientWidth, h = canvas.clientHeight;
+
+        if (canvas.width !== Math.round(w * dpr))
+        {
+            canvas.width = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
+        }
+
+        const words = M._tw_probe_draw(p.display, w, h);
+
+        if (words <= 0)
+            return;
+
+        const at = M._tw_draw_ops();
+        const strings = [];
+
+        for (let i = 0; i < M._tw_draw_string_count(); i++)
+            strings.push(M.UTF8ToString(M._tw_draw_string(i)));
+
+        replay(canvas.getContext('2d'),
+               M.HEAPF32.subarray(at >> 2, (at >> 2) + words), strings, [],
+               { width: w, height: h, dpr });
     }
 
     /* Samples from the worklet, by slot: into the display, and a frame. */
@@ -862,7 +1034,10 @@ export async function createNodeView ({ files, root = document,
         }
 
         if (any)
+        {
             paint();
+            drawBig();
+        }
     };
 
     /* ---- the forms ---- */
@@ -1527,14 +1702,10 @@ export async function createNodeView ({ files, root = document,
                 type: 'button', textContent: `Delete ${name}`,
                 onclick: () =>
                 {
-                    /* What watched it goes first: its panel would have no
-                       host, and nothing left to stop it from. And nothing
-                       is chosen before the write, which rebuilds at once:
-                       the index would otherwise name the box after it. */
-                    for (let i = probes.length - 1; i >= 0; i--)
-                        if (probes[i].node === name)
-                            stopProbe(i);
-
+                    /* Nothing is chosen before the write, which rebuilds
+                       at once: the index would otherwise name the box
+                       after it. What watched it goes with it (syncProbes).
+                       */
                     const was = selected;
 
                     selected = -1;
@@ -1584,6 +1755,7 @@ export async function createNodeView ({ files, root = document,
         }
 
         M.ccall('tw_graph_apply_layout', 'number', ['string'], [source]);
+        syncProbes();
         showProbes();
 
         /* The build kept the selection by name. */
@@ -1837,6 +2009,7 @@ export async function createNodeView ({ files, root = document,
              onChannel: (c) =>
              {
                  channel = c;
+                 tap();
                  wiring();
              },
              boxes: () => M._tw_graph_box_count(),

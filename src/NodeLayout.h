@@ -132,6 +132,13 @@ public:
        interrupted save cannot leave a half-written .dsp. */
     static bool write (const string &filename, const NodeGraph &graph);
 
+    /* layout() again, for the panels and strips it hangs on their boxes,
+       with every box put back where it was: layout() places them all from
+       scratch. A panel can then overlap the box above its node, which a
+       drag fixes; one that would go off the top of the canvas, where
+       nothing can scroll, moves its node down instead. */
+    static void attachKeeping (NodeGraph &graph);
+
     /* The key a box is stored under. */
     static string keyFor (const NodeGraph &graph, int box);
 
