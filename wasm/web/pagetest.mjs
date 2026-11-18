@@ -3665,6 +3665,197 @@ try
         }
     }
 
+    /* Probes kept in the file (nodeview.js, syncProbes): watching writes
+       the `# @probe' line, a double-click on the panel draws it large, the
+       line taken out of the text takes the probe with it and put back
+       brings it back, and stopping takes the line out. The patch is put
+       back after. */
+    {
+        const dsp = () => page.$eval('#dsp', (e) => e.value);
+        const original = await dsp();
+        const changed = (before) => page.waitForFunction(
+            (b) => document.getElementById('dsp').value !== b, before,
+            { timeout: 15000 }).catch(() => {});
+        const probes = () => page.evaluate(() => window.solo.node().probes);
+        const setText = (t) => page.evaluate((t) =>
+        {
+            const box = document.getElementById('dsp');
+
+            box.value = t;
+            box.dispatchEvent(new Event('input'));
+        }, t);
+
+        await page.click('#nodezoom1');
+        await page.locator('#nodescroll').scrollIntoViewIfNeeded();
+        await page.$eval('#nodescroll', (s) => s.scrollTo(0, 0));
+
+        const port = await page.evaluate(() =>
+        {
+            const n = window.solo.node();
+
+            for (let i = 0; i < n.boxes; i++)
+            {
+                const b = n.box(i);
+                const out = b.ports.find((p) => !p.isInput);
+
+                if (b.kind === 0 && out && !b.name.includes('.'))
+                    return { ...out, node: b.name };
+            }
+
+            return null;
+        });
+        const canvasAt = () => page.$eval('#nodecanvas', (c) =>
+        {
+            const r = c.getBoundingClientRect();
+
+            return { x: r.x, y: r.y };
+        });
+
+        if (port === null)
+            check(false, 'the patch has an output to watch');
+        else
+        {
+            const line = `# @probe ${port.node} ${port.name} scope`;
+            let at = await canvasAt();
+
+            await page.mouse.click(at.x + port.x, at.y + port.y,
+                                   { button: 'right' });
+            await page.locator('#nodemenu button',
+                               { hasText: 'Watch with a scope' })
+                .first().click().catch(() => {});
+            await changed(original);
+
+            const watched = await dsp();
+            /* The patch, without the layout block the probe line is
+               written in -- written whole, as the desktop writes it. */
+            const head = (t) => t.split('\n').filter(
+                (l) => !l.startsWith('# @')).join('\n').trimEnd();
+
+            check(watched.includes(line) && await probes() === 1 &&
+                  head(watched) === head(original),
+                  `watching ${port.node}.${port.name} writes "${line}" and ` +
+                  'touches nothing else in the patch');
+
+            /* And draws what the patch plays: the tap asked of the patch
+               the watch reloaded, not of the one it replaced. A note, so
+               there is something to draw. */
+            const fedWas = (await page.evaluate(() => window.solo.node())).fed;
+
+            await page.keyboard.press('Escape');
+            await page.keyboard.down('z');
+            await page.waitForFunction(
+                (w) => window.solo.node().fed > w, fedWas,
+                { timeout: 10000 }).catch(() => {});
+            await page.keyboard.up('z');
+
+            check((await page.evaluate(() => window.solo.node())).fed > fedWas,
+                  `${port.node}.${port.name}'s display is fed from the ` +
+                  'patch as loaded now');
+
+            /* The panel sits above its node; a double-click on it. */
+            const panel = await page.evaluate(() =>
+            {
+                const n = window.solo.node();
+
+                for (let i = 0; i < n.boxes; i++)
+                    if (n.box(i).kind === 4)
+                        return n.box(i);
+
+                return null;
+            });
+
+            at = await canvasAt();
+
+            if (panel !== null)
+                await page.mouse.dblclick(at.x + panel.x + 12,
+                                          at.y + panel.y + 12);
+
+            await page.waitForSelector('#nodeprobebig', { timeout: 5000 })
+                .catch(() => {});
+
+            /* And the graph where it was: a dialog at the page's end,
+               focused, scrolled it out of sight. */
+            const shifted = (await canvasAt()).y - at.y;
+            const still = shifted === 0;
+
+            const big = await page.locator('#nodeprobebig').isVisible()
+                .catch(() => false);
+            /* Drawn, not merely sized: something on the canvas that is
+               not its background. */
+            const width = await page.$eval('#nodeprobebig canvas', (c) =>
+            {
+                const px = c.getContext('2d')
+                    .getImageData(0, 0, c.width, c.height).data;
+
+                for (let i = 4; i < px.length; i += 4)
+                    if (px[i] !== px[0] || px[i + 1] !== px[1] ||
+                        px[i + 2] !== px[2] || px[i + 3] !== px[3])
+                        return c.width;
+
+                return 0;
+            }).catch(() => 0);
+
+            await page.keyboard.press('Escape');
+
+            /* A dialog's close event, which takes it away, is a task of its
+               own after the key. */
+            const closed = await page.waitForSelector('#nodeprobebig',
+                { state: 'detached', timeout: 5000 })
+                .then(() => true, () => false);
+
+            check(panel !== null && big && width > 0 && still && closed,
+                  'a double-click on its panel draws it large over the ' +
+                  'page, which stays where it was, and Escape closes it: ' +
+                  JSON.stringify({ panel: panel !== null, big, width, shifted,
+                                   closed }));
+
+            await setText(watched.replace(`${line}\n`, ''));
+
+            const without = await probes();
+
+            await setText(watched);
+
+            const again = await probes();
+
+            check(without === 0 && again === 1,
+                  'the line taken out of the text takes the probe, and put ' +
+                  `back brings it back: ${without}, then ${again}`);
+
+            const moved = await page.evaluate((want) =>
+            {
+                const n = window.solo.node();
+
+                for (let i = 0; i < n.boxes; i++)
+                    if (n.box(i).name === want.node && n.box(i).kind === 0)
+                        return n.box(i).ports.find((p) => p.name === want.name);
+
+                return null;
+            }, port);
+
+            if (!moved)
+                check(false, `${port.node}.${port.name} is not in the graph ` +
+                             'to stop watching');
+            else
+            {
+                at = await canvasAt();
+                await page.mouse.click(at.x + moved.x, at.y + moved.y,
+                                       { button: 'right' });
+                await page.locator('#nodemenu button',
+                                   { hasText: 'Stop watching' })
+                    .first().click().catch(() => {});
+                await changed(watched);
+
+                check(!(await dsp()).includes('# @probe') &&
+                      await probes() === 0,
+                      'and stopping takes the line out of the file');
+            }
+        }
+
+        await setText(original);
+        await page.click('#load');
+        await page.evaluate(() => window.solo.settled());
+    }
+
     /* MIDI out (midiout.js): a piece whose instrument names a port. Before
      * access it plays its dsp, and its row says why; with MIDI out on it
      * plays on the fake output, every message scheduled for a time in

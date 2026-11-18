@@ -1835,3 +1835,23 @@ body.tiled #videoframe { flex: 1 1 0; min-height: 90px; aspect-ratio: auto; max-
     background: var(--held);
     opacity: 0.15;
 }
+
+/* A probe drawn large (nodeview.js, openBig): the size a spectrogram reads
+   at, held inside a phone's width. Over the window rather than at the end
+   of the page, where showing it would scroll the graph out of sight. */
+.probebig
+{
+    position: fixed;
+    top: 10vh;
+    z-index: 10;
+    max-height: 80vh;
+    overflow: auto;
+}
+
+/* Room left for the heading and Close on a short screen. */
+.probebig canvas
+{
+    display: block;
+    width: min(640px, 85vw);
+    height: min(360px, 50vh);
+}

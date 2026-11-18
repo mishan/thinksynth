@@ -2942,6 +2942,20 @@ async function editTogether (pages)
         return;
     }
 
+    /* Kept in the file, as the desktop keeps it, so it is the room's: the
+       other peer's copy has the line. */
+    const line = `# @probe ${port.name} ${port.port} scope`;
+
+    await B.page.waitForFunction(
+        ([name, want]) => (window.jam.file(name) ?? '').includes(want),
+        [file, line], { timeout: 15000 }).catch(() => {});
+
+    if ((await B.page.evaluate((name) => window.jam.file(name), file) ?? '')
+        .includes(line))
+        ok(`and it is in the other peer's copy: "${line}"`);
+    else
+        fail(`the other peer's copy has no "${line}"`);
+
     /* And taking it away: the same port again, which now offers to stop
        rather than to start. The port has moved -- a panel makes its host
        taller and pushes everything down -- so where it is now is asked

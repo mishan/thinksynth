@@ -22,11 +22,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <vector>
 
 #include "think.h"
+
 #include "NodeGraph.h"
 #include "NodeLayout.h"
 
@@ -61,6 +63,34 @@ string NodeLayout::keyFor (const NodeGraph &graph, int box)
         return b.name + "#out";
 
     return b.name;
+}
+
+void NodeLayout::attachKeeping (NodeGraph &graph)
+{
+    PosMap kept;
+
+    for (size_t b = 0; b < graph.boxes().size(); b++)
+        if (graph.boxes()[b].attachedTo < 0)
+            kept[keyFor(graph, (int)b)] =
+                make_pair(graph.boxes()[b].x, graph.boxes()[b].y);
+
+    graph.layout();
+    apply(graph, kept, graph);
+
+    for (size_t b = 0; b < graph.boxes().size(); b++)
+    {
+        double top = graph.boxes()[b].y;
+
+        for (const NodeGraph::Box &s : graph.boxes())
+            if (s.attachedTo == (int)b)
+                top = std::min(top, s.y);
+
+        if (graph.boxes()[b].attachedTo < 0 && top < 0)
+            graph.moveBox((int)b, graph.boxes()[b].x,
+                          graph.boxes()[b].y - top);
+    }
+
+    graph.refreshExtent();
 }
 
 string NodeLayout::renamedKey (const string &k, const string &key,

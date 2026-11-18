@@ -796,6 +796,9 @@ async function loadPieceFromDoc (seed, from)
        nobody's tape. */
     const it = await synth.loadPiece(gen, seed);
 
+    /* The piece's channels are new, and every tap on the old ones gone. */
+    nodes?.rearm();
+
     loadedGen = gen;
     loadedText = files(doc).get(pieceName(from)) ?? null;
     playing = snapshot(from);

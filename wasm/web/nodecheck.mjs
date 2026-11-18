@@ -1132,6 +1132,64 @@ process.stdout.write(
                              'whole label, value and range\n');
 }
 
+/* ---- a probe kept in the file ---------------------------------------- */
+
+{
+    const fixture =
+        'node ionode { channels = 1; out0 = osc->out; play = 1; };\n' +
+        'node osc osc::simple { freq = ionode->note; };\n' +
+        'io ionode;\n' +
+        '# @layout osc 400 300\n' +
+        '# @probe osc out scope\n';
+    const boxOf = (name) =>
+    {
+        for (let b = 0; b < M._tw_graph_box_count(); b++)
+            if (call('tw_graph_box_name', ['number'], [b]) === name &&
+                M._tw_graph_box_kind(b) !== 4)
+                return b;
+
+        return -1;
+    };
+
+    M.ccall('tw_graph_build', 'number', ['string'], [fixture]);
+    M.ccall('tw_graph_apply_layout', 'number', ['string'], [fixture]);
+
+    const lines = M.ccall('tw_layout_probe_count', 'number', ['string'],
+                          [fixture]);
+    const read = lines === 1 ? [call('tw_layout_probe_node', ['number'], [0]),
+                                call('tw_layout_probe_arg', ['number'], [0]),
+                                call('tw_layout_probe_visual', ['number'], [0])]
+                             : [];
+
+    /* The panel hung on its node leaves every box where the file put it:
+       laying the graph out again for the panel used to put them all back
+       where the layout would. */
+    const panel = M.ccall('tw_probe_panel', 'number',
+                          ['string', 'string', 'string', 'number'],
+                          ['osc', 'out', 'scope', 0]);
+    const kept = M._tw_graph_box_x(boxOf('osc')) === 400 &&
+                 M._tw_graph_box_y(boxOf('osc')) === 300;
+    const written = M.ccall('tw_layout_write', 'number', ['string'],
+                            [fixture]) ? M.UTF8ToString(M._tw_edit_text()) : '';
+
+    M._tw_probe_unpanel(panel);
+
+    const rewrote = M.ccall('tw_layout_write', 'number', ['string'],
+                            [fixture]);
+    const gone = M.UTF8ToString(M._tw_edit_text());
+
+    if (read.join(' ') !== 'osc out scope' || panel < 0 || !kept ||
+        !written.includes('# @probe osc out scope') ||
+        !written.includes('# @layout osc 400 300') || !rewrote ||
+        gone.includes('# @probe'))
+        fail(`a probe is read from its line, kept by a panel, and gone with ` +
+             `it: ${JSON.stringify({ read, panel, kept })}`);
+    else
+        process.stdout.write('ok    a probe is read from its line; its panel ' +
+                             'keeps the boxes where they were, and taken ' +
+                             'off, its line goes\n');
+}
+
 process.stdout.write(failures === 0
     ? '\nthe node editor\'s model runs in the browser, and edits the way ' +
       'the desktop edits\n'
