@@ -3496,6 +3496,11 @@ try
            and an arrow to the box beside it: the view goes to that one. */
         await page.mouse.click(onBox.x - 160, onBox.y);
         await page.$eval('#nodescroll', (s) => s.scrollTo(s.scrollWidth, 0));
+
+        /* The scroll is told to the canvas by a listener; a frame, so the
+           arrow is measured against the view it is in. */
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(
+            () => requestAnimationFrame(r))));
         await page.focus('#nodecanvas');
         await page.keyboard.press('ArrowRight');
 
@@ -3518,24 +3523,40 @@ try
                        { enabled: true, maxTouchPoints: 5 });
         await page.$eval('#nodescroll', (s) => s.scrollTo(0, 0));
 
+        /* In the canvas's own pixels, put on the page where the canvas is
+           when the finger lands: the page goes on moving under a harness
+           that measured it once, and a finger meant for nothing lands on a
+           box. Held for the rest of the gesture, as a finger is -- the
+           canvas moves under a pan. */
         const empty = await page.evaluate((v) =>
         {
             const n = window.solo.node();
-            const c = document.getElementById('nodecanvas')
-                .getBoundingClientRect();
 
+            /* Clear a pinch's width to either side, for both fingers. */
             for (let y = 20; y < v.h - 20; y += 10)
-                for (let x = 200; x < v.w - 20; x += 10)
-                    if (!n.hit(x, y))
-                        return { x: c.x + x, y: c.y + y, cx: x, cy: y };
+                for (let x = 200; x < v.w - 50; x += 10)
+                    if (!n.hit(x, y) && !n.hit(x - 30, y) && !n.hit(x + 30, y))
+                        return { x, y };
 
             return null;
         }, view);
-        const touch = (type, points) =>
-            cdp.send('Input.dispatchTouchEvent', {
+        let c = null;
+        const touch = async (type, points) =>
+        {
+            if (type === 'touchStart')
+                c = await page.$eval('#nodecanvas', (e) =>
+                {
+                    const r = e.getBoundingClientRect();
+
+                    return { x: r.x, y: r.y };
+                });
+
+            await cdp.send('Input.dispatchTouchEvent', {
                 type,
-                touchPoints: points.map(([x, y], id) => ({ x, y, id })),
+                touchPoints: points.map(([x, y], id) =>
+                    ({ x: c.x + x, y: c.y + y, id })),
             });
+        };
 
         if (empty === null)
             check(false, 'the graph has somewhere empty to touch');
@@ -3576,8 +3597,8 @@ try
 
             for (let i = 1; i <= 8; i++)
                 await touch('touchMove',
-                            [[empty.x - (empty.cx - 4) * i / 8,
-                              empty.y - (empty.cy - 4) * i / 8]]);
+                            [[empty.x - (empty.x - 4) * i / 8,
+                              empty.y - (empty.y - 4) * i / 8]]);
 
             await touch('touchEnd', []);
 
@@ -3586,6 +3607,22 @@ try
             check(banded > 0 && (await scroll()).x === 0,
                   `a finger held on nothing and dragged draws a band: ` +
                   `${banded} held, the view not moved`);
+
+            /* A touch the browser takes back, for a gesture of its own, is
+               not a tap on nothing: what was held stays held. */
+            await page.evaluate(() => document.getElementById('nodecanvas')
+                .addEventListener('pointerdown',
+                                  (e) => { window.cancelled = e.pointerId; },
+                                  { once: true }));
+            await touch('touchStart', [[empty.x, empty.y]]);
+            await page.evaluate(() => document.getElementById('nodecanvas')
+                .dispatchEvent(new PointerEvent('pointercancel', {
+                    pointerId: window.cancelled, pointerType: 'touch',
+                    bubbles: true })));
+            await touch('touchEnd', []);
+
+            check((await node()).held === banded,
+                  'a touch the browser cancels lets go of nothing');
         }
 
         await cdp.send('Emulation.setTouchEmulationEnabled',

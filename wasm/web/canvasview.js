@@ -280,23 +280,24 @@ export function createCanvasView ({ scroller, canvas, send,
     {
         fingers.delete(e.pointerId);
 
+        /* A finger lifted with two still down: the pair measured from now
+           on may be another, so the distance starts again from it. */
         if (pinch > 0)
         {
-            if (fingers.size < 2)
-                pinch = 0;
-
+            pinch = fingers.size < 2 ? 0 : apart();
             return;
         }
 
         /* A touch on nothing let go where it landed is a tap: what a click
-           on nothing does, which is to let go of the selection. */
+           on nothing does, which is to let go of the selection. One the
+           browser took back, for a gesture of its own, is nothing. */
         if (pan !== null && e.pointerId === pan.id)
         {
             const { id, at: where, t, moved } = pan;
 
             endPan();
 
-            if (!moved)
+            if (!moved && e.type !== 'pointercancel')
             {
                 press(id, where, 1, 0, t);
                 pointer = null;
