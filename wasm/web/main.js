@@ -71,6 +71,7 @@ import { createEvolve } from './evolveui.js';
 import { createGrow } from './growui.js';
 import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
+import { TextHistory } from './history.js';
 import { micAvailable, openMic } from './mic.js';
 import { midiAvailable, midiToggle } from './midi.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
@@ -1158,16 +1159,12 @@ let loadedText = '';
 
 /* ---- undo ----
  *
- * Every text the piece has been, a list per mode for the text each mode
+ * Every text the piece has been, a history per mode for the text each mode
  * keeps (holdText): what a load took, what a control wrote into it. A run
  * of param edits close together -- a slider dragged, a pad moved -- is one
  * step rather than a step per position it passed through.
  */
-const UNDO_KEEP = 200;
-const UNDO_JOIN_MS = 1000;
-
-const histories = { seq: { past: [], future: [], at: 0, join: null },
-                    piece: { past: [], future: [], at: 0, join: null } };
+const histories = { seq: new TextHistory(), piece: new TextHistory() };
 let undoing = false;
 
 function history ()
@@ -1185,26 +1182,15 @@ function setLoaded (text, join = null)
        shipped piece only listened to is not, or it would put the last
        session's piece out of reach before it could be chosen. */
     if (textMode === 'piece' &&
-        (history().past.length > 0 || $('piece').value.startsWith('#')))
+        (history().text !== null || $('piece').value.startsWith('#')))
         keepSession(text);
 
     const h = history();
 
-    if (h === null || undoing || h.past.at(-1) === text)
+    if (h === null || undoing)
         return;
 
-    const now = performance.now();
-
-    if (join !== null && join === h.join && now - h.at < UNDO_JOIN_MS &&
-        h.past.length > 1)
-        h.past[h.past.length - 1] = text;
-    else
-        h.past.push(text);
-
-    h.at = now;
-    h.join = join;
-    h.past.splice(0, h.past.length - UNDO_KEEP);
-    h.future = [];
+    h.record(text, '', join);
     showUndo();
 }
 
@@ -1213,8 +1199,7 @@ function forgetHistory ()
 {
     const h = history();
 
-    if (h !== null)
-        Object.assign(h, { past: [], future: [], at: 0, join: null });
+    h?.clear();
 
     showUndo();
 }
@@ -1223,9 +1208,8 @@ function showUndo ()
 {
     const h = history();
 
-    $('undo').disabled = synth === null || h === null || h.past.length < 2;
-    $('redo').disabled = synth === null || h === null ||
-                         h.future.length === 0;
+    $('undo').disabled = synth === null || !h?.canUndo;
+    $('redo').disabled = synth === null || !h?.canRedo;
 }
 
 async function undo (back)
@@ -1233,7 +1217,7 @@ async function undo (back)
     const h = history();
 
     if (h === null || playsPatch() || undoing || loading > 0 ||
-        (back ? h.past.length < 2 : h.future.length === 0))
+        !(back ? h.canUndo : h.canRedo))
         return;
 
     /* What was typed and never loaded is in no list, and would be lost. */
@@ -1244,16 +1228,19 @@ async function undo (back)
         return;
     }
 
-    const step = (from, to) => to.push(from.pop());
+    const { text } = back ? h.undo() : h.redo();
 
-    step(back ? h.past : h.future, back ? h.future : h.past);
-    h.join = null;
     undoing = true;
 
     try
     {
-        if (!(await applyText(h.past.at(-1))))
-            step(back ? h.future : h.past, back ? h.past : h.future);
+        if (!(await applyText(text)))
+        {
+            if (back)
+                h.redo();
+            else
+                h.undo();
+        }
     }
     finally
     {
@@ -2022,7 +2009,7 @@ const band = createBand({
        its channel, and playing. Resolves to whether it is. */
     phrase: async () =>
     {
-        if (synth === null || (history()?.past.length > 1 &&
+        if (synth === null || (history()?.canUndo &&
                                !confirm('Start from a phrase? The piece ' +
                                         'you have changed is put away.')))
             return false;
@@ -2051,7 +2038,7 @@ const band = createBand({
     {
         /* What New would put away is offered back only as the last
            session, so it is asked about when it has been changed. */
-        if (synth === null || (history()?.past.length > 1 &&
+        if (synth === null || (history()?.canUndo &&
                                !confirm('Start a new band? The piece ' +
                                         'you have changed is put away.')))
             return;

@@ -950,6 +950,12 @@ jobs:
         working-directory: wasm/web
         run: node catalogcheck.mjs
 
+      # Undo's history: steps, names, joins and the cap, on a clock the
+      # check moves. No browser either.
+      - name: The texts a document has been
+        working-directory: wasm/web
+        run: node historycheck.mjs
+
   # The page and the worklet, in the two engines the page has to work in.
   #
   # One runner per engine for browsertest.mjs, the bulk of the job: every
