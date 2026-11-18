@@ -91,7 +91,8 @@ const keyOf = ({ key, code, mods }) => (mods & 2) && code === 'KeyA'
 /* NodeGraph::Box kinds, as tw_graph_box_kind reports them. */
 const BOX = { NODE: 0, CONTROL: 1, IO_IN: 2, IO_OUT: 3, PROBE: 4 };
 
-export async function createNodeView ({ files, root = document,
+export async function createNodeView ({ files, history = null,
+                                        root = document,
                                         onStatus = () => {},
                                         probe = null, unprobe = null,
                                         sampleRate = 48000 })
@@ -178,6 +179,40 @@ export async function createNodeView ({ files, root = document,
             files.write(file, M.UTF8ToString(M._tw_edit_text()));
     };
 
+    /* One gesture, one step of Undo: all `fn' writes, under the name the
+       desktop gives it. One begun inside another is part of it. */
+    let stepping = false;
+
+    const step = (what, join, fn) =>
+    {
+        if (history === null || file === null || stepping)
+            return fn();
+
+        stepping = true;
+
+        try
+        {
+            return history.step(file, what, join, fn);
+        }
+        finally
+        {
+            stepping = false;
+
+            /* The rebuild inside drew them before the step was taken. */
+            showSteps();
+        }
+    };
+
+    const boxName = (b) => call('tw_graph_box_name', ['number'], [b]);
+
+    /* What a nudge moved: the selection, which the keys move whole. */
+    const moved = () =>
+    {
+        const b = M._tw_node_canvas_selected();
+
+        return `move ${b >= 0 ? boxName(b) : 'boxes'}`;
+    };
+
     /* Boxes moved by keys and not written yet. A rebuild drops them: the
        graph they were moved in is gone, and writing its positions into the
        text that replaced it would undo whatever that text changed. */
@@ -193,7 +228,7 @@ export async function createNodeView ({ files, root = document,
         /* A drag under way writes them with its own move, and a write now
            would rebuild the graph out from under it. */
         if (!M._tw_node_canvas_busy())
-            writeLayout();
+            step(moved(), `nudge ${moved()}`, writeLayout);
     };
 
     /* Delete on the canvas: everything selected that can go, as the
@@ -262,7 +297,9 @@ export async function createNodeView ({ files, root = document,
         next = unwatched(next, victims.filter((v) => v.node !== undefined)
                                      .map((v) => v.node));
         selected = -1;
-        files.write(file, next);
+        step(`delete ${v0(victims[0])}` +
+             (victims.length > 1 ? ' and the rest' : ''),
+             null, () => files.write(file, next));
         onStatus(victims.length === 1
             ? `Deleted ${v0(victims[0])}.${stays}`
             : `Deleted ${victims.length} nodes.${stays}`);
@@ -495,17 +532,22 @@ export async function createNodeView ({ files, root = document,
                    one edit and not fifty. */
                 case SIG.CONTROL:
                     if (sig.b === 1)
-                        edit('tw_edit_set_chanarg', ['string', 'string',
-                                                     'number'],
-                             [call('tw_graph_box_control', ['number'], [a]),
-                              sig.value]);
+                    {
+                        const ctl = call('tw_graph_box_control', ['number'],
+                                         [a]);
+
+                        step(`set @${ctl}`, null, () =>
+                            edit('tw_edit_set_chanarg',
+                                 ['string', 'string', 'number'],
+                                 [ctl, sig.value]));
+                    }
                     break;
 
                 /* A box was dragged: the positions go back into the file's
                    own layout block, which is where the desktop keeps
                    them. */
                 case SIG.BOX_MOVED:
-                    writeLayout();
+                    step(`move ${boxName(a)}`, null, writeLayout);
                     break;
             }
         }
@@ -548,8 +590,10 @@ export async function createNodeView ({ files, root = document,
 
     function cut (node, arg)
     {
-        if (edit('tw_edit_disconnect',
-                 ['string', 'string', 'string', 'number'], [node, arg, 0]))
+        if (step(`cut ${node}.${arg}`, null, () =>
+                edit('tw_edit_disconnect',
+                     ['string', 'string', 'string', 'number'],
+                     [node, arg, 0])))
             onStatus(`Disconnected ${node}.${arg}.`);
     }
 
@@ -573,18 +617,18 @@ export async function createNodeView ({ files, root = document,
            writer has one call for each, because guessing from a name that
            happens to start with an @ is the kind of cleverness that fails
            on one .dsp. */
-        if (M._tw_graph_box_kind(fromBox) === BOX.CONTROL)
-            edit('tw_edit_connect_control',
-                 ['string', 'string', 'string', 'string'],
-                 [toName, toArg,
-                  call('tw_graph_box_control', ['number'], [fromBox])]);
-        else
-            edit('tw_edit_connect',
-                 ['string', 'string', 'string', 'string', 'string'],
-                 [toName, toArg,
-                  call('tw_graph_box_name', ['number'], [fromBox]),
-                  call('tw_graph_port_name', ['number', 'number'],
-                       [fromBox, fromPort])]);
+        step(`wire into ${toName}.${toArg}`, null, () =>
+            M._tw_graph_box_kind(fromBox) === BOX.CONTROL
+                ? edit('tw_edit_connect_control',
+                       ['string', 'string', 'string', 'string'],
+                       [toName, toArg,
+                        call('tw_graph_box_control', ['number'], [fromBox])])
+                : edit('tw_edit_connect',
+                       ['string', 'string', 'string', 'string', 'string'],
+                       [toName, toArg,
+                        call('tw_graph_box_name', ['number'], [fromBox]),
+                        call('tw_graph_port_name', ['number', 'number'],
+                             [fromBox, fromPort])]));
     }
 
     /* ---- probes ----
@@ -807,7 +851,7 @@ export async function createNodeView ({ files, root = document,
                     [node, arg, visual, 0]) < 0)
             return;
 
-        writeLayout();
+        step(`watch ${node}.${arg}`, null, writeLayout);
         onStatus(`Watching ${node}.${arg} with a ${visual}.`);
     }
 
@@ -830,7 +874,7 @@ export async function createNodeView ({ files, root = document,
 
         retire(p);
         probes.splice(at, 1);
-        writeLayout();
+        step(`stop watching ${p.node}.${p.arg}`, null, writeLayout);
         onStatus(`Stopped watching ${p.node}.${p.arg}.`);
     }
 
@@ -1144,14 +1188,17 @@ export async function createNodeView ({ files, root = document,
 
         /* Where the view is, beside a box already there, and selected --
            its parameters the ones showing, as on the desktop. */
-        if (edit('tw_edit_add_node', ['string', 'string', 'string'],
-                 [name, plugin]))
+        step(`add ${name}`, null, () =>
         {
-            M.ccall('tw_graph_place', 'number', ['string'], [name]);
-            drain();
-            writeLayout();
-            onStatus(`Added ${name} (${plugin}).`);
-        }
+            if (edit('tw_edit_add_node', ['string', 'string', 'string'],
+                     [name, plugin]))
+            {
+                M.ccall('tw_graph_place', 'number', ['string'], [name]);
+                drain();
+                writeLayout();
+                onStatus(`Added ${name} (${plugin}).`);
+            }
+        });
     }
 
     /* ---- a control's form ----
@@ -1320,10 +1367,11 @@ export async function createNodeView ({ files, root = document,
         controlForm({ title: 'New control', ok: 'Add', name, value: 0.5,
                       min: 0, max: 1, label: '', group: '' }, (c) =>
         {
-            const refused = chain([['tw_edit_add_control',
-                                    ['string', 'number', ...META.slice(1)],
-                                    [c.name, c.value, c.min, c.max, c.label,
-                                     c.group]]]);
+            const refused = step(`add @${c.name}`, null, () =>
+                chain([['tw_edit_add_control',
+                        ['string', 'number', ...META.slice(1)],
+                        [c.name, c.value, c.min, c.max, c.label,
+                         c.group]]]));
 
             if (refused === null)
             {
@@ -1381,7 +1429,9 @@ export async function createNodeView ({ files, root = document,
             for (const p of watched)
                 p.node = `@${c.name}`;
 
-            const refused = chain(steps);
+            const refused = step(
+                `${c.name === was ? 'retype' : 'rename'} @${was}`, null,
+                () => chain(steps));
 
             if (refused !== null)
                 for (const p of watched)
@@ -1451,23 +1501,35 @@ export async function createNodeView ({ files, root = document,
                              [box, row, typed, text()]);
         const target = M.UTF8ToString(M._tw_node_intent_node());
         const arg = M.UTF8ToString(M._tw_node_intent_row());
-        let done = false;
 
-        if (kind === EDIT_VALUE)
-            done = edit('tw_edit_set_value',
-                        ['string', 'string', 'string', 'number'],
-                        [node, arg, M._tw_node_intent_value()]);
-        else if (kind === EDIT_INFO)
-            done = edit('tw_edit_set_info', ['string', 'string', 'string'],
-                        [arg, typed]);
-        else if (kind === EDIT_RENAME)
-            done = rename(box, typed);
-        else if (kind === EDIT_EXPRESSION)
-            done = edit('tw_edit_set_expression',
-                        ['string', 'string', 'string', 'string'],
-                        [target, arg, typed]);
-        else if (kind === ECHO)
+        if (kind === ECHO)
             return;
+
+        const named = {
+            [EDIT_VALUE]: [`set ${node}.${arg}`, `${node}.${arg}`],
+            [EDIT_INFO]: [`set the ${arg}`, null],
+            [EDIT_RENAME]: [`rename ${node}`, null],
+            [EDIT_EXPRESSION]: [`edit ${target}.${arg}`, null],
+        }[kind];
+
+        if (named === undefined)
+        {
+            showParams();
+            return;
+        }
+
+        const done = step(...named, () =>
+            kind === EDIT_VALUE
+                ? edit('tw_edit_set_value',
+                       ['string', 'string', 'string', 'number'],
+                       [node, arg, M._tw_node_intent_value()])
+            : kind === EDIT_INFO
+                ? edit('tw_edit_set_info', ['string', 'string', 'string'],
+                       [arg, typed])
+            : kind === EDIT_RENAME ? rename(box, typed)
+            : edit('tw_edit_set_expression',
+                   ['string', 'string', 'string', 'string'],
+                   [target, arg, typed]));
 
         if (!done)
             showParams();
@@ -1780,6 +1842,7 @@ export async function createNodeView ({ files, root = document,
     function rebuild ()
     {
         nudged = false;
+        showSteps();
 
         const source = text();
 
@@ -1907,8 +1970,11 @@ export async function createNodeView ({ files, root = document,
         if (file === null)
             return;
 
-        M._tw_graph_arrange();
-        writeLayout();
+        step('auto-arrange', null, () =>
+        {
+            M._tw_graph_arrange();
+            writeLayout();
+        });
         onStatus('Arranged.');
     });
 
@@ -1932,21 +1998,75 @@ export async function createNodeView ({ files, root = document,
     $('nodecanvas').addEventListener('keyup', writeNudged);
     $('nodecanvas').addEventListener('blur', writeNudged);
 
-    /* Undo and Save as the desktop's graph has them, said rather than left
-       to the page: its Ctrl+Z undoes the piece, and the browser's Ctrl+S
-       saves the page. */
+    /* Save as the desktop's graph has it, said rather than left to the
+       browser, whose Ctrl+S saves the page. */
     $('nodecanvas').addEventListener('keydown', (e) =>
     {
-        if (!(e.ctrlKey || e.metaKey) ||
-            !['KeyZ', 'KeyY', 'KeyS'].includes(e.code))
+        if (!(e.ctrlKey || e.metaKey) || e.code !== 'KeyS')
             return;
 
         e.preventDefault();
         e.stopPropagation();
-        onStatus(e.code === 'KeyS'
-            ? 'The graph has nothing to save: its edits are in the patch ' +
-              'as they are made.'
-            : 'No Undo in the browser\'s graph yet.');
+        onStatus('The graph has nothing to save: its edits are in the ' +
+                 'patch as they are made.');
+    });
+
+    function showSteps ()
+    {
+        const names = history !== null && file !== null
+            ? history.names(file) : null;
+
+        for (const [id, verb, name] of [['nodeundo', 'Undo', names?.undo],
+                                        ['noderedo', 'Redo', names?.redo]])
+        {
+            const button = $(id);
+
+            if (button === null)
+                continue;
+
+            button.disabled = name == null;
+            button.title = name == null ? verb : `${verb} ${name}`;
+        }
+    }
+
+    const undo = (back) =>
+    {
+        if (history === null || file === null || M._tw_node_canvas_busy())
+            return;
+
+        writeNudged();
+
+        const what = history.go(file, back);
+
+        if (what !== null)
+            onStatus(`${back ? 'Undid' : 'Redid'} ${what}.`);
+
+        showSteps();
+    };
+
+    $('nodeundo')?.addEventListener('click', () => undo(true));
+    $('noderedo')?.addEventListener('click', () => undo(false));
+
+    /* Anywhere in the graph's pane but a box being typed in, which has an
+       Undo of its own -- and never the page's, which undoes the piece. */
+    $('nodeview').addEventListener('keydown', (e) =>
+    {
+        const key = e.key.toLowerCase();
+
+        /* By the key and not its place, as the page's own Undo is: a
+           layout that put them apart would undo the piece from here. */
+        if (!(e.ctrlKey || e.metaKey) || !['z', 'y'].includes(key) ||
+            e.target.closest?.('input:not([type=range]):not([type=checkbox]),' +
+                               ' textarea, [contenteditable]'))
+            return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (history === null)
+            onStatus('No Undo in the browser\'s graph yet.');
+        else
+            undo(key === 'z' && !e.shiftKey);
     });
 
     /* And the browser's own menu stays out of the way: a right-click here
@@ -1990,6 +2110,7 @@ export async function createNodeView ({ files, root = document,
             M._tw_node_canvas_select(-1);
             syncProbes();
             showParams();
+            showSteps();
         }
 
         hasFile = !none;
