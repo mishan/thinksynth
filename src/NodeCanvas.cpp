@@ -31,6 +31,7 @@
 
 #include "NodeCanvas.h"
 #include "NodeLayout.h"
+#include "PanelModel.h"
 
 /* Palette. Kept flat and low-contrast so the wires stay the loudest thing on
    screen -- in a signal-flow diagram the connections are the content. Not
@@ -1646,4 +1647,31 @@ void NodeCanvas::drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
     }
 
     cr->restore();
+}
+
+string NodeCanvas::tipAt (double x, double y) const
+{
+    double gx, gy;
+
+    if (graph_ == NULL)
+        return "";
+
+    toContent(x, y, gx, gy);
+
+    const int b = graph_->boxAt(gx, gy);
+
+    if (b < 0 || !graph_->boxes()[b].isControl)
+        return "";
+
+    const NodeGraph::Box &c = graph_->boxes()[b];
+    /* Whole numbers for a control that steps by one, as ArgPanel has it. */
+    const int places = c.ctlStep == 1
+                       ? 0 : thPanelDecimals(std::max(std::fabs(c.ctlMin),
+                                                      std::fabs(c.ctlMax)));
+    const string &named = c.ctlValueName();
+
+    return c.ctlLabel + " (@" + c.ctlArg + "): " +
+           (named.empty() ? thPanelSpell(c.ctlValue, places) : named) +
+           ", from " + thPanelSpell(c.ctlMin, places) + " to " +
+           thPanelSpell(c.ctlMax, places);
 }

@@ -40,7 +40,8 @@ function(think_harness name)
   # one. No toolkit, which is the whole reason panelcheck can be a gate on
   # every platform rather than a thing editorcheck has to press a widget to
   # ask about.
-  if(H_PANEL)
+  # The node canvas spells a strip's tooltip as the panels spell a value.
+  if(H_PANEL OR H_NODECANVAS)
     list(APPEND sources $<TARGET_OBJECTS:think_panel>)
   endif()
 

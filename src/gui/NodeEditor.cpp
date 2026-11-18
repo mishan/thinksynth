@@ -1404,30 +1404,9 @@ void NodeEditor::nameDelete (const string &what)
     deleteBtn_.set_tooltip_text(what);
 }
 
-/* What a control's strip has no room for: its whole label, and its value
-   as the parameter panel spells it, with the range. Nothing elsewhere. */
 string NodeEditor::tipAt (double x, double y) const
 {
-    double gx, gy;
-
-    canvas_.toContent(x, y, gx, gy);
-
-    const int b = graph_.boxAt(gx, gy);
-
-    if (b < 0 || !graph_.boxes()[b].isControl)
-        return "";
-
-    const NodeGraph::Box &c = graph_.boxes()[b];
-    /* Whole numbers for a control that steps by one, as ArgPanel has it. */
-    const int places = c.ctlStep == 1
-                       ? 0 : thPanelDecimals(std::max(std::fabs(c.ctlMin),
-                                                      std::fabs(c.ctlMax)));
-    const string &named = c.ctlValueName();
-
-    return c.ctlLabel + " (@" + c.ctlArg + "): " +
-           (named.empty() ? thPanelSpell(c.ctlValue, places) : named) +
-           ", from " + thPanelSpell(c.ctlMin, places) + " to " +
-           thPanelSpell(c.ctlMax, places);
+    return canvas_.tipAt(x, y);
 }
 
 bool NodeEditor::deletable (const NodeGraph::Box &b)

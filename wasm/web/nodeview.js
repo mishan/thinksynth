@@ -1632,6 +1632,21 @@ export async function createNodeView ({ files, root = document,
 
     showPalette();
 
+    /* A control's strip has room for a few letters of its label and a
+       value cut to five characters; hovered, it says all of both, as the
+       desktop's tooltip does. Not during a drag, which is changing it. */
+    $('nodecanvas').addEventListener('pointermove', (e) =>
+    {
+        if (e.buttons !== 0 || e.pointerType === 'touch')
+            return;
+
+        const r = $('nodecanvas').getBoundingClientRect();
+
+        $('nodecanvas').title = call('tw_node_canvas_tip',
+                                     ['number', 'number'],
+                                     [e.clientX - r.left, e.clientY - r.top]);
+    });
+
     $('nodeadd').addEventListener('click', addNode);
     $('nodeaddcontrol').addEventListener('click', addControl);
     $('nodefile').addEventListener('change',
