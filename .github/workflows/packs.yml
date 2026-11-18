@@ -35,6 +35,7 @@ jobs:
 
       - name: ffmpeg
         run: |
+          sudo sh .github/apt-mirror.sh
           sudo apt-get update -q
           sudo apt-get install -y --no-install-recommends ffmpeg
 
