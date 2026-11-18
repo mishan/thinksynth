@@ -2036,7 +2036,15 @@ export async function createNodeView ({ files, history = null,
 
         writeNudged();
 
+        const pane = $('nodeview');
+        const held = pane.contains(document.activeElement);
         const what = history.go(file, back);
+
+        /* A box undone takes its row in the list, and the focus with it,
+           out to the page, whose Ctrl+Z undoes the piece. */
+        if (held && !pane.contains(document.activeElement))
+            ($('nodelist').querySelector('[aria-current="true"]') ??
+             $('nodecanvas')).focus({ preventScroll: true });
 
         if (what !== null)
             onStatus(`${back ? 'Undid' : 'Redid'} ${what}.`);

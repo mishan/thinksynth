@@ -3193,17 +3193,25 @@ try
             });
             await page.focus('#nodelist button');
 
-            const [fromList, listSaid] = await key('Control+z');
+            const fromList = [await key('Control+z'), await key('Control+z')];
 
-            check(fromList === t1 && listSaid === `Undid add ${added}.`,
-                  'Ctrl+Z in the graph as a list undoes the graph: ' +
-                  listSaid);
+            check(JSON.stringify(fromList) === JSON.stringify([
+                      [t1, `Undid add ${added}.`],
+                      [nudged, `Undid move ${moved}.`]]),
+                  'Ctrl+Z in the graph as a list undoes the graph, and again ' +
+                  'after the row it was on went with the node: ' +
+                  JSON.stringify(fromList.map((f) => f[1])));
+
+            await page.click('#noderedo');
+            await page.evaluate(() => window.solo.settled());
+
+            const redone = await dsp();
 
             await page.click('#nodeundo');
             await page.evaluate(() => window.solo.settled());
 
-            check((await dsp()) === nudged,
-                  'and the Undo button takes the last one back');
+            check(redone === t1 && (await dsp()) === nudged,
+                  'and the buttons redo and undo it');
 
             await page.locator('#nodelist button').filter(
                 { hasText: new RegExp(`^${moved}\\b`) }).first().focus();

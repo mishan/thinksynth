@@ -3690,10 +3690,15 @@ const nodeHistory = {
     },
 
     /* What Undo and Redo would take, null for nothing; read without
-       taking anything up, since a rebuild asks in the middle of a step. */
+       taking anything up, since a rebuild asks in the middle of a step --
+       but a file seen for the first time starts there, or a change made
+       before the first step would be where it starts. */
     names (name)
     {
         const h = nodeHistory.of(name);
+
+        if (h.text === null)
+            h.record(nodeFiles.read(name));
 
         if (h.text !== null && h.text !== nodeFiles.read(name))
             return { undo: OTHER_CHANGE, redo: null };
