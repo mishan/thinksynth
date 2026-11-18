@@ -1492,3 +1492,13 @@ plays from the top. What is not in the file is not in the export: a knob
 moved or a section's level changed while it plays. On the page that is the
 text last loaded, not edits in the box since. A piece whose arrangement
 ends is exported to its end; one that does not, for the length chosen.
+
+`scripts/listenpage.py -o DIR a.gen b.gen` makes a page to share pieces
+with people who will listen rather than open them: for each piece, its name,
+its description, a piano roll of every note its tape holds, colored by
+instrument, and a player. It renders with genwav (`--genwav`, default
+`build/scripts/genwav`) and encodes MP3s with ffmpeg; DIR is the whole page,
+`index.html` and `audio/`, and loads nothing from elsewhere. The roll's
+columns are bars at the piece's opening tempo. An
+instrument that plays notes and renders silent is warned about, since it is
+usually a sampled one whose pack is not installed.
