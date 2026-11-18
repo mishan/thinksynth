@@ -3439,6 +3439,30 @@ async function start ()
     else
         await loadPieceMode();
 
+    /* The patch box and the graph are two views of one patch, with one
+       Undo: typing is a step in the graph's history, and the box's Undo
+       walks it. Heard before the graph's own listener on the box, so its
+       Undo button names the typing. */
+    const patchName = () => (playsPatch() ? nodeFiles.names()[0] : undefined);
+
+    $('dsp').addEventListener('input', (e) =>
+    {
+        if (patchName() !== undefined)
+            nodeHistory.typed(patchName(), e.before);
+    });
+    $('dsp').undo = (back) =>
+    {
+        if (patchName() === undefined)
+            return false;
+
+        const what = nodeHistory.go(patchName(), back);
+
+        if (what !== null)
+            status(`${back ? 'Undid' : 'Redid'} ${what}.`, true);
+
+        return true;
+    };
+
     try
     {
         nodes = await createNodeView({
@@ -3654,8 +3678,9 @@ const nodeFiles = {
 
 /* The graph's Undo: a history per file and per mode, since a patch and a
    piece's instrument can share a name. A step is what one gesture on the
-   graph wrote. A change that came another way -- the text box, a load --
-   is a step of its own, taken up when the next one is. */
+   graph wrote, or a run of typing in the patch box. A change that came
+   another way, a load, is a step of its own, taken up when the next one
+   is. */
 const nodeHistories = new Map();
 const OTHER_CHANGE = 'change the text';
 
@@ -3705,6 +3730,19 @@ const nodeHistory = {
 
         return { undo: h.canUndo ? h.undoName : null,
                  redo: h.canRedo ? h.redoName : null };
+    },
+
+    /* A run of typing in the patch box is one step, from `before', the
+       text the keystroke changed: anything else that changed it first
+       is a step of its own. */
+    typed (name, before)
+    {
+        const h = nodeHistory.of(name);
+
+        if (before !== undefined)
+            h.record(before, OTHER_CHANGE);
+
+        h.record(nodeFiles.read(name), 'edit text', 'typing');
     },
 
     /* The name of the step taken, null with none to take. */

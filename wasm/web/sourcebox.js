@@ -28,6 +28,9 @@
  *   <source-box id="dsp" syntax="dsp" numbered></source-box>
  *
  * `syntax' is dsp or gen (thinklang.js); `numbered' shows line numbers.
+ * Given an `undo' -- undo(back), true if it took it -- the box's Undo and
+ * Redo, by key or the browser's menu, go there rather than to the box's
+ * own history. An `input' event carries `before', the text it changed.
  *
  * The solo page loads its modules unbundled, and this is the one with npm
  * imports in it: bundle.mjs builds it into a file of the same name in the
@@ -35,7 +38,7 @@
  */
 
 import { minimalSetup } from 'codemirror';
-import { Annotation, Compartment, EditorState,
+import { Annotation, Compartment, EditorState, Prec,
          Transaction } from '@codemirror/state';
 import { EditorView, highlightActiveLine, highlightActiveLineGutter,
          keymap, lineNumbers } from '@codemirror/view';
@@ -58,6 +61,7 @@ export class SourceBox extends HTMLElement
         super();
         this.gutter = new Compartment();
         this.view = null;
+        this.undo = null;
 
         /* The editor's own text and its search field fire the browser's
            `input' events, which would bubble out of the box beside ours:
@@ -110,6 +114,25 @@ export class SourceBox extends HTMLElement
                 highlightActiveLine(),
                 highlightSelectionMatches(),
                 keymap.of(searchKeymap),
+                Prec.highest(keymap.of([
+                    { key: 'Mod-z', run: () => this.undo?.(true) ?? false,
+                      shift: () => this.undo?.(false) ?? false },
+                    { key: 'Mod-y', mac: 'Mod-Shift-z',
+                      run: () => this.undo?.(false) ?? false },
+                ])),
+                Prec.highest(EditorView.domEventHandlers({
+                    beforeinput: (e) =>
+                    {
+                        const back = { historyUndo: true,
+                                       historyRedo: false }[e.inputType];
+
+                        if (back === undefined || !this.undo?.(back))
+                            return false;
+
+                        e.preventDefault();
+                        return true;
+                    },
+                })),
                 EditorView.contentAttributes.of({
                     spellcheck: 'false', autocorrect: 'off',
                     autocapitalize: 'off',
@@ -121,8 +144,9 @@ export class SourceBox extends HTMLElement
                 {
                     if (u.docChanged && !u.transactions.every(
                             (tr) => tr.annotation(fromScript)))
-                        this.dispatchEvent(new Event('input',
-                                                     { bubbles: true }));
+                        this.dispatchEvent(Object.assign(
+                            new Event('input', { bubbles: true }),
+                            { before: u.startState.doc.toString() }));
                 }),
             ],
         });

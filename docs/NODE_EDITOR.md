@@ -222,9 +222,12 @@ Undo's too) of text alone: the browser keeps every box's place in the layout
 block, so the text is all there is to put back. Each gesture runs inside the
 view's `step()`, which names it as the desktop does and makes all it writes
 one step. There is a history per file and per mode, a patch and a piece's
-instrument being able to share a name, and nothing starts one over: a change
-made some other way -- the text box, a load -- is taken up as a step of its
-own, `change the text`, when the next one is taken.
+instrument being able to share a name. Typing in the patch box is a step
+too, `edit text`, with keystrokes less than a second apart joined into one,
+and the box's Undo and Redo walk the same history. A load starts a piece's
+instruments' histories over; any other change made outside the graph is
+taken up as a step of its own, `change the text`, when the next one is
+taken.
 
 **A value, a slider, a drag or a probe changes the graph in place; a wire, a
 node added or deleted, or a control's range parses the text again.** A node's
