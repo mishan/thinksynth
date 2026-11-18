@@ -3627,6 +3627,31 @@ try
 
             const said = await page.$eval('#nodecanvas', (c) => c.title);
 
+            /* Changed under a pointer that has not moved -- a peer's edit,
+               here the text box's -- it says what the strip says now. */
+            const was = await page.$eval('#dsp', (e) => e.value);
+            const ctl = strip.name.slice(1);
+
+            await page.evaluate((name) =>
+            {
+                const box = document.getElementById('dsp');
+
+                box.value = box.value.replace(
+                    new RegExp(`^(\\s*@${name}\\.label = ")[^"]*`, 'm'),
+                    '$1Relabelled');
+                box.dispatchEvent(new Event('input'));
+            }, ctl);
+
+            const relabelled = await page.$eval('#nodecanvas', (c) => c.title);
+
+            await page.evaluate((t) =>
+            {
+                const box = document.getElementById('dsp');
+
+                box.value = t;
+                box.dispatchEvent(new Event('input'));
+            }, was);
+
             await page.mouse.move(at.x + 2, at.y + 2);
 
             const bare = await page.$eval('#nodecanvas', (c) => c.title);
@@ -3635,6 +3660,8 @@ try
                   bare === '',
                   `${strip.name}'s strip, hovered, says "${said}"; the ` +
                   'background says nothing');
+            check(relabelled.startsWith('Relabelled '),
+                  `and relabelled under a still pointer, "${relabelled}"`);
         }
     }
 
