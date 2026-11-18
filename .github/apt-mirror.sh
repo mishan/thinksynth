@@ -6,7 +6,7 @@
 # with a regional EC2 mirror at the top of it. That mirror has been taking
 # seconds over each small package, so a job that drew it ran out its install
 # step's ten minutes; the same packages from azure.archive.ubuntu.com took
-# fifteen seconds in the same run. apt retries a fetch that fails, too.
+# sixteen seconds in the same run. apt retries a fetch that fails, too.
 set -e
 
 for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
@@ -15,4 +15,7 @@ for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources; do
     fi
 done
 
-echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80retries
+# Named to sort after a retry setting the image ships, such as a
+# zz-retries; printed, so a job's log shows what apt was left with.
+echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/zzz-retries
+apt-config dump Acquire::Retries

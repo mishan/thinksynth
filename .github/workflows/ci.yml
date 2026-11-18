@@ -987,12 +987,16 @@ jobs:
       # no timeout of its own. Same module and same reasoning as the jam job,
       # which needs one for jamtest's two live peers.
       #
+      # Both legs: Playwright's --with-deps below installs through apt too.
+      - name: The apt mirror
+        run: sudo sh .github/apt-mirror.sh
+
       # The chromium leg only: browsertest.mjs is offline, and mictest.mjs
       # runs there.
       - name: Install dependencies
         timeout-minutes: 10
         if: matrix.browser == 'chromium'
-        run: sudo sh .github/apt-mirror.sh && sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
       - name: An audio sink for the live-context tests
         if: matrix.browser == 'chromium'
