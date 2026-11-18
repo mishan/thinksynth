@@ -1069,7 +1069,9 @@ async function loadPatch ()
     if (synth === null)
         return;
 
-    const ok = await quietly(() => synth.load($('dsp').value));
+    /* As it is now: typing while an earlier load finishes is not loaded. */
+    const text = $('dsp').value;
+    const ok = await quietly(() => synth.load(text));
 
     /* Patch mode has taken PATCH_CHANNEL, whatever was aimed there. So the
        aiming for it is forgotten rather than left to be shown as still
@@ -1094,7 +1096,7 @@ async function loadPatch ()
               : 'That .dsp did not parse; see below.', !ok);
 
     if (ok && mode() === 'grow')
-        grow.loaded($('dsp').value);
+        grow.loaded(text);
 
     showLiveIn();
 
@@ -3439,30 +3441,6 @@ async function start ()
     else
         await loadPieceMode();
 
-    /* The patch box and the graph are two views of one patch, with one
-       Undo: typing is a step in the graph's history, and the box's Undo
-       walks it. Heard before the graph's own listener on the box, so its
-       Undo button names the typing. */
-    const patchName = () => (playsPatch() ? nodeFiles.names()[0] : undefined);
-
-    $('dsp').addEventListener('input', (e) =>
-    {
-        if (patchName() !== undefined)
-            nodeHistory.typed(patchName(), e.before);
-    });
-    $('dsp').undo = (back) =>
-    {
-        if (patchName() === undefined)
-            return false;
-
-        const what = nodeHistory.go(patchName(), back);
-
-        if (what !== null)
-            status(`${back ? 'Undid' : 'Redid'} ${what}.`, true);
-
-        return true;
-    };
-
     try
     {
         nodes = await createNodeView({
@@ -3757,6 +3735,30 @@ const nodeHistory = {
         nodeFiles.write(name, s.text);
         return s.what;
     },
+};
+
+/* The patch box and the graph are two views of one patch, with one
+   Undo: typing is a step in the graph's history, and the box's Undo
+   walks it. Heard from the first keystroke, Start or not, and before the
+   graph's own listener on the box, so its Undo button names the typing. */
+const patchName = () => (playsPatch() ? nodeFiles.names()[0] : undefined);
+
+$('dsp').addEventListener('input', (e) =>
+{
+    if (patchName() !== undefined)
+        nodeHistory.typed(patchName(), e.before);
+});
+$('dsp').undo = (back) =>
+{
+    if (patchName() === undefined)
+        return false;
+
+    const what = nodeHistory.go(patchName(), back);
+
+    if (what !== null)
+        status(`${back ? 'Undid' : 'Redid'} ${what}.`, true);
+
+    return true;
 };
 
 /* Which channel what the canvas is showing is playing on, and so which
