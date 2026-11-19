@@ -47,7 +47,7 @@ struct thcHidBinding
                                AUX: which */
     std::string layer;      /* HOLD, TOGGLE */
     std::string arg;        /* VALUE; LOOP: record, undo or clear */
-    int         channel;    /* NOTE, VALUE, STRIKE: 1-16; 0 inherits */
+    int         channel;    /* NOTE, VALUE, STRIKE: 1-64; 0 inherits */
     bool        hasMin, hasMax;
     double      min, max;   /* VALUE, VELOCITY, STRIKE's velocity */
     double      at, off;    /* STRIKE, LOOP on an axis: on rising past at,
@@ -75,7 +75,7 @@ struct thcHidLayer
 {
     std::string name;
     int         line;
-    int         channel;    /* 1-16; 0 inherits the device's */
+    int         channel;    /* 1-64; 0 inherits the device's */
     int         base;       /* MIDI note; -1 inherits the device's */
 
     /* A posture: on while each of these axes is at least its value. */
@@ -92,7 +92,7 @@ struct thcHidBlock
     std::string device;
     std::string hand;       /* "left", "right", or empty for either */
     int         line;       /* the device's, for an error about it */
-    int         channel;    /* 1-16; 0 plays the host's current channel */
+    int         channel;    /* 1-64; 0 plays the host's current channel */
     int         base;       /* MIDI note */
     int         velocity;   /* what buttons play at with no velocity source */
 

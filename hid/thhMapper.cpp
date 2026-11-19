@@ -321,12 +321,16 @@ thhMapper::velocitySource () const
 int
 thhMapper::channelOf (const thcHidBinding &b, int curChannel) const
 {
-    if (b.channel)
-        return b.channel - 1;
-    for (size_t i = active_.size(); i-- > 0;)
-        if (layers_[active_[i].layer].channel)
-            return layers_[active_[i].layer].channel - 1;
-    return layers_[0].channel ? layers_[0].channel - 1 : curChannel;
+    int named = b.channel;
+
+    for (size_t i = active_.size(); !named && i-- > 0;)
+        named = layers_[active_[i].layer].channel;
+    if (!named)
+        named = layers_[0].channel;
+
+    /* A profile may name any engine channel; one past what this mapper
+       keeps notes for (a board holds fewer) plays the host's. */
+    return named > 0 && named <= THH_CHANNELS ? named - 1 : curChannel;
 }
 
 int

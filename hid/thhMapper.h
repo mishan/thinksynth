@@ -105,7 +105,7 @@ private:
     struct Layer
     {
         std::string        name;
-        int                channel;     /* 1-16; 0 inherits */
+        int                channel;     /* from 1; 0 inherits */
         int                base;        /* -1 inherits */
         std::vector<Bound> binds;
         int                button[THH_MAX_BUTTONS];   /* into binds, or -1 */

@@ -252,7 +252,7 @@ Parser::options (thcHidBinding &b)
         if (k == "channel" &&
             (b.kind == thcHidBinding::NOTE || value || strike || loop))
         {
-            if (!integer(b.channel, 1, 16, "channel"))
+            if (!integer(b.channel, 1, TH_ENGINE_CHANNELS, "channel"))
                 return false;
         }
         else if ((k == "min" || k == "max") && (value || vel || aux))
@@ -522,7 +522,7 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
         i_++;
         if (!expect('='))
             return false;
-        if (k == "channel" ? !integer(channel, 1, 16, "channel")
+        if (k == "channel" ? !integer(channel, 1, TH_ENGINE_CHANNELS, "channel")
             : k == "base"  ? !baseNote(base)
             : !integer(blk.velocity, 1, 127, "velocity"))
             return false;
