@@ -106,4 +106,10 @@ struct thhIndexImu
 bool thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
                       thhState &s);
 
+/* One sample, however it came: p is its accelerometer's x, y and z and
+   then its gyro's, int16 little-endian, and tick its time on the IMU's
+   48 MHz clock. The axes it moves are written by thhIndexImuAxes. */
+void thhIndexImuSample (thhIndexImu &imu, const uint8_t *p, uint32_t tick);
+void thhIndexImuAxes (const thhIndexImu &imu, thhState &s);
+
 #endif /* THH_INDEX_H */

@@ -244,6 +244,55 @@ clamp1 (float v)
     return v < -1 ? -1 : v > 1 ? 1 : v;
 }
 
+void
+thhIndexImuSample (thhIndexImu &imu, const uint8_t *p, uint32_t tick)
+{
+    /* A gap no run of samples has, an unplug's or a first's, starts
+       afresh. */
+    const double dt = (uint32_t)(tick - imu.tick) / THH_INDEX_TICKS_PER_S;
+    const bool afresh = !imu.primed || dt <= 0 || dt > 0.1;
+    float a[3];
+
+    for (int k = 0; k < 3; k++)
+        a[k] = (int16_t)(p[2 * k] | (p[2 * k + 1] << 8));
+
+    const int16_t gx = (int16_t)(p[6] | (p[7] << 8));
+    const float twist = gx / THH_INDEX_TWIST_FULL;
+    const float kg = afresh ? 1 : 1 - (float)std::exp(-dt / THH_INDEX_GRAVITY_S);
+    const float kt = afresh ? 1 : 1 - (float)std::exp(-dt / THH_INDEX_TWIST_S);
+
+    for (int k = 0; k < 3; k++)
+        imu.g[k] += kg * (a[k] - imu.g[k]);
+    imu.twist += kt * (twist - imu.twist);
+    if (!afresh)
+        imu.turn = (imu.turn + gx / THH_INDEX_GYRO_PER_DEGREE * (float)dt) *
+                   (float)std::exp(-dt / THH_INDEX_TURN_SPRING);
+
+    imu.tick = tick;
+    imu.primed = true;
+}
+
+void
+thhIndexImuAxes (const thhIndexImu &imu, thhState &s)
+{
+    /* The front is -x, and the top -y in the hand. */
+    const float g = std::sqrt(imu.g[0] * imu.g[0] + imu.g[1] * imu.g[1] +
+                              imu.g[2] * imu.g[2]);
+
+    if (g > 0)
+    {
+        s.axis[THH_INDEX_TILT] = clamp1(std::asin(clamp1(-imu.g[0] / g)) /
+                                        (float)(M_PI / 2));
+        /* Roll is how much of gravity crosses the controller rather than
+           an angle around its front: an angle wraps past a half turn, and
+           swings from end to end when the front points near straight up
+           or down, where gravity hardly crosses it at all. */
+        s.axis[THH_INDEX_ROLL] = clamp1(imu.g[2] / g);
+    }
+    s.axis[THH_INDEX_TWIST] = clamp1(imu.twist);
+    s.axis[THH_INDEX_TURN] = clamp1(imu.turn / THH_INDEX_TURN_FULL);
+}
+
 bool
 thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
                  thhState &s)
@@ -265,50 +314,12 @@ thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
     for (int i = 0; i < fresh; i++)
     {
         const uint8_t *p = data + 1 + 17 * order[i];
-        const uint32_t tick = p[12] | (p[13] << 8) | (p[14] << 16) |
-                              ((uint32_t)p[15] << 24);
-        /* A gap no run of samples has, an unplug's or a first's, starts
-           afresh. */
-        const double dt = (uint32_t)(tick - imu.tick) / THH_INDEX_TICKS_PER_S;
-        const bool afresh = !imu.primed || dt <= 0 || dt > 0.1;
-        float a[3];
 
-        for (int k = 0; k < 3; k++)
-            a[k] = (int16_t)(p[2 * k] | (p[2 * k + 1] << 8));
-
-        const int16_t gx = (int16_t)(p[6] | (p[7] << 8));
-        const float twist = gx / THH_INDEX_TWIST_FULL;
-        const float kg = afresh ? 1 : 1 - (float)std::exp(-dt / THH_INDEX_GRAVITY_S);
-        const float kt = afresh ? 1 : 1 - (float)std::exp(-dt / THH_INDEX_TWIST_S);
-
-        for (int k = 0; k < 3; k++)
-            imu.g[k] += kg * (a[k] - imu.g[k]);
-        imu.twist += kt * (twist - imu.twist);
-        if (!afresh)
-            imu.turn = (imu.turn + gx / THH_INDEX_GYRO_PER_DEGREE * (float)dt) *
-                       (float)std::exp(-dt / THH_INDEX_TURN_SPRING);
-
+        thhIndexImuSample(imu, p, p[12] | (p[13] << 8) | (p[14] << 16) |
+                                      ((uint32_t)p[15] << 24));
         imu.seq = p[16];
-        imu.tick = tick;
-        imu.primed = true;
     }
-
-    /* The front is -x, and the top -y in the hand. */
-    const float g = std::sqrt(imu.g[0] * imu.g[0] + imu.g[1] * imu.g[1] +
-                              imu.g[2] * imu.g[2]);
-
-    if (g > 0)
-    {
-        s.axis[THH_INDEX_TILT] = clamp1(std::asin(clamp1(-imu.g[0] / g)) /
-                                        (float)(M_PI / 2));
-        /* Roll is how much of gravity crosses the controller rather than
-           an angle around its front: an angle wraps past a half turn, and
-           swings from end to end when the front points near straight up
-           or down, where gravity hardly crosses it at all. */
-        s.axis[THH_INDEX_ROLL] = clamp1(imu.g[2] / g);
-    }
-    s.axis[THH_INDEX_TWIST] = clamp1(imu.twist);
-    s.axis[THH_INDEX_TURN] = clamp1(imu.turn / THH_INDEX_TURN_FULL);
+    thhIndexImuAxes(imu, s);
 
     return true;
 }
