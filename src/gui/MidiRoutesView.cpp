@@ -262,7 +262,23 @@ MidiRoutesView::routes (void) const
 void
 MidiRoutesView::edited (void)
 {
-    if (!filling_ && changed_)
+    if (filling_)
+        return;
+
+    /* A low key past the high one is the keys between them: the fields
+       say so before anyone is told. */
+    filling_ = true;
+    for (const Row &row : list_)
+        if (row.low->get_value() > row.high->get_value())
+        {
+            const double lo = row.high->get_value();
+
+            row.high->set_value(row.low->get_value());
+            row.low->set_value(lo);
+        }
+    filling_ = false;
+
+    if (changed_)
         changed_(routes());
 }
 

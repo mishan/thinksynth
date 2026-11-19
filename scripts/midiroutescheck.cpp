@@ -137,6 +137,25 @@ run (const std::string &plugins)
               "and the next run reads it from the file and shows it",
               std::to_string(r.size()) + " routes");
 
+        /* A lowest key raised past the highest: the route is the keys
+           between them, and the two fields say so. */
+        if (view->lowSpin(0) != NULL)
+        {
+            view->highSpin(0)->set_value(84);
+            view->lowSpin(0)->set_value(90);
+        }
+        pump();
+
+        const bool shown = view->lowSpin(0) != NULL &&
+                           view->lowSpin(0)->get_value() == 84 &&
+                           view->highSpin(0)->get_value() == 90 &&
+                           prefs.midiRoutes().size() == 1 &&
+                           prefs.midiRoutes()[0].lo == 84 &&
+                           prefs.midiRoutes()[0].hi == 90;
+
+        check(shown, "a low key past the high one is shown as the keys "
+              "between them");
+
         /* Off, and taken away. */
         if (view->engineSpin(0) != NULL)
             view->engineSpin(0)->set_value(0);
