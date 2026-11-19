@@ -1889,6 +1889,12 @@ body.tiled #videoframe { flex: 1 1 0; min-height: 90px; aspect-ratio: auto; max-
     image-rendering: pixelated;
 }
 
+/* The controller pane's lines -- the pair, the profile, the patch, the
+   loops -- one under another, as hid.js joins them. */
+#hidpaneline {
+    white-space: pre-line;
+}
+
 /* The camera's nine zones (camera.js), each as bright as it is moving. */
 #camerazones {
     display: inline-grid;

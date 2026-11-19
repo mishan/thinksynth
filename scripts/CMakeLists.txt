@@ -499,6 +499,14 @@ think_harness(hidcamcheck COMPOSERHOST HID)
 # (hid/thhPlay.h).
 think_harness(hidplaycheck COMPOSERHOST HID)
 
+# One controller or a pair, as the desktop and the browser play them
+# (hid/thhSession.h).
+think_harness(sessioncheck COMPOSERHOST HID)
+
+# What the session asks to play for the captures, for wasm/web/hidcheck.mjs
+# to hold the browser's build of it to (hid/thhHost.h).
+think_harness(hidactions COMPOSERHOST HID)
+
 # Finding a controller and reading it on a thread (hid/thhReader.h), which
 # is Linux's.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -1422,6 +1430,7 @@ add_test(NAME mpecheck
 add_test(NAME routecheck
          COMMAND routecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
+add_test(NAME sessioncheck COMMAND sessioncheck)
 add_test(NAME hidcamcheck COMMAND hidcamcheck)
 add_test(NAME boxcheck COMMAND boxcheck)
 add_test(NAME hidcheck

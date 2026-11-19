@@ -84,6 +84,10 @@ export function wasmBytes (name = 'thinkweb.wasm')
    2.7 s at 48 kHz. */
 const RECENT_BATCHES = 64;
 
+/* hid/thhMapper.h's thhAction::Kind for a value: written onto an arg,
+   which the mirror holds too. */
+const HID_VALUE = 2;
+
 /* A batch's process() costs (worklet.js, postTape) added into a sum. */
 function addLoad (into, m)
 {
@@ -422,6 +426,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'dsps':
             case 'gens':
             case 'growntext':
+            case 'controller':
             case 'geninline':
             case 'evolvespec':
                 waiting.get(m.id)?.(m);
@@ -988,6 +993,31 @@ export async function createSynth (ctx, { windowlen = 128,
                 waiting.set(id, resolve);
                 node.port.postMessage({ type: 'panel', id, kind, a, b });
             }),
+
+        /* What a Valve Index controller plays on `channel': `{ name,
+           block, args }', its patch's name and `controller index' block
+           and the names of its args (thinkweb.cpp, tw_controller). Asked
+           of the worklet alone, as the panel is. */
+        controller: (channel) =>
+            new Promise((resolve) =>
+            {
+                const id = nextId++;
+
+                waiting.set(id, (m) => resolve(JSON.parse(m.json)));
+                node.port.postMessage({ type: 'controller', id, channel });
+            }),
+
+        /* One of a controller's actions (engine.js, 'hid'): a value onto
+           both instances, as any write of an arg is, so the mirror's args
+           stay the worklet's; a bend or aux to the worklet alone, the only
+           one whose voices sound. `kind' is thhAction::Kind's. */
+        hid: (action) =>
+        {
+            if (action.kind === HID_VALUE)
+                post({ type: 'hid', ...action });
+            else
+                node.port.postMessage({ type: 'hid', ...action });
+        },
 
         /* The graph growth has put on `instrument''s channel in the
            worklet, or '' while it plays what the piece declares. */

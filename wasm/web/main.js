@@ -75,6 +75,7 @@ import { TextHistory } from './history.js';
 import { micAvailable, openMic } from './mic.js';
 import { MidiRoutes, midiAvailable, midiToggle } from './midi.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
+import { hidToggle } from './hid.js';
 import { createVideoView } from './videoview.js';
 import { MidiOutControls } from './midioutui.js';
 import { createNodeView } from './nodeview.js';
@@ -479,6 +480,7 @@ const routedPedal = new Set();
    with the first and off with the last. */
 const engineHolds = new Map();
 let cameraIn = null;             /* the camera button (camera.js)   */
+let hidIn = null;                /* the controller button (hid.js)  */
 let video = null;                /* the picture (videoview.js)      */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
 let micDropped = 0;
@@ -486,9 +488,9 @@ let keyboard = null;
 let keys = null;                 /* the computer keyboard as a musical one */
 let keyfocus = null;             /* and who has it, the page or the keys  */
 
-/* note -> { count, midi, velocity, piece, channel }: how many fingers are
-   on it, how many of those are MIDI keys, and the route it went out by,
-   which is the route its release has to take. */
+/* note -> { count, midi, camera, hid, velocity, piece, channel }: how many
+   fingers are on it, how many of those are a device's, and the route it
+   went out by, which is the route its release has to take. */
 const sounding = new Map();
 
 /* The channel a MIDI sustain pedal is down on, or null. */
@@ -698,8 +700,8 @@ function composing ()
 
 /* Every way of pressing a note comes here. A second press of a note
    already down is counted and nothing else: one note, however many things
-   are holding it. `from' names a device holding it -- 'midi' or 'camera'
-   -- whose presses are counted apart as well (releaseKeys). */
+   are holding it. `from' names a device holding it -- 'midi', 'camera' or
+   'hid' -- whose presses are counted apart as well (releaseKeys). */
 function press (note, velocity = VELOCITY, from = null)
 {
     if (synth === null)
@@ -736,7 +738,8 @@ function press (note, velocity = VELOCITY, from = null)
     }
 
     sounding.set(note, { count: 1, midi: from === 'midi' ? 1 : 0,
-                         camera: from === 'camera' ? 1 : 0, velocity,
+                         camera: from === 'camera' ? 1 : 0,
+                         hid: from === 'hid' ? 1 : 0, velocity,
                          piece: piecing, channel });
 
     if (piecing)
@@ -874,10 +877,11 @@ function releaseAll ()
     routedPedalTo(0, [...routedPedal]);
 
     cameraIn?.forget();
+    hidIn?.forget();
     pedal(0);
 
     for (const held of sounding.values())
-        held.midi = held.camera = 0;
+        held.midi = held.camera = held.hid = 0;
 
     releaseKeys();
 }
@@ -920,8 +924,8 @@ function releaseKeys ()
 
     for (const [note, held] of [...sounding])
     {
-        if (held.midi + held.camera > 0)
-            held.count = held.midi + held.camera;
+        if (held.midi + held.camera + held.hid > 0)
+            held.count = held.midi + held.camera + held.hid;
         else
         {
             held.count = 1;
@@ -3477,6 +3481,7 @@ async function start ()
 
     $('midi').disabled = !midiAvailable();
     $('camera').disabled = !cameraAvailable();
+    hidIn.start();
 
     if (!cameraAvailable())
         $('camerastatus').textContent = 'needs https, or localhost';
@@ -4715,6 +4720,28 @@ async function init ()
         button: $('camera'), status: $('camerastatus'), zones: $('camerazones'),
         onNoteOn: (note, velocity) => press(note, velocity, 'camera'),
         onNoteOff: (note) => release(note, 'camera'),
+    });
+    /* A patch plays its keys on its own channel; a piece's are its, and
+       go in as its input, where no voice of theirs can be bent. */
+    hidIn = hidToggle({
+        button: $('hid'), status: $('hidstatus'),
+        onNoteOn: (note, velocity) => press(note, velocity, 'hid'),
+        onNoteOff: (note) => release(note, 'hid'),
+        play: (action) => synth?.hid(action),
+        channel: () => playsPatch() ? PATCH_CHANNEL : keyChannel(),
+        bendChannel: (note) =>
+        {
+            const held = sounding.get(note);
+
+            return held === undefined || held.piece ? null : PATCH_CHANNEL;
+        },
+        controller: (channel) => synth.controller(channel),
+        pane: {
+            root: $('hidpane'), line: $('hidpaneline'), rows: $('hidrows'),
+            pair: $('hidpair'), swap: $('hidswap'), clear: $('hidclear'),
+            profile: $('hidprofile'), reload: $('hidreload'),
+            file: $('hidfile'), problem: $('hidproblem'),
+        },
     });
     video = createVideoView({
         canvas: $('videocanvas'), frame: $('videoframe'), patch: $('videopatch'),

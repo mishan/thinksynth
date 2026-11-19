@@ -158,29 +158,10 @@ thhIndexHand (const std::string &compressed)
     if (ret != Z_STREAM_END)
         return "";
 
-    /* "model_number" : "Knuckles Left", or a revision of one, as JSON
-       spells it; a scan rather than a parser, which is all one string
-       needs. */
-    const size_t key = json.find("\"model_number\"");
-    const size_t open = key == std::string::npos ? key
-                        : json.find('"', json.find(':', key + 14));
-    const size_t close = open == std::string::npos ? open
-                         : json.find('"', open + 1);
+    std::string hand, serial;
 
-    if (close == std::string::npos)
-        return "";
-
-    const std::string model = json.substr(open + 1, close - open - 1);
-    const auto ends = [&model](const char *with) {
-        const std::string w = with;
-
-        return model.size() >= w.size() &&
-               model.compare(model.size() - w.size(), w.size(), w) == 0;
-    };
-
-    if (model.compare(0, 8, "Knuckles") != 0)
-        return "";
-    return ends(" Left") ? "left" : ends(" Right") ? "right" : "";
+    thhIndexConfig(json, hand, serial);
+    return hand;
 }
 
 /* One feature report, as the controller gives them: it turns each request

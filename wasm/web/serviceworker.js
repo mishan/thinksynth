@@ -19,11 +19,13 @@
 /*
  * serviceworker.js -- the site, offline and on one build.
  *
- * Not served as it is: precache.mjs puts VERSION and FILES in front of it
- * and writes the result to the build directory as sw.js. FILES is every
- * file either page can ask for -- the solo page and the room page, their
- * modules, the wasm, and every .dsp, .gen and .patch with the indexes
- * naming them -- and VERSION is a hash of their contents. A build that
+ * Not served as it is: precache.mjs puts VERSION, FILES and KEPT in front
+ * of it and writes the result to the build directory as sw.js. FILES is
+ * every file either page can ask for -- the solo page and the room page,
+ * their modules, the wasm, and every .dsp, .gen and .patch with the
+ * indexes naming them. KEPT is what only a page with a controller asks
+ * for, kept the first time it does. VERSION is a hash of both lists'
+ * contents. A build that
  * changes any of them changes sw.js, and a changed sw.js is the only thing
  * that makes a browser install a new worker.
  *
@@ -58,8 +60,15 @@ const CACHE = PREFIX + VERSION;
    build and outlive every one. */
 const PACKS = PREFIX + 'packs';
 
-/* Every precached file by absolute URL, without a query. */
+/* Every precached file by absolute URL, without a query; and every file
+   kept the first time it is asked for instead, in the same cache, which
+   only a page that needs it ever asks for (precache.mjs). */
 const PRECACHED = new Set(FILES.map((f) => new URL(f, self.location).href));
+const KEPT_URLS = new Map(KEPT.map((f) =>
+    [new URL(f, self.location).href, KEPT_SHA256[f]]));
+
+const hex = (bytes) => [...new Uint8Array(bytes)]
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
 
 /* The site's root, which a navigation reaches as the directory. */
 const ROOT = new URL('./', self.location).href;
@@ -148,6 +157,38 @@ self.addEventListener('fetch', (e) =>
     {
         e.respondWith(fetch(e.request).catch(() => new Response('[]',
             { headers: { 'Content-Type': 'application/json' } })));
+        return;
+    }
+
+    if (KEPT_URLS.has(key))
+    {
+        e.respondWith(caches.open(CACHE).then(async (cache) =>
+        {
+            const hit = await cache.match(key);
+
+            if (hit)
+                return hit;
+
+            /* `reload', as at install: the HTTP cache could hold the build
+               before this one's. And only this build's bytes: a deploy since
+               would hand a page of this build another build's module, which
+               it can't drive. Refused, the page tries again once this worker
+               has been replaced by the one that build brought. */
+            const got = await fetch(new Request(key, { cache: 'reload' }));
+
+            if (!got.ok)
+                return got;
+
+            const bytes = await got.clone().arrayBuffer();
+
+            if (hex(await crypto.subtle.digest('SHA-256', bytes)) !==
+                KEPT_URLS.get(key))
+                return new Response('another build', { status: 503 });
+
+            /* Not kept, if the browser has no room: played anyway. */
+            await cache.put(key, got.clone()).catch(() => {});
+            return got;
+        }));
         return;
     }
 

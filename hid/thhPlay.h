@@ -25,6 +25,7 @@
 
 #include "think.h"
 #include "thhMapper.h"
+#include "thhProfile.h"
 
 /* Plays a mapper's actions on a synth as the on-screen keyboard plays keys:
    notes through addNote and delNote, and values written straight onto the
@@ -34,22 +35,5 @@
    played. On the thread the GUI runs on. */
 void thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
               const std::function<void (const thhAction &)> &heard);
-
-/* What a hand ("left" or "right") plays: the device's own profile
-   (fallback), its blocks for either hand and then for this one; over that
-   the player's file at path, its either-hand block and then this hand's;
-   and over that a patch's controller blocks (patch, a profile's text, as
-   thSynthTree::controller() gives it), the same way. The patch defines
-   the controller, and the player's file fills what it leaves. False, with
-   the file, line and what is wrong in err, if the file or the patch
-   doesn't fit the device; out then plays without whichever doesn't, and
-   patchErr, if given, says what is wrong with the patch's, or nothing if
-   it plays. */
-bool thhLoadProfile (const std::string &path, const thhControls &controls,
-                     const char *fallback, const std::string &hand,
-                     thcHidBlock &out, std::string &err,
-                     const std::string &patch = "",
-                     const std::string &patchName = "",
-                     std::string *patchErr = NULL);
 
 #endif /* THH_PLAY_H */

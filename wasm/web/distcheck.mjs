@@ -283,14 +283,16 @@ else
 {
     const NETWORK = new Set(['jam.js.map', 'sourcebox.js.map', 'config.json',
                              'sw.js', 'packs/index.json']);
-    let files = null;
+    let files = null, later = [];
 
     try
     {
-        const m = /^const FILES = (.*);$/m.exec(
-            fs.readFileSync(path.join(dist, 'sw.js'), 'utf8'));
+        const sw = fs.readFileSync(path.join(dist, 'sw.js'), 'utf8');
+        const m = /^const FILES = (.*);$/m.exec(sw);
+        const k = /^const KEPT = (.*);$/m.exec(sw);
 
         files = m && JSON.parse(m[1]);
+        later = k ? JSON.parse(k[1]) : [];
     }
     catch (e)
     {
@@ -301,11 +303,13 @@ else
         fail('sw.js has no FILES list');
     else if (files !== null)
     {
-        const kept = new Set(files);
+        /* KEPT: kept the first time a page asks for one rather than at
+           install, but kept all the same (serviceworker.js). */
+        const kept = new Set([...files, ...later]);
         const all = fs.readdirSync(dist, { recursive: true })
             .map((n) => n.split(path.sep).join('/'))
             .filter((n) => fs.statSync(path.join(dist, n)).isFile());
-        const gone = files.filter((n) => !present(n));
+        const gone = [...files, ...later].filter((n) => !present(n));
         const left = all.filter((n) => !kept.has(n) && !NETWORK.has(n));
 
         if (gone.length)

@@ -28,11 +28,9 @@
 
 #include <glibmm/dispatcher.h>
 
-#include "thhHands.h"
-#include "thhLooper.h"
-#include "thhMapper.h"
 #include "thhPane.h"
 #include "thhReader.h"
+#include "thhSession.h"
 
 class thSynth;
 
@@ -54,36 +52,35 @@ public:
     gthHid (thSynth *synth, const std::function<int ()> &channel);
     ~gthHid ();
 
-    int controllers () const { return (int)slots_.size(); }
-    std::string handOf (int i) const;
-    const thcHidBlock &profileOf (int i) const;
-    thhState stateOf (int i) const { return slots_[i]->latest; }
-    unsigned generation () const { return generation_; }
+    int controllers () const { return session_.controllers(); }
+    std::string handOf (int i) const { return session_.handOf(i); }
+    const thcHidBlock &profileOf (int i) const { return session_.profileOf(i); }
+    thhState stateOf (int i) const { return session_.stateOf(i); }
+    unsigned generation () const { return session_.generation() + generation_; }
     std::string status () const;
     std::string path () const { return path_; }
     int channel () const { return channel_(); }
     bool hasArg (int channel, const std::string &arg) const;
     bool reload (std::string &err);
-    bool canSwapHands () const;
-    void swapHands ();
-    std::string loops () const;
+    bool canSwapHands () const { return session_.canSwapHands(); }
+    void swapHands () { session_.swapHands(); }
+    std::string loops () const { return session_.loops(); }
     bool canPair () const;
     void pair ();
     std::string pairing () const;
-    void clearLoops ();
-    std::string patch () const;
+    void clearLoops () { session_.clearLoops(); }
+    std::string patch () const { return session_.patch(); }
 
 private:
-    /* A controller: the USB device it is at, its reader, and the hand it
-       plays as once it has said or been given one. */
+    /* A controller: the USB device it is at and its reader; the session's
+       slot of the same index plays it. */
     struct Slot
     {
-        std::string                usb, serial, hand, said;
+        std::string                usb, serial;
         bool                       dongle = false;
         double                     pairUntil = 0;     /* on now()'s clock */
         std::atomic<bool>          pairFailed { false };  /* the reader's */
         std::unique_ptr<thhReader> reader;
-        thhState                   latest;
     };
 
     thSynth              *synth_;
@@ -91,29 +88,9 @@ private:
     std::string           path_;
     unsigned              generation_;
     std::string           said_;
-    bool                  pair_;
 
-    /* What either hand plays alone, and each in a pair; and a mapper for
-       each hand. */
-    thcHidBlock profiles_[3];
-    thhMapper   mappers_[2];
-
-    /* The hand the player has said each controller is, by its serial
-       number, as the preferences keep it: `hidhands SERIAL=left ...'. */
-    std::map<std::string, std::string> remembered_;
-
-    /* Each hand's bend of each note, which add. */
-    std::map<std::pair<int, int>, double> bends_[2];
-
-    /* The controller block of the patch on the controllers' channel, as
-       last read, that patch's name, and why the block isn't played, if it
-       isn't. */
-    std::string patchText_, patchName_, patchError_;
-    int         playChannel_ = -1;     /* -1: the keyboard's */
-
-    /* What both hands play, looped; ticked while it has loops. */
-    thhLooper        looper_;
-    thhVoices        voices_;
+    /* Ticked while it has loops. */
+    thhSession       session_;
     sigc::connection tick_;
 
     /* Before the readers, so it outlives their threads, which emit it
@@ -122,15 +99,10 @@ private:
     std::vector<std::unique_ptr<Slot> > slots_;
     sigc::connection                    scan_;
 
-    static int side (const std::string &hand) { return hand == "left" ? 0 : 1; }
     bool scan ();
-    thSynthTree *patchTree () const;
-    void hands ();
-    void configure (bool pair);
-    /* at: when the hand played them, on now()'s clock. */
-    void play (int hand, const std::vector<thhAction> &acts, double at = 0);
+    thSynthTree *patchTree (int play) const;
     void sound (const std::vector<thhAction> &acts);
-    bool tick ();
+    void looping ();
     void drained ();
 };
 
