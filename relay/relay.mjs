@@ -141,8 +141,12 @@ const OVERFLOWED = Buffer.from('],"overflowed":true}');
    mesh has failed grows as the square of its peers: 192 players at 10
    knobs a second, all through the relay, is where one core falls behind
    (an event-loop p99 past 20 ms), and 64 is a ninth of that, which leaves
-   the core to the other rooms. There are 16 seats. */
+   the core to the other rooms. */
 const PEERS_PER_ROOM_MAX = 64;
+
+/* A seat is an engine channel, and the engine holds 64 (TH_ENGINE_CHANNELS
+   in libthink/think.h). */
+const SEATS = 64;
 
 /* Awareness clients one document socket may speak for, and a room may
    hold: a page is one, and a reconnect briefly has the old socket's
@@ -2534,7 +2538,7 @@ class Room
                     const seat = m.seat === null ? null : Number(m.seat);
 
                     if (seat !== null &&
-                        (!Number.isInteger(seat) || seat < 0 || seat > 15))
+                        (!Number.isInteger(seat) || seat < 0 || seat >= SEATS))
                         break;
 
                     const holder = seat === null ? undefined

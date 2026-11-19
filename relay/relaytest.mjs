@@ -3784,6 +3784,27 @@ try
             cl.close();
     }
 
+    /* A seat is an engine channel: the last of the engine's 64 is taken,
+       one past it is refused and changes nothing. */
+    {
+        const s = new Client(`${base}/room/seats`, 'Sy');
+
+        await s.open();
+        s.send({ type: 'hello', name: 'Sy', protocol: PROTOCOL, tickets: true });
+
+        const ws = await s.next('welcome');
+
+        s.send({ type: 'seat', seat: 63 });
+
+        const last = await s.next('seats');
+
+        s.send({ type: 'seat', seat: 64 });
+
+        check(last.seats[63] === ws.peer && await s.none('seats'),
+              'seat 63 is taken and seat 64 refused');
+        s.close();
+    }
+
     /* A wrong protocol is refused. */
     const d = new Client(`${base}/room/test`, 'D');
 
