@@ -1927,3 +1927,6 @@ body.tiled #videoframe { flex: 1 1 0; min-height: 90px; aspect-ratio: auto; max-
     width: min(640px, 85vw);
     height: min(360px, 50vh);
 }
+
+/* The MIDI routes table: a key is three digits wide. */
+.midiroute input[type="number"] { width: 4em; }

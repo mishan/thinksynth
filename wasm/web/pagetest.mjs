@@ -6852,6 +6852,86 @@ try
         await wide.close();
     }
 
+    /* This browser's own MIDI routes: a route added in the MIDI routes
+       table outranks a piece's for its MIDI channel, and is there again
+       after a reload. The room page has no table: there live input plays
+       your seat. */
+    {
+        const pr = await page.context().newPage();
+
+        await pr.addInitScript(() =>
+        {
+            const input = { id: 'r', name: 'Route Keys', type: 'input',
+                            state: 'connected', onmidimessage: null,
+                            close: async () => {} };
+
+            window.sendMidi = (b) =>
+                input.onmidimessage?.({ data: new Uint8Array(b) });
+            navigator.requestMIDIAccess = async () =>
+                ({ inputs: new Map([['r', input]]), outputs: new Map(),
+                   onstatechange: null });
+        });
+
+        const open = async () =>
+        {
+            await pr.goto(url);
+            await pr.click('#start');
+            await pr.waitForFunction(
+                () => !document.getElementById('loadpiece').disabled,
+                null, { timeout: 60000 });
+            await pr.click('#midi');
+            await pr.waitForFunction(() =>
+                document.getElementById('midistatus').textContent ===
+                'Route Keys');
+        };
+        const routedOn = async () =>
+        {
+            await pr.evaluate(() => window.solo.midiRoutes('piece',
+                [{ midi: 1, engine: 3 }]));
+            await pr.evaluate(() => window.sendMidi([0x91, 60, 100]));
+
+            const got = await pr.evaluate(() =>
+                window.solo.routed().join(','));
+
+            await pr.evaluate(() => window.sendMidi([0x81, 60, 0]));
+            return got;
+        };
+
+        await open();
+        await pr.click('#midiroutes summary');
+        await pr.click('#midirouteadd');
+        await pr.selectOption('[aria-label="MIDI channel of route 1"]',
+                              { value: '1' });
+        await pr.selectOption('[aria-label="Channel it plays of route 1"]',
+                              { value: '8' });
+
+        const first = await routedOn();
+
+        await open();
+
+        const kept = await pr.evaluate(() =>
+            [...document.querySelectorAll('#midirouterows select')]
+                .map((s) => s.value).join(' '));
+        const again = await routedOn();
+
+        await pr.click('#midiroutes summary');
+        await pr.click('[aria-label="Remove route 1"]');
+
+        const left = await pr.evaluate(() =>
+            localStorage.getItem('thinksynth.midiroutes'));
+
+        await pr.goto(url.replace('index.html', 'jam.html'));
+
+        const inRoom = await pr.$('#midiroutes');
+
+        await pr.close();
+        check(first === '8 60' && kept === '1 8' && again === '8 60' &&
+              left === '[]' && inRoom === null,
+              'a MIDI route kept in this browser outranks the piece\'s, ' +
+              'comes back after a reload, and is not in a room: ' +
+              JSON.stringify({ first, kept, again, left, inRoom }));
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

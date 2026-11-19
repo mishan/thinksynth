@@ -1,0 +1,156 @@
+/*
+ * Copyright (C) 2004-2026 The thinksynth authors
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ */
+
+/*
+ * midiroutesui.js -- this browser's own MIDI input routes, as rows to edit
+ * and kept in localStorage: a MIDI channel, the engine channel it plays or
+ * off, and its keys. They are MIDI in's machine layer (midi.js), which
+ * outranks a piece's `midiin' for the MIDI channels it names. The solo
+ * page only: in a room, live input plays your own seat.
+ */
+
+const STORED = 'thinksynth.midiroutes';
+const MIDI_CHANNELS = 16;
+const ENGINE_CHANNELS = 64;
+
+const whole = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+
+/* What was kept, the routes that still make sense. */
+export function storedRoutes ()
+{
+    try
+    {
+        const list = JSON.parse(localStorage.getItem(STORED) ?? '[]');
+
+        return Array.isArray(list)
+            ? list.filter((r) => whole(r?.midi, 0, MIDI_CHANNELS - 1) &&
+                                 whole(r?.engine, -1, ENGINE_CHANNELS - 1) &&
+                                 whole(r?.lo, 0, 127) && whole(r?.hi, r.lo, 127))
+            : [];
+    }
+    catch
+    {
+        return [];
+    }
+}
+
+/* The table in `rows', with `add' adding a route; each edit keeps the
+ * routes and hands them to `onChange'. Shows what was kept, and hands that
+ * over once at the start. */
+export function routesTable ({ rows, add, onChange })
+{
+    let routes = storedRoutes();
+
+    const changed = () =>
+    {
+        localStorage.setItem(STORED, JSON.stringify(routes));
+        onChange(routes);
+    };
+
+    const select = (label, options, value, set) =>
+    {
+        const s = document.createElement('select');
+
+        s.setAttribute('aria-label', label);
+        for (const [v, text] of options)
+            s.add(new Option(text, String(v)));
+        s.value = String(value);
+        s.addEventListener('change', () =>
+        {
+            set(Number(s.value));
+            changed();
+        });
+        return s;
+    };
+
+    const key = (label, value, set) =>
+    {
+        const k = document.createElement('input');
+
+        k.type = 'number';
+        k.min = '0';
+        k.max = '127';
+        k.value = String(value);
+        k.setAttribute('aria-label', label);
+        k.addEventListener('change', () =>
+        {
+            const v = Math.round(Number(k.value));
+
+            if (!whole(v, 0, 127))
+            {
+                k.value = String(value);
+                return;
+            }
+
+            set(v);
+            changed();
+        });
+        return k;
+    };
+
+    const draw = () =>
+    {
+        rows.replaceChildren(...routes.map((r, i) =>
+        {
+            const row = document.createElement('div');
+            const of = ` of route ${i + 1}`;
+            const remove = document.createElement('button');
+
+            row.className = 'midiroute';
+            remove.textContent = 'Remove';
+            remove.setAttribute('aria-label', `Remove route ${i + 1}`);
+            remove.addEventListener('click', () =>
+            {
+                routes.splice(i, 1);
+                draw();
+                changed();
+            });
+
+            row.append(
+                'MIDI ',
+                select(`MIDI channel${of}`,
+                       [...Array(MIDI_CHANNELS).keys()].map((c) => [c, c + 1]),
+                       r.midi, (v) => { r.midi = v; }),
+                ' plays ',
+                select(`Channel it plays${of}`,
+                       [[-1, 'off'], ...[...Array(ENGINE_CHANNELS).keys()]
+                           .map((c) => [c, c + 1])],
+                       r.engine, (v) => { r.engine = v; }),
+                ' keys ',
+                key(`Lowest key${of}`, r.lo, (v) =>
+                {
+                    r.lo = v;
+                    r.hi = Math.max(r.hi, v);
+                }),
+                ' to ',
+                key(`Highest key${of}`, r.hi, (v) =>
+                {
+                    r.hi = v;
+                    r.lo = Math.min(r.lo, v);
+                }),
+                ' ', remove);
+            return row;
+        }));
+    };
+
+    add.addEventListener('click', () =>
+    {
+        routes.push({ midi: 0, engine: 0, lo: 0, hi: 127 });
+        draw();
+        changed();
+    });
+
+    draw();
+    onChange(routes);
+}
