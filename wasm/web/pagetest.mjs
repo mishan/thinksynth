@@ -1349,6 +1349,45 @@ try
           await page.textContent('#midistatus') === 'Other Keys',
           'one plugged in later is listened to');
 
+    /* Routes, set through the harness's hook: MIDI channel 2 split onto
+       engine channels 4 and 7, channel 3 layered onto 5 and 8, channel 1
+       still the key channel's. Each off goes where its on went after the
+       routes are taken away, and the pedal comes up where it went down. */
+    {
+        const k2 = (bytes) =>
+            page.evaluate((b) => window.fakeMidi.send('k2', b), bytes);
+        const routed = () => page.evaluate(() => window.solo.routed().join(','));
+
+        await page.evaluate(() => window.solo.midiRoutes('piece', [
+            { midi: 1, engine: 3, lo: 0, hi: 59 },
+            { midi: 1, engine: 6, lo: 60, hi: 127 },
+            { midi: 2, engine: 4 }, { midi: 2, engine: 7 }]));
+        await k2([0x91, 59, 100]);
+        await k2([0x91, 60, 100]);
+        await k2([0x92, 64, 100]);
+        await k2([0xb1, 64, 127]);
+
+        const on = await routed();
+        const down = await pedals();
+        const base = (await sounding()).map((h) => h.note).join(',');
+
+        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+        await k2([0x81, 59, 0]);
+        await k2([0x81, 60, 0]);
+        await k2([0x82, 64, 0]);
+        await k2([0xb1, 64, 0]);
+
+        const off = await routed();
+        const up = await pedals();
+
+        check(on === '3 59,4 64,6 60,7 64' && base === '64' &&
+              down.endsWith('3:127 6:127') && off === '' &&
+              up.endsWith('3:127 6:127 3:0 6:0'),
+              'routed MIDI channels play their split and their layer, and ' +
+              'let go where they went after the routes are gone: ' +
+              JSON.stringify({ on, base, off, up: up.slice(-24) }));
+    }
+
     await page.click('#midi');
 
     check((await sounding()).length === 0 &&
