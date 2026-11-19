@@ -3733,7 +3733,7 @@ const nodeHistory = {
             return null;
 
         nodeFiles.write(name, s.text);
-        return s.what;
+        return { what: s.what };
     },
 };
 
@@ -3753,10 +3753,10 @@ $('dsp').undo = (back) =>
     if (patchName() === undefined)
         return false;
 
-    const what = nodeHistory.go(patchName(), back);
+    const step = nodeHistory.go(patchName(), back);
 
-    if (what !== null)
-        status(`${back ? 'Undid' : 'Redid'} ${what}.`, true);
+    if (step !== null)
+        status(`${back ? 'Undid' : 'Redid'} ${step.what}.`, true);
 
     return true;
 };

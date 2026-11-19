@@ -1744,6 +1744,106 @@ async function undoTogether (pages)
             { tip, codeUndid, graphUndid, undid, spent, redid, apart }));
 }
 
+/* An Undo a peer's edit depends on is refused, and a step refused twice is
+ * left as it is: A types a line into amb01.dsp and adds nodes x and y, and
+ * B writes a node fed from each. A's Undo of y is refused and says why;
+ * with B's node on y gone, the next goes through. A's Undo of x is refused
+ * too; asked again, from the code view, x is left in and A's line is
+ * undone. */
+async function undoRefused (pages)
+{
+    const [A, B] = pages;
+    const name = 'amb01.dsp';
+
+    await enter(pages, 'jamundorefused', PIECE);
+    await A.page.evaluate(() =>
+    {
+        document.getElementById('nodeview').open = true;
+    });
+    await A.page.selectOption('#nodefile', name);
+    await A.page.waitForFunction(() => window.jam.node()?.boxes > 0, null,
+                                 { timeout: 30000 }).catch(() => {});
+
+    const text = (page) => page.evaluate((n) => window.jam.file(n), name);
+    const everywhere = (want) => Promise.all(pages.map(({ page }) =>
+        page.waitForFunction(([n, w]) => window.jam.file(n) === w,
+                             [name, want], { timeout: 10000 })
+            .then(() => true, () => false)))
+        .then((r) => r.every(Boolean));
+    const said = () => A.page.$eval('#nodesay', (e) => e.textContent);
+    const undo = async () =>
+    {
+        await A.page.$eval('#nodeundo', (b) => b.click());
+        return said();
+    };
+    const add = async () =>
+    {
+        const was = await text(A.page);
+
+        await A.page.selectOption('#nodepalette', 'osc::simple');
+        await A.page.click('#nodeadd');
+        await A.page.waitForFunction(([n, t]) => window.jam.file(n) !== t,
+                                     [name, was], { timeout: 10000 })
+            .catch(() => {});
+
+        return A.page.evaluate(
+            () => window.jam.node().box(window.jam.node().selected).name);
+    };
+    const feed = (from) =>
+        `node fed${from} osc::simple {\n    freq = ${from}->out;\n};\n`;
+
+    await A.page.click(`#tabs button:text-is("${name}")`);
+    await A.page.click('.cm-content');
+    await A.page.keyboard.press('Control+Home');
+    await A.page.keyboard.type('# A\n');
+
+    const x = await add();
+    const y = await add();
+    const added = await text(A.page);
+    const fed = `${added}${feed(x)}${feed(y)}`;
+
+    await everywhere(added);
+    await B.page.evaluate(([n, t]) => window.jam.setFile(n, t), [name, fed]);
+    await everywhere(fed);
+
+    const can = (n) => `Can't undo add ${n}: with the edits since, the ` +
+                       'patch would not parse. Undo again to leave it as it ' +
+                       'is and go on.';
+    const yRefused = await undo();
+    const yKept = await everywhere(fed);
+    const unfedY = `${added}${feed(x)}`;
+
+    await B.page.evaluate(([n, t]) => window.jam.setFile(n, t),
+                          [name, unfedY]);
+    await everywhere(unfedY);
+
+    const yUndid = await undo();
+    const withoutY = await text(A.page);
+    const xFed = withoutY.endsWith(feed(x)) && !withoutY.includes(feed(y)) &&
+                 await everywhere(withoutY);
+    const xRefused = await undo();
+    const xKept = (await text(A.page)) === withoutY;
+
+    await A.page.click('.cm-content');
+    await A.page.keyboard.press('Control+z');
+
+    const left = await everywhere(withoutY.replace('# A\n', ''));
+    const status = await A.page.$eval('#status', (e) => e.textContent);
+
+    const got = { yRefused, yKept, yUndid, xFed, xRefused, xKept, left,
+                  status, gone: !withoutY.includes(`node ${y} `) };
+
+    if (x !== y && yRefused === can(y) && yKept && yUndid === `Undid add ${y}.` &&
+        got.gone && xFed && xRefused === can(x) && xKept && left &&
+        status === `Left add ${x} as it is, and undid edit text.`)
+        ok(`${A.label}'s Undo of a node ${B.label}'s edit feeds from is ` +
+           'refused and says why, goes through once that node is gone, and ' +
+           'asked again from the code view, leaves a step still refused as ' +
+           'it is and undoes the one before');
+    else
+        fail(`an Undo a peer's edit depends on: ${JSON.stringify(got)}`);
+}
+
 /* Keys into a piece, from both pages: hands.gen, which composes nothing
  * but what it is played. One page sits on the quantizer's channel and
  * plays quantised, the other on an arpeggiator's and plays a bar ahead. A
@@ -3684,6 +3784,7 @@ try
     await pasteTogether(pages);
     await undoOwnEdits(pages);
     await undoTogether(pages);
+    await undoRefused(pages);
 
     /* ---- and talks ---- */
 

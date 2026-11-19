@@ -91,6 +91,28 @@ const keyOf = ({ key, code, mods }) => (mods & 2) && code === 'KeyA'
 /* NodeGraph::Box kinds, as tw_graph_box_kind reports them. */
 const BOX = { NODE: 0, CONTROL: 1, IO_IN: 2, IO_OUT: 3, PROBE: 4 };
 
+/* The page's own instance of the module, one per page. The worklet's is
+   playing and the mirror's is composing; this one only ever reads and
+   edits text, and it fetches its own wasm because a page can. A room asks
+   for it at the join, before there is a view, to say what parses. */
+let model = null;
+
+export function loadModel ()
+{
+    model ??= import('./thinkweb.js').then(async ({ default: create }) =>
+    {
+        const M = await create({ print: () => {}, printErr: () => {} });
+
+        M._tw_catalog_take();
+        return M;
+    });
+
+    return model;
+}
+
+export const parsesIn = (M, text) =>
+    M.ccall('tw_graph_parses', 'number', ['string'], [text]) === 1;
+
 export async function createNodeView ({ files, history = null,
                                         root = document,
                                         onStatus = () => {},
@@ -117,18 +139,7 @@ export async function createNodeView ({ files, history = null,
         say(text);
     };
 
-    /* The page's own instance of the module. The worklet's is playing and
-       the mirror's is composing; this one only ever reads and edits text,
-       and it fetches its own wasm because a page can. */
-    const { default: createThinkWeb } = await import('./thinkweb.js');
-
-    const log = [];
-    const M = await createThinkWeb({
-        print: (s) => log.push(s),
-        printErr: (s) => log.push(s),
-    });
-
-    M._tw_catalog_take();
+    const M = await loadModel();
 
     let file = null;            /* the .dsp this is showing */
     let watching = null;        /* how to stop watching it change */
@@ -2041,7 +2052,7 @@ export async function createNodeView ({ files, history = null,
 
         const pane = $('nodeview');
         const held = pane.contains(document.activeElement);
-        const what = history.go(file, back);
+        const step = history.go(file, back);
 
         /* A box undone takes its row in the list, and the focus with it,
            out to the page, whose Ctrl+Z undoes the piece. */
@@ -2049,8 +2060,8 @@ export async function createNodeView ({ files, history = null,
             ($('nodelist').querySelector('[aria-current="true"]') ??
              $('nodecanvas')).focus({ preventScroll: true });
 
-        if (what !== null)
-            onStatus(`${back ? 'Undid' : 'Redid'} ${what}.`);
+        if (step !== null)
+            onStatus(step.said ?? `${back ? 'Undid' : 'Redid'} ${step.what}.`);
 
         showSteps();
     };

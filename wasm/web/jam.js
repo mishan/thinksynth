@@ -54,7 +54,7 @@ import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf, hasSeen,
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
-import { createNodeView } from './nodeview.js';
+import { createNodeView, loadModel, parsesIn } from './nodeview.js';
 import { GRAPH, roomHistory } from './roomundo.js';
 import { createPanes } from './panes.js';
 import { createSynth } from './host.js';
@@ -155,6 +155,7 @@ const diff = new TapeDiff();
    into the shared file. Made on Start, because it is another instance of a
    600 KB module and a room nobody is playing in does not need one. */
 let nodes = null;
+let undos = null;               /* the document's Undo (roomundo.js) */
 
 /* The panels this page tiles, in the order the document has them.
  *
@@ -2375,7 +2376,19 @@ async function join ()
     await new Promise((resolve) =>
         provider.synced ? resolve() : provider.once('synced', resolve));
 
-    editor = new Editor($('editor'), $('tabs'), doc, provider.awareness);
+    let model = null;
+
+    loadModel().then((M) => { model = M; });
+    undos = roomHistory(doc, (text) => (model === null ? null
+                                                       : parsesIn(model, text)));
+    editor = new Editor($('editor'), $('tabs'), doc, provider.awareness,
+                        (file, back) =>
+                        {
+                            const step = undos.go(file, back);
+
+                            if (step?.said !== undefined)
+                                status(step.said);
+                        });
     meta(doc).observe(showPiece);
     showPiece();
 
@@ -2898,7 +2911,7 @@ async function start ()
                     };
                 },
             },
-            history: roomHistory(doc),
+            history: undos,
             onStatus: status,
             sampleRate: ctx.sampleRate,
 

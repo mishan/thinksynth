@@ -869,6 +869,11 @@ jobs:
       - name: The node editor's model, against the desktop's
         run: node wasm/web/nodecheck.mjs build-web build
 
+      # A room's Undo over seeded runs of two pages' edits, the module
+      # saying what parses: one text, always parsing.
+      - name: A room's Undo, over random runs
+        run: node wasm/web/roomundocheck.mjs build-web
+
       # The piano roll: half of what it draws is the scheduler's pending
       # queue -- what the piece has already decided and not yet played --
       # which is why the page's old roll, drawn from a tape, could not show

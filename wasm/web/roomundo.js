@@ -105,14 +105,23 @@ function entryFor (doc, name)
 
     const um = new Y.UndoManager(text, { trackedOrigins: new Set([GRAPH]),
                                          captureTimeout: JOIN_MS });
-    const e = { text, um, last: null, join: null, at: 0, what: TYPED };
+    const e = { text, um, last: null, join: null, at: 0, what: TYPED,
+                refused: null };
 
     /* An undo or redo makes a new item on the other stack, and the name
        goes with it. */
     um.on('stack-item-added', ({ stackItem, origin }) =>
-        stackItem.meta.set('what',
-            origin === um ? um.currStackItem?.meta.get('what') ?? TYPED
-            : origin === GRAPH ? e.what : TYPED));
+    {
+        const from = origin === um ? um.currStackItem?.meta : null;
+
+        stackItem.meta.set('what', from?.get('what') ??
+                                   (origin === GRAPH ? e.what : TYPED));
+
+        /* A new edit: the step refused last is no longer what an Undo
+           would come to first. */
+        if (origin !== um)
+            e.refused = null;
+    });
 
     for (const event of ['stack-item-added', 'stack-item-popped',
                          'stack-item-updated'])
@@ -132,8 +141,10 @@ export function undoFor (doc, name)
 const nameOf = (item) => (item === undefined || item === null ? null
                           : item.meta.get('what') ?? TYPED);
 
-/* The history the node view takes (nodeview.js, createNodeView). */
-export function roomHistory (doc)
+/* The history the node view takes (nodeview.js, createNodeView), and the
+   code view's keys. `parses' says whether a text builds a graph, or null
+   while it cannot yet tell. */
+export function roomHistory (doc, parses = () => true)
 {
     return {
         step (name, what, join, fn)
@@ -166,11 +177,74 @@ export function roomHistory (doc)
                      redo: nameOf(um?.redoStack.at(-1)) };
         },
 
+        /* The step taken, and what to say of it when there is more than
+           its name: { what, said }, or null with none to take.
+
+           A step that would turn a text that parses into one that does not
+           is put straight back and said. Taken back over others' edits
+           since, a step can do that -- theirs depending on it, or the
+           splices between having mixed whose characters are whose, which
+           no later edit need ever undo. So the same step asked for again,
+           and refused again, is dropped, its edit left in, and the one
+           before it taken: no step can stand in front of the others for
+           good. */
         go (name, back)
         {
-            const um = entryFor(doc, name)?.um;
+            const e = entryFor(doc, name);
 
-            return nameOf(back ? um?.undo() : um?.redo());
+            if (e === null)
+                return null;
+
+            const stack = back ? e.um.undoStack : e.um.redoStack;
+            const verb = back ? 'undo' : 'redo';
+            const before = e.text.toString();
+            const parsed = parses(before);
+
+            if (parsed === null)
+                return stack.length === 0 ? null
+                    : { what: nameOf(stack.at(-1)),
+                        said: `${back ? 'Undo' : 'Redo'} waits a moment: ` +
+                              'what parses is not known yet.' };
+
+            const item = back ? e.um.undo() : e.um.redo();
+            const again = e.refused?.back === back && e.refused.item === item;
+
+            e.refused = null;
+
+            if (item === null)
+                return null;
+
+            const what = nameOf(item);
+
+            if (!parsed || parses(e.text.toString()))
+                return { what };
+
+            if (back)
+                e.um.redo();
+            else
+                e.um.undo();
+
+            if (!again)
+            {
+                e.refused = { back, item: stack.at(-1) };
+
+                return { what, said: `Can't ${verb} ${what}: with the edits ` +
+                                     'since, the patch would not parse. ' +
+                                     `${back ? 'Undo' : 'Redo'} again to leave ` +
+                                     'it as it is and go on.' };
+            }
+
+            stack.pop();
+            heardOf(doc, name).forEach((cb) => cb());
+
+            const next = this.go(name, back);
+            const left = `Left ${what} as it is`;
+
+            return next === null
+                ? { what, said: `${left}; nothing before it to ${verb}.` }
+                : { what: next.what,
+                    said: next.said ?? `${left}, and ${verb === 'undo'
+                        ? 'undid' : 'redid'} ${next.what}.` };
         },
 
         /* The stacks change after a text's observers have run, so a view

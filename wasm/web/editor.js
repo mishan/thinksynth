@@ -32,12 +32,12 @@
  * only its source boxes (sourcebox.js).
  */
 
-import { EditorState } from '@codemirror/state';
+import { EditorState, Prec } from '@codemirror/state';
 import { EditorView, drawSelection, highlightSpecialChars, keymap,
          lineNumbers } from '@codemirror/view';
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
-import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import { yCollab } from 'y-codemirror.next';
 
 import { files, meta, pieceFiles } from './doc.js';
 import { undoFor } from './roomundo.js';
@@ -65,9 +65,12 @@ export function colourOf (name)
 export class Editor
 {
     /* `parent' takes the editor, `tabs' the buttons; `doc' is the room's
-       and `awareness' the provider's, with `user' set for the cursors. */
-    constructor (parent, tabs, doc, awareness)
+       and `awareness' the provider's, with `user' set for the cursors.
+       `undo(file, back)' takes the Undo and Redo, by key or the browser's
+       menu, so that a refusal (roomundo.js) holds here too. */
+    constructor (parent, tabs, doc, awareness, undo)
     {
+        this.undo = undo;
         this.parent = parent;
         this.tabs = tabs;
         this.doc = doc;
@@ -117,8 +120,22 @@ export class Editor
                 EditorView.lineWrapping,
                 languageFor(name) ?? [],
                 pageLook,
-                keymap.of([...yUndoManagerKeymap, ...defaultKeymap,
-                           indentWithTab]),
+                Prec.highest(keymap.of([
+                    { key: 'Mod-z', run: () => this.go(name, true),
+                      shift: () => this.go(name, false) },
+                    { key: 'Mod-y', mac: 'Mod-Shift-z',
+                      run: () => this.go(name, false) },
+                ])),
+                Prec.highest(EditorView.domEventHandlers({
+                    beforeinput: (e) =>
+                    {
+                        const back = { historyUndo: true,
+                                       historyRedo: false }[e.inputType];
+
+                        return back !== undefined && this.go(name, back);
+                    },
+                })),
+                keymap.of([...defaultKeymap, indentWithTab]),
                 EditorView.contentAttributes.of({ 'aria-label': name,
                                                   tabindex: '0' }),
                 yCollab(text, this.awareness, { undoManager: undo }),
@@ -128,6 +145,12 @@ export class Editor
         this.states.set(name, { text, state });
 
         return state;
+    }
+
+    go (name, back)
+    {
+        this.undo(name, back);
+        return true;
     }
 
     forget (name)
