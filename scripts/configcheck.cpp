@@ -346,6 +346,41 @@ int main (int argc, char **argv)
            expectedCount, lines.size());
     }
 
+    /* ---- a channel past MIDI's sixteen ---------------------------------- */
+
+    {
+        const int past = TH_ENGINE_CHANNELS - 1;
+
+        patchMgr->loadPatch(gthPatchManager::resolvePatch(expected[0]), past);
+
+        {
+            gthPrefs prefs(cfg);
+
+            prefs.Save();
+        }
+
+        bool written = false;
+
+        for (const string &line : channelLines(cfg))
+            written = written ||
+                      line.compare(0, 11, "channel " +
+                                          std::to_string(past) + ",") == 0;
+
+        patchMgr->unloadPatch(past);
+
+        gthPrefs prefs(cfg);
+
+        prefs.Load();
+
+        ok(written && patchMgr->getPatch(past) != NULL,
+           "a patch on channel %d is written and read back", past + 1);
+        patchMgr->unloadPatch(past);
+
+        gthPrefs tidy(cfg);
+
+        tidy.Save();
+    }
+
     /* ---- a channel effect survives a .patch --------------------------- */
 
     /* The chooser in the patch page puts a graph on a channel's sum, and the

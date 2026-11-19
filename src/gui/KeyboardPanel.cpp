@@ -27,7 +27,6 @@
 
 #include "think.h"
 
-#include "gthPatchfile.h"
 #include "Keyboard.h"
 #include "KeyboardPanel.h"
 #include "gthSignal.h"
@@ -67,7 +66,7 @@ KeyboardPanel::KeyboardPanel (thSynth *synth)
        created through the factory and held by RefPtr rather than manage()d.
        That also retires the double free the old destructor had here -- it
        delete'd two Gtk::manage()d adjustments the SpinButtons already owned. */
-    chanVal_ = Gtk::Adjustment::create(1, 1, NUM_PATCHES);
+    chanVal_ = Gtk::Adjustment::create(1, 1, synth_->channelCount());
     chanBtn_ = manage(new Gtk::SpinButton(chanVal_));
 
     transVal_ = Gtk::Adjustment::create(0, -72, 72);
@@ -161,7 +160,7 @@ void KeyboardPanel::keyboardResetKeys (void)
 
 void KeyboardPanel::setChannel (int chan)
 {
-    if (chan >= 0 && chan < NUM_PATCHES)
+    if (chan >= 0 && chan < synth_->channelCount())
         chanVal_->set_value(chan + 1);
 }
 
@@ -247,7 +246,7 @@ bool KeyboardPanel::onScroll (double dx, double dy)
 
     float channel = chanVal_->get_value() + (dy < 0.0 ? 1 : -1);
 
-    if ((channel < 1) || (channel > NUM_PATCHES))
+    if ((channel < 1) || (channel > synth_->channelCount()))
         return true;
 
     chanVal_->set_value(channel);

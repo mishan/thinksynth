@@ -1609,6 +1609,79 @@ runRefused (const std::string &pluginPath)
     return failures;
 }
 
+/* More instruments than MIDI has channels: each of twenty reaches the
+ * patch manager and the synth, on the channel the loader gave it, the
+ * last of them past the sixteenth. Earlier sections' patches are still
+ * up, so which channels those are is the loader's to say. */
+static int
+runManyInstruments (const std::string &pluginPath)
+{
+    const int count = 20;
+    std::string piece = "name \"twenty\";\n";
+
+    for (int i = 0; i < count; i++)
+        piece += "instrument i" + std::to_string(i + 1) +
+                 " { dsp \"organ0.dsp\"; };\n";
+
+    piece += "chain c {\n"
+             "    stage s gen::eno_line { notes = \"C4\"; };\n"
+             "    sink { instrument = i" + std::to_string(count) + "; };\n"
+             "};\n";
+
+    const std::string tmp = stagePiece(piece);
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    TestComposer *win = new TestComposer(&synth);
+
+    win->set_visible(true);
+    pump(6);
+
+    int on = 0, last = -1;
+
+    for (const thcInstrument &inst : win->sched_->instruments())
+    {
+        if (gthPatchManager::instance()->getPatch(inst.channel) != NULL &&
+            synth.getChannel(inst.channel) != NULL)
+            on++;
+
+        last = inst.channel;
+    }
+
+    if (on != count || last < TH_MIDI_CHANNELS)
+        fail((std::to_string(on) + " of " + std::to_string(count) +
+              " instruments loaded onto their channels, the last on " +
+              std::to_string(last + 1)).c_str());
+    else
+        ok("a piece of twenty instruments loads every one onto a channel");
+
+    /* Given back, so the sections after this allocate where they did. */
+    std::vector<int> channels;
+
+    for (const thcInstrument &inst : win->sched_->instruments())
+        channels.push_back(inst.channel);
+
+    delete win;
+    pump(2);
+
+    for (int c : channels)
+        gthPatchManager::instance()->unloadPatch(c);
+
+    {
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    return failures;
+}
+
 /* The sequencer pane: one track per `gen::grid', as tall as its grid has
  * rows, and a gesture on one written into the work file when it ends --
  * which is what makes Save keep a pattern drawn there.
@@ -2774,6 +2847,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 rc = runRefused(pluginPath);
+
+            if (rc == 0)
+                rc = runManyInstruments(pluginPath);
 
             if (rc == 0)
                 rc = runSequencer(pluginPath);

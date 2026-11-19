@@ -2780,11 +2780,12 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
             return thcGenEdit::REFUSED;
         }
     }
-    /* File numbers, because this edits the file. 1-16, and the loader
-       maps them onto the engine's 0-15 on the way in. */
-    else if (channel < 1 || channel > 16)
+    /* File numbers, because this edits the file: 1 to the engine's
+       last, the loader's limit on every host that edits, which it maps
+       onto the engine's from 0 on the way in. */
+    else if (channel < 1 || channel > TH_ENGINE_CHANNELS)
     {
-        why = "channel is 1-16";
+        why = "channel is 1-" + std::to_string(TH_ENGINE_CHANNELS);
         return thcGenEdit::REFUSED;
     }
 

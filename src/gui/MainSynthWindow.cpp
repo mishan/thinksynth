@@ -1816,7 +1816,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
 /* Looked up rather than captured: the arg belongs to the thMidiChan, and
    loading a patch onto this channel replaces the channel. */
-/* One of the sixteen patches changed; if it is this button's, say so. */
+/* A patch changed; if it is this button's, say so. */
 void MainSynthWindow::onPatchDirty (int chan, SaveButton *button, int mine)
 {
     if (chan == mine)
@@ -2463,7 +2463,7 @@ void MainSynthWindow::selectChannel (int chan)
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
 
-    /* The entry is the current channel's DSP, and sits over all sixteen
+    /* The entry is the current channel's DSP, and sits over all the
        pages; the label says which one it is. */
     dspEntryLbl_.set_label("Channel " + std::to_string(chan + 1) + " DSP:");
 

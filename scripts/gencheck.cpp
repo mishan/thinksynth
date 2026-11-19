@@ -1867,6 +1867,19 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     editOk(thcGenEdit::setSink(path, "pulse", 0, 2, "", "bright", why), why,
            "setSink add chanarg");
 
+    /* The editor's channels are the loader's: the last one written, one
+       past it refused, and the sink put back. */
+    editOk(thcGenEdit::setSink(path, "pulse", 0, TH_ENGINE_CHANNELS, "",
+                               "bright", why), why,
+           "setSink to the last channel");
+
+    if (thcGenEdit::setSink(path, "pulse", 0, TH_ENGINE_CHANNELS + 1, "",
+                            "bright", why) != thcGenEdit::REFUSED)
+        fail("setSink wrote a channel past the engine's");
+
+    editOk(thcGenEdit::setSink(path, "pulse", 0, 2, "", "bright", why), why,
+           "setSink back to channel 2");
+
     /* Off the piece's own instrument onto a bare channel and back --
        the two spellings of a target, and the one edit that replaces a
        statement rather than a value inside one. */

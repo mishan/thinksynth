@@ -377,7 +377,7 @@ bool PatchSelPanel::LoadPatch (void)
             {
                 /* focus the new channel */
                 gthPatchManager::PatchFile *patch =patchMgr->getPatch(chanNum);
-                patchSelection->set_selected(chanNum);
+                patchSelection->set_selected(positionOf(chanNum));
 
                 /* load up metadata */
                 patchRevised.set_text(patch->doc.info["revised"]);
@@ -628,7 +628,7 @@ void PatchSelPanel::SetChannelAmp (void)
                holds objects it knows nothing about, so the view has to be told
                this one changed. Same position, same item -- only its contents
                moved. */
-            patchModel->splice(chanNum, 1, { row });
+            patchModel->splice(patchSelection->get_selected(), 1, { row });
 
             gthPatchManager::instance()->markDirty(chanNum);
 
@@ -785,14 +785,23 @@ void PatchSelPanel::populate (void)
 
     patchModel->remove_all();
 
+    /* The channels with a patch, and the lowest one without, which is
+       where a patch goes next: sixty-four rows would be mostly empty. */
+    bool offeredFree = false;
+
     for (int i = 0; i < chancount; i++)
     {
+        gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
+
+        if (patch == NULL && offeredFree)
+            continue;
+
+        offeredFree = offeredFree || patch == NULL;
+
         /* A free channel: a number and two empty cells. It used to read
            0.000000 under Amplitude, which looks like a level of zero rather
            than like nothing being there. */
         Glib::RefPtr<PatchSelRow> row = PatchSelRow::create(i);
-
-        gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
         if (patch != NULL)
         {
@@ -831,7 +840,16 @@ void PatchSelPanel::populate (void)
     }
 
     if (selectedChan != -1)
-        patchSelection->set_selected(selectedChan);
+        patchSelection->set_selected(positionOf(selectedChan));
+}
+
+guint PatchSelPanel::positionOf (int chan) const
+{
+    for (guint i = 0; i < patchModel->get_n_items(); i++)
+        if (patchModel->get_item(i)->chan() == chan)
+            return i;
+
+    return GTK_INVALID_LIST_POSITION;
 }
 
 void PatchSelPanel::on_realize(void)

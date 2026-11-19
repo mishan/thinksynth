@@ -143,6 +143,10 @@ protected:
        lines of "is there a selection, and what is in it". */
     Glib::RefPtr<PatchSelRow> selectedRow (void) const;
 
+    /* Channel `chan''s row in the list, which holds only some channels;
+       GTK_INVALID_LIST_POSITION where it has none. */
+    guint positionOf (int chan) const;
+
     /* Put the form back to "no channel selected": empty, and nothing
        enabled that would act on a channel. */
     void showNoChannel (void);

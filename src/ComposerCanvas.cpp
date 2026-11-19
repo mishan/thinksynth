@@ -942,8 +942,9 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     double r = 1, g = 1, b = 1;
     bool isSink = box.what.kind == Selection::SINK;
 
-    /* The box carries the file's number, 1-16; gthChannelColor speaks the
-       engine's, 0-15, and the piano roll draws delivered notes with it.
+    /* The box carries the file's number, from 1; gthChannelColor speaks
+       the engine's, from 0, and the piano roll draws delivered notes
+       with it.
        Off by one here would give every sink its neighbour's colour.
      *
        Ranged rather than merely non-negative, because this draws what
@@ -955,7 +956,7 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
        real channel has, on a sink that is not going to play. Out of
        range now draws in the neutral colour a stage does, which is the
        honest picture of a sink that names nothing. */
-    if (isSink && box.channel >= 1 && box.channel <= TH_MIDI_CHANNELS)
+    if (isSink && box.channel >= 1 && box.channel <= TH_ENGINE_CHANNELS)
         gthChannelColor(box.channel - 1, r, g, b);
 
     /* Opaque, in two coats: the background colour so that wires passing

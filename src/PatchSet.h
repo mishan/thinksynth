@@ -64,6 +64,7 @@
 #include <string>
 #include <vector>
 
+#include "think.h"
 #include "PatchFile.h"
 
 /* Everything changed at once: a patch loaded, unloaded or replaced. What
@@ -136,7 +137,7 @@ public:
         Slot (void);
     };
 
-    explicit thPatchSet (int slots = 16);
+    explicit thPatchSet (int slots = TH_ENGINE_CHANNELS);
     ~thPatchSet (void);
 
     int count (void) const { return (int)slots_.size(); }
