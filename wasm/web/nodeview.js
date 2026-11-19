@@ -48,7 +48,7 @@
 import { createCanvasView, modsOf } from './canvasview.js';
 import { placePopover } from './popover.js';
 import { replay } from './replay.js';
-import { numberIn, showPanel } from './panel.js';
+import { READONLY, numberIn, showPanel } from './panel.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
@@ -1586,6 +1586,35 @@ export async function createNodeView ({ files, history = null,
         const at = selected;
 
         showPanel(box, panel, (row, typed) => commit(at, row, typed, node));
+
+        /* A wired row names the box its value comes from -- `lfo->out',
+           `@cut = 0.5' -- and is a way there. Only a row that is all one
+           wire: arithmetic not spliced into the text is shown whole, and
+           its first name is not where its value comes from. The io node is
+           two boxes of one name, and a wire is from its MIDI half. */
+        for (const row of panel.rows)
+        {
+            const from = row.kind !== READONLY ? undefined
+                : /^(?:([\w.]+)->\w+|(@\w+)(?: = \S+)?)$/.exec(row.text)
+                    ?.slice(1).find((x) => x !== undefined);
+            const to = from === undefined ? -1
+                : [...Array(M._tw_graph_box_count()).keys()].find((b) =>
+                    M._tw_graph_box_kind(b) !== BOX.IO_OUT &&
+                    call('tw_graph_box_name', ['number'], [b]) === from) ?? -1;
+            const what = box.querySelector(
+                `.panelrow[data-row="${CSS.escape(row.id)}"] .paramwhat`);
+
+            if (to < 0 || what === null)
+                continue;
+
+            const go = document.createElement('button');
+
+            go.className = 'linkish';
+            go.textContent = row.text;
+            go.title = `Select ${from}`;
+            go.addEventListener('click', () => choose(to));
+            what.replaceChildren(go);
+        }
     }
 
     /* What an edit of a panel's row means is the panel's to say -- the one
@@ -1694,6 +1723,14 @@ export async function createNodeView ({ files, history = null,
     const portName = (b, p) =>
         call('tw_graph_port_name', ['number', 'number'], [b, p]);
 
+    /* An output as the list names it: `lfo.out', and a control or an
+       expression by its name alone, `@cut', `filt.cutoff', each having the
+       one. */
+    const outName = (b, p) =>
+        call('tw_graph_box_name', ['number'], [b]) +
+        (M._tw_graph_box_kind(b) === BOX.CONTROL || isExpr(b)
+            ? '' : `.${portName(b, p)}`);
+
     const el = (tag, props = {}, ...kids) =>
     {
         const e = Object.assign(document.createElement(tag), props);
@@ -1736,24 +1773,49 @@ export async function createNodeView ({ files, history = null,
             if (M._tw_graph_box_kind(b) !== BOX.PROBE)
                 shown.push(b);
 
+        /* Under a heading each, nodes first: a patch's controls and its
+           arithmetic outnumber its nodes, and a list in the graph's own
+           order mixes the three. */
+        const group = (b) => (M._tw_graph_box_kind(b) === BOX.CONTROL ? 1
+                              : isExpr(b) ? 2 : 0);
+        const titles = ['Nodes', 'Controls', 'Expressions'];
+
+        shown.sort((x, y) => group(x) - group(y));
+
         /* The same boxes as last drawn keep their buttons, so the one a
-           person is on keeps the focus; only which is chosen moves. */
-        const names = shown.map(named);
+           person is on keeps the focus; only which is chosen moves. In a
+           group named for what they are, a control or an expression is
+           its name alone. */
+        const names = shown.map((b) => (group(b) === 0 ? named(b)
+            : call('tw_graph_box_name', ['number'], [b])));
 
         if (names.join('\n') !== list.dataset.names)
         {
             list.dataset.names = names.join('\n');
-            list.replaceChildren(...shown.map((b, i) =>
-                el('li', {}, el('button', { type: 'button',
-                                            textContent: names[i],
-                                            onclick: () => choose(b) }))));
+            list.replaceChildren(...titles.flatMap((title, g) =>
+            {
+                const mine = shown.filter((b) => group(b) === g);
+
+                if (mine.length === 0)
+                    return [];
+
+                const rows = el('ul', {}, ...mine.map((b) =>
+                    el('li', {}, el('button', {
+                        type: 'button',
+                        textContent: names[shown.indexOf(b)],
+                        onclick: () => choose(b) }))));
+
+                rows.setAttribute('aria-labelledby', `nodelist${g}`);
+
+                return [el('li', {},
+                    el('h4', { textContent: title, id: `nodelist${g}` }),
+                    rows)];
+            }));
         }
 
-        [...list.children].forEach((li, i) =>
+        list.querySelectorAll('button').forEach((button, i) =>
         {
-            const on = shown[i] === selected;
-
-            li.firstChild.ariaCurrent = on ? 'true' : null;
+            button.ariaCurrent = shown[i] === selected ? 'true' : null;
         });
 
         wiring();
@@ -1815,11 +1877,10 @@ export async function createNodeView ({ files, history = null,
         const rows = ins.map((p) =>
         {
             const from = edges.find((x) => x.toBox === b && x.toPort === p);
-            const li = el('li', {}, `${portName(b, p)} from ` +
-                (from === undefined ? 'nothing'
-                    : `${call('tw_graph_box_name', ['number'],
-                              [from.fromBox])}.` +
-                      portName(from.fromBox, from.fromPort)));
+            const li = el('li', {}, from === undefined
+                ? `${portName(b, p)}: not wired`
+                : `${portName(b, p)} from ` +
+                  outName(from.fromBox, from.fromPort));
 
             if (from !== undefined && !expr)
                 li.append(' ', el('button', {
@@ -1843,9 +1904,7 @@ export async function createNodeView ({ files, history = null,
             for (let o = 0; o < M._tw_graph_box_count(); o++)
                 for (let p = 0; o !== b && p < M._tw_graph_port_count(o); p++)
                     if (!M._tw_graph_port_is_input(o, p))
-                        from.append(new Option(
-                            `${call('tw_graph_box_name', ['number'], [o])}.` +
-                            portName(o, p), `${o}:${p}`));
+                        from.append(new Option(outName(o, p), `${o}:${p}`));
 
             parts.push(el('div', { className: 'row' },
                 el('label', {}, 'Connect ', to),

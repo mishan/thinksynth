@@ -608,6 +608,11 @@ static const char *GRAPH =
     "    freq = 3;\n"
     "};\n"
     "\n"
+    "node slew misc::slew {\n"
+    "    in = lfo->out;\n"
+    "    time = 0.1;\n"
+    "};\n"
+    "\n"
     "node osc osc::simple {\n"
     "    freq = ionode->note;\n"
     "    waveform = 2;\n"
@@ -716,6 +721,41 @@ static void checkNodes (const string &pluginPath, const string &file)
     check(out && out->kind == thPanelRow::READONLY && !out->editable,
           "an output is shown and not offered: the plugin writes it every "
           "window");
+
+    /* The two outputs, out and sync, under the inputs and not among them
+       in the order of their names. */
+    {
+        const thPanelRow *sync = built.find("sync");
+        size_t firstOut = built.rows.size(), lastIn = 0;
+
+        for (size_t i = 0; i < built.rows.size(); i++)
+            if (built.rows[i].group == "Outputs")
+                firstOut = std::min(firstOut, i);
+            else
+                lastIn = i;
+
+        check(out && sync && out->group == "Outputs" &&
+              sync->group == "Outputs" && lastIn < firstOut,
+              "a node's outputs are a group of their own, after its inputs",
+              idsOf(built));
+    }
+
+    /* And one output alone, which sorts before an input and is no group:
+       last all the same. */
+    for (size_t i = 0; i < graph.boxes().size(); i++)
+        if (graph.boxes()[i].name == "slew")
+        {
+            NodePanel slew;
+            thPanel rows;
+
+            slew.setBox(&graph, (int)i);
+            slew.build(rows);
+
+            check(!rows.rows.empty() && rows.rows.back().id == "out" &&
+                  rows.rows.back().group.empty(),
+                  "a node's one output is last, and no group",
+                  idsOf(rows));
+        }
 
     const thPanelRow *fm = built.find("fm");
 
