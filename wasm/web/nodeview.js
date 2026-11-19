@@ -475,7 +475,7 @@ export async function createNodeView ({ files, history = null,
 
                 case SIG.SELECTION:
                     if (a > 1)
-                        say(`${a} nodes selected.`);
+                        say(`${a} nodes selected.`, 'nodeheard');
                     break;
 
                 /* Written when the key comes up: a held arrow repeats,

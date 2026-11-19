@@ -3245,9 +3245,9 @@ try
 
         await page.keyboard.press('Control+a');
 
-        check(/^\d+ nodes selected\.$/.test(await said()),
+        check(/^\d+ nodes selected\.$/.test(await heard()),
               `...and that Ctrl+A took a group, not one box: ` +
-              `${await said()}`);
+              `${await heard()}`);
 
         await page.keyboard.press('Escape');
 
