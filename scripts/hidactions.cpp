@@ -19,7 +19,8 @@
 /*
  * hidactions -- what the session asks to play for the captures in
  * scripts/hid, one line of JSON (thhHost::take) for each report that
- * asked for any. wasm/web/hidcheck.mjs runs the browser's build of the
+ * asked for any, and what the controller pane shows (thhHost::pane) after
+ * each capture. wasm/web/hidcheck.mjs runs the browser's build of the
  * same code over the same captures and holds it to these lines.
  *
  *   hidactions WIRELESS INPUT IMU
@@ -86,12 +87,14 @@ main (int argc, char *argv[])
     const uint8_t gone[] = { 0x26, 0x01 };
 
     play(dongle, thhHost::RADIO, argv[1]);
+    printf("%s\n", host.pane().c_str());
     if (host.report(dongle, thhHost::RADIO, gone, sizeof(gone), t += 0.004))
         host.drop(dongle, t);
     printf("%s\n", host.take().c_str());
 
     play(wired, thhHost::INPUT, argv[2]);
     play(wired, thhHost::IMU, argv[3]);
+    printf("%s\n", host.pane().c_str());
     host.release(t += 0.004);
     printf("%s\n", host.take().c_str());
     return 0;

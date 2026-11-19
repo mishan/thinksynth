@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -62,9 +64,24 @@ public:
     void channel (int ch) { channel_ = ch; }
 
     /* The player's profile, and the patch's controller block with that
-       patch's name: what is wrong, or empty. */
+       patch's name and the args it has (for the pane's warnings): what is
+       wrong, or empty. A patch with the same block is only named again,
+       which lets go of nothing. */
     std::string profile (const std::string &text);
-    std::string patch (const std::string &block, const std::string &name);
+    std::string patch (const std::string &block, const std::string &name,
+                       const std::set<std::string> &args);
+
+    /* The hands swapped before, by serial number, and as they are now. */
+    void remembered (const std::map<std::string, std::string> &hands);
+    const std::map<std::string, std::string> &kept () const { return kept_; }
+
+    /* What the controller pane shows, as JSON: the hands of a pair, each
+       connected controller's bindings (thhPaneRows; a pair's under their
+       hand), whether the hands can be swapped, and the loops' and the
+       patch's lines. */
+    std::string pane () const;
+
+    thhSession &session () { return session_; }
 
     /* The loops' due notes; true while they play. */
     bool tick (double now);
@@ -89,6 +106,8 @@ private:
     double                 now_;
     int                    channel_, next_;
     std::string            profile_, block_, name_;
+    std::set<std::string>  args_;
+    std::map<std::string, std::string> kept_;
     std::vector<thhAction> taken_;
     thhSession             session_;
     std::vector<Slot>      slots_;

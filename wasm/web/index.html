@@ -416,6 +416,27 @@
          Watchman dongle (hid.js): Chrome and Edge only, as WebHID is. -->
     <button id="hid" disabled>Controller</button>
     <span id="hidstatus" class="hint" aria-live="polite"></span>
+    <!-- What each controller plays and what it is doing now, and the
+         player's own profile, as the desktop's Controller pane has them
+         (docs/HID.md). -->
+    <details id="hidpane" hidden>
+      <summary>Controller pane</summary>
+      <p id="hidpaneline" class="hint" aria-live="polite"></p>
+      <table>
+        <caption class="hint">Each binding, and what it is doing now</caption>
+        <thead><tr><th>Control</th><th>Now</th><th>Does</th><th>Warning</th></tr></thead>
+        <tbody id="hidrows"></tbody>
+      </table>
+      <button id="hidpair" hidden>Pair a controller</button>
+      <button id="hidswap" hidden>Swap hands</button>
+      <button id="hidclear" hidden>Clear loops</button>
+      <label for="hidprofile">Your profile, over the controller's own</label>
+      <textarea id="hidprofile" rows="6" spellcheck="false"
+                placeholder="device index {&#10;};"></textarea>
+      <button id="hidreload">Reload</button>
+      <label>Open file <input id="hidfile" type="file"></label>
+      <p id="hidproblem" class="hint" aria-live="polite"></p>
+    </details>
 
     <!-- A webcam onto the same keys (camera.js): a hand struck through one
          of nine zones of the picture plays a note, and the zones light as

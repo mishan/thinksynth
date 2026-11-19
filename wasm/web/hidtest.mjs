@@ -204,12 +204,14 @@ const site = await serve(build, 0, '127.0.0.1', null);
 const url = `http://127.0.0.1:${site.address().port}/index.html?panes=0`;
 const browser = await chromium.launch(
     { args: ['--autoplay-policy=no-user-gesture-required'] });
-const configs = { 'D-1': config('Right', 'LHR-R'), 'D-2': config('Left', 'LHR-L') };
+const configs = { 'D-1': config('Right', 'LHR-R'), 'D-2': config('Left', 'LHR-L'),
+                  'D-3': config('', 'LHR-3'), 'D-4': config('', 'LHR-4') };
 
-/* A page with the given fake, started, and the module's fetches kept. */
-const open = async (given) =>
+/* A page with the given fake, started, and the module's fetches kept; in
+   `context', a browser whose storage is kept from page to page. */
+const open = async (given, context = null) =>
 {
-    const page = await (await browser.newContext()).newPage();
+    const page = await (context ?? await browser.newContext()).newPage();
     const fetched = [];
     const errors = [];
 
@@ -291,8 +293,12 @@ try
 
         /* The controller turned off, held note and all: the dongle says so,
            and answers nothing until it is turned on again. */
-        await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
-        await page.waitForFunction(() => window.posted.at(-1)?.startsWith('on '));
+        await page.evaluate(() =>
+        {
+            window.posted.length = 0;
+            window.dongles[0].send([0x20, 0xf1, 0x10]);
+        });
+        await page.waitForFunction(() => window.posted.some((p) => p.startsWith('on ')));
         await page.evaluate(() =>
         {
             const d = window.dongles[0];
@@ -381,6 +387,83 @@ try
         await page.waitForTimeout(500);
         check(await page.evaluate(() => !window.posted.some((p) => p.startsWith('midion'))),
               'a second wired controller is turned away, its A playing nothing');
+    }
+
+    {
+        /* The pane: its rows, live; the player's profile, kept; what is
+           wrong with one, said. */
+        const context = await browser.newContext();
+        const { page } = await open(
+            { granted: [{ productId: 0x2102, serial: 'D-1', on: true }] }, context);
+
+        await statusIs(page, 'A Valve Index controller is playing');
+        await page.click('#hidpane summary');
+        await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
+        check(await page.waitForFunction(() => [...document.querySelectorAll('#hidrows tr')]
+                  .some((tr) => tr.cells[0].textContent === 'a' &&
+                                tr.cells[1].textContent === 'down' &&
+                                tr.cells[2].textContent.startsWith('note')),
+                  null, { timeout: 5000 }).then(() => true, () => false),
+              'the pane shows each binding, and A down as it is pressed');
+        await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x00]));
+
+        await page.fill('#hidprofile', 'device index {\n    a = note 5;\n};\n');
+        await page.click('#hidreload');
+        await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
+        check(await postedHas(page, 'midion 65'), 'a profile of the player\'s plays');
+        await page.close();
+
+        const again = (await open(
+            { granted: [{ productId: 0x2102, serial: 'D-1', on: true }] }, context)).page;
+
+        await statusIs(again, 'A Valve Index controller is playing');
+        await again.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
+        check(await again.inputValue('#hidprofile') === 'device index {\n    a = note 5;\n};\n' &&
+              await postedHas(again, 'midion 65'),
+              'and is kept for the next page, which plays it');
+        await again.click('#hidpane summary');
+        await again.fill('#hidprofile', 'device index {\n    nonsense = note 0;\n};\n');
+        await again.click('#hidreload');
+        check(/your profile:2/.test(await again.textContent('#hidproblem')),
+              'and one that is wrong says where');
+        await context.close();
+    }
+
+    {
+        const { page } = await open({ granted: [{ productId: 0x2102, serial: 'D-1', on: false }] });
+
+        await page.click('#hidpane summary');
+        await page.waitForSelector('#hidpair:not([hidden])');
+        await page.click('#hidpair');
+        check(await page.waitForFunction(() => window.hidSent.includes('D-1 ff ad 3 1 30 75'),
+                                         null, { timeout: 5000 }).then(() => true, () => false) &&
+              await statusIs(page, 'Pairing: turn the controller off'),
+              'Pair a controller puts the dongle with none to listening, and says what to do');
+        await page.evaluate(() => { window.dongles[0].on = true; });
+        check(await statusIs(page, 'A Valve Index controller is playing'),
+              'and the controller paired, plays, and the pairing is over');
+        await page.context().close();
+    }
+
+    {
+        /* Two that say no hand: given one each, and swapped. */
+        const context = await browser.newContext();
+        const { page } = await open({ granted: ['D-3', 'D-4'].map((serial) =>
+            ({ productId: 0x2102, serial, on: true })) }, context);
+
+        await statusIs(page, '2 Valve Index controllers are playing');
+        await page.click('#hidpane summary');
+        await page.waitForSelector('#hidswap:not([hidden])');
+
+        const before = await page.textContent('#hidrows');
+
+        await page.click('#hidswap');
+        check(await page.waitForFunction((b) => document.getElementById('hidrows')
+                  .textContent !== b, before, { timeout: 5000 }).then(() => true, () => false) &&
+              /LHR-3=(left|right)/.test(await page.evaluate(
+                  () => localStorage.getItem('thinksynth:hid:hands'))),
+              'a pair that says no hands can be swapped, and the swap is kept');
+        await context.close();
     }
 
     for (const order of [['D-1', 'D-2'], ['D-2', 'D-1']])

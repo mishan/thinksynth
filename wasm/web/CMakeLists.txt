@@ -317,6 +317,7 @@ add_executable(thinkhid thinkhid.cpp
     "${THINK_TOP}/hid/thhIndexWireless.cpp"
     "${THINK_TOP}/hid/thhLooper.cpp"
     "${THINK_TOP}/hid/thhMapper.cpp"
+    "${THINK_TOP}/hid/thhPane.cpp"
     "${THINK_TOP}/hid/thhProfile.cpp"
     "${THINK_TOP}/hid/thhSession.cpp"
     "${THINK_TOP}/src/thcHidBlock.cpp"

@@ -3,7 +3,9 @@
 A Valve Index controller, wired or through a Watchman dongle, plays
 thinksynth like a keyboard: buttons play notes, the stick or trackpad
 moves the pitch, and the trigger, grip and trackpad drive a patch's knobs.
-It needs no SteamVR and no base stations. Linux only, for now.
+It needs no SteamVR and no base stations. The desktop application reads
+it on Linux only, for now; the browser's page, in Chrome or Edge
+([In the browser](#in-the-browser)).
 
 ## Setting it up
 
@@ -280,6 +282,40 @@ Axes, 0 to 1 unless they center:
 | `roll` | how far the buttons face left (+) or right (-), 1 at a quarter turn; it eases back toward 0 past that, and as the front tips toward straight up or down, but never jumps |
 | `twist` | how fast it is turning around the front, -1 to 1 |
 | `turn` | how far it has turned around the front since it was last still, -1 to 1 over a quarter turn, in any pose, however it is held; it springs back to 0 over a few seconds, as a gyro's turn has to |
+
+## In the browser
+
+The solo page plays the same controllers, wired or through a dongle, in
+Chrome or Edge, whose WebHID is what reads them; Firefox and Safari have
+none, and the page says so. On Linux the browser needs the same udev rule
+as the application.
+
+Press Controller, under the keys, and pick a controller or a dongle in
+the browser's list; once picked, the page takes it up again by itself at
+every load, and when it is plugged in again. What it reads is the
+application's own code, built small for the page, so a controller plays
+the same in both: the same controls, the controller's own profile, a
+patch's `controller index` block, a pair as a left and right hand. The
+page loads that code only once a controller is in play, so it costs a
+page without one nothing.
+
+The Controller pane, under the button, is the application's: every
+binding and what it is doing now, Pair a controller and Swap hands where
+they apply, and your own profile, in the same language as `hid/index`,
+kept by the browser. Open file reads your desktop `hid/index` into it;
+Reload plays what is in the box.
+
+Some things are the page's own:
+
+- One wired controller at a time: nothing in WebHID tells two apart, so
+  the second is turned away; play it through a dongle instead.
+- On a patch, the notes play on the patch's channel; in a sequence or a
+  piece they go in as its input, as the keys' do, and there a bend or an
+  aux has no note of the patch's to reach and does nothing.
+- What plays over MIDI out is the notes: a bend or an aux reaches only
+  the page's own voices.
+- A room plays no controller yet: what a room hears is stamped and kept
+  in step on every peer, and a controller's knobs and bends aren't.
 
 ## Life
 

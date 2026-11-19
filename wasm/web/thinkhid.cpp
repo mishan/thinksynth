@@ -24,6 +24,9 @@
 
 #include <stdint.h>
 
+#include <map>
+#include <set>
+#include <sstream>
 #include <string>
 
 #include <emscripten.h>
@@ -79,9 +82,56 @@ EMSCRIPTEN_KEEPALIVE const char *th_profile (const char *text)
     return said.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE const char *th_patch (const char *block, const char *name)
+/* args: the patch's arg names, a line each. */
+EMSCRIPTEN_KEEPALIVE const char *th_patch (const char *block, const char *name,
+                                           const char *args)
 {
-    said = host.patch(block, name);
+    std::set<std::string> has;
+    std::istringstream in(args);
+    std::string one;
+
+    while (std::getline(in, one))
+        has.insert(one);
+    said = host.patch(block, name, has);
+    return said.c_str();
+}
+
+/* What the controller pane shows (thhHost::pane), as JSON. */
+EMSCRIPTEN_KEEPALIVE const char *th_pane (void)
+{
+    said = host.pane();
+    return said.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void th_swap (void)
+{
+    host.session().swapHands();
+}
+
+EMSCRIPTEN_KEEPALIVE void th_clear_loops (void)
+{
+    host.session().clearLoops();
+}
+
+/* The hands swapped before, and as they are now: SERIAL=hand, a line
+   each, as the page keeps them. */
+EMSCRIPTEN_KEEPALIVE void th_remembered (const char *text)
+{
+    std::map<std::string, std::string> hands;
+    std::istringstream in(text);
+    std::string one;
+
+    while (std::getline(in, one))
+        if (one.find('=') != std::string::npos)
+            hands[one.substr(0, one.find('='))] = one.substr(one.find('=') + 1);
+    host.remembered(hands);
+}
+
+EMSCRIPTEN_KEEPALIVE const char *th_kept (void)
+{
+    said.clear();
+    for (const auto &k : host.kept())
+        said += k.first + "=" + k.second + "\n";
     return said.c_str();
 }
 

@@ -4736,6 +4736,12 @@ async function init ()
             return held === undefined || held.piece ? null : PATCH_CHANNEL;
         },
         controller: (channel) => synth.controller(channel),
+        pane: {
+            root: $('hidpane'), line: $('hidpaneline'), rows: $('hidrows'),
+            pair: $('hidpair'), swap: $('hidswap'), clear: $('hidclear'),
+            profile: $('hidprofile'), reload: $('hidreload'),
+            file: $('hidfile'), problem: $('hidproblem'),
+        },
     });
     video = createVideoView({
         canvas: $('videocanvas'), frame: $('videoframe'), patch: $('videopatch'),

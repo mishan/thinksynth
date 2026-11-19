@@ -21,10 +21,11 @@
  * scripts/hid's captures played through thinkhid (thinkhid.cpp) as
  * scripts/hidactions plays them natively -- a dongle's as a pair's right
  * hand, till it says its controller has gone, then a wired controller's
- * input and IMU, 4 ms a report -- and every line of what it
- * asks to play compared with that tool's. The two build one host
- * (hid/thhHost.h) from the same source, so a line that differs is the
- * browser's build reading a report, a profile or a sum otherwise.
+ * input and IMU, 4 ms a report -- and every line of what it asks to play,
+ * and of what the controller pane shows after each capture, compared with
+ * that tool's. The two build one host (hid/thhHost.h) from the same
+ * source, so a line that differs is the browser's build reading a report,
+ * a profile or a sum otherwise.
  *
  * Exit status is the number of failures.
  */
@@ -88,6 +89,7 @@ const dongle = add('right', 'LHR-R');
 const wired = add('', '');
 
 play(dongle, 2, captures[0]);
+got.push(M.ccall('th_pane', 'string', [], []));
 t += 0.004;
 if (M.ccall('th_report', 'number',
             ['number', 'number', 'array', 'number', 'number'],
@@ -97,6 +99,7 @@ take(true);
 
 play(wired, 0, captures[1]);
 play(wired, 1, captures[2]);
+got.push(M.ccall('th_pane', 'string', [], []));
 M.ccall('th_release', null, ['number'], [t += 0.004]);
 take(true);
 

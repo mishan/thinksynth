@@ -58,9 +58,42 @@ const TRIES = 20, TRY_MS = 3;
    controller block looked at again. */
 const PROBE_MS = 1000;
 
-/* thhIndexWireless.h's THH_INDEX_WIRELESS_V2, as WebHID sends it: the
-   report ID apart, the rest padded to the dongle's 63. */
+/* thhIndexWireless.h's THH_INDEX_WIRELESS_V2 and _PAIR, as WebHID sends
+   them: the report ID apart, the rest padded to the dongle's 63. */
 const V2 = Object.assign(new Uint8Array(63), [0x87, 0x03, 0x00, 0x01, 0x00]);
+const PAIR = Object.assign(new Uint8Array(63), [0xad, 0x03, 0x01, 0x30, 0x75]);
+const PAIR_S = 30;
+
+/* What the browser keeps of the player's: the profile, in the language of
+   the desktop's hid/index, and the hands a pair was swapped to. Either can
+   be refused -- a private window, storage cleared -- and then lasts only
+   as long as the page. */
+const PROFILE_KEY = 'thinksynth:hid:index';
+const HANDS_KEY = 'thinksynth:hid:hands';
+
+const kept = (key) =>
+{
+    try
+    {
+        return localStorage.getItem(key) ?? '';
+    }
+    catch
+    {
+        return '';
+    }
+};
+
+const keep = (key, text) =>
+{
+    try
+    {
+        localStorage.setItem(key, text);
+    }
+    catch
+    {
+        /* For this page only, then. */
+    }
+};
 
 const now = () => performance.now() / 1000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -77,19 +110,27 @@ export function hidAvailable ()
  * on, or null where a bend can't reach it (a piece's keys); `controller
  * (channel)' asks what a patch there gives a controller (host.js).
  *
+ * `pane' is the controller pane's elements, drawn here while it is open
+ * (drawPane): its `root' (a <details>), `line', `rows' (a <tbody>), the
+ * `pair', `swap' and `clear' buttons, and the profile's `profile' (a
+ * <textarea>), `reload', `file' (an <input type=file>) and `problem'.
+ *
  * Returns { start, forget }: start once there is a synth to play, which
  * enables the button and takes up any controller granted before; forget
  * drops every note held without calling onNoteOff, for a page that has
  * just released everything itself.
  */
 export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
-                             channel, bendChannel, controller })
+                             channel, bendChannel, controller, pane })
 {
     let M = null, loading = null;
     let block = null, chan = null, ticking = 0, flushing = 0;
     const open = new Map();         /* HIDDevice -> its record             */
     const values = new Map();       /* "channel arg" -> latest value       */
     let wired = null;               /* the wired controller's slot id      */
+    let pairUntil = 0;              /* when the dongle stops listening     */
+    let problem = '';               /* what is wrong with the profile      */
+    let profile = kept(PROFILE_KEY);
 
     const say = (text) => { status.textContent = text; };
 
@@ -100,6 +141,8 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         const { default: createThinkHid } = await import('./thinkhid.js');
 
         M = await createThinkHid();
+        M.ccall('th_remembered', null, ['string'], [kept(HANDS_KEY)]);
+        problem = M.ccall('th_profile', 'string', ['string'], [profile]);
         setInterval(() =>
         {
             if (wired !== null || [...open.values()].some((r) => r.id !== null))
@@ -117,7 +160,10 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         const playing = dongles.filter((r) => r.id !== null).length +
                         (wired !== null ? 1 : 0);
 
-        say(playing === 0 && dongles.length > 0
+        say(now() < pairUntil && dongles.some((r) => r.id === null)
+            ? 'Pairing: turn the controller off, then hold its System and B ' +
+              'buttons until its light blinks blue.'
+            : playing === 0 && dongles.length > 0
             ? 'No controller on the dongle: turn one on, or pair it.'
             : playing === 1 ? 'A Valve Index controller is playing.'
             : playing > 1 ? `${playing} Valve Index controllers are playing.`
@@ -192,12 +238,13 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
     const follow = async () =>
     {
         const c = await controller(track());
+        const said = JSON.stringify(c);
 
-        if (c.block !== block)
+        if (said !== block)
         {
-            block = c.block;
-            M.ccall('th_patch', 'string', ['string', 'string'],
-                    [c.block, c.name]);
+            block = said;
+            M.ccall('th_patch', 'string', ['string', 'string', 'string'],
+                    [c.block, c.name, c.args.join('\n')]);
             take();
         }
     };
@@ -268,36 +315,37 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
     };
 
     /* A dongle asked until its controller answers: switched, its hand
-       read, and played. */
+       read, and played. One try at a time, each queued, so a pair asked
+       for meanwhile goes between two tries rather than after them all. */
     const probe = (r) => queued(r, async () =>
     {
-        while (!r.closed && r.id === null)
+        if (r.closed || r.id !== null)
+            return;
+        try
         {
-            try
+            if (await feature(r, 0x10) !== null)
             {
-                if (await feature(r, 0x10) !== null)
+                await r.device.sendFeatureReport(0xff, V2);
+
+                const said = await configure(r);
+
+                await follow();
+                if (said !== null && !r.closed)
                 {
-                    await r.device.sendFeatureReport(0xff, V2);
-
-                    const said = await configure(r);
-
-                    await follow();
-                    if (said !== null && !r.closed)
-                    {
-                        r.id = add(said);
-                        take();
-                        tellStatus();
-                        break;
-                    }
+                    pairUntil = 0;
+                    r.id = add(said);
+                    take();
+                    tellStatus();
+                    return;
                 }
             }
-            catch
-            {
-                /* Turned down, or gone: asked again below, or not at all. */
-            }
-            tellStatus();
-            await sleep(PROBE_MS);
         }
+        catch
+        {
+            /* Turned down, or gone: tried again below, or not at all. */
+        }
+        tellStatus();
+        setTimeout(() => probe(r), PROBE_MS);
     });
 
     const report = (r, e) =>
@@ -412,6 +460,123 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         tellStatus();
     };
 
+    /* The first dongle hearing no controller, listening for one in pairing
+       mode, queued with its probe so the two don't interleave. */
+    const pair = () =>
+    {
+        const r = [...open.values()].find((o) => o.kind === 'dongle' &&
+                                                 o.id === null);
+
+        if (r === undefined)
+            return;
+        pairUntil = now() + PAIR_S;
+        queued(r, () => r.device.sendFeatureReport(0xff, PAIR).catch((e) =>
+        {
+            pairUntil = 0;
+            say(`Can't pair with the dongle: ${e.message}`);
+        }));
+        tellStatus();
+        setTimeout(tellStatus, PAIR_S * 1000);
+    };
+
+    /* The pane, from thinkhid's (thhHost::pane): the desktop's rows, said
+       the desktop's way (src/gui/ControllerPane.cpp). */
+    const drawPane = () =>
+    {
+        const p = M === null ? { hands: [], rows: [], canSwap: false,
+                                 loops: '', patch: '' }
+                             : JSON.parse(M.ccall('th_pane', 'string', [], []));
+        const lines = [p.hands.length > 1 && `${p.hands.join(' and ')} playing.`,
+                       'Profile: the controller\'s own' +
+                       (profile.trim() ? ', with your changes below'
+                                       : ' (no changes of yours yet)'),
+                       p.patch && `Patch: ${p.patch}`,
+                       p.loops && `Loops: ${p.loops}`].filter(Boolean);
+
+        pane.line.textContent = lines.join('\n');
+        pane.pair.hidden = !(now() >= pairUntil &&
+                             [...open.values()].some((r) => r.kind === 'dongle' &&
+                                                            r.id === null));
+        pane.swap.hidden = !p.canSwap;
+        pane.clear.hidden = p.loops === '';
+        pane.problem.textContent = problem;
+
+        const cells = p.rows.map((r) =>
+        {
+            const keys = r.target.startsWith('the keyboard\'s');
+
+            return [(r.layer ? `${r.layer}: ` : '') + r.control, r.value,
+                    r.action + (r.target === '' || keys ? '' : `, on ${r.target}`) +
+                    (r.yours ? ' (yours)' : r.patch ? ' (the patch\'s)' : ''),
+                    r.warning];
+        });
+
+        while (pane.rows.rows.length > cells.length)
+            pane.rows.deleteRow(-1);
+        cells.forEach((row, i) =>
+        {
+            const tr = pane.rows.rows[i] ?? pane.rows.insertRow();
+
+            row.forEach((text, k) =>
+            {
+                const td = tr.cells[k] ?? tr.insertCell();
+
+                if (td.textContent !== text)
+                    td.textContent = text;
+            });
+        });
+    };
+
+    const setProfile = (text) =>
+    {
+        profile = text;
+        keep(PROFILE_KEY, text);
+        if (M !== null)
+        {
+            problem = M.ccall('th_profile', 'string', ['string'], [text]);
+            take();
+        }
+        drawPane();
+    };
+
+    const wirePane = () =>
+    {
+        let drawing = 0;
+
+        pane.profile.value = profile;
+        pane.root.addEventListener('toggle', () =>
+        {
+            clearInterval(drawing);
+            drawing = pane.root.open ? setInterval(drawPane, 100) : 0;
+            drawPane();
+        });
+        pane.pair.addEventListener('click', () => { pair(); drawPane(); });
+        pane.swap.addEventListener('click', () =>
+        {
+            M.ccall('th_swap', null, [], []);
+            keep(HANDS_KEY, M.ccall('th_kept', 'string', [], []));
+            take();
+            drawPane();
+        });
+        pane.clear.addEventListener('click', () =>
+        {
+            M.ccall('th_clear_loops', null, [], []);
+            take();
+            drawPane();
+        });
+        pane.reload.addEventListener('click', () => setProfile(pane.profile.value));
+        pane.file.addEventListener('change', async () =>
+        {
+            const f = pane.file.files[0];
+
+            if (f === undefined)
+                return;
+            pane.profile.value = await f.text();
+            setProfile(pane.profile.value);
+            pane.file.value = '';
+        });
+    };
+
     return {
         async start ()
         {
@@ -422,6 +587,8 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
             }
 
             button.disabled = false;
+            pane.root.hidden = false;
+            wirePane();
             button.addEventListener('click', async () =>
             {
                 let picked = [];

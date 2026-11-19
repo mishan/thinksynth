@@ -19,6 +19,7 @@
 #include <cstdio>
 
 #include "thhHost.h"
+#include "thhPane.h"
 
 thhHost::thhHost ()
     : now_(0), channel_(0), next_(1),
@@ -26,7 +27,9 @@ thhHost::thhHost ()
                    taken_.insert(taken_.end(), acts.begin(), acts.end());
                },
                [this]() { return now_; },
-               [](const std::map<std::string, std::string> &) {})
+               [this](const std::map<std::string, std::string> &k) {
+                   kept_ = k;
+               })
 {
     std::string err;
 
@@ -104,14 +107,28 @@ thhHost::profile (const std::string &text)
 }
 
 std::string
-thhHost::patch (const std::string &block, const std::string &name)
+thhHost::patch (const std::string &block, const std::string &name,
+                const std::set<std::string> &args)
 {
     std::string err;
 
-    block_ = block;
+    args_ = args;
     name_ = name;
+    if (block == block_)
+    {
+        session_.rename(name);
+        return "";
+    }
+    block_ = block;
     session_.load(profile_, "your profile", block_, name_, err);
     return err;
+}
+
+void
+thhHost::remembered (const std::map<std::string, std::string> &hands)
+{
+    kept_ = hands;
+    session_.remembered(hands);
 }
 
 bool
@@ -128,7 +145,7 @@ thhHost::release (double now)
     session_.release();
 }
 
-/* JSON's escapes for an arg's name, which a profile writes in quotes. */
+/* A string in JSON: an arg's name, a hand, a pane's text. */
 static std::string
 quoted (const std::string &s)
 {
@@ -147,6 +164,44 @@ quoted (const std::string &s)
         else
             out += c;
     return out + "\"";
+}
+
+std::string
+thhHost::pane () const
+{
+    const thhSession &s = session_;
+    std::string hands, rows;
+    const auto has = [this](int ch, const std::string &arg) {
+        return ch != channel_ || args_.count(arg) > 0;
+    };
+
+    for (int i = 0; i < s.controllers(); i++)
+    {
+        const thhState now = s.stateOf(i);
+        const std::string hand = s.handOf(i);
+
+        if (!now.connected)
+            continue;
+        if (!hand.empty())
+            hands += (hands.empty() ? "" : ",") + quoted(hand);
+        for (const thhPaneRow &r : thhPaneRows(s.profileOf(i),
+                                               thhIndexControls(), now,
+                                               channel_, has))
+            rows += std::string(rows.empty() ? "" : ",") + "{\"layer\":" +
+                    quoted(hand + (hand.empty() || r.layer.empty() ? "" : " ") +
+                           r.layer) +
+                    ",\"control\":" + quoted(r.control) +
+                    ",\"action\":" + quoted(r.action) +
+                    ",\"target\":" + quoted(r.target) +
+                    ",\"value\":" + quoted(r.value) +
+                    ",\"warning\":" + quoted(r.warning) +
+                    ",\"yours\":" + (r.yours ? "true" : "false") +
+                    ",\"patch\":" + (r.patch ? "true" : "false") + "}";
+    }
+    return "{\"hands\":[" + hands + "],\"rows\":[" + rows +
+           "],\"canSwap\":" + (s.canSwapHands() ? "true" : "false") +
+           ",\"loops\":" + quoted(s.loops()) +
+           ",\"patch\":" + quoted(s.patch()) + "}";
 }
 
 std::string
