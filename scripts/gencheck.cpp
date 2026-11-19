@@ -10588,6 +10588,29 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* A channel past the engine's, as a host may write one: refused, and
+       no device table written past its end. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+
+        if (!play(withDsp(""), &out, 0.02, sched))
+            fail("the MIDI piece did not load for a channel past the end");
+        else
+        {
+            std::string why;
+
+            sched.instrument(0)->channel = 1000;
+            out.calls.clear();
+
+            if (sched.applyInstrument(0, why) || out.count("attach") != 0 ||
+                why.find("past the engine's last") == std::string::npos)
+                fail("an instrument on channel 1001 was applied: " + why);
+
+            sched.clearChains();
+        }
+    }
+
     /* A seek: the device hears where each controller ended up, once. */
     {
         FakeMidiOut out;

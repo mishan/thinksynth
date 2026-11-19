@@ -1878,6 +1878,13 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
         return false;
     }
 
+    if (!onDeviceTable(inst.channel))
+    {
+        why = "channel " + std::to_string(inst.channel + 1) +
+              " is past the engine's last";
+        return false;
+    }
+
     /* Staged: recorded, and loaded by adopt() if it changed. */
     if (staging_)
         return true;
@@ -2171,7 +2178,7 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
        so a rewind would not put their patch back either. The piece's own
        channels are the whole of what it may rebuild; reaching further is
        a chanarg's job, where the worst case is a number. */
-    if (channelOf(channel) == NULL)
+    if (!onDeviceTable(channel) || channelOf(channel) == NULL)
     {
         why = "channel " + std::to_string(channel + 1) + " is not one this "
               "piece declares an instrument for";

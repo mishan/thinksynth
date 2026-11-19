@@ -1254,7 +1254,7 @@ public:
     /* Whether engine channel `channel' is being played on a device. */
     bool playsOverMidi (int channel) const
     {
-        return channel >= 0 && channel < 16 && overMidi_[channel];
+        return onDeviceTable(channel) && overMidi_[channel];
     }
 
     /* Why an instrument that names `midi' is not being played on a
@@ -1264,7 +1264,7 @@ public:
        the instrument having to be applied again. */
     void setMidiWhy (int channel, const std::string &why)
     {
-        if (channel >= 0 && channel < 16 && !overMidi_[channel])
+        if (onDeviceTable(channel) && !overMidi_[channel])
             midiWhy_[channel] = why;
     }
 
@@ -1272,7 +1272,7 @@ public:
     {
         static const std::string none;
 
-        return channel >= 0 && channel < 16 ? midiWhy_[channel] : none;
+        return onDeviceTable(channel) ? midiWhy_[channel] : none;
     }
     bool channelTaken (int channel) const
     {
@@ -2156,6 +2156,15 @@ private:
     thcMidiOut                *notesOut_ = NULL;
     bool                       overMidi_[16] = {};
     std::string                midiWhy_[16];
+
+    /* Whether overMidi_ and midiWhy_ have a slot for `channel': an
+       instrument's channel is the loader's or a host's, and a host's
+       is not checked against them. */
+    static bool onDeviceTable (int channel)
+    {
+        return channel >= 0 && channel < (int)(sizeof overMidi_ /
+                                               sizeof overMidi_[0]);
+    }
 
     /* A MIDI channel's chanargs during a seek: the last of each, sent
        when the seek is over. */
