@@ -130,7 +130,15 @@ message (const uint8_t *m, thhIndexImu &imu, thhState &s)
             if (end - p < need)
                 return false;
             if (head & 0x01)
+            {
+                const uint32_t was = s2.buttons;
+                static const uint8_t middle[4] = { 0 };
+
                 bits(BUTTONS, sizeof(BUTTONS) / sizeof(BUTTONS[0]), *p++, s2);
+                /* x and y move to the other pair, which hasn't any yet. */
+                if ((was ^ s2.buttons) & (1u << THH_INDEX_TRACKPAD_TOUCH))
+                    thhIndexXY(middle, s2);
+            }
             if (head & 0x04)
                 s2.axis[THH_INDEX_TRIGGER] = *p++ / 255.0f;
             if (head & 0x02)

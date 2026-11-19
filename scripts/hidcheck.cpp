@@ -605,6 +605,31 @@ checkWirelessByHand (void)
            s.axis[THH_INDEX_STICK_X] > 0.49f && s.axis[THH_INDEX_PAD_X] == 0 ?
            "" : describe(s));
 
+    /* The trackpad let go, or touched, in a message with only the buttons:
+       neither pair keeps where the other was. */
+    struct Switch
+    {
+        const char *name;
+        uint8_t     touched, then;
+    };
+    static const Switch SWITCHES[] = {
+        { "the trackpad let go with only the buttons", 0x02, 0x00 },
+        { "the trackpad touched with only the buttons", 0x00, 0x02 },
+    };
+
+    for (const Switch &sw : SWITCHES)
+    {
+        thhIndexWireless xw;
+        thhState xs;
+
+        feed(radio({ { 0x20, 0xf3, sw.touched, 0x00, 0x40, 0x00, 0x40 } }),
+             xw, xs);
+        feed(radio({ { 0x20, 0xf1, sw.then } }), xw, xs);
+        report(string("wireless: ") + sw.name,
+               xs.axis[THH_INDEX_PAD_X] == 0 && xs.axis[THH_INDEX_STICK_X] == 0
+               ? "" : describe(xs));
+    }
+
     /* Metadata, of each kind seen, before input; and light after it, which
        has no length and is the rest of the message. */
     struct Around
