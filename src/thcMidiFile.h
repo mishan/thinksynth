@@ -31,8 +31,8 @@
  * gates and the mutes. Format 1 at a fixed tempo -- the piece's -- so a
  * DAW's bar grid lines up with the piece's beats. Track 0 carries the
  * tempo, the meter and a marker per section; after it comes a track per
- * chain, named for the chain, so two chains sharing a channel (a closed
- * and an open hat) stay two parts to edit.
+ * chain and port (below), named for the chain, so two chains sharing a
+ * channel (a closed and an open hat) stay two parts to edit.
  *
  * What each event becomes:
  *

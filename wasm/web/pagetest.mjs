@@ -4497,8 +4497,8 @@ try
     }
 
     /* Exported past MIDI's sixteen: a chain playing channels 1 and 20 is a
-       track on port 0 and one on port 1, headed FF 21 01 01, its notes on
-       MIDI channel 4 there. */
+       track on port 0 and one on port 1: the file has three tracks, an
+       FF 21 01 01, and notes on MIDI channels 1 and 4. */
     {
         await page.evaluate((text) =>
         {
