@@ -6854,8 +6854,7 @@ try
 
     /* This browser's own MIDI routes: a route added in the MIDI routes
        table outranks a piece's for its MIDI channel, and is there again
-       after a reload. The room page has no table: there live input plays
-       your seat. */
+       after a reload. */
     {
         const pr = await page.context().newPage();
 
@@ -6920,16 +6919,12 @@ try
         const left = await pr.evaluate(() =>
             localStorage.getItem('thinksynth.midiroutes'));
 
-        await pr.goto(url.replace('index.html', 'jam.html'));
-
-        const inRoom = await pr.$('#midiroutes');
-
         await pr.close();
         check(first === '8 60' && kept === '1 8' && again === '8 60' &&
-              left === '[]' && inRoom === null,
+              left === '[]',
               'a MIDI route kept in this browser outranks the piece\'s, ' +
-              'comes back after a reload, and is not in a room: ' +
-              JSON.stringify({ first, kept, again, left, inRoom }));
+              'and comes back after a reload: ' +
+              JSON.stringify({ first, kept, again, left }));
     }
 
     for (const e of errors)

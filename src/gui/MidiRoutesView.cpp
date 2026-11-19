@@ -14,6 +14,8 @@
 
 #include "config.h"
 
+#include <memory>
+
 #include "think.h"
 #include "thcGenFile.h"
 #include "gthPrefs.h"
@@ -21,6 +23,9 @@
 #include "MidiRoutesView.h"
 
 namespace {
+
+/* How long after the last edit the routes are written to the file. */
+const unsigned SAVE_AFTER_MS = 500;
 
 /* A key spinner says the note's name, and takes a name or a number. */
 void showsNotes (Gtk::SpinButton *spin)
@@ -111,12 +116,20 @@ MidiRoutesView::MidiRoutesView (
 MidiRoutesView *
 MidiRoutesView::forPrefs (gthPrefs *prefs)
 {
+    /* Live at once; written to the file once the edits stop for a
+       moment, rather than on every step of a spinner held down. */
+    auto saving = std::make_shared<sigc::connection>();
     MidiRoutesView *view = Gtk::manage(new MidiRoutesView(
         prefs->midiRoutes(),
-        [prefs](const std::vector<thMidiRoute> &routes)
+        [prefs, saving](const std::vector<thMidiRoute> &routes)
         {
             prefs->setMidiRoutes(routes);
-            prefs->Save();
+            saving->disconnect();
+            *saving = Glib::signal_timeout().connect([prefs]
+            {
+                prefs->Save();
+                return false;
+            }, SAVE_AFTER_MS);
         }));
 
     prefs->signal_midi_routes().connect(

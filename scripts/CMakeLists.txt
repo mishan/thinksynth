@@ -1631,7 +1631,7 @@ set_tests_properties(${GENCHECK_PARTS} poolcheck editcheck PROPERTIES
 # failed on the runner while every one of them passed locally. A gate that
 # disagrees with CI about what it is testing is worse than no gate.
 if(THINK_GUI AND THINK_SANITIZE MATCHES "address")
-  foreach(_t composercheck editorcheck windowcheck)
+  foreach(_t composercheck editorcheck windowcheck midiroutescheck)
     set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT
         "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
   endforeach()

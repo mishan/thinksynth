@@ -396,7 +396,8 @@ int main (int argc, char **argv)
                    "midiroute 2 4 C2 B3\n"
                    "midiroute 2 5 60 127\n"
                    "midiroute 16 off\n"
-                   "midiroute 17 3\n";
+                   "midiroute 17 3\n"
+                   "midiroute\n";
         }
 
         const auto said = [](const std::vector<thMidiRoute> &v)
@@ -430,7 +431,7 @@ int main (int argc, char **argv)
 
         fs::remove(routed);
 
-        ok(first == want && again == want && bad == 1,
+        ok(first == want && again == want && bad == 2,
            "midiroute lines are read, a bad one reported, and written back "
            "as they were: %s / %s, %zu bad", first.c_str(), again.c_str(),
            bad);

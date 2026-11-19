@@ -212,6 +212,20 @@ void gthPrefs::Load (void)
             continue;
 
         char *argPtr = strchr(buffer, ' ');
+
+        /* A route with nothing after it says no route, and says so. */
+        if (strncmp(buffer, "midiroute", 9) == 0 &&
+            (argPtr == NULL ? buffer[9] == '\0' || buffer[9] == '\n'
+                            : argPtr[strspn(argPtr, " \t\n")] == '\0'))
+        {
+            badLines_.push_back(std::to_string(lineNo) + ": " + line +
+                                ": a route names its MIDI channel and "
+                                "where it plays");
+            fprintf(stderr, "%s:%d: a route names its MIDI channel and "
+                    "where it plays\n", prefsPath_.c_str(), lineNo);
+            continue;
+        }
+
         if (argPtr == NULL)
             continue;
 
@@ -280,7 +294,7 @@ void gthPrefs::Load (void)
                 else
                 {
                     if (len != 1)
-                        why = "a route has no commas";
+                        why = "a route takes no commas";
 
                     badLines_.push_back(std::to_string(lineNo) + ": " +
                                         line + ": " + why);

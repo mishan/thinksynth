@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <filesystem>
 #include <string>
@@ -104,6 +105,10 @@ run (const std::string &plugins)
         view->lowSpin(0)->set_value(60);
         pump();
 
+        /* Written once the edits stop. */
+        g_usleep(700 * 1000);
+        pump();
+
         std::vector<int> high, low, other;
 
         play.routes().resolve(2, 60, high);
@@ -141,6 +146,7 @@ run (const std::string &plugins)
                          prefs.midiRoutes()[0].engine == -1;
 
         view->removeRoute(0);
+        g_usleep(700 * 1000);
         pump();
         check(off && prefs.midiRoutes().empty(),
               "a route set off is off, and removed is gone");

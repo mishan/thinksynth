@@ -74,26 +74,31 @@ export function routesTable ({ rows, add, onChange })
         return s;
     };
 
-    const key = (label, value, set) =>
+    /* A key field: an edit that is no key puts back what the route
+       holds; one that is goes in, the route's lower key first, and the
+       table is drawn again so both fields say what it holds. */
+    const key = (label, r, end) =>
     {
         const k = document.createElement('input');
 
         k.type = 'number';
         k.min = '0';
         k.max = '127';
-        k.value = String(value);
+        k.value = String(r[end]);
         k.setAttribute('aria-label', label);
         k.addEventListener('change', () =>
         {
             const v = Math.round(Number(k.value));
 
-            if (!whole(v, 0, 127))
+            if (k.value.trim() === '' || !whole(v, 0, 127))
             {
-                k.value = String(value);
+                k.value = String(r[end]);
                 return;
             }
 
-            set(v);
+            r[end] = v;
+            [r.lo, r.hi] = [Math.min(r.lo, r.hi), Math.max(r.lo, r.hi)];
+            draw();
             changed();
         });
         return k;
@@ -128,17 +133,9 @@ export function routesTable ({ rows, add, onChange })
                            .map((c) => [c, c + 1])],
                        r.engine, (v) => { r.engine = v; }),
                 ' keys ',
-                key(`Lowest key${of}`, r.lo, (v) =>
-                {
-                    r.lo = v;
-                    r.hi = Math.max(r.hi, v);
-                }),
+                key(`Lowest key${of}`, r, 'lo'),
                 ' to ',
-                key(`Highest key${of}`, r.hi, (v) =>
-                {
-                    r.hi = v;
-                    r.lo = Math.min(r.lo, v);
-                }),
+                key(`Highest key${of}`, r, 'hi'),
                 ' ', remove);
             return row;
         }));
