@@ -384,19 +384,27 @@ bool NodePanel::build (thPanel &out) const
         build.add(r, "", "");
     }
 
-    for (size_t i = 0; i < b->params.size(); i++)
-    {
-        thPanelRow r = rowFor(b->params[i]);
-
-        if (b->params[i].isExpr && written(b->name, b->params[i].name, text))
+    /* What the plugin writes apart from what it is given: the outputs
+       after the inputs rather than among them in the order of their names,
+       and under a heading of their own when there is more than one. */
+    for (int outputs = 0; outputs < 2; outputs++)
+        for (size_t i = 0; i < b->params.size(); i++)
         {
-            r.kind = thPanelRow::TEXT;
-            r.editable = true;
-            r.text = text;
-        }
+            if (b->params[i].isOutput != (outputs == 1))
+                continue;
 
-        build.add(r, "", "");
-    }
+            thPanelRow r = rowFor(b->params[i]);
+
+            if (b->params[i].isExpr &&
+                written(b->name, b->params[i].name, text))
+            {
+                r.kind = thPanelRow::TEXT;
+                r.editable = true;
+                r.text = text;
+            }
+
+            build.add(r, outputs ? "Outputs" : "", "");
+        }
 
     build.finish(out);
 

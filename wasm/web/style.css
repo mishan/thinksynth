@@ -1301,10 +1301,19 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
 
 #nodelist
 {
+    margin: 0.4em 0;
+    padding: 0;
+    list-style: none;
+}
+
+#nodelist h4 { font-size: 1em; margin: 0.6em 0 0.2em; }
+
+#nodelist ul
+{
     display: flex;
     flex-wrap: wrap;
     gap: 0.3em;
-    margin: 0.4em 0;
+    margin: 0;
     padding: 0;
     list-style: none;
 }
@@ -1393,6 +1402,17 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
     width: 100%;
     margin: 0.1rem 0;
     text-align: left;
+}
+
+/* A wired row in the node's panel, which goes to the box it names. */
+button.linkish {
+    padding: 0;
+    border: none;
+    background: none;
+    color: LinkText;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
 }
 
 #nodepicklist {

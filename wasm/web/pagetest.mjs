@@ -2963,7 +2963,7 @@ try
             const cut = await dsp();
             const cutWire = await page.$eval('#nodewiring',
                 (w, i) => [...w.querySelectorAll('li')].find((li) =>
-                    li.firstChild.textContent.startsWith(`${i} from`))
+                    li.firstChild.textContent.startsWith(`${i}:`))
                     ?.firstChild.textContent, input);
 
             await page.selectOption('#nodewiring select[aria-label="Input"]',
@@ -2979,7 +2979,7 @@ try
                     li.firstChild.textContent.startsWith(`${i} from`))
                     ?.firstChild.textContent, input);
 
-            check(cut !== before && cutWire === `${input} from nothing` &&
+            check(cut !== before && cutWire === `${input}: not wired` &&
                   made === `${input} from ${source}`,
                   `and its wire ${input} from ${source} cut and made again from ` +
                   `the list, in the .dsp: ${cutWire} | ${made}`);
@@ -3005,6 +3005,52 @@ try
         }, original);
         await page.click('#load');
         await page.evaluate(() => window.solo.settled());
+
+        /* The list under a heading each, and a wired row of a node's panel
+           a way to the box it names. */
+        {
+            await page.evaluate(() =>
+            {
+                document.getElementById('nodeoutline').open = true;
+            });
+
+            const heads = await page.$$eval('#nodelist h4',
+                                            (h) => h.map((e) => e.textContent));
+            const controls = await page.$$eval(
+                '#nodelist ul[aria-labelledby="nodelist1"] button',
+                (b) => b.map((e) => e.textContent));
+            const nodes = page.locator(
+                '#nodelist ul[aria-labelledby="nodelist0"] button');
+            let link = null;
+
+            for (let i = 0; i < await nodes.count() && link === null; i++)
+            {
+                await nodes.nth(i).click();
+                link = await page.$eval('#nodeparams', (p) =>
+                    p.querySelector('button.linkish')?.textContent ?? null);
+            }
+
+            if (link !== null)
+                await page.click('#nodeparams button.linkish');
+
+            const went = await page.evaluate(() =>
+            {
+                const n = window.solo.node();
+
+                return n.selected >= 0 ? n.box(n.selected).name : null;
+            });
+
+            check(JSON.stringify(heads) ===
+                      JSON.stringify(['Nodes', 'Controls', 'Expressions']) &&
+                  controls.length > 0 &&
+                  controls.every((c) => c.startsWith('@')) &&
+                  link !== null &&
+                  /^(?:([\w.]+)->|(@\w+))/.exec(link)?.slice(1)
+                      .find((x) => x !== undefined) === went,
+                  'the list is under Nodes, Controls and Expressions, and a ' +
+                  'wired row of a node\'s panel selects the box it names: ' +
+                  JSON.stringify({ heads, link, went }));
+        }
     }
 
     /* The canvas from the keys (CanvasContent::Key): an arrow moves the
