@@ -758,14 +758,14 @@ thcScheduler::clearChains (void)
 
     /* A device is not a patch a person loaded: its route goes with the
        piece that named it. */
-    for (int ch = 0; ch < 16; ch++)
+    for (int ch = 0; ch < TH_ENGINE_CHANNELS; ch++)
         if (overMidi_[ch])
         {
             midiOut_->detach(ch);
             overMidi_[ch] = false;
         }
 
-    for (int ch = 0; ch < 16; ch++)
+    for (int ch = 0; ch < TH_ENGINE_CHANNELS; ch++)
         midiWhy_[ch].clear();
 
     /* The master effect goes with the piece for the same reason the table
@@ -5860,7 +5860,7 @@ thcScheduler::stop (void)
     /* The offs above were stamped now; this also drops whatever was
        queued ahead of them for later, so a pause is silent on the device
        at once. */
-    for (int ch = 0; ch < 16; ch++)
+    for (int ch = 0; ch < TH_ENGINE_CHANNELS; ch++)
         if (overMidi_[ch] ? midiOut_ != NULL : notesOut_ != NULL)
             (overMidi_[ch] ? midiOut_ : notesOut_)->flush(ch);
 }

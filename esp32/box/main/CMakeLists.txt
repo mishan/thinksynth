@@ -28,5 +28,6 @@ idf_component_register(
 # The mapper and the touch driver both leave members to their defaults.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wno-missing-field-initializers
                        $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>)
+# The mapper keeps notes for the box's channels, not the engine's.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE
-    THINK_STATIC_PLUGINS THINK_STATIC THC_NO_DRAW)
+    THINK_STATIC_PLUGINS THINK_STATIC THC_NO_DRAW THH_CHANNELS=16)

@@ -157,7 +157,7 @@ class ThinkProcessor extends AudioWorkletProcessor
            knobs. */
         this.videoPort = null;
         this.videoQuanta = 0;
-        this.videoChannels = -1;
+        this.videoChannels = null;
         this.videoKnobs = 0;
 
         this.epoch = 0;         /* the epoch this.events belong to */
@@ -773,7 +773,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             if (was !== null && was !== this.videoPort)
                 was.close();
             this.videoQuanta = 0;
-            this.videoChannels = -1;
+            this.videoChannels = null;
             this.videoDelay = m.delayMs ?? 0;
             this.M._tw_video(this.videoPort !== null ? 1 : 0, this.videoDelay);
 
@@ -803,13 +803,15 @@ class ThinkProcessor extends AudioWorkletProcessor
     postVideo ()
     {
         const M = this.M, port = this.videoPort;
-        const mask = M._tw_video_channels();
+        const drawn = M._tw_video_channel_list();
+        const now = M.HEAPU8.subarray(drawn, drawn + M._tw_engine_channels());
+        const was = this.videoChannels;
 
-        if (mask !== this.videoChannels)
+        if (was === null || now.some((on, c) => on !== was[c]))
         {
-            this.videoChannels = mask;
+            this.videoChannels = now.slice();
             port.postMessage({ type: 'channels',
-                               list: [...Array(16).keys()].filter((c) => mask & 1 << c) });
+                               list: [...now.keys()].filter((c) => now[c]) });
         }
 
         const names = M._tw_video_knob_names();
@@ -885,7 +887,7 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         const listens = [];
 
-        for (let c = 0; c < 16; c++)
+        for (let c = 0; c < this.M._tw_engine_channels(); c++)
             if (this.M._tw_listens(c))
                 listens.push(c);
 

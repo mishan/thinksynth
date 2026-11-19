@@ -749,8 +749,8 @@ private:
     struct RenderPool;
     std::unique_ptr<RenderPool> renderPool_;
     int threads_ = 0;
-    int laneChannels_[TH_MIDI_CHANNELS];
-    int laneStart_[TH_MIDI_CHANNELS + 1];
+    int laneChannels_[TH_ENGINE_CHANNELS];
+    int laneStart_[TH_ENGINE_CHANNELS + 1];
 
     /* What process() hands each channel: its probes and its side. */
     struct ChannelJob
@@ -766,7 +766,7 @@ private:
         int drainSidechannels;
     };
 
-    ChannelJob jobs_[TH_MIDI_CHANNELS];
+    ChannelJob jobs_[TH_ENGINE_CHANNELS];
 
     int buildLanes (const int *order, int norder);
     void renderLane (int lane);

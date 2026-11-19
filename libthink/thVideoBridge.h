@@ -51,7 +51,7 @@ class thSynth;
 struct thVideoInputs
 {
     float level = 0, bass = 0, mid = 0, high = 0;
-    float levels[TH_MIDI_CHANNELS] = {};
+    float levels[TH_ENGINE_CHANNELS] = {};
     int   channels = 0;     /* how many of levels[] the synth has */
 };
 

@@ -433,9 +433,9 @@ thSynth::thSynth (int windowlen, int samples, int channels)
        feedCapture. */
     capture_ = new float[windowlen_]();
 
-    /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
-       thread can iterate it without racing a resize. */
-    midiChannelCnt_ = TH_MIDI_CHANNELS;
+    /* Fixed capacity -- see TH_ENGINE_CHANNELS. Never reallocated, so the
+       audio thread can iterate it without racing a resize. */
+    midiChannelCnt_ = TH_ENGINE_CHANNELS;
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiEffects_ = (thChanEffect **)calloc(midiChannelCnt_,
@@ -499,9 +499,9 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples,
        feedCapture. */
     capture_ = new float[windowlen_]();
 
-    /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
-       thread can iterate it without racing a resize. */
-    midiChannelCnt_ = TH_MIDI_CHANNELS;
+    /* Fixed capacity -- see TH_ENGINE_CHANNELS. Never reallocated, so the
+       audio thread can iterate it without racing a resize. */
+    midiChannelCnt_ = TH_ENGINE_CHANNELS;
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiEffects_ = (thChanEffect **)calloc(midiChannelCnt_,
@@ -1762,20 +1762,28 @@ thArg *thSynth::getChanArg (int channum, const string &argname)
 void thSynth::handleMidiController (unsigned char channel, unsigned int param,
                                     unsigned int value)
 {
+    /* One number, two meanings: the engine channel whose SusPedal the
+       pedal holds down, and the channel MIDI Map's bindings are keyed by.
+       A controller arrives on the engine channel of its MIDI channel's
+       number, so the two are equal. */
+    const int engineChannel = channel;
+    const unsigned char mapChannel = channel;
+
     /* SusPedal holds the controller's own 0..127: thMidiChan compares it
        with 64, as the specification's half-way point, and a channel effect
        is handed it over 127. setChanArg's fast path makes this one store
        into the arg that is there, under the synth's lock. */
     if (param == TH_MIDI_CC_SUSTAIN &&
-        controllerHandler_->getConnection(channel, param) == NULL)
+        controllerHandler_->getConnection(mapChannel, param) == NULL)
     {
-        setChanArg(channel, new thArg(string("SusPedal"),
-                                      (float)(value > MIDIVALMAX ? MIDIVALMAX
-                                                                 : value)));
+        setChanArg(engineChannel,
+                   new thArg(string("SusPedal"),
+                             (float)(value > MIDIVALMAX ? MIDIVALMAX
+                                                        : value)));
         return;
     }
 
-    controllerHandler_->handleMidi(channel, param, value);
+    controllerHandler_->handleMidi(mapChannel, param, value);
 }
 
 void thSynth::newMidiControllerConnection (unsigned char channel,
@@ -1913,7 +1921,7 @@ thSynthTree *thSynth::placeChannel (const string &filename, thSynthTree *raw,
         return NULL;
     }
 
-    /* The array is a fixed TH_MIDI_CHANNELS slots and is never resized, so
+    /* The array is a fixed TH_ENGINE_CHANNELS slots and is never resized, so
        there is nothing to grow here any more. */
     if (channum >= midiChannelCnt_)
     {
@@ -2126,7 +2134,7 @@ bool thSynth::sideWouldCycle (int channum, int sideChan) const
  */
 int thSynth::orderChannels (int *order) const
 {
-    bool done[TH_MIDI_CHANNELS], stacked[TH_MIDI_CHANNELS];
+    bool done[TH_ENGINE_CHANNELS], stacked[TH_ENGINE_CHANNELS];
     int n = 0;
 
     for (int i = 0; i < midiChannelCnt_; i++)
@@ -2141,7 +2149,7 @@ int thSynth::orderChannels (int *order) const
 /* Depth first over what channel `c' waits on -- its effect's side, and the
    side of the effect of the channel it is draining -- so it comes after the
    channels it hears. A ring (a side on itself, two effects keyed on each
-   other) is broken where it closes. Recursion at most TH_MIDI_CHANNELS
+   other) is broken where it closes. Recursion at most TH_ENGINE_CHANNELS
    deep, and nothing allocated: this runs every window. */
 void thSynth::orderFrom (int c, bool *done, bool *stacked, int *order,
                          int &n) const
@@ -2603,8 +2611,8 @@ void thSynth::setThreads (int threads)
    Every other channel is a lane of its own. Returns the number of lanes. */
 int thSynth::buildLanes (const int *order, int norder)
 {
-    int root[TH_MIDI_CHANNELS], laneOf[TH_MIDI_CHANNELS];
-    int count[TH_MIDI_CHANNELS], shared = -1, lanes = 0;
+    int root[TH_ENGINE_CHANNELS], laneOf[TH_ENGINE_CHANNELS];
+    int count[TH_ENGINE_CHANNELS], shared = -1, lanes = 0;
     const auto find = [&root] (int c)
     {
         while (root[c] != c)
@@ -2775,7 +2783,7 @@ void thSynth::process (const float *add)
        one as its side has to run after it, so that side<N> carries the window
        being mixed. With no side anywhere in the rack this is 0..N-1 and
        nothing about the sum changes. */
-    int order[TH_MIDI_CHANNELS];
+    int order[TH_ENGINE_CHANNELS];
     const int norder = orderChannels(order);
     using Clock = std::chrono::steady_clock;
     const auto since = [] (Clock::time_point t0)

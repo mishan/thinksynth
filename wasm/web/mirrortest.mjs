@@ -343,7 +343,7 @@ async function run (piece, dsps, windowlen,
        and the `input midi' path is one a knob does not reach: the event
        goes into the chain rather than onto a channel, and a mirror that
        dropped it would be silent about a piece somebody is playing. */
-    for (let c = 0; c < 16; c++)
+    for (let c = 0; c < rendering.M._tw_engine_channels(); c++)
     {
         if (!rendering.M._tw_listens(c))
             continue;

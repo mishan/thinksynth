@@ -43,7 +43,7 @@ void gthMidiPlay::setMpe (int channel)
         ch.nrpn = false;
         ch.held.clear();
     }
-    for (int c = 0; c < 16; c++)
+    for (int c = 0; c < TH_ENGINE_CHANNELS; c++)
         for (int n = 0; n < 128; n++)
             owner_[c][n] = -1;
     ranges();

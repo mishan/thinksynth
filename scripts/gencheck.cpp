@@ -4081,7 +4081,7 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
 static void
 clearChannels (thSynth *synth)
 {
-    for (int i = 0; i < TH_MIDI_CHANNELS; i++)
+    for (int i = 0; i < TH_ENGINE_CHANNELS; i++)
         synth->removeChan(i);
 
     drainSynth();

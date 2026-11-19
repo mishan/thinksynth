@@ -33,6 +33,7 @@
 
 #include <sigc++/sigc++.h>
 
+#include "libthink/think.h"
 #include "libthink/thcomposer.h"
 
 #include "thcAudition.h"
@@ -2154,16 +2155,15 @@ private:
     thcNoteTap                *noteTap_ = NULL;
     ChanArgSource              chanArgs_;
     thcMidiOut                *notesOut_ = NULL;
-    bool                       overMidi_[16] = {};
-    std::string                midiWhy_[16];
+    bool                       overMidi_[TH_ENGINE_CHANNELS] = {};
+    std::string                midiWhy_[TH_ENGINE_CHANNELS];
 
     /* Whether overMidi_ and midiWhy_ have a slot for `channel': an
        instrument's channel is the loader's or a host's, and a host's
        is not checked against them. */
     static bool onDeviceTable (int channel)
     {
-        return channel >= 0 && channel < (int)(sizeof overMidi_ /
-                                               sizeof overMidi_[0]);
+        return channel >= 0 && channel < TH_ENGINE_CHANNELS;
     }
 
     /* A MIDI channel's chanargs during a seek: the last of each, sent

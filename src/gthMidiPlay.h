@@ -22,6 +22,8 @@
 #include <functional>
 #include <vector>
 
+#include "think.h"
+
 class thSynth;
 
 /* MIDI from a port played on the synth: notes, a channel's pitch bend on the
@@ -68,7 +70,7 @@ private:
 
     /* Which MIDI channel each note sounding on each synth channel is from:
        two MPE members on one pitch are one voice, the later one's. */
-    int      owner_[16][128];
+    int      owner_[TH_ENGINE_CHANNELS][128];
 
     void ranges ();
 

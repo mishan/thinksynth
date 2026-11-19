@@ -80,12 +80,13 @@ using namespace std;
 /* how big many channel references should we allocate when we need more */
 #define CHANNELCHUNK 16
 
-/* Number of MIDI channel slots, allocated once at construction.
- *
- * This used to grow on demand with calloc/memcpy/free while the audio thread
- * was iterating the array -- a use-after-free waiting to happen, for no gain:
- * MIDI channels are 0-15 by protocol and gthPatchManager tops out at
- * NUM_PATCHES (16) as well. A fixed array removes the race outright. */
+/* How many instruments the engine holds: thSynth's channel slots, allocated
+ * once at construction and never resized, so the audio thread can iterate
+ * them without racing a resize. An engine channel is not a MIDI channel;
+ * a piece may hold more instruments than MIDI has channels. */
+#define TH_ENGINE_CHANNELS 64
+
+/* MIDI's channels: a status byte's low nibble. */
 #define TH_MIDI_CHANNELS 16
 
 /* Controller numbers are seven bits, so thMidiController's per-channel array
