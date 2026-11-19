@@ -1,7 +1,6 @@
 # The shipped pieces
 
-Forty-seven `.gen` files, each of which is meant to be read as well as heard.
-Some of them exercise every composer plugin in the tree and every ability
+Each `.gen` file here is meant to be read as well as heard. Some of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
 being impressive; the rest are pieces first and lessons second. The
 comment at the top of each file is the lesson; this is the index.

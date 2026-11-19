@@ -13,6 +13,11 @@ In order. Each is described where it points.
 
 1. The rest of the relay's gaps.
    (docs/JAM_BACKLOG.md §9)
+2. dspcheck loading and processing what the editor writes.  (Coverage)
+3. grand.dsp's note-on cost measured in the browser again, then a Grand
+   patch and a short piece to show it off.  (The corpus)
+4. The orphaned plugins, each given a graph or retired.  (The corpus)
+5. A clicked board captured on the page.  (The browser page)
 
 
 Packaging
@@ -46,11 +51,10 @@ Never heard
 The corpus
 ----------
 
-- Six plugins lost their last user in the corpus when dsp/old and its
+- Five plugins lost their last user in the corpus when dsp/old and its
   neighbors were cleared out: dist::clip, filt::res1pole, math::sin,
-  osc::bandosc, osc::multisined, and mixer::add outside bowl.dsp. Nothing
-  loads or renders them now, so nothing notices if they break. Either give
-  each a graph or retire it.
+  osc::bandosc and osc::multisined. Nothing loads or renders them now, so
+  nothing notices if they break. Either give each a graph or retire it.
 
 - Nothing ships the whole piano. grand.dsp is the strings and the hammer;
   the pedal's resonance is fx/sympathetic.dsp, a channel effect, and the
@@ -98,12 +102,6 @@ Coverage
   rather than a proper topological order. An editor makes it easy to build
   pathological graphs.
 
-- gen/README.md's first line spells out how many pieces there are, and it
-  has drifted from the count more than once. gencheck already
-  checks every piece has a category; it could read the spelled number
-  against the count too, with a table of number words to fifty. About
-  thirty lines in scripts/gencheck.cpp.
-
 
 Engine
 ------
@@ -127,15 +125,11 @@ Engine
 
 - Performance left on the table, measured on grand.dsp and not yet done:
 
-    * The browser build compiles without -msimd128, so nothing in it
-      vectorizes. It measured no faster on its own, and it would raise the
-      page's floor from Safari 15.2 to 16.4, so it waits for code written
-      to use it, such as filt::pianostring's unison below.
     * filt::pianostring is most of what a grand voice costs once it is
-      sounding. Its unison strings run the same cascade side by side and
-      would go into one SIMD vector; keeping the state in double rather
-      than rounding it to float every sample would drop the conversions.
-      Both change the output slightly, as the hammer's warm start did.
+      sounding. Keeping its state in double rather than rounding it to
+      float every sample would drop the conversions; it changes the output
+      slightly, as the hammer's warm start did. SIMD, in the browser build
+      and natively, was tried and measured no faster.
     * The grand holds 48 voices, each until it falls 80 dB, and at 15 to
       40 s a note that is a lot of voices under a sustained passage. Ending
       a voice sooner once it is inaudible under the others is the biggest
@@ -152,11 +146,11 @@ Engine
   Hammond, rather than one per voice; the section's chorus on the
   channel; fewer tonewheels where a drawbar is down.
 
-- Arg descriptions cover 33 of 314 args. That is every one an author had
-  already written a comment about, and the rest are deliberately empty rather
-  than invented -- but somebody who knows these DSPs could write the other
-  281, and a tooltip is the cheapest documentation this tree has.  Likewise
-  the eight declared defaults are the eight the plugins special-case zero
+- Most args have no description. The ones that do are every one an author
+  had already written a comment about, and the rest are deliberately empty
+  rather than invented -- but somebody who knows these DSPs could write
+  them, and a tooltip is the cheapest documentation this tree has. Likewise
+  the declared defaults are only the ones the plugins special-case zero
   for; others may have a sensible default nobody has written down.
   (docs/ARCHITECTURE.md)
 
