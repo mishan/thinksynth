@@ -608,6 +608,27 @@ string gthPrefs::formatMidiRoute (const thMidiRoute &r)
     return s;
 }
 
+int gthPrefs::mpe (string *why)
+{
+    string **v = Get("mpe");
+
+    if (v == NULL || v[0] == NULL)
+        return 0;
+
+    const char *text = v[0]->c_str();
+    char *end = NULL;
+    const long n = strtol(text, &end, 10);
+
+    if (v[1] == NULL && end != text && *end == '\0' && n >= 1 &&
+        n <= TH_ENGINE_CHANNELS)
+        return (int)n;
+
+    if (why != NULL)
+        *why = "mpe " + *v[0] + " names no engine channel, 1-" +
+               std::to_string(TH_ENGINE_CHANNELS);
+    return 0;
+}
+
 string **gthPrefs::Get (const string &key)
 {
     return prefs_[key];
