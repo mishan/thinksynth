@@ -439,7 +439,8 @@ int main (int argc, char **argv)
 
     /* ---- MPE onto any engine channel ---------------------------------- */
 
-    /* `mpe 64' read and written back; `mpe 65' named as no channel. */
+    /* `mpe 64', a space after it as a hand might leave, read and written
+       back; `mpe 65' named as no channel. */
     {
         const string file = cfg + ".mpe";
         const auto with = [&file](const char *line)
@@ -449,7 +450,7 @@ int main (int argc, char **argv)
         int read = 0, again = 0, past = -1;
         string why;
 
-        with("mpe 64\n");
+        with("mpe 64 \n");
 
         {
             gthPrefs prefs(file);

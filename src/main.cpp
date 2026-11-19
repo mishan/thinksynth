@@ -567,8 +567,7 @@ int main (int argc, char *argv[])
         if (mpe > 0)
             midiPlay->setMpe(mpe - 1);
         else if (!why.empty())
-            fprintf(stderr, "%s: %s\n", gthPrefs::prefsPath().c_str(),
-                    why.c_str());
+            fprintf(stderr, "thinkrc: %s\n", why.c_str());
     }
 
     /* Not make_window_and_run(), and not run(window) either: both of them own

@@ -619,6 +619,10 @@ int gthPrefs::mpe (string *why)
     char *end = NULL;
     const long n = strtol(text, &end, 10);
 
+    /* A space after the number, as an edit by hand leaves one, is not
+       part of it. */
+    end += strspn(end, " \t");
+
     if (v[1] == NULL && end != text && *end == '\0' && n >= 1 &&
         n <= TH_ENGINE_CHANNELS)
         return (int)n;
