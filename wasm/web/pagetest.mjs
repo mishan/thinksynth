@@ -5797,6 +5797,34 @@ try
                   ? `: ${tapes.recent.join(', ')}` : ''));
     }
 
+    /* Twenty instruments: the keys' channels are MIDI's sixteen and every
+       channel past them the piece has something on, up to its twentieth. */
+    {
+        const TWENTY = [
+            'tempo 120;',
+            ...Array.from({ length: 20 }, (_, i) =>
+                `instrument i${i + 1} { dsp "organ0.dsp"; };`),
+            'chain c { stage src gen::euclid { steps = 4; fills = 1; ' +
+            'notes = "C4"; period = 0.5 s; hold = 0.1 s; }; ' +
+            'sink { instrument = i20; }; };',
+        ].join('\n');
+
+        await page.click('#stop');
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, TWENTY);
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+
+        const offered = await page.$$eval('#keychan option',
+                                          (o) => o.map((e) => e.textContent));
+
+        check(offered.join(' ') === Array.from({ length: 20 },
+                                               (_, i) => i + 1).join(' '),
+              `the keys reach all twenty of a piece's channels: ${offered}`);
+    }
+
     /* ---- the picture ---- */
 
     /* Tiled, which is where a pane is put in front, in a window of its

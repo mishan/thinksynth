@@ -2028,6 +2028,7 @@ const band = createBand({
         if (listens === undefined)
             return false;
 
+        showKeyChannels();
         $('keychan').value = String(listens);
         $('keychan').dispatchEvent(new Event('change'));
         $('play').click();
@@ -2657,6 +2658,27 @@ function touched ()
     return [...all].sort((a, b) => a - b);
 }
 
+/* Where the keys may go: MIDI's sixteen, and past them each channel the
+   piece has something on. Counted the way the file counts them and the
+   way the channels row does -- the engine's number is one lower and is
+   what an option carries, since that is what a chain's `input midi' is
+   matched against. So the file's channel 1 is where a piece's first
+   instrument lands, and where hands.gen's arpeggiator listens. */
+function showKeyChannels ()
+{
+    const sel = $('keychan');
+    const was = sel.value === '' ? 0 : keyChannel();
+    const want = [...new Set([...Array(16).keys(),
+                              ...(piece === null ? [] : touched())])]
+        .sort((a, b) => a - b);
+
+    if (want.join() === [...sel.options].map((o) => o.value).join())
+        return;
+
+    sel.replaceChildren(...want.map((c) => new Option(String(c + 1), c)));
+    sel.value = String(want.includes(was) ? was : 0);
+}
+
 /* One line per channel: its number, and what is on it. A channel the
    piece aimed itself has nothing to choose -- taking its instrument away
    would be the page overriding the piece, which is the wrong way round --
@@ -2665,6 +2687,7 @@ function showChannels ()
 {
     const box = $('channels');
 
+    showKeyChannels();
     box.replaceChildren();
 
     if (piece === null)
@@ -4440,13 +4463,7 @@ async function init ()
     $('packget').addEventListener('click', () =>
         getPacks($('packneed').dataset.packs.split(' ')));
 
-    /* Sixteen is all there are, counted the way the file counts them and
-       the way the channels row does -- the engine's number is one lower
-       and is what the option carries, since that is what a chain's `input
-       midi' is matched against. So the file's channel 1 is where a piece's
-       first instrument lands, and where hands.gen's arpeggiator listens. */
-    for (let c = 0; c < 16; c++)
-        $('keychan').add(new Option(String(c + 1), c, c === 0, c === 0));
+    showKeyChannels();
 
     keyboard = new Keyboard($('keys'),
                             { onPress: press, onRelease: release });
