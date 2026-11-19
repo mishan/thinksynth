@@ -495,6 +495,25 @@ extern "C" {
  * the same reason they are gtkmm on the desktop.
  */
 
+/* Whether `text' builds a graph, leaving the one on screen as it is. */
+EMSCRIPTEN_KEEPALIVE int tw_graph_parses (const char *text)
+{
+    if (text == NULL)
+        return 0;
+
+    thSynthTree *tree = synth()->parseTreeText(TN_FILE, text);
+
+    if (tree == NULL)
+        return 0;
+
+    NodeGraph g;
+    const bool ok = g.build(tree);
+
+    delete tree;
+
+    return ok ? 1 : 0;
+}
+
 /* Parses the patch and lays it out. The number of boxes, or -1 if it did
    not parse. */
 EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)

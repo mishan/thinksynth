@@ -1190,6 +1190,28 @@ process.stdout.write(
                              'off, its line goes\n');
 }
 
+/* Whether a text builds, for a room's Undo to refuse one that would not:
+   asked without the graph on screen becoming the text asked about. */
+{
+    const read = (n) => fs.readFileSync(path.join(dspDir, n), 'utf8');
+    const shown = read('pluck.dsp');
+    const other = read('ladder.dsp');
+    const count = M.ccall('tw_graph_build', 'number', ['string'], [shown]);
+    const asked = [shown, other, `${shown}\nnode broken {`].map((t) =>
+        M.ccall('tw_graph_parses', 'number', ['string'], [t]));
+
+    log.length = 0;
+
+    if (JSON.stringify(asked) !== '[1,1,0]' ||
+        M._tw_graph_box_count() !== count)
+        fail(`tw_graph_parses: ${JSON.stringify(asked)}, and the graph ` +
+             `shown has ${M._tw_graph_box_count()} boxes of ${count}`);
+    else
+        process.stdout.write('ok    a text that builds parses and one that ' +
+                             'does not does not, and the graph shown stays ' +
+                             'as it was\n');
+}
+
 process.stdout.write(failures === 0
     ? '\nthe node editor\'s model runs in the browser, and edits the way ' +
       'the desktop edits\n'

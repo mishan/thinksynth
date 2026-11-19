@@ -155,6 +155,7 @@ const diff = new TapeDiff();
    into the shared file. Made on Start, because it is another instance of a
    600 KB module and a room nobody is playing in does not need one. */
 let nodes = null;
+let undos = null;               /* the document's Undo (roomundo.js) */
 
 /* The panels this page tiles, in the order the document has them.
  *
@@ -2375,7 +2376,15 @@ async function join ()
     await new Promise((resolve) =>
         provider.synced ? resolve() : provider.once('synced', resolve));
 
-    editor = new Editor($('editor'), $('tabs'), doc, provider.awareness);
+    undos = roomHistory(doc, (text) => nodes?.parses(text) ?? true);
+    editor = new Editor($('editor'), $('tabs'), doc, provider.awareness,
+                        (file, back) =>
+                        {
+                            const step = undos.go(file, back);
+
+                            if (step?.said !== undefined)
+                                status(step.said);
+                        });
     meta(doc).observe(showPiece);
     showPiece();
 
@@ -2898,7 +2907,7 @@ async function start ()
                     };
                 },
             },
-            history: roomHistory(doc),
+            history: undos,
             onStatus: status,
             sampleRate: ctx.sampleRate,
 

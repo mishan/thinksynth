@@ -225,10 +225,6 @@ Composition
 The browser page
 ----------------
 
-- A room's Undo of a graph step can leave a patch that does not parse, when
-  a peer's edit since depends on it. Refuse it: redo at once and say why.
-  (wasm/web/roomundo.js, docs/NODE_EDITOR.md)
-
 - A clicked Life, CA or evolve board is still not written back on the
   page: their pictures are states the piece goes on changing, so capture
   is a deliberate act, and the page has no button for it yet (the desktop's

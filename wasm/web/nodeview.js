@@ -2041,7 +2041,7 @@ export async function createNodeView ({ files, history = null,
 
         const pane = $('nodeview');
         const held = pane.contains(document.activeElement);
-        const what = history.go(file, back);
+        const step = history.go(file, back);
 
         /* A box undone takes its row in the list, and the focus with it,
            out to the page, whose Ctrl+Z undoes the piece. */
@@ -2049,8 +2049,8 @@ export async function createNodeView ({ files, history = null,
             ($('nodelist').querySelector('[aria-current="true"]') ??
              $('nodecanvas')).focus({ preventScroll: true });
 
-        if (what !== null)
-            onStatus(`${back ? 'Undid' : 'Redid'} ${what}.`);
+        if (step !== null)
+            onStatus(step.said ?? `${back ? 'Undid' : 'Redid'} ${step.what}.`);
 
         showSteps();
     };
@@ -2193,6 +2193,9 @@ export async function createNodeView ({ files, history = null,
                  wiring();
              },
              boxes: () => M._tw_graph_box_count(),
+             /* Whether a text builds a graph, the one shown left alone. */
+             parses: (text) =>
+                 M.ccall('tw_graph_parses', 'number', ['string'], [text]) === 1,
              probes: () => probes.length,
              fed: () => fed,
              zoom: () => M._tw_node_canvas_zoom(),

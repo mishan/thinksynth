@@ -237,6 +237,17 @@ nor what the page writes for a knob or a pick; an Undo takes back one's own
 step, rebased over whatever else changed since. Typing and a graph
 step never join, and values set on one arg less than a second apart do.
 
+Rebased, a step can leave a patch that does not parse: a peer's node fed
+from the one being taken back, or, since every write is the shortest
+splice between two texts, characters of two pages' mixed where the texts
+repeat, so that taking back only one's own leaves a fragment. An Undo or
+Redo that would turn a text that parses into one that does not is put
+straight back and said, from either view. Asked for again, the step is
+tried again; refused again, it is left as it is and dropped from the
+history, and the step before it taken, since a fragment need never go
+away and a step that waits for it would stand in front of all the others
+for good.
+
 **A value, a slider, a drag or a probe changes the graph in place; a wire, a
 node added or deleted, or a control's range parses the text again.** A node's
 ports come from its plugin, and the only thing that knows them is a parse. A
@@ -619,9 +630,6 @@ finding them means sitting in front of it.
 
 ## 9. Still ahead
 
-- **A room's Undo can leave a patch that does not parse.** A peer's edit since
-  a step can depend on it, and taking the step back then breaks the text;
-  such an Undo should be refused and said.
 - **`dspcheck` should grow a "load this and process it" check** for anything the
   editor writes.
 - **`thSynthTree::buildSynthTree` walks the graph recursively with a `recalc`
