@@ -2028,8 +2028,7 @@ const band = createBand({
         if (listens === undefined)
             return false;
 
-        showKeyChannels();
-        $('keychan').value = String(listens);
+        showKeyChannels(listens);
         $('keychan').dispatchEvent(new Event('change'));
         $('play').click();
         return true;
@@ -2664,19 +2663,18 @@ function touched ()
    what an option carries, since that is what a chain's `input midi' is
    matched against. So the file's channel 1 is where a piece's first
    instrument lands, and where hands.gen's arpeggiator listens. */
-function showKeyChannels ()
+function showKeyChannels (keep = null)
 {
     const sel = $('keychan');
-    const was = sel.value === '' ? 0 : keyChannel();
-    const want = [...new Set([...Array(16).keys(),
+    const was = keep ?? (sel.value === '' ? 0 : keyChannel());
+    const want = [...new Set([...Array(16).keys(), was,
                               ...(piece === null ? [] : touched())])]
         .sort((a, b) => a - b);
 
-    if (want.join() === [...sel.options].map((o) => o.value).join())
-        return;
+    if (want.join() !== [...sel.options].map((o) => o.value).join())
+        sel.replaceChildren(...want.map((c) => new Option(String(c + 1), c)));
 
-    sel.replaceChildren(...want.map((c) => new Option(String(c + 1), c)));
-    sel.value = String(want.includes(was) ? was : 0);
+    sel.value = String(was);
 }
 
 /* One line per channel: its number, and what is on it. A channel the
@@ -2996,7 +2994,7 @@ function paramChannels ()
 
 /* The channel selector, kept to what is there, keeping its choice if that
    channel is still among them. Numbered the way the rest of the page
-   numbers channels: the file's 1-16, not the engine's 0-15. */
+   numbers channels: the file's, from 1, not the engine's, from 0. */
 function fillParamChannels ()
 {
     const want = Number($('paramchan').value);
@@ -4198,7 +4196,7 @@ function keysFor (which)
         keyChans[keysMode] = keyChannel();
 
     if (which in keyChans)
-        $('keychan').value = String(keyChans[which]);
+        showKeyChannels(keyChans[which]);
 
     keysMode = which;
 }

@@ -5823,6 +5823,17 @@ try
         check(offered.join(' ') === Array.from({ length: 20 },
                                                (_, i) => i + 1).join(' '),
               `the keys reach all twenty of a piece's channels: ${offered}`);
+
+        await page.selectOption('#keychan', { value: '19' });
+        await page.selectOption('#mode', 'seq');
+        await page.evaluate(() => window.solo.settled());
+        await page.selectOption('#mode', 'piece');
+        await page.evaluate(() => window.solo.settled());
+
+        const kept = await page.inputValue('#keychan');
+
+        check(kept === '19',
+              `...and channel 20 is still the keys' after the sequence: ${kept}`);
     }
 
     /* ---- the picture ---- */
