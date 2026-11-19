@@ -47,7 +47,7 @@ thcMidiExport::describe (thcMidiFile &midi, thcScheduler &sched,
     for (size_t c = 0; c < sched.chainCount(); c++)
         midi.setChainName((int)c, sched.chain(c)->name);
 
-    for (int ch = 0; ch < synth.midiChanCount(); ch++)
+    for (int ch = 0; ch < synth.channelCount(); ch++)
     {
         const std::string holds = sched.holding(ch);
 

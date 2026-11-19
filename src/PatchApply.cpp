@@ -57,7 +57,7 @@ thPatchApplied thPatchApply (thSynth *synth, int channel,
         return out;
     }
 
-    if (channel < 0 || channel >= synth->midiChanCount())
+    if (channel < 0 || channel >= synth->channelCount())
     {
         out.why = "there is no such channel";
         return out;
@@ -98,7 +98,7 @@ thPatchApplied thPatchApply (thSynth *synth, int channel,
      * thPatchDoc::side for why the number is kept as written until here. */
     int side = doc.side;
 
-    if (side >= 0 && (side >= synth->midiChanCount() || side == channel))
+    if (side >= 0 && (side >= synth->channelCount() || side == channel))
     {
         char buf[128];
 

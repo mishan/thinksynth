@@ -205,7 +205,7 @@ EMSCRIPTEN_KEEPALIVE int tw_channels (void)
 
 EMSCRIPTEN_KEEPALIVE int tw_midi_channels (void)
 {
-    return synth_->midiChanCount();
+    return synth_->channelCount();
 }
 
 EMSCRIPTEN_KEEPALIVE int tw_instrument_count (void)

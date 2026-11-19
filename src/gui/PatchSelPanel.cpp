@@ -770,7 +770,7 @@ void PatchSelPanel::showNoChannel (void)
 void PatchSelPanel::populate (void)
 {
 //    std::map<int, string> *patchlist = synth->getPatchlist();
-//    int channelcount = synth->midiChanCount();
+//    int channelcount = synth->channelCount();
     gthPatchManager *patchMgr = gthPatchManager::instance();
     int chancount = patchMgr->numPatches();
     int selectedChan = -1;

@@ -47,7 +47,7 @@ void thVideoBridge::hear (const thSynth &audio)
         std::fill(mix_.begin() + (size_t)mixChannels_ * N,
                   mix_.begin() + (size_t)mixChannels * N, 0.0f);
     mixChannels_ = mixChannels;
-    channels_ = std::min(audio.midiChanCount(), TH_MIDI_CHANNELS);
+    channels_ = std::min(audio.channelCount(), TH_MIDI_CHANNELS);
     sampleRate_ = (double)audio.getSampleRate();
 
     for (int i = 0; i < n; i++)

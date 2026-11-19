@@ -2771,7 +2771,7 @@ void thSynth::process (const float *add)
         probeCount++;
     }
 
-    /* Not 0..midiChanCount() any more: a channel whose effect names another
+    /* Not 0..channelCount() any more: a channel whose effect names another
        one as its side has to run after it, so that side<N> carries the window
        being mixed. With no side anywhere in the rack this is 0..N-1 and
        nothing about the sum changes. */
