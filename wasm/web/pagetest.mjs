@@ -2730,6 +2730,104 @@ try
         }
     }
 
+    /* What is on a channel is the engine's answer and not the page's
+       record, and keys go where the piece listens. Hands listens on
+       channels 1 to 3: a load moves keys nobody chose off another channel
+       to its first, keys aimed by hand elsewhere are said to be silent,
+       once, and a load leaves them where they were put. A sequence leaves
+       its instruments where they are, so under Airports, which uses
+       channel 1 alone and takes no keys, one of them is named as it was,
+       and a key says Airports takes none. */
+    {
+        const settled = () => page.evaluate(() => window.solo.settled());
+
+        /* A switch asks first only when the text was changed, so the
+           answer is offered for the load and taken back after it. */
+        const load = async (name) =>
+        {
+            const yes = (d) => d.accept().catch(() => {});
+
+            page.on('dialog', yes);
+            await page.selectOption('#piece', name);
+            await settled();
+            await page.waitForFunction(
+                () => !document.getElementById('loadpiece').disabled,
+                null, { timeout: 30000 });
+            await page.click('#loadpiece');
+            await settled();
+            page.off('dialog', yes);
+        };
+        const keys = async () => Number(await page.inputValue('#keychan'));
+        const aim = async (c) =>
+        {
+            await page.selectOption('#keychan', { value: String(c) });
+            await settled();
+        };
+        const status = () => page.$eval('#status', (e) => e.textContent);
+        const play = async () =>
+        {
+            await page.evaluate(() =>
+            {
+                document.activeElement?.blur();
+                document.getElementById('status').textContent = '';
+            });
+            await page.keyboard.press('z');
+            await settled();
+            return status();
+        };
+
+        await page.selectOption('#mode', 'seq');
+        await settled();
+        await page.selectOption('#mode', 'piece');
+        await settled();
+        await load('hands.gen');
+        await page.evaluate(() =>
+        {
+            document.getElementById('keychan').value = '9';
+        });
+        await load('hands.gen');
+
+        check(await keys() === 0,
+              'keys nobody chose, on channel 10, which Hands does not listen ' +
+              `on, go to its first at its load: ${(await keys()) + 1}`);
+
+        await aim(9);
+
+        const first = await play();
+        const again = await play();
+
+        check(first.startsWith('The piece does not listen on channel 10') &&
+              first.includes('1, 2, 3') && again === '',
+              `keys aimed at a channel the piece does not listen on are said ` +
+              `to be silent, once: ${first}`);
+
+        await load('hands.gen');
+
+        check(await keys() === 9,
+              'and a key channel chosen by hand stays where it was put ' +
+              'through a load');
+
+        await load('airports.gen');
+
+        const engine = await page.evaluate(() => window.solo.loaded());
+        const left = engine.findIndex((n, c) => c > 0 && n !== '');
+
+        await aim(left);
+
+        const row = await page.$eval(
+            `#channels select[aria-label="Channel ${left + 1}"]`,
+            (sel) => sel.selectedOptions[0].textContent);
+        const none = await play();
+
+        check(left > 0 && row === `${engine[left]}, as it was`,
+              `channel ${left + 1}, which the sequence left ${engine[left]} ` +
+              `on, is named for it under Airports: ${row}`);
+        check(none.startsWith('Airports does not take keys'),
+              `and a key under Airports says it takes none: ${none}`);
+
+        await aim(0);
+    }
+
     /* ---- the instrument as a graph ---- */
 
     /* The node editor on the solo page, which has no shared document: the

@@ -391,6 +391,22 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* What the engine has on each of the sixteen channels the page
+         * offers, by its graph's name; "" for nothing. Asked of the
+         * instance that sounds, since that is the one keys reach.
+         */
+        if (m.type === 'onchannels')
+        {
+            const names = [];
+
+            for (let c = 0; c < 16; c++)
+                names.push(this.M.ccall('tw_loaded', 'string', ['number'],
+                                        [c]));
+
+            this.port.postMessage({ type: 'onchannels', id: m.id, names });
+            return;
+        }
+
         /* The piece's text with its `tempo' statement set.
          *
          * Made here because this is where the document is -- tw_piece_load

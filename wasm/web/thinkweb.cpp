@@ -4470,6 +4470,28 @@ EMSCRIPTEN_KEEPALIVE int tw_sink_channel (int k)
     return k >= 0 && k < (int)sinks_.size() ? sinks_[k] : -1;
 }
 
+/* What the engine has on `channel', whoever put it there -- a piece, a
+ * choice in the channels row, or the mode before this one, which leaves
+ * its instruments where they were: the graph's own name, from its `name'
+ * line, "unnamed" for one without -- the parser calls those "newmod" --
+ * and "" for a channel nothing is on.
+ *
+ * The page's record of what it placed answers a different question, and
+ * the two part company at every mode switch. Valid until the next call.
+ */
+EMSCRIPTEN_KEEPALIVE const char *tw_loaded (int channel)
+{
+    static std::string name;
+    thMidiChan *chan = synth_->getChannel(channel);
+
+    name = chan == NULL ? "" : chan->modnode()->name();
+
+    if (chan != NULL && (name.empty() || name == "newmod"))
+        name = "unnamed";
+
+    return name.c_str();
+}
+
 /* A chanarg on the tree loaded on `channel', through the path the
  * application's slider uses. Nonzero if it was set.
  *
