@@ -5082,6 +5082,37 @@ try
                   seconds: +seconds.toFixed(2), peak, ons }));
     }
 
+    /* A take's MIDI past sixteen channels: engine channel e on MIDI
+       channel e % 16 of port e / 16, each track past port 0 headed by a
+       MIDI Port event. Each track's first event and first note-on. */
+    {
+        const tracks = await page.evaluate(async () =>
+        {
+            const { midiOf } = await import('./takes.js');
+            const m = midiOf([2, 17, 33].map((channel) =>
+                ({ at: 0, duration: 0.5, channel, note: 60, velocity: 100 })));
+            const out = [];
+
+            for (let at = 14; at < m.length; )
+            {
+                const len = (m[at + 4] << 24 | m[at + 5] << 16 |
+                             m[at + 6] << 8 | m[at + 7]) >>> 0;
+                const body = [...m.slice(at + 8, at + 8 + len)];
+
+                out.push(body.slice(1, 5).join(' ') + ' / ' +
+                         body[body.findIndex((b) => (b & 0xf0) === 0x90)]);
+                at += 8 + len;
+            }
+
+            return out.slice(1);
+        });
+
+        check(tracks.join(', ') === '255 3 9 99 / 146, ' +
+                                    '255 33 1 1 / 145, 255 33 1 2 / 145',
+              'a take\'s MIDI puts channels 17 and up on ports of their ' +
+              'own: ' + JSON.stringify(tracks));
+    }
+
     /* Energy: let go of at 0, the knob is written and every player
        follows it; with two scenes, it is the chosen scene's own, which
        the section sets. Then the scenes played live: the one lit held,
