@@ -3283,10 +3283,15 @@ try
             (b) => document.getElementById('dsp').value !== b, before,
             { timeout: 15000 }).catch(() => {});
 
+        /* The list is drawn on the details' toggle, which comes a task
+           after it is opened. */
         await page.evaluate(() =>
         {
             document.getElementById('nodeoutline').open = true;
         });
+        await page.waitForFunction(
+            () => document.querySelector('#nodelist button') !== null,
+            null, { timeout: 10000 }).catch(() => {});
 
         const listed = await page.$$eval('#nodelist button', (b) => b.length);
         const buttons = page.locator('#nodelist button');
@@ -3391,6 +3396,9 @@ try
             {
                 document.getElementById('nodeoutline').open = true;
             });
+            await page.waitForFunction(
+                () => document.querySelector('#nodelist h4') !== null,
+                null, { timeout: 10000 }).catch(() => {});
 
             const heads = await page.$$eval('#nodelist h4',
                                             (h) => h.map((e) => e.textContent));
