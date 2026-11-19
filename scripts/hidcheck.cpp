@@ -760,6 +760,81 @@ checkWirelessByHand (void)
            n == 350 ? "" : "gone after " + std::to_string(n));
 }
 
+/* The capture's reports, broken at random, the same way every run: a
+   report refused moves nothing, and one taken leaves every axis in its
+   range and no button the controller hasn't. Run under the sanitizers,
+   nothing is read out of bounds either. */
+static void
+checkWirelessFuzz (const char *path)
+{
+    const thhControls &c = thhIndexControls();
+    std::vector<std::vector<uint8_t> > seeds;
+    std::ifstream in(path);
+    string line, why;
+    uint32_t rng = 1;
+    const auto next = [&rng]() {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return rng;
+    };
+
+    while (std::getline(in, line))
+        seeds.push_back(unhex(line.substr(line.find('\t') + 1)));
+    if (seeds.empty())
+    {
+        report("wireless: broken reports", "no reports to break");
+        return;
+    }
+
+    thhIndexWireless w;
+    thhState s;
+
+    s.connected = true;
+    for (int n = 0; n < 50000 && why.empty(); n++)
+    {
+        std::vector<uint8_t> r = seeds[next() % seeds.size()];
+        const int edits = 1 + next() % 4;
+
+        for (int e = 0; e < edits && !r.empty(); e++)
+        {
+            /* A message's length byte, which most needs to be wrong. */
+            const size_t len = 2 + 29 * (next() % 2);
+
+            switch (next() % 4)
+            {
+            case 0: r[next() % r.size()] ^= (uint8_t)(1 << next() % 8); break;
+            case 1: r[next() % r.size()] = (uint8_t)next(); break;
+            case 2: r[len < r.size() ? len : 0] = next() % 32; break;
+            case 3: r.resize(next() % (r.size() + 1)); break;
+            }
+        }
+
+        const thhState before = s;
+        const bool took = thhIndexFeedWireless(r.data(), r.size(), w, s);
+
+        if (!took && describe(s) != describe(before))
+            why = "refused but changed the state";
+        for (size_t a = 0; a < c.axes.size() && why.empty(); a++)
+            if (s.axis[a] < (c.axes[a].bipolar ? -1.0001f : 0) ||
+                s.axis[a] > 1.0001f)
+                why = c.axes[a].name + " out of range";
+        if (s.buttons >> THH_INDEX_BUTTONS)
+            why = "a button the controller hasn't";
+        if (!why.empty())
+        {
+            char hex[3];
+
+            why += " after " + std::to_string(n) + ", from";
+            for (uint8_t b : r)
+                why += (snprintf(hex, sizeof(hex), "%02x", b), string(hex));
+        }
+        if (!s.connected)
+            s = thhState(), s.connected = true;
+    }
+    report("wireless: 50,000 broken reports", why);
+}
+
 static void
 checkImu (const char *path)
 {
@@ -898,6 +973,7 @@ main (int argc, char *argv[])
     checkImu(argv[3]);
     checkWireless(argv[4]);
     checkWirelessByHand();
+    checkWirelessFuzz(argv[4]);
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
 
