@@ -122,7 +122,11 @@ gthHid::scan ()
         generation_++;
     }
 
-    const std::vector<thhIndexNodes> found = thhFindIndexes("/sys", "/dev");
+    std::vector<thhIndexNodes> found = thhFindIndexes("/sys", "/dev");
+    const size_t wired = found.size();
+    const std::vector<thhIndexNodes> dongles = thhFindDongles("/sys", "/dev");
+
+    found.insert(found.end(), dongles.begin(), dongles.end());
 
     /* A controller gone that isn't anywhere now, moved to another port or
        unplugged, has its reader stopped: one that is back where it was is
@@ -151,12 +155,13 @@ gthHid::scan ()
 
         Slot *slot = new Slot;
         const std::string usb = found[i].usb;
+        const auto connect = i < wired ? thhConnectIndex : thhConnectDongle;
 
         slot->usb = usb;
         slot->serial = found[i].serial;
         slot->reader.reset(new thhReader(
-            [usb](thhConnection &c, std::string &status) {
-                return thhConnectIndex("/sys", "/dev", usb, c, status);
+            [usb, connect](thhConnection &c, std::string &status) {
+                return connect("/sys", "/dev", usb, c, status);
             },
             [this]() { dispatcher_.emit(); }));
         slots_.push_back(std::unique_ptr<Slot>(slot));

@@ -180,8 +180,15 @@ thhReader::run ()
         if (n < 0 && got && (errno == EAGAIN || errno == EINTR))
             continue;
 
-        /* Unplugged, asleep, or never woken: let go, and connect again. */
-        if (n <= 0)
+        s.time = std::chrono::duration<double>(
+                     std::chrono::steady_clock::now().time_since_epoch())
+                     .count();
+        if (n > 0 && c.feed(from, buf, n, s) && s.connected)
+            publish(s);
+
+        /* Unplugged, asleep, never woken, or gone by what it said: let go,
+           and connect again. */
+        if (n <= 0 || !s.connected)
         {
             for (size_t i = 0; i < c.fds.size(); i++)
                 close(c.fds[i]);
@@ -198,12 +205,6 @@ thhReader::run ()
                 break;
             continue;
         }
-
-        s.time = std::chrono::duration<double>(
-                     std::chrono::steady_clock::now().time_since_epoch())
-                     .count();
-        if (c.feed(from, buf, n, s))
-            publish(s);
     }
 
     for (size_t i = 0; i < c.fds.size(); i++)

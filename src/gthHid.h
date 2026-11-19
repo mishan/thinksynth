@@ -35,11 +35,11 @@
 
 class thSynth;
 
-/* Wired Index controllers, one or a pair, played in patch mode: each read
-   on its own thread, mapped by the player's profile (hid/index in the
-   configuration directory, on the controllers' own), and played on the GUI
-   thread the way the on-screen keyboard plays, so the roll and a piece's
-   Kbd input hear them too.
+/* Index controllers, one or a pair, wired or each on a Watchman dongle,
+   played in patch mode: each read on its own thread, mapped by the
+   player's profile (hid/index in the configuration directory, on the
+   controllers' own), and played on the GUI thread the way the on-screen
+   keyboard plays, so the roll and a piece's Kbd input hear them too.
 
    One controller alone plays the profile's either-hand block, whichever
    hand it is; a pair play it each with its own hand's block on top, and

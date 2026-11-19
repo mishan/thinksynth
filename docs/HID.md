@@ -1,14 +1,25 @@
 # Playing a Valve Index controller
 
-A wired Valve Index controller plays thinksynth like a keyboard: buttons
-play notes, the stick or trackpad moves the pitch, and the trigger, grip
-and trackpad drive a patch's knobs. It needs no SteamVR and no base
-stations. Linux only, for now.
+A Valve Index controller, wired or through a Watchman dongle, plays
+thinksynth like a keyboard: buttons play notes, the stick or trackpad
+moves the pitch, and the trigger, grip and trackpad drive a patch's knobs.
+It needs no base stations. Linux only, for now.
 
 ## Setting it up
 
-Plug the controller in over USB-C. thinksynth finds it on its own, and finds
-it again if it is unplugged and plugged back in.
+Plug the controller in over USB-C, or plug in its Watchman dongle
+(`28de:2101` or `28de:2102`, one dongle a controller) and turn the
+controller on. thinksynth finds it on its own, and finds it again if it is
+unplugged and plugged back in, or turned off and on. A controller on its
+cable leaves the radio, so one plugged in to charge plays over the cable
+and goes back to its dongle when the cable comes out.
+
+A dongle plays only the controller paired to it. Pairing is once, and a
+dongle bought on its own has none: pair it with SteamVR's
+`lighthouse_console`, its `serial` command naming the dongle and then
+`pair`, and hold the controller's System and B buttons, from off, until
+its light blinks blue. Until one is paired, or turned on, the Controller
+pane says there is no controller on the dongle.
 
 To read it without root, install the udev rule once:
 
@@ -17,8 +28,9 @@ hid/install-udev-rule.sh
 ```
 
 It asks for your password, copies `hid/70-thinksynth-index.rules` into
-`/etc/udev/rules.d/`, and applies it to a controller already plugged in. If
-thinksynth still can't open it, unplug it and plug it in again.
+`/etc/udev/rules.d/`, and applies it to a controller or dongle already
+plugged in. If thinksynth still can't open it, unplug it and plug it in
+again.
 
 Without it, thinksynth says on the terminal that it has no permission, and
 which file to install.

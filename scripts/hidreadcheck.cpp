@@ -17,8 +17,8 @@
  */
 
 /*
- * hidreadcheck -- finding a wired Index controller and reading it on a
- * thread, without one plugged in.
+ * hidreadcheck -- finding a wired Index controller, or a Watchman dongle,
+ * and reading it on a thread, without one plugged in.
  *
  * Discovery runs against a sysfs tree built in a scratch directory, with
  * the controller's real report descriptors (scripts/hid/index-descriptors
@@ -102,6 +102,7 @@ struct Node
 
 #define INDEX   "Valve Index Controller"
 #define VALVE   "0003:000028DE:00002300"
+#define DONGLE  "Valve Corporation Watchman dongle"
 
 static string
 sysTree (const string &root, const std::vector<Node> &nodes)
@@ -203,6 +204,33 @@ checkFindAll (const string &scratch)
                   "/dev/hidraw20 /dev/hidraw21" ? "" : "found \"" + got + "\"");
 }
 
+/* Dongles of both kinds among a controller and a keyboard, each a node of
+   its own, and not taken for wired controllers. */
+static void
+checkFindDongles (const string &scratch)
+{
+    const string sys = sysTree(
+        scratch + "/sys",
+        { { "1-2", 0, INDEX, VALVE, "input", 14 },
+          { "1-2", 1, INDEX, VALVE, "imu", 8 },
+          { "1-6", 0, DONGLE, "0003:000028DE:00002102", "light", 5 },
+          { "1-5", 0, "Some Keyboard", "0003:0000046D:0000C31C", "input", 2 },
+          { "1-3", 0, DONGLE, "0003:000028DE:00002101", "light", 9 } });
+    const std::vector<thhIndexNodes> dongles = thhFindDongles(sys, "/dev");
+    const std::vector<thhIndexNodes> wired = thhFindIndexes(sys, "/dev");
+    string got;
+
+    for (size_t i = 0; i < dongles.size(); i++)
+        got += (i ? "; " : "") + describe(dongles[i]);
+    report("both dongles, in order",
+           got == "input /dev/hidraw9, imu , all /dev/hidraw9; "
+                  "input /dev/hidraw5, imu , all /dev/hidraw5" ? "" :
+           "found \"" + got + "\"");
+    report("a dongle isn't a wired controller",
+           wired.size() == 1 && wired[0].input == "/dev/hidraw14" ? "" :
+           std::to_string(wired.size()) + " wired");
+}
+
 static string
 deflate (const string &text)
 {
@@ -289,7 +317,8 @@ struct Rig
     thhState                   latest;
 
     /* Silence well past any wait here, unless it is what's being checked. */
-    Rig (int silenceMs = 60000) : far(-1), farImu(-1), connects(0), wakes(0)
+    Rig (int silenceMs = 60000, const thhFeed &feed = thhIndexFeeder ())
+        : far(-1), farImu(-1), connects(0), wakes(0)
     {
         int sv[2], mv[2];
 
@@ -299,12 +328,12 @@ struct Rig
         far = sv[1];
         farImu = mv[1];
         reader.reset(new thhReader(
-            [this, sv, mv](thhConnection &c, string &) {
+            [this, sv, mv, feed](thhConnection &c, string &) {
                 if (connects++ > 0)
                     return false;
                 c.read.assign({ sv[0], mv[0] });
                 c.fds = c.read;
-                c.feed = thhIndexFeeder();
+                c.feed = feed;
                 c.hand = "left";
                 return true;
             },
@@ -497,6 +526,54 @@ checkPingFirst (void)
            r.settle(1) == "-" ? "" : "edges: " + describe(r.edges));
 }
 
+/* Through a dongle: a press is an edge, and the dongle saying its
+   controller has gone is one, at once, and the end of the connection. */
+static void
+checkDongleReader (void)
+{
+    Rig r(60000, thhIndexDongleFeeder());
+    std::vector<uint8_t> a(30, 0);
+
+    a[0] = 0x23;
+    a[1] = 0x10;
+    a[2] = 0x04;
+    a[4] = 0x20;    /* input: */
+    a[5] = 0xf1;    /* the buttons, */
+    a[6] = 0x10;    /* A */
+    r.send(a);
+    report("a press through a dongle is an edge", r.settle(1) == "a" ? "" :
+           "edges: " + describe(r.edges));
+
+    r.send({ 0x26, 0x01 });
+    report("the dongle saying it has gone is one edge",
+           r.settle(2) == "gone" ? "" : "edges: " + describe(r.edges));
+    report("connect is asked again after the dongle says it has gone",
+           waitFor([&]() { return r.connects >= 2; }) ? "" :
+           "asked " + std::to_string(r.connects) + " times");
+}
+
+/* A dongle that won't answer, as one with no controller on it doesn't,
+   says so, and that it may need pairing. */
+static void
+checkDongleEmpty (const string &scratch)
+{
+    const string sys = sysTree(scratch + "/sys",
+        { { "1-6", 0, DONGLE, "0003:000028DE:00002102", "light", 5 } });
+    const string dev = scratch + "/dev";
+
+    fs::create_directories(dev);
+    std::ofstream(dev + "/hidraw5") << "";
+
+    thhConnection c;
+    string status;
+    const bool ok = thhConnectDongle(sys, dev, "", c, status);
+
+    report("a dongle with no controller says so",
+           !ok && status.find("no controller") != string::npos &&
+           status.find("pair") != string::npos ? "" :
+           ok ? "connected" : "said \"" + status + "\"");
+}
+
 static void
 checkPermission (const string &scratch)
 {
@@ -547,6 +624,7 @@ main (int argc, char *argv[])
     readDescriptors(argv[1]);
     checkFind(scratch);
     checkFindAll(scratch);
+    checkFindDongles(scratch);
     checkHand();
     checkReader();
     checkSilence();
@@ -554,6 +632,8 @@ main (int argc, char *argv[])
     checkImuFirst();
     checkPingFirst();
     checkPermission(scratch);
+    checkDongleReader();
+    checkDongleEmpty(scratch);
     fs::remove_all(scratch);
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
