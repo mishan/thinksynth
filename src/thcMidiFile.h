@@ -31,8 +31,8 @@
  * gates and the mutes. Format 1 at a fixed tempo -- the piece's -- so a
  * DAW's bar grid lines up with the piece's beats. Track 0 carries the
  * tempo, the meter and a marker per section; after it comes a track per
- * chain, named for the chain, so two chains sharing a channel (a closed
- * and an open hat) stay two parts to edit.
+ * chain and port (below), named for the chain, so two chains sharing a
+ * channel (a closed and an open hat) stay two parts to edit.
  *
  * What each event becomes:
  *
@@ -63,6 +63,12 @@
  *             (20-31 and 52-63) instead, twelve to a channel.
  *   swap, node-arg edit
  *             a text event: nothing outside this synth can act on them.
+ *
+ * The event's channel is the engine's, of which there are more than MIDI
+ * has: engine channel e goes out on MIDI channel e % 16 of port e / 16. A
+ * track on a port past the first starts with a MIDI Port meta event (FF
+ * 21), and a chain whose notes are on two ports is a track on each, both
+ * named for it. A file whose channels are all on port 0 says no port.
  *
  * A chanarg, a swap or an edit belongs to the channel rather than the
  * chain that sent it, so it is written into every track that plays notes

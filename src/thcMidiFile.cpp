@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "think.h"
 #include "thcMidiFile.h"
 
 namespace {
@@ -95,9 +96,19 @@ std::vector<uint8_t> meta (uint8_t type, const std::string &text)
     return d;
 }
 
+/* Engine channel e is MIDI channel e % 16 on port e / 16. */
+int midiChannel (int channel) { return channel % TH_MIDI_CHANNELS; }
+int portOf (int channel) { return channel / TH_MIDI_CHANNELS; }
+
+/* A MIDI Port event, which heads a track on any port but the first. */
+std::vector<uint8_t> portEvent (int port)
+{
+    return { 0xff, 0x21, 0x01, (uint8_t)port };
+}
+
 std::vector<uint8_t> cc (int channel, int number, int value)
 {
-    return { (uint8_t)(0xb0 | channel), (uint8_t)number,
+    return { (uint8_t)(0xb0 | midiChannel(channel)), (uint8_t)number,
              (uint8_t)std::min(127, std::max(0, value)) };
 }
 
@@ -212,7 +223,7 @@ thcMidiFile::control (int channel, const std::string &name)
 void
 thcMidiFile::add (const thcEvent &ev, int chain)
 {
-    if (ev.channel < 0 || ev.channel > 15)
+    if (ev.channel < 0 || ev.channel >= TH_ENGINE_CHANNELS)
     {
         skipped_++;
         return;
@@ -427,18 +438,25 @@ thcMidiFile::bytes (void) const
     const std::vector<Note> all = resolve();
 
     /* The note tracks: chains in their order, then what no chain made in
-       channel order (keyed -1 - channel). */
-    std::vector<int> parts;
+       channel order (keyed -1 - channel). A chain whose notes go out on
+       two ports is a track on each, in port order. */
+    typedef std::pair<int, int> Part;      /* part, port */
+    std::vector<Part> parts;
 
     for (const Note &n : all)
-        parts.push_back(n.part);
+        parts.push_back({ n.part, portOf(n.channel) });
 
     std::sort(parts.begin(), parts.end(),
-              [](int a, int b)
+              [](const Part &a, const Part &b)
               {
-                  if ((a >= 0) != (b >= 0))
-                      return a >= 0;
-                  return a >= 0 ? a < b : a > b;
+                  if (a.first != b.first)
+                  {
+                      if ((a.first >= 0) != (b.first >= 0))
+                          return a.first >= 0;
+                      return a.first >= 0 ? a.first < b.first
+                                          : a.first > b.first;
+                  }
+                  return a.second < b.second;
               });
     parts.erase(std::unique(parts.begin(), parts.end()), parts.end());
 
@@ -450,16 +468,20 @@ thcMidiFile::bytes (void) const
     };
 
     std::vector<Track> tracks(parts.size());
-    std::map<int, size_t> trackOf;
+    std::map<Part, size_t> trackOf;
 
     for (size_t i = 0; i < parts.size(); i++)
     {
-        const int part = parts[i];
+        const int part = parts[i].first;
         std::string name;
 
-        trackOf[part] = i;
-        tracks[i].channels.assign(16, false);
-        tracks[i].expression.assign(16, -1);
+        trackOf[parts[i]] = i;
+        tracks[i].channels.assign(TH_ENGINE_CHANNELS, false);
+        tracks[i].expression.assign(TH_ENGINE_CHANNELS, -1);
+
+        if (parts[i].second > 0)
+            tracks[i].events.push_back({ 0, AT_META,
+                                         portEvent(parts[i].second) });
 
         if (part >= 0)
         {
@@ -489,8 +511,8 @@ thcMidiFile::bytes (void) const
        note at its level. A channel whose notes are all at 1 sends none.
        The notes struck together on one channel share one value, the
        loudest's. */
-    std::vector<bool> levels(16, false);
-    std::vector<int> expression(16, -1);
+    std::vector<bool> levels(TH_ENGINE_CHANNELS, false);
+    std::vector<int> expression(TH_ENGINE_CHANNELS, -1);
 
     for (const Note &n : all)
         if (n.level != 1)
@@ -517,7 +539,7 @@ thcMidiFile::bytes (void) const
         for (; i < j; i++)
         {
             const Note &n = all[i];
-            const size_t ti = trackOf[n.part];
+            const size_t ti = trackOf[{ n.part, portOf(n.channel) }];
             Track &t = tracks[ti];
             const bool tellTrack =
                 t.expression[ch] != value ||
@@ -536,11 +558,13 @@ thcMidiFile::bytes (void) const
 
             const uint8_t key = (uint8_t)n.key;
 
+            const uint8_t mc = (uint8_t)midiChannel(n.channel);
+
             t.events.push_back({ n.on, AT_ON,
-                                 { (uint8_t)(0x90 | n.channel), key,
+                                 { (uint8_t)(0x90 | mc), key,
                                    (uint8_t)n.velocity } });
             t.events.push_back({ n.off, AT_OFF,
-                                 { (uint8_t)(0x80 | n.channel), key, 64 } });
+                                 { (uint8_t)(0x80 | mc), key, 64 } });
 
             last = std::max(last, n.off);
         }
@@ -627,7 +651,9 @@ thcMidiFile::bytes (void) const
                     : "channel " + std::to_string(ch + 1);
             Track t;
 
-            t.channels.assign(16, false);
+            t.channels.assign(TH_ENGINE_CHANNELS, false);
+            if (portOf(ch) > 0)
+                t.events.push_back({ 0, AT_META, portEvent(portOf(ch)) });
             t.events.push_back({ 0, AT_META,
                                  meta(0x03, name + " controls") });
             t.events.insert(t.events.end(), events.begin(), events.end());

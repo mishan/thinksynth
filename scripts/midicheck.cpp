@@ -216,6 +216,14 @@ static std::vector<Heard> heard (const std::vector<Event> &track)
     return out;
 }
 
+/* The port a track's first event names, or -1 where it names none. */
+static int portHead (const std::vector<Event> &track)
+{
+    return !track.empty() && track[0].data.size() == 3 &&
+           track[0].data[0] == 0xff && track[0].data[1] == 0x21
+               ? track[0].data[2] : -1;
+}
+
 static std::string metaText (const std::vector<Event> &track, uint8_t type,
                              size_t nth = 0)
 {
@@ -535,7 +543,7 @@ int main (int argc, char **argv)
         f.add(note(2, 0, 50, 100, 0));        /* held, never released   */
         f.add(note(2.5, 0, 52, 100, 4));      /* sounding at the stop   */
         f.add(noteOff(2, 0, 55));             /* an off nobody holds    */
-        f.add(note(0, 16, 60, 100, 1));       /* no such MIDI channel   */
+        f.add(note(0, TH_ENGINE_CHANNELS, 60, 100, 1)); /* no such channel */
         f.add(chanarg);
         f.end(3);
 
@@ -556,8 +564,68 @@ int main (int argc, char **argv)
                   "and so does one still sounding", show(h[2]));
         }
 
-        check(f.skipped() == 1, "a note on channel 17 is skipped",
+        check(f.skipped() == 1, "a note past the engine's channels is skipped",
               std::to_string(f.skipped()));
+    }
+
+    {
+        /* Twenty channels: engine channel e on MIDI channel e % 16 of port
+           e / 16, a track past port 0 headed by its port, and none on
+           port 0 saying one. */
+        thcMidiFile f(120);
+
+        for (int c = 0; c < 20; c++)
+            f.add(note(0, c, 60, 100, 1));
+        f.end(2);
+
+        const Smf s = parse(f.bytes());
+        bool right = s.ok && s.tracks.size() == 21;
+
+        for (int c = 0; right && c < 20; c++)
+        {
+            const std::vector<Event> &t = s.tracks[1 + c];
+            const std::vector<Heard> h = heard(t);
+
+            right = metaText(t, 0x03) == "channel " + std::to_string(c + 1) &&
+                    portHead(t) == (c < 16 ? -1 : 1) && h.size() == 1 &&
+                    h[0].channel == c % 16;
+        }
+
+        check(right, "twenty channels on ports 0 and 1",
+              std::to_string(s.tracks.size()) + " tracks");
+    }
+
+    {
+        /* A chain playing channels 3 and 19 is a track on each port, both
+           named for it; a chanarg on 19 goes with its notes. */
+        thcMidiFile f(120);
+
+        f.setChainName(0, "lead");
+        f.add(note(0, 2, 60, 100, 1), 0);
+        f.add(note(0, 18, 64, 100, 1), 0);
+        f.add(chanarg(0.5, 18, "cutoff", 0.5));
+        f.end(2);
+
+        const Smf s = parse(f.bytes());
+        bool right = s.ok && s.tracks.size() == 3;
+
+        if (right)
+        {
+            const std::vector<Heard> a = heard(s.tracks[1]);
+            const std::vector<Heard> b = heard(s.tracks[2]);
+
+            right = metaText(s.tracks[1], 0x03) == "lead" &&
+                    metaText(s.tracks[2], 0x03) == "lead" &&
+                    portHead(s.tracks[1]) == -1 &&
+                    portHead(s.tracks[2]) == 1 &&
+                    a.size() == 1 && a[0].channel == 2 && a[0].key == 60 &&
+                    b.size() == 1 && b[0].channel == 2 && b[0].key == 64 &&
+                    changes(s.tracks[1]).empty() &&
+                    changes(s.tracks[2]).size() == 1;
+        }
+
+        check(right, "a chain on two ports is a track on each",
+              std::to_string(s.tracks.size()) + " tracks");
     }
 
     {

@@ -4496,6 +4496,37 @@ try
               `an arrangement that ends is exported to its end: ${status}`);
     }
 
+    /* Exported past MIDI's sixteen: a chain playing channels 1 and 20 is a
+       track on port 0 and one on port 1: the file has three tracks, an
+       FF 21 01 01, and notes on MIDI channels 1 and 4. */
+    {
+        await page.evaluate((text) =>
+        {
+            document.getElementById('gen').value = text;
+        }, 'name "ports";\ntempo 120;\nsection a 2 s { };\nsection end;\n' +
+           Array.from({ length: 20 }, (_, i) =>
+               `instrument i${i + 1} { dsp "organ0.dsp"; };\n`).join('') +
+           'chain both { stage g gen::grid { notes = "C4"; steps = 2;\n' +
+           '    rows = 1; cells = "x."; period = 0.5 s; hold = 0.25 s; };\n' +
+           '    sink { instrument = i1; }; sink { instrument = i20; }; };\n');
+        await page.click('#loadpiece');
+        await page.evaluate(() => window.solo.settled());
+
+        const [download] = await Promise.all([
+            page.waitForEvent('download', { timeout: 15000 }).catch(() => null),
+            page.click('#exportmidi'),
+        ]);
+        const bytes = download === null ? null
+            : fs.readFileSync(await download.path());
+
+        check(bytes !== null && bytes[11] === 3 &&
+              bytes.includes(Buffer.from([0xff, 0x21, 0x01, 0x01])) &&
+              bytes.includes(Buffer.from([0x90, 60])) &&
+              bytes.includes(Buffer.from([0x93, 60])),
+              'Export MIDI puts channel 20 on port 1, channel 4: ' +
+              `${bytes?.[11]} tracks, ${bytes?.length ?? 0} bytes`);
+    }
+
     /* A piece that pins no seed, on a page that has loaded nothing else:
      * the worklet that plays it and the mirror that draws it compose the
      * same piece -- the tapes agree, event for event. Each used to draw a
