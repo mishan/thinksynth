@@ -483,6 +483,7 @@ startPiece (int i)
     thcGenLoader loader(composers);
     const std::string text(PIECES[i].start, PIECES[i].end - PIECES[i].start - 1);
 
+    loader.setChannelLimit(COMPOSER_CHANNELS);
     if (!loader.loadText(text, PIECES[i].file, sched))
     {
         const std::string first = loader.errors().empty() ? "" : loader.errors()[0];

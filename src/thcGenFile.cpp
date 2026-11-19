@@ -35,7 +35,7 @@ thcGenLoader::thcGenLoader (const std::map<std::string, thcPlugin *> &plugins)
     : plugins_(plugins), pos_(0), meter_(4),
       sawSection_(false), sawBarStart_(false), sawSectionEnd_(false),
       sawCue_(false),
-      hasSeed_(false), seed_(0)
+      hasSeed_(false), seed_(0), channelLimit_(TH_ENGINE_CHANNELS)
 {
 }
 
@@ -4064,29 +4064,31 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
             Token num = take();
 
-            /* 1-16, the way every other place a person sees a channel in
-               this program spells one: the main window's patch tabs and
-               the Keyboard window's spinner have always counted from one,
-               and so does every sequencer anyone has used. The wire and
-               the engine count from zero, and the conversion belongs
-               here, at the file boundary, exactly as the note-name
-               parser does.
+            /* Counted from 1, the way every other place a person sees a
+               channel in this program spells one: the main window's patch
+               tabs and the Keyboard window's spinner have always counted
+               from one, and so does every sequencer anyone has used. The
+               wire and the engine count from zero, and the conversion
+               belongs here, at the file boundary, exactly as the
+               note-name parser does.
              *
                `channel = 0' was the whole of the old range's bottom and
                is now an error rather than channel 1, which is the one
                case where a file written for the old numbering can be
                told apart from one written for this. It says so. */
+            const std::string range = "1-" + std::to_string(channelLimit_);
+
             if (num.num == 0)
             {
-                error(num.line, "channel is 1-16 now, counting the way the "
-                      "patch tabs do; there is no channel 0");
+                error(num.line, "channel is " + range + " now, counting the "
+                      "way the patch tabs do; there is no channel 0");
                 return false;
             }
 
-            if (num.num < 1 || num.num > 16 ||
+            if (num.num < 1 || num.num > channelLimit_ ||
                 num.num != (double)(int)num.num)
             {
-                error(num.line, "channel is a whole number, 1-16");
+                error(num.line, "channel is a whole number, " + range);
                 return false;
             }
 
@@ -4301,13 +4303,13 @@ thcGenLoader::bindNodes (thcScheduler *sched)
 bool
 thcGenLoader::allocateChannels (thcScheduler *sched)
 {
-    bool taken[16];
+    std::vector<bool> taken(channelLimit_);
 
-    for (int i = 0; i < 16; i++)
+    for (int i = 0; i < channelLimit_; i++)
         taken[i] = sched->channelTaken(i);
 
     for (size_t i = 0; i < claimedChannels_.size(); i++)
-        if (claimedChannels_[i] >= 0 && claimedChannels_[i] < 16)
+        if (claimedChannels_[i] >= 0 && claimedChannels_[i] < channelLimit_)
             taken[claimedChannels_[i]] = true;
 
     for (size_t i = 0; i < sched->instruments().size(); i++)
@@ -4315,7 +4317,7 @@ thcGenLoader::allocateChannels (thcScheduler *sched)
         thcInstrument *inst = sched->instrument(i);
         int at = -1;
 
-        for (int c = 0; c < 16 && at < 0; c++)
+        for (int c = 0; c < channelLimit_ && at < 0; c++)
             if (!taken[c])
                 at = c;
 
@@ -4323,7 +4325,8 @@ thcGenLoader::allocateChannels (thcScheduler *sched)
         {
             error(i < instrumentLines_.size() ? instrumentLines_[i] : 0,
                   "there is no free channel left for instrument '" +
-                  inst->name + "'; sixteen is all there are");
+                  inst->name + "'; " + std::to_string(channelLimit_) +
+                  " is all there are");
             return false;
         }
 

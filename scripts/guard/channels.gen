@@ -1,0 +1,62 @@
+# channels.gen -- twenty instruments, more than MIDI's sixteen channels.
+#
+# Rendered through genwav, each of the twenty has to come back with a level
+# of its own (cmake/RunGenwavChannels.cmake), and the same piece through
+# wasm/genwav.mjs has to match it (wasm/compare.mjs, in CI).
+#
+# No seed: one Euclidean pattern, fanned out to every instrument, is the
+# same notes every time.
+
+name "Guard: twenty channels";
+description "One pattern played by twenty instruments at once.";
+
+tempo 120;
+
+instrument i01 { dsp "sound.dsp"; amp = 5; };
+instrument i02 { dsp "sound.dsp"; amp = 5; };
+instrument i03 { dsp "sound.dsp"; amp = 5; };
+instrument i04 { dsp "sound.dsp"; amp = 5; };
+instrument i05 { dsp "sound.dsp"; amp = 5; };
+instrument i06 { dsp "sound.dsp"; amp = 5; };
+instrument i07 { dsp "sound.dsp"; amp = 5; };
+instrument i08 { dsp "sound.dsp"; amp = 5; };
+instrument i09 { dsp "sound.dsp"; amp = 5; };
+instrument i10 { dsp "sound.dsp"; amp = 5; };
+instrument i11 { dsp "sound.dsp"; amp = 5; };
+instrument i12 { dsp "sound.dsp"; amp = 5; };
+instrument i13 { dsp "sound.dsp"; amp = 5; };
+instrument i14 { dsp "sound.dsp"; amp = 5; };
+instrument i15 { dsp "sound.dsp"; amp = 5; };
+instrument i16 { dsp "sound.dsp"; amp = 5; };
+instrument i17 { dsp "sound.dsp"; amp = 5; };
+instrument i18 { dsp "sound.dsp"; amp = 5; };
+instrument i19 { dsp "sound.dsp"; amp = 5; };
+instrument i20 { dsp "sound.dsp"; amp = 5; };
+
+chain all {
+    stage src gen::euclid {
+        steps = 4; fills = 2; rotate = 0;
+        notes = "C4";
+        period = 0.5 beats; hold = 0.4 beats; vel = 100;
+    };
+    sink { instrument = i01; };
+    sink { instrument = i02; };
+    sink { instrument = i03; };
+    sink { instrument = i04; };
+    sink { instrument = i05; };
+    sink { instrument = i06; };
+    sink { instrument = i07; };
+    sink { instrument = i08; };
+    sink { instrument = i09; };
+    sink { instrument = i10; };
+    sink { instrument = i11; };
+    sink { instrument = i12; };
+    sink { instrument = i13; };
+    sink { instrument = i14; };
+    sink { instrument = i15; };
+    sink { instrument = i16; };
+    sink { instrument = i17; };
+    sink { instrument = i18; };
+    sink { instrument = i19; };
+    sink { instrument = i20; };
+};

@@ -495,7 +495,9 @@ sentence in §4a still holds: an instrument's surface is what it declares.
 **Channels are allocated, not declared.** Each instrument gets the lowest
 channel that no `channel = N` sink in the file has claimed and that nothing
 else is already loaded on, taken in declaration order — so the first instrument
-usually lands on channel 1, where somebody looking for it would look. Opening a
+usually lands on channel 1, where somebody looking for it would look. There
+are 64, or as many as the host holds (16 on the ESP32 box); a piece with more
+instruments than that is refused. Opening a
 piece never replaces a patch you loaded yourself; it takes what is free. Given
 the same starting state the assignment is the same every time, which matters
 more than it sounds, because patch tabs, saved mixer settings and the roll's
@@ -713,8 +715,9 @@ the primary spelling and the one a self-contained piece uses. `channel = N`
 stays in the language for the case it was always really for: driving a patch
 this piece does not own and did not load.
 
-**Channels are 1–16.** That is the number on the main window's patch tab and
-in the keyboard's channel spinner, and it is what every sequencer shows; the
+**Channels are 1-64**, or as many as the host holds (16 on the ESP32 box),
+counted from 1 as the main window's patch tabs and the keyboard's channel
+spinner count, and as every sequencer shows; the
 wire and the engine count from zero, and the conversion happens here at the
 file boundary the way note names are resolved here rather than in a plugin.
 `channel = 0` is an error rather than channel 1, and says why — it is the one
@@ -1288,7 +1291,7 @@ sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
                                                        # instrument or
                                                        #   channel, not both
                                                        # knob alone
-                                                       # channel is 1-16
+                                                       # channel is 1-64
                                                        # STRING = a name,
                                                        #   "fx." a name,
                                                        #   or "*"
