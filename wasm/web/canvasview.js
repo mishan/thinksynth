@@ -47,8 +47,9 @@
  * composer view does, to its width. The node editor does not: a patch is
  * wide -- ts1 is 1888 pixels of graph -- so any fit into a page-width box
  * is a halving or worse, and half-size node labels are a picture of a
- * patch rather than a patch you can work on. It opens at 1:1 and has a
- * Fit button for the other question.
+ * patch rather than a patch you can work on. It opens fitted only when
+ * that shrinks it little (nodeview.js, FIT_FLOOR), at 1:1 otherwise, and
+ * has a Fit button for the other question.
  */
 
 import { replay } from './replay.js';
