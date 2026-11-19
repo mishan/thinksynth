@@ -1672,6 +1672,103 @@ async function queuesBounded ()
     }
 }
 
+/* Empty rooms go for what an update was charged once it is in, and not
+   for what pricing it said it might need: a sync message of a kind there
+   is none of, carrying an update just past what the relay has left,
+   costs its socket and lets no room go; the same update sent as an
+   update goes in, and the room empty longest goes to make room for it. */
+async function roomsFreedForWhatGoesIn ()
+{
+    /* What a room with its piece costs, measured, so that the budgets
+       below hold whatever the piece is: the relay has half a room left
+       with two in it, and the update fits in a room but in the relay
+       only once the empty one goes. */
+    const until = async (ok, ms = 5000) =>
+    {
+        for (const end = Date.now() + ms; !ok() && Date.now() < end;)
+            await new Promise((r) => setTimeout(r, 20));
+
+        return ok();
+    };
+    const hello = async (q, room) =>
+    {
+        const c = new Client(`ws://127.0.0.1:${q.address().port}/room/` +
+                             room, room);
+
+        await c.open();
+        c.send({ type: 'hello', name: room, protocol: PROTOCOL,
+                 tickets: true });
+        c.said = await c.next('welcome');
+        return c;
+    };
+    const probe = await relay({ port: 0, host: '127.0.0.1', tree });
+    let room;
+
+    try
+    {
+        (await hello(probe, 'measured')).close();
+        room = probe.rooms.get('measured').bytes;
+    }
+    finally
+    {
+        probe.shutdown();
+    }
+
+    const most = Math.round(2.5 * room);
+    const q = await relay({ port: 0, host: '127.0.0.1', tree, roomsMax: 3,
+                            roomsMaxBytes: most, roomMaxBytes: 2 * room });
+
+    try
+    {
+        const gone = await hello(q, 'emptied');
+
+        gone.close();
+
+        const emptied = await until(() =>
+            q.rooms.get('emptied')?.peers.size === 0);
+        const a = await hello(q, 'edited');
+        const left = most - [...q.rooms.values()]
+            .reduce((n, r) => n + r.bytes, 0);
+        const big = new Y.Doc();
+
+        /* Two bytes a character, as the rooms are charged for text. */
+        big.getText('t').insert(0, 'x'.repeat(Math.ceil(left / 2) + 2048));
+
+        const update = frame(big);
+        const kind3 = Uint8Array.from(update);
+
+        kind3[1] = 3;
+
+        const d = await docSocket(q, 'edited', a.said.ticket);
+
+        d.send(kind3);
+
+        const cut = await refused(d);
+        const kept = q.rooms.has('emptied');
+        const e = await docSocket(q, 'edited', a.said.ticket);
+
+        e.send(update);
+
+        const took = await until(() =>
+            q.rooms.get('edited').doc.getText('t').length > 0);
+
+        check(emptied && left > 0 && cut && kept && took &&
+              !q.rooms.has('emptied'),
+              'a sync message of no known kind costs its socket and lets ' +
+              'no empty room go; the update it carried, sent as one, goes ' +
+              'in and the empty room goes for it: ' + JSON.stringify(
+                  { room, left, cut, kept, took,
+                    emptiedAfter: q.rooms.has('emptied') }));
+
+        e.close();
+        a.close();
+    }
+    finally
+    {
+        q.shutdown();
+    }
+}
+
 /* A room is made by a hello the relay welcomes and by nothing else, and
    only so many, by count, by what they hold and by who asks. */
 async function roomsBounded ()
@@ -4575,6 +4672,7 @@ try
     await metricsServed();
     await queuesBounded();
     await roomsBounded();
+    await roomsFreedForWhatGoesIn();
     await ratesLimited();
     await fanoutBounded();
     await inBytesBounded();

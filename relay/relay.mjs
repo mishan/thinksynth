@@ -1245,7 +1245,8 @@ function admit (m, accounts)
    a hello's session counts (`sessions'), the `traffic' counted and the
    send `queues'; the `empties', room -> true, empty longest first, the
    rooms' `costs' ({ bytes }), and `spare', whether they may be charged
-   so much more for this one; the `limits' (LIMITS), the most peers and
+   so much more for this one, and `fits', the same without letting any
+   go; the `limits' (LIMITS), the most peers and
    bytes a room may have (`peersMax', `bytesMax'), and `updatesIn',
    whether a client's address may send so many bytes of updates. */
 class Room
@@ -1495,10 +1496,10 @@ class Room
        answer to the relay's step 1, from a page with nothing new -- or
        frees as much as it adds is taken, so a room at its most is still
        joined, read and cut down. One that
-       fits only without the run's commands overflows the run
-       (LOG_BYTES_MAX), and one that does not fit even then leaves them
-       be. Asking whether the rooms may be charged it lets go of the empty
-       rooms it needs, so it is asked once for each. */
+       fits only without the run's commands is taken, and the run
+       overflows (LOG_BYTES_MAX) once it is in (makeRoom); one that does
+       not fit even then leaves them be. Nothing is let go of here: the
+       update may yet add less than this, or nothing. */
     refusal (bytes)
     {
         const dec = decoding.createDecoder(bytes);
@@ -1509,21 +1510,32 @@ class Room
         const cost = growthOf(this.doc, decoding.readVarUint8Array(dec));
         const over = (bytes) =>
             this.bytes + bytes > this.ctx.bytesMax ? TOO_BIG
-                : !this.ctx.spare(this, bytes) ? RELAY_FULL : null;
+                : !this.ctx.fits(this, bytes) ? RELAY_FULL : null;
 
         if (cost <= 0)
             return null;
 
         const why = over(cost);
 
-        if (why !== null && this.run?.bytes > 0 &&
-            over(cost - this.run.bytes) === null)
-        {
-            this.overflow();
-            return null;
-        }
+        return why !== null && this.run?.bytes > 0 &&
+               over(cost - this.run.bytes) === null ? null : why;
+    }
 
-        return why;
+    /* After an update is in, room for what it was charged: the run's
+       commands, if the room or the relay is past its most without them,
+       and then the rooms empty longest. What it was charged and not what
+       it was priced at, which a frame Yjs took only part of, or that
+       added nothing, would overstate. A room already past its most for
+       what it holds pending (settle) overflows here even on a frame that
+       added nothing, a joiner's step 1 among them -- a little before the
+       next command would have done it. */
+    makeRoom ()
+    {
+        if (this.run?.bytes > 0 &&
+            (this.bytes > this.ctx.bytesMax || !this.ctx.fits(this, 0)))
+            this.overflow();
+
+        this.ctx.spare(this, 0);
     }
 
     broadcastDoc (bytes)
@@ -2066,7 +2078,11 @@ class Room
                byte each. Written in more, a step 1 here would be an
                update to the decoder, taken without being read for what
                it adds. */
-            if (bytes[0] > 0x7f || (bytes[0] === MSG_SYNC && bytes[1] > 0x7f))
+            /* A sync message is one of three kinds, and any other is
+               closed here rather than priced as an update for
+               y-protocols to throw on. */
+            if (bytes[0] > 0x7f || (bytes[0] === MSG_SYNC &&
+                                    bytes[1] > syncProtocol.messageYjsUpdate))
             {
                 ws.close();
                 return;
@@ -2126,6 +2142,7 @@ class Room
                         encoding.writeVarUint(enc, MSG_SYNC);
                         syncProtocol.readSyncMessage(dec, enc, this.doc, ws);
                         this.settle(ws);
+                        this.makeRoom();
 
                         /* A reply only when there is one: step 2 in answer
                            to step 1, or nothing in answer to an update. */
@@ -3076,7 +3093,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     };
 
     /* Whether room `r' may be charged `bytes' more, the rooms empty
-       longest let go of to make room for it. */
+       longest let go of to make room for it -- or only whether it may,
+       with none let go of (`fits'). */
     const spare = (r, bytes) =>
     {
         const going = toLetGo(bytes, 0, r);
@@ -3084,6 +3102,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         going?.forEach(forget);
         return going !== null;
     };
+    const fits = (r, bytes) => toLetGo(bytes, 0, r) !== null;
 
     /* A new room for `client', or `{ why, text, retryMs }' if it may not
        have one. Past the caps, the rooms empty longest go first to make
@@ -3406,7 +3425,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     };
     const trim = setInterval(relieve, QUEUE_CHECK_MS);
     const ctx = { tickets, ticketMs, tree, sessions: corsOrigin !== null,
-                  traffic, queues, empties, costs, spare, limits: rates,
+                  traffic, queues, empties, costs, spare, fits,
+                  limits: rates,
                   peersMax, bytesMax: roomMaxBytes, updatesIn };
 
     trim.unref();

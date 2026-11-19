@@ -484,13 +484,14 @@ they are charged, and times a long text split three thousand times.
 
 ## 9. Smaller relay gaps
 
-- **Every update is read twice.** `refusal()` decodes it to price it
-  and the apply decodes it again, about 85% more on a large update.
-  Pricing from the apply's own read, or applying what was priced, would
-  read it once.
-- **Empty rooms go for an update that is then not taken.** `refusal()`
-  lets go of the empty rooms an update needs before it is applied; one
-  that then fails to decode has cost them for nothing.
+- **Every update is read twice, and stays so.** `refusal()` decodes it
+  to price it and the apply decodes it again. Measured with Yjs 13.6, the
+  second read is 13% to 89% of what applying costs depending on the
+  update's shape, and 0.5 to 1 ms on a large one; at a client's
+  `DOC_IN_BYTES` rate that is at most a few percent of a core per client.
+  Yjs has no way to apply what was decoded, and pricing inside its read
+  would tie the relay to its internals, which the saving does not pay
+  for.
 - **`Queues.trim` may count a fan-out Buffer once per socket.** A line
   sent to a room is one Buffer in every recipient's `bufferedAmount`,
   so the total can be several times what is held, and sockets cut past
