@@ -208,10 +208,11 @@ pre
 
 /* What is selected, cut to the room the toolbar has left: text that
    wrapped the row would move the graph under the pointer each time the
-   selection changed it. */
+   selection changed it. Room enough for a name, or it goes down a line
+   with the zoom. */
 #nodeselected
 {
-    flex: 1 1 0;
+    flex: 1 1 12em;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
@@ -225,6 +226,25 @@ pre
     align-items: center;
     margin: 0.8em 0;
     flex-wrap: wrap;
+}
+
+/* The graph's toolbar, in groups that wrap whole, the zoom keeping the
+   right-hand end. */
+.tools
+{
+    gap: 0.5em 1.1em;
+}
+
+.tools > span:not(#nodeselected)
+{
+    display: flex;
+    align-items: center;
+    gap: 0.35em;
+}
+
+.tools > .zoom
+{
+    margin-left: auto;
 }
 
 /* The chrome, which is a row with the title in it rather than a title

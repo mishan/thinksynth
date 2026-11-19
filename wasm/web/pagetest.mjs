@@ -3064,10 +3064,11 @@ try
         const name = await page.evaluate((i) => window.solo.node().box(i).name,
                                          arrowed);
         const said = () => page.$eval('#nodesay', (e) => e.textContent);
+        const heard = () => page.$eval('#nodeheard', (e) => e.textContent);
 
-        check((await said()).startsWith(`${name}, `),
-              `the graph's own line says where the arrow went: ` +
-              `${await said()}`);
+        check((await heard()).startsWith(`${name}, `),
+              `the graph says where the arrow went, to a screen reader: ` +
+              `${await heard()}`);
         /* One first, so the file has a layout block to read numbers from:
            this patch has none until something moves. */
         const plain = await dsp();
