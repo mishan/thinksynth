@@ -492,10 +492,6 @@ they are charged, and times a long text split three thousand times.
   Yjs has no way to apply what was decoded, and pricing inside its read
   would tie the relay to its internals, which the saving does not pay
   for.
-- **`Queues.trim` may count a fan-out Buffer once per socket.** A line
-  sent to a room is one Buffer in every recipient's `bufferedAmount`,
-  so the total can be several times what is held, and sockets cut past
-  `QUEUED_TOTAL_MAX_BYTES` sooner than they need be.
 
 ## 10. What the network harness found
 

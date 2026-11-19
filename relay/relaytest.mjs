@@ -57,7 +57,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import { dspNames, fileNames, hashOf, pieceName, pieceText, readFile, seenOf,
          snapshot } from '../wasm/web/doc.js';
 import { AccountStore, runAdmin } from './accounts.mjs';
-import { PROTOCOL, relay } from './relay.mjs';
+import { PROTOCOL, Queues, relay } from './relay.mjs';
 import { Room } from '../wasm/web/room.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1670,6 +1670,113 @@ async function queuesBounded ()
     {
         t.shutdown();
     }
+}
+
+/* What the relay holds queued, counted as it holds it: a frame sent to
+   many sockets is one frame however many queue it, and each is charged
+   its share. Sockets standing in for ws's, which queue what is sent,
+   write it in order and call back for each, and on a close call back for
+   what is left: random sends to one and fanned to many, writes and
+   closes, and after each, trim's total held against what is queued,
+   each frame once. */
+function queuesCountFannedOnce ()
+{
+    let seed = 7;
+    const rnd = () =>
+    {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed / 2147483648;
+    };
+    const fake = () =>
+    {
+        const ws = { OPEN: 1, readyState: 1, bufferedAmount: 0, queue: [],
+                     closers: [], _socket: { cork () {}, uncork () {},
+                                             destroyed: false } };
+
+        ws.send = (data, opts, cb) =>
+        {
+            ws.queue.push({ data, cb });
+            ws.bufferedAmount += data.length;
+        };
+        ws.once = (ev, f) => ev === 'close' && ws.closers.push(f);
+        ws.terminate = () => ws.close();
+        ws.write = () =>
+        {
+            const q = ws.queue.shift();
+
+            if (q === undefined)
+                return;
+
+            ws.bufferedAmount -= q.data.length;
+            q.cb?.();
+        };
+        ws.close = () =>
+        {
+            ws.readyState = 3;
+            ws._socket.destroyed = true;
+            ws.closers.forEach((f) => f());
+
+            for (const q of ws.queue.splice(0))
+                q.cb?.(new Error('closed'));
+
+            ws.bufferedAmount = 0;
+        };
+        return ws;
+    };
+    const sockets = new Set(Array.from({ length: 6 }, fake));
+    const queues = new Queues(() => [sockets],
+                              { socketMax: 1 << 30, totalMax: 1 << 30 });
+    let worst = 0;
+
+    for (let step = 0; step < 4000; step++)
+    {
+        const open = [...sockets].filter((ws) => ws.readyState === 1);
+        const pick = () => open[Math.floor(rnd() * open.length)];
+        const r = rnd();
+
+        if (open.length === 0)
+            sockets.add(fake());
+        else if (r < 0.35)
+        {
+            const to = open.filter(() => rnd() < 0.6);
+            const frame = Buffer.alloc(1 + Math.floor(rnd() * 2000));
+
+            for (const ws of to)
+                queues.send(ws, frame, {}, to.length > 1);
+        }
+        else if (r < 0.5)
+            queues.send(pick(), Buffer.alloc(1 + Math.floor(rnd() * 2000)));
+        else if (r < 0.97)
+            pick().write();
+        else
+        {
+            pick().close();
+            sockets.add(fake());
+        }
+
+        queues.trim();
+
+        const held = new Set();
+        let truth = 0;
+
+        for (const ws of sockets)
+            if (ws.readyState === 1)
+                for (const { data, cb } of ws.queue)
+                    if (cb === undefined)
+                        truth += data.length;
+                    else if (!held.has(data))
+                    {
+                        held.add(data);
+                        truth += data.length;
+                    }
+
+        worst = Math.max(worst, Math.abs(queues.ownBytes +
+                                         queues.sharedBytes - truth));
+    }
+
+    check(worst < 1e-6,
+          'a frame fanned to many sockets is counted once in what the ' +
+          `relay holds queued, through sends, writes and closes: ${worst}`);
 }
 
 /* Empty rooms go for what an update was charged once it is in, and not
@@ -4673,6 +4780,7 @@ try
     await queuesBounded();
     await roomsBounded();
     await roomsFreedForWhatGoesIn();
+    queuesCountFannedOnce();
     await ratesLimited();
     await fanoutBounded();
     await inBytesBounded();

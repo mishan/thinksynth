@@ -539,8 +539,10 @@ function sendLine (queues, traffic, to, m)
     const line = Buffer.from(JSON.stringify(m));
     let n = 0;
 
+    const fanned = to.length > 1;
+
     for (const ws of to)
-        n += queues.send(ws, line, TEXT);
+        n += queues.send(ws, line, TEXT, fanned);
 
     traffic?.roomOut(m.type, line.length, n);
     return n > 0 ? line.length : 0;
@@ -653,7 +655,7 @@ function cursorOf (c)
    discards (clock.js keeps the shortest). Past CORK_MAX_BYTES it is
    written at once: the gain is in small frames, and what waits on a cork
    is not yet the kernel's, and would count against the socket's cap. */
-class Queues
+export class Queues
 {
     /* `sockets' gives every socket's set. */
     constructor (sockets, { socketMax, totalMax })
@@ -663,6 +665,8 @@ class Queues
         this.totalMax = totalMax;
         this.shared = new Map();        /* held frame -> sockets holding it */
         this.sharedBytes = 0;           /* their sizes, added up */
+        this.fannedBy = new Map();      /* fanned frame -> copies queued */
+        this.fannedTotal = 0;           /* their sizes, each once */
         this.ownBytes = 0;              /* the rest, as of the last trim */
         this.corked = new Set();
         this.uncork = () =>
@@ -706,15 +710,16 @@ class Queues
        already, and no cut: for what one peer sends another, which a
        flood of it must not cost the other its socket. Whether it was
        sent. */
-    offer (ws, data, opts = {})
+    offer (ws, data, opts = {}, fanned = false)
     {
         return this.own(ws) + data.length <= this.socketMax / 2 &&
-               this.send(ws, data, opts);
+               this.send(ws, data, opts, fanned);
     }
 
     /* `data' onto `ws''s queue, or the socket cut if that puts it over
-       its cap. Whether it was sent. */
-    send (ws, data, opts = {})
+       its cap. Whether it was sent. `fanned' when the same `data' goes
+       to other sockets too (fan). */
+    send (ws, data, opts = {}, fanned = false)
     {
         if (ws.readyState !== ws.OPEN)
             return false;
@@ -725,8 +730,86 @@ class Queues
             return false;
         }
 
-        this.put(ws, data, opts);
+        if (fanned)
+            this.fan(ws, data);
+
+        this.put(ws, data, opts, fanned ? ws.unfan : undefined);
         return true;
+    }
+
+    /* One copy of a frame sent to many, queued on `ws': its socket's cap
+       counts it whole, as the queue holds it, but the relay holds it once
+       however many copies there are (trim). Let go of as it is written --
+       a stream's write callbacks come in order, so one per socket takes
+       the oldest -- or when the socket closes. */
+    fan (ws, data)
+    {
+        if (ws.fanned === undefined)
+        {
+            ws.fanned = [];
+            ws.fannedBytes = 0;
+            ws.unfan = () => this.unfan(ws);
+            ws.once('close', () =>
+            {
+                while (ws.fanned.length > 0)
+                    this.unfan(ws);
+            });
+        }
+
+        const copies = this.fannedBy.get(data) ?? 0;
+
+        if (copies === 0)
+            this.fannedTotal += data.length;
+
+        ws.fanned.push(data);
+        ws.fannedBytes += data.length;
+        this.fannedBy.set(data, copies + 1);
+    }
+
+    unfan (ws)
+    {
+        const data = ws.fanned.shift();
+
+        if (data === undefined)
+            return;
+
+        ws.fannedBytes -= data.length;
+
+        const left = this.fannedBy.get(data) - 1;
+
+        if (left === 0)
+        {
+            this.fannedBy.delete(data);
+            this.fannedTotal -= data.length;
+        }
+        else
+            this.fannedBy.set(data, left);
+    }
+
+    /* What `ws' is charged of what the relay holds queued: its own
+       frames, and its share of every frame it holds or has had fanned to
+       it with others -- the last a walk of what it has queued, so only
+       when it is asked which socket to cut (trim) or which room to shed. */
+    charge (ws)
+    {
+        let bytes = this.unfanned(ws);
+
+        for (const f of ws.fanned ?? [])
+            bytes += f.length / this.fannedBy.get(f);
+
+        return bytes;
+    }
+
+    /* The same without what was fanned to it, which the relay-wide total
+       has once (fannedTotal). */
+    unfanned (ws)
+    {
+        let bytes = this.own(ws) - (ws.fannedBytes ?? 0);
+
+        for (const [p, k] of ws.held ?? [])
+            bytes += p.length * k / this.shared.get(p);
+
+        return bytes;
     }
 
     /* A message `ws' asked for, in `parts', which may be over the cap and
@@ -825,17 +908,17 @@ class Queues
             ws.cut();
     }
 
-    /* Relay-wide: a held frame counted once, and each socket charged its
-       share of it. Over the total, the socket holding the most goes now,
-       without waiting on a close: what it holds is what the relay is
-       short of. One gone already is not counted, though its queue is
-       until its close comes, or it would be cut for again. What a socket
-       has had queued for others is not its to free, and is bounded where
-       it is sent (FANOUT_BYTES). */
+    /* Relay-wide: a frame held or fanned to many counted once, and each
+       socket charged its share of it (charge). Over the total, the
+       socket charged the most goes now, without waiting on a close: what
+       it holds is what the relay is short of. One gone already is not
+       counted, though its queue is until its close comes, or it would be
+       cut for again. What a socket has had queued for others is not its
+       to free, and is bounded where it is sent (FANOUT_BYTES). */
     trim ()
     {
-        const charged = [];
-        let total = 0;
+        const open = [];
+        let total = this.fannedTotal;
 
         for (const set of this.sockets())
             for (const ws of set)
@@ -843,19 +926,16 @@ class Queues
                 if (!ws._socket || ws._socket.destroyed)
                     continue;
 
-                let bytes = this.own(ws);
-
-                for (const [p, k] of ws.held ?? [])
-                    bytes += p.length * k / this.shared.get(p);
-
-                total += bytes;
-                charged.push([bytes, ws]);
+                total += this.unfanned(ws);
+                open.push(ws);
             }
 
         this.ownBytes = total - this.sharedBytes;
 
         if (total <= this.totalMax)
             return;
+
+        const charged = open.map((ws) => [this.charge(ws), ws]);
 
         charged.sort((a, b) => b[0] - a[0]);
 
@@ -1540,10 +1620,11 @@ class Room
 
     broadcastDoc (bytes)
     {
+        const fanned = this.docConns.size > 1;
         let n = 0;
 
         for (const ws of this.docConns)
-            if (this.ctx.queues.send(ws, bytes))
+            if (this.ctx.queues.send(ws, bytes, {}, fanned))
                 n++;
 
         this.ctx.traffic?.docOut(bytes, n);
@@ -2248,12 +2329,14 @@ class Room
                 : new Set((Array.isArray(to) ? to.slice(0, this.ctx.peersMax)
                                              : [to]).map(String));
             const lossy = m.type === 'relayed' || m.type === 'signal';
+            const fanned = (ids?.size ??
+                            this.peers.size - this.peers.has(id)) > 1;
             let n = 0;
             const put = (p) =>
             {
                 if (p !== undefined &&
-                    (lossy ? this.ctx.queues.offer(p.ws, s, TEXT)
-                           : this.ctx.queues.send(p.ws, s, TEXT)))
+                    (lossy ? this.ctx.queues.offer(p.ws, s, TEXT, fanned)
+                           : this.ctx.queues.send(p.ws, s, TEXT, fanned)))
                     n++;
             };
 
@@ -3374,12 +3457,12 @@ export function relay ({ port = 8787, host = '0.0.0.0',
         const runs = [...rooms.values()].filter((r) => r.spareBytes > 0)
             .sort((a, b) => b.spareBytes - a.spareBytes);
 
-        /* With what its sockets have queued, which it is not charged: a
-           page that stops reading holds what it is sent until Queues.trim
-           cuts it. */
+        /* With what its sockets have queued, beside what its document is
+           charged: a page that stops reading holds what it is sent until
+           Queues.trim cuts it. */
         const weight = (r) => [...r.peers.values()].map((p) => p.ws)
             .concat([...r.docConns])
-            .reduce((n, ws) => n + ws.bufferedAmount, r.bytes);
+            .reduce((n, ws) => n + queues.charge(ws), r.bytes);
         const most = [...rooms.values()].filter((r) => !r.empty)
             .map((r) => [weight(r), r])
             .sort(([a, ra], [b, rb]) =>
