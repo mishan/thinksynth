@@ -123,5 +123,85 @@ report('notes and values among them',
        want.some((w) => w.includes('"kind":"value"')) ? '' :
        'no note or no value in what was played');
 
+/* The captures' reports broken at random, the same way every run, through
+   a fresh module: no trap, and every answer JSON whose numbers are finite
+   and whose notes are MIDI's -- a NaN printed as `nan' is no JSON at all.
+   Natively the sanitizers hold the decoder to its buffers (scripts/hidcheck);
+   here it is the browser's build that answers. */
+{
+    const F = await createThinkHid();
+    const seeds = captures.map(reports);
+    let rng = 1, at = 1, why = '';
+    const next = () =>
+    {
+        rng ^= rng << 13;
+        rng >>>= 0;
+        rng ^= rng >>> 17;
+        rng ^= rng << 5;
+        return (rng >>>= 0);
+    };
+    const add = (serial) => F.ccall('th_add', 'number',
+                                    ['string', 'string', 'number'],
+                                    ['', serial, at]);
+    const ids = [add('A'), add('B')];
+    const sane = (text) =>
+    {
+        for (const a of JSON.parse(text))
+        {
+            for (const k of ['channel', 'note', 'velocity', 't', 'aux', 'min', 'max'])
+                if (k in a && !Number.isFinite(a[k]))
+                    return `${k} is ${a[k]}`;
+            if ((a.kind === 'on' || a.kind === 'off') &&
+                !(a.note >= 0 && a.note <= 127 && a.velocity >= 0 && a.velocity <= 127))
+                return `note ${a.note}, velocity ${a.velocity}`;
+        }
+        return '';
+    };
+
+    for (let n = 0; n < 20000 && why === ''; n++)
+    {
+        /* thhHost::From: a wired input's, its IMU's, a dongle's. */
+        const from = next() % 3;
+        const pool = seeds[[1, 2, 0][from]];
+        const r = Uint8Array.from(pool[next() % pool.length]);
+        let len = r.length;
+
+        for (let e = 1 + next() % 4; e > 0 && len > 0; e--)
+            switch (next() % 4)
+            {
+            case 0: r[next() % len] ^= 1 << next() % 8; break;
+            case 1: r[next() % len] = next() & 0xff; break;
+            case 2: r[Math.min(2, len - 1)] = next() % 32; break;
+            case 3: len = next() % (len + 1); break;
+            }
+
+        const k = next() % 2;
+
+        at += 0.004;
+        try
+        {
+            const gone = F.ccall('th_report', 'number',
+                                 ['number', 'number', 'array', 'number', 'number'],
+                                 [ids[k], from, r.subarray(0, len), len, at]);
+
+            F.ccall('th_tick', 'number', ['number'], [at]);
+            why = sane(F.ccall('th_take', 'string', [], []));
+            JSON.parse(F.ccall('th_pane', 'string', [], []));
+            if (gone)
+            {
+                F.ccall('th_drop', null, ['number', 'number'], [ids[k], at]);
+                ids[k] = add(`C${n}`);
+            }
+        }
+        catch (e)
+        {
+            why = `threw: ${e.message}`;
+        }
+        if (why !== '')
+            why += `, at the ${n + 1}th`;
+    }
+    report('20,000 broken reports through the browser\'s module', why);
+}
+
 console.log(`\n${failed} failure${failed === 1 ? '' : 's'}`);
 process.exit(failed);
