@@ -44,13 +44,15 @@ void gthMidiPlay::setMpe (int channel)
         ch.held.clear();
     }
     for (int c = 0; c < TH_ENGINE_CHANNELS; c++)
+    {
         for (int n = 0; n < 128; n++)
             owner_[c][n] = -1;
+        pedalBy_[c].clear();
+    }
     for (int c = 0; c < 16; c++)
     {
         for (int n = 0; n < 128; n++)
             targets_[c][n].clear();
-        pedal_[c].clear();
     }
     ranges();
 }
@@ -159,9 +161,10 @@ void gthMidiPlay::letGo (int c, int note)
 
 /* SusPedal holds the controller's own 0..127, as
    thSynth::handleMidiController puts it. Down reaches every engine
-   channel the MIDI channel's notes can go to now; up reaches every one
+   channel the MIDI channel's notes can go to now. Up reaches every one
    it went down on as well, so a route changed between the two strands no
-   held note. */
+   held note -- but lets a channel up only once no other MIDI channel's
+   pedal holds it down. */
 void gthMidiPlay::sustain (int c, int value)
 {
     std::vector<int> reach;
@@ -171,23 +174,28 @@ void gthMidiPlay::sustain (int c, int value)
     else
         routes_.reach(c, reach);
 
-    std::vector<int> &down = pedal_[c];
+    const float v = (float)std::min(value, MIDIVALMAX);
 
-    if (value < 64)
-        for (int e : down)
-            if (std::find(reach.begin(), reach.end(), e) == reach.end())
-                reach.push_back(e);
-
-    for (int e : reach)
-        synth_->setChanArg(e, new thArg("SusPedal",
-                                        (float)std::min(value, MIDIVALMAX)));
-
-    if (value < 64)
-        down.clear();
-    else
+    if (value >= 64)
+    {
         for (int e : reach)
-            if (std::find(down.begin(), down.end(), e) == down.end())
-                down.push_back(e);
+        {
+            pedalBy_[e].insert(c);
+            synth_->setChanArg(e, new thArg("SusPedal", v));
+        }
+
+        return;
+    }
+
+    for (int e = 0; e < TH_ENGINE_CHANNELS; e++)
+    {
+        const bool held = pedalBy_[e].erase(c) > 0;
+
+        if ((held || std::find(reach.begin(), reach.end(), e) !=
+                         reach.end()) &&
+            pedalBy_[e].empty())
+            synth_->setChanArg(e, new thArg("SusPedal", v));
+    }
 }
 
 void gthMidiPlay::play (unsigned char status, unsigned char data1,

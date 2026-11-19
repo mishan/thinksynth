@@ -250,6 +250,27 @@ checkNamed (const std::string &plugins, const std::string &graph)
     {
         Rig r(plugins, graph);
 
+        r.midi.routes().set(thMidiRoutes::PIECE, { { 0, 5 }, { 1, 7 } });
+        r.send(0xb0, 64, 127);              /* MIDI 1's pedal onto 5 */
+        r.send(0xb1, 64, 127);              /* MIDI 2's onto 7 */
+        r.send(0x91, 60, 100);
+        r.send(0x81, 60, 0);
+        r.midi.routes().set(thMidiRoutes::PIECE, { { 0, 7 }, { 1, 7 } });
+        r.send(0xb0, 64, 0);                /* 7 is MIDI 2's still */
+        r.settle();
+
+        const bool kept = r.sounding(7, 60);
+
+        r.send(0xb1, 64, 0);
+        r.settle();
+        check(kept && !r.sounding(7, 60),
+              "a pedal let up on a channel another still holds down leaves "
+              "it down until that one lets up");
+    }
+
+    {
+        Rig r(plugins, graph);
+
         r.midi.routes().set(thMidiRoutes::PIECE, { { 0, 5 } });
         r.send(0x90, 60, 100);
         r.midi.routes().set(thMidiRoutes::PIECE, { { 0, 7 } });

@@ -20,6 +20,7 @@
 #define GTH_MIDI_PLAY_H
 
 #include <functional>
+#include <set>
 #include <vector>
 
 #include "think.h"
@@ -37,7 +38,8 @@ class thSynth;
    the engine channels its note-on went to: its off, a second on for its
    key, and its bend, pressure and timbre go there, whatever the routes
    say by then. The sustain pedal goes down on every engine channel its
-   MIDI channel reaches and comes up on every one it went down on. With MPE
+   MIDI channel reaches and comes up on every one it went down on that no
+   other MIDI channel's pedal still holds. With MPE
    on (setMpe), the lower zone is folded onto one synth channel: channel 1
    is its master, whose bend bends every note, and each of 2-16 carries one
    note whose own bend (48 semitones either way unless the controller says
@@ -85,9 +87,10 @@ private:
     thMidiRoutes routes_;
 
     /* The engine channels each held note's on went to, by MIDI channel
-       and key; and those each MIDI channel's pedal went down on. */
+       and key; and the MIDI channels whose pedal holds each engine
+       channel's down. */
     std::vector<int> targets_[16][128];
-    std::vector<int> pedal_[16];
+    std::set<int>    pedalBy_[TH_ENGINE_CHANNELS];
 
     void ranges ();
 
