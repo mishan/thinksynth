@@ -33,7 +33,7 @@
 
 #include "PatchSet.h"
 
-#define NUM_PATCHES 16
+#define NUM_PATCHES TH_ENGINE_CHANNELS
 
 class thArg;
 class thMidiChan;

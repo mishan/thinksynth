@@ -100,7 +100,7 @@ protected:
 
     /* Channels lists only the channels with something on them; Add
        channel... loads a graph onto the lowest one without, which is -1
-       when all sixteen are taken. */
+       when every one is taken. */
     int firstFreeChannel (void);
     void onAddChannel (void);
 
