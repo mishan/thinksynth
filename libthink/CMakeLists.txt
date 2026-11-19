@@ -27,6 +27,7 @@ set(THINK_SOURCES
     thPlugin.cpp
     thMidiControllerConnection.cpp
     thMidiController.cpp
+    thMidiRoutes.cpp
     thSoundFile.cpp
     thVideoBridge.cpp
     thVideoFile.cpp
