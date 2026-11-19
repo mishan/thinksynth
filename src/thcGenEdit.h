@@ -107,6 +107,10 @@ public:
            and -1: where the instrument plays when a port answers. */
         std::string midi;
         int midiChannel = -1;
+
+        /* Each `midiin = 3 { low = C4; }' as written, without its `;':
+           the live input it plays. */
+        std::vector<std::string> midiIns;
     };
 
     struct Chain
