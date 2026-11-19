@@ -1486,7 +1486,11 @@ instruments, where `N` is that engine number. The event lines keep their
 existing format.
 
 `genwav --midi FILE.mid` writes the delivered events as a Standard MIDI File
-(src/thcMidiFile.h says what each becomes). So do the Composer's **Export
+(src/thcMidiFile.h says what each becomes). MIDI has 16 channels and the
+engine 64, so engine channel e goes out on MIDI channel e % 16 of port e / 16,
+and a track on a port past the first starts with a MIDI Port event (FF 21); a
+chain playing channels on two ports is a track on each. A piece whose channels
+are all among the first 16 writes no port events. So do the Composer's **Export
 MIDI...** and the page's **Export MIDI** button, without a command line:
 they compose the loaded piece on a silent synth of their own
 (src/thcMidiExport.h), with the seed, the transport step and the chains

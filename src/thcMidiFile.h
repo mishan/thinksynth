@@ -64,6 +64,12 @@
  *   swap, node-arg edit
  *             a text event: nothing outside this synth can act on them.
  *
+ * The event's channel is the engine's, of which there are more than MIDI
+ * has: engine channel e goes out on MIDI channel e % 16 of port e / 16. A
+ * track on a port past the first starts with a MIDI Port meta event (FF
+ * 21), and a chain whose notes are on two ports is a track on each, both
+ * named for it. A file whose channels are all on port 0 says no port.
+ *
  * A chanarg, a swap or an edit belongs to the channel rather than the
  * chain that sent it, so it is written into every track that plays notes
  * on that channel, or into a track of its own where none does.
