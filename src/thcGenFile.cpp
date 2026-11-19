@@ -2018,24 +2018,6 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
     return expectPunct(';');
 }
 
-/* One of an instrument's MIDI statements, its keyword already taken:
- *
- *   midi "Surge XT";           the port, matched by name by the host
- *   midichannel = 3;           the device's channel, 1-16
- *   midiprogram = 12;          a program change sent on apply, 1-128
- *   cc cutoff = 74;            chanarg `cutoff' as controller 74
- *   cc cutoff = 74 { min = 60; max = 12000; };
- *                              scaled from that range onto 0..127
- *   bend wheel { min = -2; max = 2; };
- *                              onto the pitch wheel, min down, max up
- *   midiin = 3;                live input on MIDI channel 3 plays this
- *   midiin = 3 { low = C4; high = 72; };
- *                              ...its keys from low to high, inclusive
- *
- * Numbered from 1 as a device's front panel numbers them, as `channel =
- * N' in a sink is. Controllers stop at 119: 120-127 are the channel mode
- * messages, and a chain sending All Notes Off by accident is not a
- * mapping anybody meant. */
 /* `midiin = N;' or `midiin = N { low = NOTE; high = NOTE; };', its keyword
    taken: a note name or number at each end, either end left out. */
 bool
@@ -2128,6 +2110,24 @@ thcGenLoader::parseMidiIn (thcInstrument &inst, const std::string &where)
     return expectPunct(';');
 }
 
+/* One of an instrument's MIDI statements, its keyword already taken:
+ *
+ *   midi "Surge XT";           the port, matched by name by the host
+ *   midichannel = 3;           the device's channel, 1-16
+ *   midiprogram = 12;          a program change sent on apply, 1-128
+ *   cc cutoff = 74;            chanarg `cutoff' as controller 74
+ *   cc cutoff = 74 { min = 60; max = 12000; };
+ *                              scaled from that range onto 0..127
+ *   bend wheel { min = -2; max = 2; };
+ *                              onto the pitch wheel, min down, max up
+ *   midiin = 3;                live input on MIDI channel 3 plays this
+ *   midiin = 3 { low = C4; high = 72; };
+ *                              ...its keys from low to high, inclusive
+ *
+ * Numbered from 1 as a device's front panel numbers them, as `channel =
+ * N' in a sink is. Controllers stop at 119: 120-127 are the channel mode
+ * messages, and a chain sending All Notes Off by accident is not a
+ * mapping anybody meant. */
 bool
 thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
                                    const std::string &where,

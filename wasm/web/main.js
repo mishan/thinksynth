@@ -1514,6 +1514,7 @@ async function edited (m)
     }
 
     piece = m;
+    followRoutes();
 
     /* A sink the edit added may name a channel nothing is on yet. */
     const aiming = await patch.aim(
@@ -2364,6 +2365,7 @@ async function loadPiece ()
     }
 
     piece = it.errors.length === 0 ? it : null;
+    followRoutes();
     placed = aiming.placed;
 
     if (piece === null)
@@ -2822,6 +2824,13 @@ function touched ()
     return [...all].sort((a, b) => a - b);
 }
 
+/* The piece's `midiin' lines are MIDI in's piece layer while it is the
+   piece, from the moment it is; none, when there is none. */
+function followRoutes ()
+{
+    midiRoutes.set('piece', piece?.routes ?? []);
+}
+
 /* Where the keys may go: MIDI's sixteen, and past them each channel the
    piece has something on. Counted the way the file counts them and the
    way the channels row does -- the engine's number is one lower and is
@@ -2850,9 +2859,6 @@ function showChannels ()
 {
     const box = $('channels');
 
-    /* The piece's `midiin' lines are MIDI in's piece layer while it is
-       the piece; none, when there is none. */
-    midiRoutes.set('piece', piece?.routes ?? []);
     showKeyChannels();
     box.replaceChildren();
 
@@ -4459,6 +4465,7 @@ async function pickMode ()
     {
         synth.transport('stop');
         piece = null;
+        followRoutes();
         placed = new Map();
         showChannels();
         showTempo();               /* nor a speed: see showSpeed */

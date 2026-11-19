@@ -978,7 +978,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     size_t k = j + 2;
                     int depth = 0;
 
-                    while (t[k].kind != Tok::END &&
+                    while (t[k].kind != Tok::END && depth >= 0 &&
                            !(depth == 0 && isPunct(t[k], ';')))
                     {
                         if (isPunct(t[k], '{'))
@@ -989,7 +989,9 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                         k++;
                     }
 
-                    if (t[k].kind == Tok::END)
+                    /* Unterminated, or its block's `;' missing so the
+                       instrument's own `}' closed it: not a shape. */
+                    if (t[k].kind == Tok::END || depth < 0)
                     {
                         shaped = false;
                         break;
