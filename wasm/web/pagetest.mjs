@@ -2826,6 +2826,45 @@ try
               `and a key under Airports says it takes none: ${none}`);
 
         await aim(0);
+
+        /* And while a piece plays: a swap puts bell on voice's channel,
+           and the row follows it there without a load. */
+        const own = () => page.$eval('#channels .channel .own',
+                                     (e) => e.textContent);
+        const yes = (d) => d.accept().catch(() => {});
+
+        page.on('dialog', yes);
+        await page.evaluate(() =>
+        {
+            document.getElementById('gen').value = [
+                'name "Swaps";',
+                'instrument voice { dsp "amb01.dsp"; };',
+                'instrument bell { dsp "amb01.dsp"; a = 6 ms; };',
+                'chain swapping {',
+                '    stage m gen::swap { instruments = "voice,bell"; ' +
+                    'every = 1 s; order = 0; };',
+                '    sink { instrument = voice; };',
+                '};', ''].join('\n');
+        });
+        await page.click('#loadpiece');
+        await settled();
+        page.off('dialog', yes);
+
+        const before = await own();
+
+        await page.click('#play');
+
+        const swapped = await page.waitForFunction(
+            () => document.querySelector('#channels .channel .own')
+                ?.textContent.startsWith('bell'), null, { timeout: 10000 })
+            .then(() => true, () => false);
+
+        await page.click('#stop');
+        await settled();
+
+        check(before === 'voice, the piece\'s' && swapped,
+              'a swap while the piece plays is named on its channel\'s row: ' +
+              `${before}, then ${await own()}`);
     }
 
     /* ---- the instrument as a graph ---- */
