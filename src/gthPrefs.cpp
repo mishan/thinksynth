@@ -340,6 +340,8 @@ void gthPrefs::Load (void)
         }
     }
 
+    /* Held open, the file cannot be replaced or removed on Windows. */
+    fclose(prefsFile);
     midiRoutesChanged_.emit(midiRoutes_);
 }
 
