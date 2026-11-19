@@ -1,9 +1,10 @@
 # The shipped pieces
 
-Each `.gen` file here is meant to be read as well as heard. Some of them exercise every composer plugin in the tree and every ability
-the `.gen` language has, each built around a single idea rather than around
-being impressive; the rest are pieces first and lessons second. The
-comment at the top of each file is the lesson; this is the index.
+Each `.gen` file here is meant to be read as well as heard. Some of them
+exercise every composer plugin in the tree and every ability the `.gen`
+language has, each built around a single idea rather than around being
+impressive; the rest are pieces first and lessons second. The comment at
+the top of each file is the lesson; this is the index.
 
 Open one from the main window's menu (**☰ → Open Piece...**) and press **Play**.
 
