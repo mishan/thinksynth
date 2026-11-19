@@ -13,7 +13,8 @@ add_library(think_hid OBJECT
     thhLooper.cpp
     thhMapper.cpp
     thhPane.cpp
-    thhPlay.cpp)
+    thhPlay.cpp
+    thhSession.cpp)
 
 target_include_directories(think_hid PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"

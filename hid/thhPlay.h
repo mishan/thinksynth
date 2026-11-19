@@ -52,4 +52,18 @@ bool thhLoadProfile (const std::string &path, const thhControls &controls,
                      const std::string &patchName = "",
                      std::string *patchErr = NULL);
 
+/* The player's profile at path into text, empty if there is none; false,
+   saying so in err, if there is one but it can't be read. */
+bool thhReadProfile (const std::string &path, std::string &text,
+                     std::string &err);
+
+/* The same with the player's profile as text, empty for none, named name
+   where it is wrong: for a host that keeps it elsewhere than a file. */
+bool thhLoadProfileText (const std::string &text, const std::string &name,
+                         const thhControls &controls, const char *fallback,
+                         const std::string &hand, thcHidBlock &out,
+                         std::string &err, const std::string &patch = "",
+                         const std::string &patchName = "",
+                         std::string *patchErr = NULL);
+
 #endif /* THH_PLAY_H */

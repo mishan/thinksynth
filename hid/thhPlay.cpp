@@ -224,7 +224,47 @@ thhLoadProfile (const std::string &path, const thhControls &controls,
                 thcHidBlock &out, std::string &err, const std::string &patch,
                 const std::string &patchName, std::string *patchErr)
 {
+    std::string text, unread;
+    const bool read = thhReadProfile(path, text, unread);
+    const bool ok = thhLoadProfileText(text, path, controls, fallback, hand,
+                                       out, err, patch, patchName, patchErr);
+
+    if (read)
+        return ok;
+    err = unread + (err.empty() ? "" : "; " + err);
+    return false;
+}
+
+bool
+thhReadProfile (const std::string &path, std::string &text, std::string &err)
+{
     std::error_code ec;
+
+    text.clear();
+    if (!std::filesystem::exists(path, ec))
+        return true;
+
+    std::ifstream in(path.c_str());
+    std::ostringstream all;
+
+    if (std::filesystem::is_regular_file(path, ec))
+        all << in.rdbuf();
+    if (!in || !std::filesystem::is_regular_file(path, ec))
+    {
+        err = path + ": can't read it";
+        return false;
+    }
+    text = all.str();
+    return true;
+}
+
+bool
+thhLoadProfileText (const std::string &text, const std::string &name,
+                    const thhControls &controls, const char *fallback,
+                    const std::string &hand, thcHidBlock &out,
+                    std::string &err, const std::string &patch,
+                    const std::string &patchName, std::string *patchErr)
+{
     std::string ignored, why;
     std::vector<thcHidBlock> ownBlocks, mine, theirs;
     int line = 0, at = 0;
@@ -277,18 +317,10 @@ thhLoadProfile (const std::string &path, const thhControls &controls,
     };
     bool player = false, patched = false;
 
-    if (std::filesystem::exists(path, ec))
+    if (!text.empty())
     {
-        std::ifstream in(path.c_str());
-        std::ostringstream text;
-
-        if (std::filesystem::is_regular_file(path, ec))
-            text << in.rdbuf();
-        if (!in || !std::filesystem::is_regular_file(path, ec))
-            err = path + ": can't read it";
-        else if (!thcHidParseProfiles(text.str(), mine, why, at) ||
-                 !fits(true, false))
-            err = where(path);
+        if (!thcHidParseProfiles(text, mine, why, at) || !fits(true, false))
+            err = where(name);
         else
             player = true;
     }
@@ -304,7 +336,7 @@ thhLoadProfile (const std::string &path, const thhControls &controls,
 
         patched = parsed && fits(player, true);
         if (!patched && parsed && at > 0 && at < THH_PATCH_LINES)
-            theirErr = where(path) + ", with " + patchName;
+            theirErr = where(name) + ", with " + patchName;
         else if (!patched)
         {
             if (at >= THH_PATCH_LINES)
