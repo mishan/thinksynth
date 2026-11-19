@@ -1156,45 +1156,133 @@ export async function createNodeView ({ files, history = null,
 
     /* ---- the forms ---- */
 
-    /* The palette: every plugin this module was built with, by category.
-       Adding one is an edit like any other -- a node with the plugin's own
+    /* The palette: every plugin this module was built with, by category,
+       to type into and choose from, opening on the one used last. Adding
+       one is an edit like any other -- a node with the plugin's own
        declared defaults in it. */
+    let lastPlugin = null;
+
+    const filterBox = () => $('nodepickfilter');
+    const offered = () => [...$('nodepicklist').querySelectorAll(
+        '[role="option"]:not([hidden])')];
+    const chosen = () => $('nodepicklist').querySelector(
+        '[aria-selected="true"]:not([hidden])');
+
     function showPalette ()
     {
-        const palette = $('nodepalette');
+        const list = $('nodepicklist');
 
-        palette.replaceChildren();
+        list.replaceChildren();
 
         for (let c = 0; c < M._tw_catalog_category_count(); c++)
         {
             const category = call('tw_catalog_category', ['number'], [c]);
-            const group = document.createElement('optgroup');
+            const group = document.createElement('div');
+            const title = document.createElement('div');
 
-            group.label = category;
+            title.className = 'menutitle';
+            title.id = `nodepickgroup${c}`;
+            title.textContent = category;
+            group.setAttribute('role', 'group');
+            group.setAttribute('aria-labelledby', title.id);
+            group.append(title);
 
             const many = M.ccall('tw_catalog_in_category', 'number',
                                  ['string'], [category]);
 
             for (let i = 0; i < many; i++)
             {
-                const option = document.createElement('option');
+                const option = document.createElement('div');
 
-                option.value = call('tw_catalog_spelling',
-                                    ['string', 'number'], [category, i]);
-                option.textContent = option.value;
+                option.setAttribute('role', 'option');
+                option.id = `nodepick${c}-${i}`;
+                option.dataset.plugin = call('tw_catalog_spelling',
+                                             ['string', 'number'],
+                                             [category, i]);
+                option.textContent = option.dataset.plugin;
                 group.append(option);
             }
 
-            palette.append(group);
+            list.append(group);
         }
     }
 
-    function addNode ()
+    function pickPlugin (option)
     {
-        const plugin = $('nodepalette').value;
+        for (const o of $('nodepicklist').querySelectorAll('[role="option"]'))
+            o.setAttribute('aria-selected', String(o === option));
 
-        if (file === null || plugin === '')
+        if (option === undefined || option === null)
+            filterBox().removeAttribute('aria-activedescendant');
+        else
+        {
+            filterBox().setAttribute('aria-activedescendant', option.id);
+            option.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    /* What is typed is found anywhere in the spelling: `oog' finds
+       filt::moog. A category with nothing left in it goes too. */
+    function filterPalette ()
+    {
+        const typed = filterBox().value.trim().toLowerCase();
+
+        for (const group of $('nodepicklist').children)
+        {
+            let any = false;
+
+            for (const option of group.querySelectorAll('[role="option"]'))
+            {
+                option.hidden =
+                    !option.dataset.plugin.toLowerCase().includes(typed);
+                any ||= !option.hidden;
+            }
+
+            group.hidden = !any;
+        }
+
+        pickPlugin(chosen() ?? offered()[0]);
+    }
+
+    function closePalette (refocus = true)
+    {
+        $('nodepick').hidden = true;
+        $('nodeadd').setAttribute('aria-expanded', 'false');
+
+        if (refocus)
+            $('nodeadd').focus();
+    }
+
+    function openPalette ()
+    {
+        if (file === null)
             return;
+
+        const at = $('nodeadd').getBoundingClientRect();
+
+        filterBox().value = '';
+        filterPalette();
+        placePopover($('nodepick'), at.left + window.scrollX,
+                     at.bottom + window.scrollY);
+
+        /* Shown first, so that the row can be scrolled to. */
+        pickPlugin(offered().find((o) => o.dataset.plugin === lastPlugin) ??
+                   offered()[0]);
+        $('nodeadd').setAttribute('aria-expanded', 'true');
+        filterBox().focus();
+    }
+
+    function addNode (plugin)
+    {
+        if (plugin === undefined)
+            return;
+
+        closePalette();
+
+        if (file === null)
+            return;
+
+        lastPlugin = plugin;
 
         const name = call('tw_catalog_suggest', ['string'],
                           [plugin.replace(/^.*::/, '')]);
@@ -1955,7 +2043,51 @@ export async function createNodeView ({ files, history = null,
     });
     $('nodecanvas').addEventListener('pointerleave', () => { hovered = null; });
 
-    $('nodeadd').addEventListener('click', addNode);
+    $('nodeadd').addEventListener('click', () =>
+        ($('nodepick').hidden ? openPalette() : closePalette()));
+    filterBox().addEventListener('input', filterPalette);
+    filterBox().addEventListener('keydown', (e) =>
+    {
+        const all = offered();
+        const at = all.indexOf(chosen());
+        const move = { ArrowDown: 1, ArrowUp: -1, PageDown: 8, PageUp: -8 }[e.key];
+        const plain = !(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey);
+
+        if (e.isComposing)
+            return;
+
+        if (move !== undefined && all.length > 0)
+            pickPlugin(all[Math.max(0, Math.min(all.length - 1, at + move))]);
+        else if (e.key === 'Enter' && plain)
+            addNode(chosen()?.dataset.plugin);
+        /* Tab goes back to where the palette was asked for, which the page
+           has a long way off at its end. */
+        else if (e.key === 'Escape' || e.key === 'Tab')
+            closePalette();
+        else
+            return;
+
+        e.preventDefault();
+        e.stopPropagation();
+    });
+    /* The focus stays in the field a click on a row would take it from,
+       which would close the palette before the click came. */
+    $('nodepicklist').addEventListener('mousedown', (e) => e.preventDefault());
+    $('nodepicklist').addEventListener('click', (e) =>
+    {
+        const option = e.target.closest('[role="option"]');
+
+        if (option !== null)
+            addNode(option.dataset.plugin);
+    });
+    /* Not for the button, whose click closes it: closed here first, the
+       click would open it again. */
+    $('nodepick').addEventListener('focusout', (e) =>
+    {
+        if (!$('nodepick').contains(e.relatedTarget) &&
+            e.relatedTarget !== $('nodeadd'))
+            closePalette(false);
+    });
     $('nodeaddcontrol').addEventListener('click', addControl);
     $('nodefile').addEventListener('change',
                                    () => showFile($('nodefile').value));
@@ -2008,6 +2140,10 @@ export async function createNodeView ({ files, history = null,
 
         if (!menu.hidden && !menu.contains(e.target))
             menu.hidden = true;
+
+        if (!$('nodepick').hidden && !$('nodepick').contains(e.target) &&
+            !$('nodeadd').contains(e.target))
+            closePalette(false);
     }, true);
 
     $('nodecanvas').addEventListener('keyup', writeNudged);

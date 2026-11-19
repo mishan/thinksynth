@@ -239,8 +239,8 @@
     <div class="row tools">
       <label>File <select id="nodefile"></select></label>
       <span>
-        <label>Add <select id="nodepalette"></select></label>
-        <button id="nodeadd">Add node</button>
+        <button id="nodeadd" aria-haspopup="dialog"
+                aria-expanded="false">Add node…</button>
         <button id="nodeaddcontrol">Add control</button>
       </span>
       <span>
@@ -319,6 +319,15 @@
      being after every pane is what keeps them over one. -->
 <div id="composerparams" class="popover" hidden></div>
 <div id="nodemenu" class="popover" role="dialog" hidden></div>
+<!-- Add node's palette: every plugin, to type into and choose from. -->
+<div id="nodepick" class="popover" role="dialog" aria-label="Add a node"
+     hidden>
+  <input id="nodepickfilter" type="search" role="combobox"
+         aria-label="Plugin" aria-controls="nodepicklist"
+         aria-expanded="true" aria-autocomplete="list" autocomplete="off"
+         spellcheck="false" placeholder="Type to filter">
+  <div id="nodepicklist" role="listbox" aria-label="Plugins"></div>
+</div>
 
 </main>
 

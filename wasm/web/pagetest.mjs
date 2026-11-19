@@ -3150,8 +3150,8 @@ try
 
             const [t1] = await key('Shift+ArrowRight');
 
-            await page.selectOption('#nodepalette', 'osc::simple');
             await page.click('#nodeadd');
+            await page.click('#nodepicklist [data-plugin="osc::simple"]');
             await page.evaluate(() => window.solo.settled());
 
             const added = await selName();
@@ -3472,8 +3472,9 @@ try
 
         const offered = await page.$eval('#nodedelete', (b) => !b.disabled);
 
-        await page.selectOption('#nodepalette', 'osc::simple');
         await page.click('#nodeadd');
+        await page.fill('#nodepickfilter', 'osc::simple');
+        await page.press('#nodepickfilter', 'Enter');
         await changed(original);
         await page.evaluate(() => window.solo.settled());
 
@@ -3485,6 +3486,66 @@ try
               text.includes(`# @layout ${added.selected} `),
               `Add node put ${added.selected} in the view, selected, its ` +
               'place in the file; Delete was not offered before');
+
+        /* The palette: what is typed narrows it, the arrows move in what
+           is left, Escape closes it and gives the focus back, and it
+           opens again on the one used last. */
+        {
+            const shown = () => page.$$eval(
+                '#nodepicklist [role="option"]:not([hidden])',
+                (o) => o.map((e) => e.textContent));
+            const picked = () => page.$eval(
+                '#nodepicklist [aria-selected="true"]', (o) => o.textContent);
+
+            await page.click('#nodeadd');
+
+            const all = (await shown()).length;
+            const reopened = await picked();
+
+            await page.fill('#nodepickfilter', 'env::');
+
+            const narrowed = await shown();
+            const first = await picked();
+
+            await page.press('#nodepickfilter', 'ArrowDown');
+
+            const second = await picked();
+
+            await page.press('#nodepickfilter', 'Escape');
+
+            const state = await page.evaluate(() => ({
+                open: !document.getElementById('nodepick').hidden,
+                expanded: document.getElementById('nodeadd')
+                    .getAttribute('aria-expanded'),
+                focus: document.activeElement.id }));
+
+            const open = () => page.$eval('#nodepick', (p) => !p.hidden);
+
+            await page.click('#nodeadd');
+            await page.fill('#nodepickfilter', 'nothing like a plugin');
+            await page.press('#nodepickfilter', 'Enter');
+
+            const kept = await open() && await page.inputValue(
+                '#nodepickfilter') === 'nothing like a plugin';
+
+            await page.click('#nodeadd');
+
+            const toggled = !(await open());
+
+            check(reopened === 'osc::simple' && narrowed.length > 1 &&
+                  kept && toggled &&
+                  narrowed.length < all &&
+                  narrowed.every((n) => n.includes('env::')) &&
+                  first === narrowed[0] && second === narrowed[1] &&
+                  !state.open && state.expanded === 'false' &&
+                  state.focus === 'nodeadd',
+                  'Add node opens on the plugin used last, narrows to what ' +
+                  'is typed, moves by the arrows, and closes on Escape with ' +
+                  'the focus back on it; Enter with nothing to add leaves ' +
+                  'it open, and the button closes it: ' + JSON.stringify(
+                      { reopened, narrowed, first, second, ...state, kept,
+                        toggled }));
+        }
 
         await page.click('#nodezoomin');
 

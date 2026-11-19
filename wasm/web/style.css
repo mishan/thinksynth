@@ -1395,6 +1395,32 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
     text-align: left;
 }
 
+#nodepicklist {
+    max-height: 20rem;
+    overflow-y: auto;
+    margin: 0.4rem 0 0;
+}
+
+#nodepicklist [role="option"] {
+    padding: 0.15rem 0.6rem;
+    font-family: monospace;
+    cursor: pointer;
+}
+
+#nodepicklist [role="option"]:hover {
+    background: var(--ctl);
+}
+
+#nodepicklist [role="option"][aria-selected="true"] {
+    background: Highlight;
+    color: HighlightText;
+}
+
+#nodepickfilter {
+    width: 100%;
+    box-sizing: border-box;
+}
+
 .popover .menutitle {
     display: block;
     padding: 0.1rem 0.3rem 0.3rem;
