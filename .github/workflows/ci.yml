@@ -836,6 +836,12 @@ jobs:
       - name: A camera's notes, through the module
         run: node wasm/web/camcheck.mjs
 
+      # A Valve Index controller's values and bends on the module's synth
+      # (thinkweb.cpp, tw_hid), and a patch's controller block asked of it
+      # (tw_controller): each heard by rendering the same note twice.
+      - name: A controller's values and bends, through the module
+        run: node wasm/web/hidplaycheck.mjs
+
       # A video synth played live, through the module: notes landing on the
       # line they sounded on, nothing drawn past the audio, a picture far
       # behind skipping to the frame that is due (twvideo.cpp).

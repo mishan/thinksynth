@@ -289,6 +289,19 @@ class ThinkProcessor extends AudioWorkletProcessor
             }))
             return;
 
+        /* What a Valve Index controller plays on a channel: its patch's
+           controller block and the args it has (thinkweb.cpp,
+           tw_controller). A question, like the panel's. */
+        if (m.type === 'controller')
+        {
+            this.port.postMessage({
+                type: 'controller', id: m.id,
+                json: this.M.ccall('tw_controller', 'string', ['number'],
+                                   [m.channel]),
+            });
+            return;
+        }
+
         /* A parameter panel, read off whatever is on the channel now.
          *
          * A question and not a command, so it is answered rather than

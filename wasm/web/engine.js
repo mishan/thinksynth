@@ -196,6 +196,20 @@ export function apply (M, m, host = NOWHERE)
             M._tw_at(m.at, TRANSPORT[m.op], m.value ?? 0);
             return true;
 
+        case 'hid':
+            /* A Valve Index controller's value, bend or aux (hid.js), as
+               the desktop plays it (thinkweb.cpp, tw_hid). */
+            M.ccall('tw_hid', null,
+                    ['number', 'number', 'number', 'number', 'number',
+                     'number', 'string', 'number', 'number', 'number',
+                     'number', 'number'],
+                    [m.frame ?? -1, m.kind, m.channel, m.note ?? 0,
+                     m.aux ?? 0, m.t, m.arg ?? '',
+                     m.min !== undefined ? 1 : 0, m.min ?? 0,
+                     m.max !== undefined ? 1 : 0, m.max ?? 0,
+                     m.exp ? 1 : 0]);
+            return true;
+
         case 'knob':
             /* A room's command names the knob; the solo page's numbers it.
                A name is looked up when the command applies, after any edit

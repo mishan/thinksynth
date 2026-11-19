@@ -119,6 +119,7 @@
 #include "thcAudition.h"
 #include "NodePanel.h"
 #include "StagePanel.h"
+#include "thhPlay.h"
 #include "twnode.h"
 
 #include "twevent.h"
@@ -169,6 +170,8 @@ enum CmdType
     CMD_NOTE_OFF,
     CMD_MIDI_ON,        /* the keyboard, into the piece's `input midi' */
     CMD_MIDI_OFF,
+    CMD_NOTE_BEND,      /* a controller's, onto a note that sounds: after */
+    CMD_NOTE_AUX,       /* the note on it follows (tw_hid)              */
     CMD_TRANSPORT,
 };
 
@@ -691,6 +694,17 @@ void applyDue (double start, int len)
             case CMD_NOTE_OFF:
                 keyOnChannel(c.channel, c.note, c.velocity,
                              c.type == CMD_NOTE_ON, -1);
+                break;
+
+            /* velocity is the aux's index, value its value or the bend's
+               semitones. */
+            case CMD_NOTE_BEND:
+                synth_->bendNote(c.channel, c.note, (float)c.value);
+                break;
+
+            case CMD_NOTE_AUX:
+                synth_->setNoteAux(c.channel, c.note, (int)c.velocity,
+                                   (float)c.value);
                 break;
 
             case CMD_MIDI_ON:
@@ -4502,6 +4516,75 @@ EMSCRIPTEN_KEEPALIVE const char *tw_holding (int channel)
     name = sched_->holding(channel);
 
     return name.c_str();
+}
+
+/* What a Valve Index controller plays on channel (thinkhid.cpp, hid.js):
+   its patch's name, its `controller index' block (thSynthTree::controller),
+   and the names of its args, for the controller pane to say which knob a
+   binding has nothing to turn. JSON, kept until the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_controller (int channel)
+{
+    static std::string out;
+    thMidiChan *chan = synth_->getChannel(channel);
+    const thSynthTree *tree = chan ? chan->modnode() : NULL;
+    const char *comma = "";
+
+    out = "{\"name\":";
+    jsonString(out, tree ? tree->name() : "");
+    out += ",\"block\":";
+    jsonString(out, tree ? tree->controller("index") : "");
+    out += ",\"args\":[";
+    for (const auto &a : synth_->getChanArgs(channel))
+    {
+        out += comma;
+        jsonString(out, a.first);
+        comma = ",";
+    }
+    out += "]}";
+    return out.c_str();
+}
+
+/* One of a controller's actions (hid/thhMapper.h) played as the desktop
+   plays it: a value written onto the channel's arg at once, by thhPlay, in
+   the arg's own range where the profile gave none; a bend or aux onto a
+   sounding note at frame, with the notes, so that one sent after the note
+   it bends is applied after it too. kind is thhAction::Kind; a note on or
+   off is the page's to press, as every other source's is, and is ignored
+   here. */
+EMSCRIPTEN_KEEPALIVE void tw_hid (double frame, int kind, int channel,
+                                  int note, int aux, double t,
+                                  const char *arg, int hasMin, double min,
+                                  int hasMax, double max, int exp)
+{
+    thhAction a = thhAction();
+
+    a.kind = (thhAction::Kind)kind;
+    if (a.kind == thhAction::NOTE_BEND || a.kind == thhAction::NOTE_AUX)
+    {
+        Command c = {};
+
+        c.frame = frame;
+        c.type = a.kind == thhAction::NOTE_BEND ? CMD_NOTE_BEND : CMD_NOTE_AUX;
+        c.channel = channel;
+        c.note = note;
+        c.velocity = aux;
+        c.value = t;
+        push(c);
+        return;
+    }
+    if (a.kind != thhAction::VALUE)
+        return;
+    a.channel = channel;
+    a.note = note;
+    a.aux = aux;
+    a.t = t;
+    a.arg = arg ? arg : "";
+    a.hasMin = hasMin != 0;
+    a.min = min;
+    a.hasMax = hasMax != 0;
+    a.max = max;
+    a.exp = exp != 0;
+    thhPlay(*synth_, { a }, nullptr);
 }
 
 /* A chanarg on the tree loaded on `channel', through the path the

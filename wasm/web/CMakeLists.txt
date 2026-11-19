@@ -209,6 +209,7 @@ add_library(thinkweb_parts OBJECT
     "${THINK_TOP}/hid/thhCamera.cpp"
     "${THINK_TOP}/hid/thhControls.cpp"
     "${THINK_TOP}/hid/thhMapper.cpp"
+    "${THINK_TOP}/hid/thhPlay.cpp"
     twcamera.cpp
     # The video worker's synth (videoworker.js).
     twvideo.cpp)
