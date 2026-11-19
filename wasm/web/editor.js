@@ -38,9 +38,9 @@ import { EditorView, drawSelection, highlightSpecialChars, keymap,
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
-import * as Y from 'yjs';
 
 import { files, meta, pieceFiles } from './doc.js';
+import { undoFor } from './roomundo.js';
 import { languageFor, pageLook } from './thinklang.js';
 
 /* A colour per peer for the cursor, from the name, so the same person is
@@ -72,8 +72,8 @@ export class Editor
         this.tabs = tabs;
         this.doc = doc;
         this.awareness = awareness;
-        /* file name -> { text, undo, state }: the Y.Text a state was made
-           over, and its undo history. */
+        /* file name -> { text, state }: the Y.Text a state was made
+           over. */
         this.states = new Map();
         this.current = null;
         this.shown = null;              /* the tabs as last drawn */
@@ -102,7 +102,8 @@ export class Editor
 
         this.forget(name);
 
-        const undo = new Y.UndoManager(text);
+        /* The file's, which the graph shares (roomundo.js). */
+        const undo = undoFor(this.doc, name);
         const state = EditorState.create({
             doc: text.toString(),
             extensions: [
@@ -124,14 +125,13 @@ export class Editor
             ],
         });
 
-        this.states.set(name, { text, undo, state });
+        this.states.set(name, { text, state });
 
         return state;
     }
 
     forget (name)
     {
-        this.states.get(name)?.undo.destroy();
         this.states.delete(name);
     }
 
