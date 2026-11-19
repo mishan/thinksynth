@@ -1731,7 +1731,7 @@ async function undoTogether (pages)
     await everywhere('# C\n' + added);
     await A.page.keyboard.press('Control+z');
 
-    const apart = await everywhere(added);
+    const apart = added !== typed && await everywhere(added);
 
     if (tip.startsWith('Undo add ') && codeUndid && graphUndid &&
         undid === 'Undid edit text.' && spent && redid && apart)
