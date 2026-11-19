@@ -537,6 +537,12 @@ int main (int argc, char *argv[])
      * window has to go first. */
     MainSynthWindow *synthWindow = new MainSynthWindow(aout);
 
+    /* A piece's `midiin' lines are the routes' piece layer while it is
+       loaded; parsing another, or a failed parse, replaces them. */
+    synthWindow->signal_midi_routes().connect(
+        [midiPlay](std::vector<thMidiRoute> routes)
+        { midiPlay->routes().set(thMidiRoutes::PIECE, routes); });
+
     prefs->Load();
 
     /* Loading has to come after the window exists -- it puts patches onto

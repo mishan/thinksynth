@@ -2850,6 +2850,9 @@ function showChannels ()
 {
     const box = $('channels');
 
+    /* The piece's `midiin' lines are MIDI in's piece layer while it is
+       the piece; none, when there is none. */
+    midiRoutes.set('piece', piece?.routes ?? []);
     showKeyChannels();
     box.replaceChildren();
 
