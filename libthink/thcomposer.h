@@ -206,7 +206,7 @@ typedef enum {
 typedef struct {
     thcEventType type;
     double       at;         /* absolute transport seconds                */
-    int          channel;    /* MIDI channel 0-15                         */
+    int          channel;    /* engine channel, 0 to TH_ENGINE_CHANNELS - 1 */
     union {
         struct {
             int    note;       /* MIDI note number                        */

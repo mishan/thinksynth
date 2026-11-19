@@ -1172,9 +1172,9 @@ function grid (W, instrument)
 const said = (list) => JSON.stringify(list.map((r) => [r.at, r.kind, r.channel, r.note]));
 
 /* A resend: every channel let go of, at `at'. */
-const flushes = (list, at) =>
+const flushes = (W, list, at) =>
     list.filter((r) => r.kind === FLUSH).map((r) => `${r.at}:${r.channel}`).join() ===
-    [...Array(16).keys()].map((c) => `${at}:${c}`).join();
+    [...Array(W._tw_engine_channels()).keys()].map((c) => `${at}:${c}`).join();
 
 const struck = (list) => list.filter((r) => r.kind !== FLUSH);
 
@@ -1258,7 +1258,7 @@ function inWindows (got, want, origin, channel, late = 0)
     const got = take(W);
 
     check('turned on, it lets go of everything and says which keys are down',
-          flushes(got, 1024) && said(struck(got)) === JSON.stringify([[1024, ON, 2, 60]]),
+          flushes(W, got, 1024) && said(struck(got)) === JSON.stringify([[1024, ON, 2, 60]]),
           said(got));
 }
 
@@ -1330,22 +1330,31 @@ function inWindows (got, want, origin, channel, late = 0)
         return p === 0 ? null : W.UTF8ToString(p);
     };
 
-    load(W, 3, sine(100));
+    const drawn = () =>
+    {
+        const at = W._tw_video_channel_list();
 
-    const loose = W._tw_video_channels();
+        return [...W.HEAPU8.subarray(at, at + W._tw_engine_channels())
+            .keys()].filter((c) => W.HEAPU8[at + c]).join(' ');
+    };
+
+    load(W, 3, sine(100));
+    load(W, 40, sine(100));
+
+    const loose = drawn();
     const none = names();
 
     grid(W, 'instrument a { dsp "sine.dsp"; };\n');
 
     const channel = W._tw_instrument_channel(0);
-    const both = W._tw_video_channels();
+    const both = drawn();
     const first = names(), again = names();
     const channels = W._tw_video_inputs();
     const q = W._tw_video_input_buffer() / 4 + 4 + channels;
     const values = [...W.HEAPF32.slice(q, q + 2)];
 
     check('the channels with something on them draw',
-          loose === 1 << 3 && both === (1 << 3 | 1 << channel), `${loose} ${both}`);
+          loose === '3 40' && both === `${channel} 3 40`, `${loose}; ${both}`);
     check("the piece's knobs, by name when they change and by value each batch",
           none === '' && first === 'air\nwarmth' && again === null &&
           values.join() === '0.75,0.25', `${none} ${first} ${again} ${values}`);
@@ -1447,7 +1456,7 @@ function inWindows (got, want, origin, channel, late = 0)
     const got = play(W, 512);
 
     check('a batch with no room left says which keys are down instead',
-          flushes(got, 512) && said(struck(got)) === JSON.stringify([[512, ON, 2, 40]]),
+          flushes(W, got, 512) && said(struck(got)) === JSON.stringify([[512, ON, 2, 40]]),
           said(got).slice(0, 200));
 }
 

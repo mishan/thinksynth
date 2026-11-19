@@ -330,7 +330,7 @@ export async function playAimed (createThinkWeb,
 
     const listens = [];
 
-    for (let c = 0; c < 16; c++)
+    for (let c = 0; c < M._tw_engine_channels(); c++)
         if (M._tw_listens(c))
             listens.push(c);
 

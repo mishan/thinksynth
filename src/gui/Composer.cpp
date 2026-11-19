@@ -1391,6 +1391,7 @@ Composer::setInlineGraph (const std::string &instrument,
         thcScheduler sched(&check);
         thcGenLoader loader(composers_);
 
+        loader.setChannelLimit(NUM_PATCHES);
         check.setSilent(true);
 
         if (!loader.load(workPath_, &sched))
@@ -1800,6 +1801,8 @@ Composer::parseWork (void)
 
     thcGenLoader loader(composers_);
 
+    /* Its instruments load through the patch manager, which holds these. */
+    loader.setChannelLimit(NUM_PATCHES);
     if (!loader.load(workPath_, sched_))
     {
         const std::vector<std::string> &errs = loader.errors();

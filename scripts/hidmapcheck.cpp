@@ -253,8 +253,10 @@ static const Row ROWS[] = {
       "down a; release; up a; down a",
       "on 1 60 100 | off 1 60 |  | on 1 60 100", 0, NULL },
 
-    { "a channel past 16 is channel 1", NOTES,
-      "ch 17; down a; up a", " | on 1 60 100 | off 1 60", 0, NULL },
+    { "a channel past MIDI's 16 is its own", NOTES,
+      "ch 17; down a; up a", " | on 17 60 100 | off 17 60", 0, NULL },
+    { "a channel past the engine's is channel 1", NOTES,
+      "ch 65; down a; up a", " | on 1 60 100 | off 1 60", 0, NULL },
     { "a slow creep reaches the end",
       "device index { grip_mid = \"cutoff\"; };",
       "axis grip_mid 0.997; axis grip_mid 0.999; axis grip_mid 1",

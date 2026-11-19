@@ -2484,14 +2484,14 @@ struct twHeld
     float  level, aux[4];
 };
 
-twHeld        videoHeld_[TH_MIDI_CHANNELS][128];
+twHeld        videoHeld_[TH_ENGINE_CHANNELS][128];
 double        videoNotes_[TW_VIDEO_NOTES * TW_VIDEO_RECORD];
 int           videoCount_ = 0;
 bool          videoOn_ = false, videoFull_ = false;
 double        videoDelay_ = 0;     /* frames, for a channel on a device */
 double        videoVoices_ = 0;
 thVideoBridge *videoBridge_ = NULL;
-float         videoInputs_[4 + TH_MIDI_CHANNELS + TW_VIDEO_KNOBS];
+float         videoInputs_[4 + TH_ENGINE_CHANNELS + TW_VIDEO_KNOBS];
 std::vector<std::string> videoKnobs_;
 bool          videoKnobsSaid_ = false;
 
@@ -2534,9 +2534,9 @@ double videoLate (int channel)
 void videoResend (void)
 {
     videoCount_ = 0;
-    for (int c = 0; c < TH_MIDI_CHANNELS; c++)
+    for (int c = 0; c < TH_ENGINE_CHANNELS; c++)
         videoWrite(videoFrame() + videoLate(c), TW_VIDEO_FLUSH, c, 0, 0, 0, NULL, 0);
-    for (int c = 0; c < TH_MIDI_CHANNELS; c++)
+    for (int c = 0; c < TH_ENGINE_CHANNELS; c++)
         for (int n = 0; n < 128; n++)
         {
             const twHeld &h = videoHeld_[c][n];
@@ -2554,14 +2554,14 @@ void videoNote (int kind, int channel, int note, int velocity, float level,
     if (catching_ || (synth_->silent() && !sched_->playsOverMidi(channel)))
         return;
 
-    const bool known = channel >= 0 && channel < TH_MIDI_CHANNELS &&
+    const bool known = channel >= 0 && channel < TH_ENGINE_CHANNELS &&
                        note >= 0 && note < 128;
     double late = videoLate(channel), voice = 0;
 
     if (kind == TW_VIDEO_FLUSH)
     {
         /* Now; and each of a device's notes at its off's own time. */
-        for (int c = 0; c < TH_MIDI_CHANNELS; c++)
+        for (int c = 0; c < TH_ENGINE_CHANNELS; c++)
             for (int n = 0; n < 128; n++)
             {
                 twHeld &h = videoHeld_[c][n];
@@ -3746,7 +3746,7 @@ EMSCRIPTEN_KEEPALIVE int tw_tried_count (void)
  * application's idea, and staying there, is for. The signals go unconnected:
  * a page polls, and there is nothing on this side of the ABI to hang a
  * handler on. */
-static thPatchSet patches_(TH_MIDI_CHANNELS);
+static thPatchSet patches_(TH_ENGINE_CHANNELS);
 
 /* A .dsp, as text, onto a channel in place of whatever was there. Nonzero
    if it parsed; the parser's complaints go to stderr, which the worklet
@@ -7933,16 +7933,21 @@ EMSCRIPTEN_KEEPALIVE const char *tw_video_knob_names (void)
     return said.c_str();
 }
 
-/* A bit for each channel the picture draws: one with something loaded on
-   it, or played on a device. */
-EMSCRIPTEN_KEEPALIVE int tw_video_channels (void)
+/* How many engine channels there are: what a channel loop runs to. */
+EMSCRIPTEN_KEEPALIVE int tw_engine_channels (void)
 {
-    int mask = 0;
+    return TH_ENGINE_CHANNELS;
+}
 
-    for (int c = 0; c < TH_MIDI_CHANNELS; c++)
-        if (synth_->getChannel(c) != NULL || sched_->playsOverMidi(c))
-            mask |= 1 << c;
-    return mask;
+/* A byte for each engine channel, 1 where the picture draws it: one with
+   something loaded on it, or played on a device. */
+EMSCRIPTEN_KEEPALIVE const unsigned char *tw_video_channel_list (void)
+{
+    static unsigned char list[TH_ENGINE_CHANNELS];
+
+    for (int c = 0; c < TH_ENGINE_CHANNELS; c++)
+        list[c] = synth_->getChannel(c) != NULL || sched_->playsOverMidi(c);
+    return list;
 }
 
 /* The bytes allocated and not yet freed. */

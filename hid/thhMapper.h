@@ -23,8 +23,15 @@
 #include <string>
 #include <vector>
 
+#include "think.h"
 #include "thcHidBlock.h"
 #include "thhControls.h"
+
+/* The engine channels a mapper keeps notes for. A board short of RAM
+   defines it as the channels it has. */
+#ifndef THH_CHANNELS
+#define THH_CHANNELS TH_ENGINE_CHANNELS
+#endif
 
 /* What a profile asks a host to do. Patch mode turns these into synth
    calls; a chain's input turns them into composer events. */
@@ -33,7 +40,8 @@ struct thhAction
     enum Kind { NOTE_ON, NOTE_OFF, VALUE, NOTE_BEND, NOTE_AUX, LOOP };
 
     Kind        kind;
-    int         channel;        /* 0-15; LOOP: where a record plays */
+    int         channel;        /* engine channel; LOOP: where a record
+                                   plays */
     int         note, vel;      /* NOTE_*; vel is 1-127 */
     std::string arg;            /* VALUE; LOOP: record, undo or clear */
     double      t;              /* VALUE: 0..1 along the control; NOTE_BEND:
@@ -62,7 +70,8 @@ public:
                     std::vector<thhAction> &out, std::string &err,
                     int &errLine);
 
-    /* curChannel (0-15) is the host's, for bindings that name none. */
+    /* curChannel, an engine channel, is the host's, for bindings that
+       name none. */
     void update (const thhState &s, int curChannel,
                  std::vector<thhAction> &out);
 
@@ -73,7 +82,8 @@ public:
     /* Whether this mapper is holding a note there. */
     bool sounding (int channel, int note) const
     {
-        return channel >= 0 && channel < 16 && note >= 0 && note < 128 &&
+        return channel >= 0 && channel < THH_CHANNELS && note >= 0 &&
+               note < 128 &&
                sounding_[channel][note] > 0;
     }
 
@@ -128,7 +138,7 @@ private:
 
     thhState    prev_;
     Held        held_[THH_MAX_BUTTONS];
-    int         sounding_[16][128];         /* buttons holding each note */
+    int         sounding_[THH_CHANNELS][128];  /* buttons holding each note */
     int         octave_;
 
     /* What each axis last sent where: a new set of targets hears where the
@@ -168,7 +178,7 @@ private:
     /* What this mapper last sent to the other hand's notes, the shares of
        its bend and aux `of = both', and which of them it has sent to. */
     double sharedBend_ = 0, sharedAux_[4] = { 0, 0, 0, 0 };
-    bool   reached_[16][128] = {};
+    bool   reached_[THH_CHANNELS][128] = {};
 
     /* The notes sounding_ and reached_ hold, as lists, so an update visits
        a handful rather than every place a note could be. */

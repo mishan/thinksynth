@@ -84,6 +84,8 @@ function vlq (n)
 /* Notes ({ at, duration, channel, note, velocity }, seconds from the top
  * of the take) as a type 1 MIDI file: a track for the tempo and one for
  * each channel, named by `names' (channel to name) where it has one.
+ * Engine channel e goes out on MIDI channel e % 16 of port e / 16, which
+ * a track past the first port names with a MIDI Port meta event.
  */
 export function midiOf (notes, { tempo = 120, meter = 4, names = new Map() }
                         = {})
@@ -120,10 +122,13 @@ export function midiOf (notes, { tempo = 120, meter = 4, names = new Map() }
     for (const ch of [...new Set(notes.map((n) => n.channel))].sort(
              (a, b) => a - b))
     {
-        const c = ch & 0x0f;
+        const c = ch % 16, port = Math.floor(ch / 16);
         const name = bytes(names.get(ch) ?? `channel ${ch + 1}`);
         const events = [{ tick: 0, order: 0,
                           bytes: [0xff, 0x03, ...vlq(name.length), ...name] }];
+
+        if (port > 0)
+            events.unshift({ tick: 0, order: 0, bytes: [0xff, 0x21, 1, port] });
 
         const mine = notes.filter((m) => m.channel === ch)
             .sort((a, b) => a.at - b.at);

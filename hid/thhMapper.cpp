@@ -727,7 +727,7 @@ void
 thhMapper::update (const thhState &s, int curChannel,
                    std::vector<thhAction> &out)
 {
-    if (curChannel < 0 || curChannel > 15)
+    if (curChannel < 0 || curChannel >= THH_CHANNELS)
         curChannel = 0;
 
     if (!s.connected)

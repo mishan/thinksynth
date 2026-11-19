@@ -101,7 +101,7 @@ bool planes_ = false;
 /* tv_rgba's: a frame's planes in, its RGBA out. */
 std::vector<float> planeBuffer_;
 std::vector<uint8_t> rgbaBuffer_;
-float inputBuffer_[4 + TH_MIDI_CHANNELS];
+float inputBuffer_[4 + TH_ENGINE_CHANNELS];
 int lines_ = 0;
 
 /* tv_stage: an effect on a picture summed from modules that drew it
@@ -505,7 +505,7 @@ tv_inputs (int channels, double at)
     v.bass = in[1];
     v.mid = in[2];
     v.high = in[3];
-    v.channels = channels < TH_MIDI_CHANNELS ? channels : TH_MIDI_CHANNELS;
+    v.channels = channels < TH_ENGINE_CHANNELS ? channels : TH_ENGINE_CHANNELS;
     for (int c = 0; c < v.channels; c++)
         v.levels[c] = in[4 + c];
     if (video_ != NULL)

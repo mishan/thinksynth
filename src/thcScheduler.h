@@ -33,6 +33,7 @@
 
 #include <sigc++/sigc++.h>
 
+#include "libthink/think.h"
 #include "libthink/thcomposer.h"
 
 #include "thcAudition.h"
@@ -394,7 +395,7 @@ struct thcInstrument
     int midiProgram;            /* 0-127 sent on apply; -1 none           */
     std::vector<thcMidiCC> ccs;
 
-    int channel;                /* 0-15, engine numbering; -1 unallocated */
+    int channel;                /* engine channel; -1 unallocated */
 
     thcInstrument (void)
         : sideChannel(-1), midiChannel(-1), midiProgram(-1), channel(-1) {}
@@ -1254,7 +1255,7 @@ public:
     /* Whether engine channel `channel' is being played on a device. */
     bool playsOverMidi (int channel) const
     {
-        return channel >= 0 && channel < 16 && overMidi_[channel];
+        return onDeviceTable(channel) && overMidi_[channel];
     }
 
     /* Why an instrument that names `midi' is not being played on a
@@ -1264,7 +1265,7 @@ public:
        the instrument having to be applied again. */
     void setMidiWhy (int channel, const std::string &why)
     {
-        if (channel >= 0 && channel < 16 && !overMidi_[channel])
+        if (onDeviceTable(channel) && !overMidi_[channel])
             midiWhy_[channel] = why;
     }
 
@@ -1272,7 +1273,7 @@ public:
     {
         static const std::string none;
 
-        return channel >= 0 && channel < 16 ? midiWhy_[channel] : none;
+        return onDeviceTable(channel) ? midiWhy_[channel] : none;
     }
     bool channelTaken (int channel) const
     {
@@ -2154,8 +2155,16 @@ private:
     thcNoteTap                *noteTap_ = NULL;
     ChanArgSource              chanArgs_;
     thcMidiOut                *notesOut_ = NULL;
-    bool                       overMidi_[16] = {};
-    std::string                midiWhy_[16];
+    bool                       overMidi_[TH_ENGINE_CHANNELS] = {};
+    std::string                midiWhy_[TH_ENGINE_CHANNELS];
+
+    /* Whether overMidi_ and midiWhy_ have a slot for `channel': an
+       instrument's channel is the loader's or a host's, and a host's
+       is not checked against them. */
+    static bool onDeviceTable (int channel)
+    {
+        return channel >= 0 && channel < TH_ENGINE_CHANNELS;
+    }
 
     /* A MIDI channel's chanargs during a seek: the last of each, sent
        when the seek is over. */

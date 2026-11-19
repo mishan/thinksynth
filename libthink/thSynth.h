@@ -382,11 +382,11 @@ public:
         return bpm;
     }
 
-    int midiChanCount (void) const { return midiChannelCnt_; }
+    int channelCount (void) const { return midiChannelCnt_; }
 
     /* A profiler's: with it on, process() times each channel's window --
        its voices and its effect -- and the master effect's, and after it
-       channelSeconds() holds them, the master effect's at midiChanCount().
+       channelSeconds() holds them, the master effect's at channelCount().
        Off, the cost is one test a channel. Audio thread, or before the
        first process(). */
     void setProfiling (bool on);
@@ -632,7 +632,7 @@ private:
 
     /* Audio thread. What order to run the channels in, so that a channel
      * named as somebody's side has been mixed before the effect that listens
-     * to it runs. Writes `midiChanCount()' entries into `order' and returns
+     * to it runs. Writes `channelCount()' entries into `order' and returns
      * how many -- which is every live slot, in index order, for a rack with
      * no side in it, so a piece that uses none sums its channels in exactly
      * the order it always did. */
@@ -749,8 +749,8 @@ private:
     struct RenderPool;
     std::unique_ptr<RenderPool> renderPool_;
     int threads_ = 0;
-    int laneChannels_[TH_MIDI_CHANNELS];
-    int laneStart_[TH_MIDI_CHANNELS + 1];
+    int laneChannels_[TH_ENGINE_CHANNELS];
+    int laneStart_[TH_ENGINE_CHANNELS + 1];
 
     /* What process() hands each channel: its probes and its side. */
     struct ChannelJob
@@ -766,7 +766,7 @@ private:
         int drainSidechannels;
     };
 
-    ChannelJob jobs_[TH_MIDI_CHANNELS];
+    ChannelJob jobs_[TH_ENGINE_CHANNELS];
 
     int buildLanes (const int *order, int norder);
     void renderLane (int lane);

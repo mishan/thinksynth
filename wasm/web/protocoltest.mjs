@@ -272,7 +272,7 @@ class Peer
         this.live = true;
         this.early = [];
 
-        for (let c = 0; c < 16; c++)
+        for (let c = 0; c < M._tw_engine_channels(); c++)
             if (M._tw_listens(c))
                 this.listens.add(c);
 

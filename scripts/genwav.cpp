@@ -1069,7 +1069,7 @@ int main (int argc, char **argv)
     const size_t frame = (size_t)channels * window;
 
     std::vector<float> pcm;
-    std::vector<Level> channelLevels(levels ? synth.midiChanCount() : 0);
+    std::vector<Level> channelLevels(levels ? synth.channelCount() : 0);
     std::vector<std::unique_ptr<Loudness> > channelLoudness(
         channelLevels.size());
     Loudness mixLoudness(channels, TH_DEFAULT_SAMPLES);
@@ -1079,7 +1079,7 @@ int main (int argc, char **argv)
 
     /* A channel opened when it first sounds, with the windows before it
        written as silence, so every stem starts where the mix does. */
-    std::vector<Stem> stems(stemsDir.empty() ? 0 : synth.midiChanCount());
+    std::vector<Stem> stems(stemsDir.empty() ? 0 : synth.channelCount());
     size_t windowsRendered = 0;
 
     /* The frames --from and --length keep. The meters read only these, so
@@ -1112,7 +1112,7 @@ int main (int argc, char **argv)
     /* --profile's: each window's seconds, where in the piece it started
        (-1 in the tail), and each channel's seconds in it, the master
        effect's last. */
-    const int profiled = synth.midiChanCount() + 1;
+    const int profiled = synth.channelCount() + 1;
     std::vector<double> windowSeconds, windowAt, channelSeconds;
 
     if (profile)
@@ -1152,7 +1152,7 @@ int main (int argc, char **argv)
         }
 
         if (levels)
-            for (int ch = 0; ch < synth.midiChanCount(); ch++)
+            for (int ch = 0; ch < synth.channelCount(); ch++)
             {
                 int outputs = 0;
                 const float *signal = synth.getChannelOutput(ch, &outputs);
@@ -1240,7 +1240,7 @@ int main (int argc, char **argv)
 
             /* A channel only one of the two renders sounded on is all
                difference, so the silent side reads as zeros. */
-            for (int ch = 0; ch < synth.midiChanCount(); ch++)
+            for (int ch = 0; ch < synth.channelCount(); ch++)
             {
                 int na = 0, nb = 0;
                 const float *sa = synth.getChannelOutput(ch, &na);
@@ -1536,7 +1536,7 @@ int main (int argc, char **argv)
        graph has none. */
     std::vector<std::vector<thMidiChan::NodeLevel> > channelNodes;
 
-    for (int ch = 0; nodeLevels && ch < synth.midiChanCount(); ch++)
+    for (int ch = 0; nodeLevels && ch < synth.channelCount(); ch++)
     {
         thMidiChan *chan = synth.getChannel(ch);
 

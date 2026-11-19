@@ -2395,12 +2395,13 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
     expectReject(plugins, synth, "channel-zero",
         "chain c { stage s gen::eno_line { };"
         " sink { channel = 0; }; };",
-        "channel is 1-16 now");
+        "channel is 1-" + std::to_string(TH_ENGINE_CHANNELS) + " now");
 
-    expectReject(plugins, synth, "channel-seventeen",
+    expectReject(plugins, synth, "channel-past-the-engine",
         "chain c { stage s gen::eno_line { };"
-        " sink { channel = 17; }; };",
-        "whole number, 1-16");
+        " sink { channel = " + std::to_string(TH_ENGINE_CHANNELS + 1) +
+        "; }; };",
+        "whole number, 1-" + std::to_string(TH_ENGINE_CHANNELS));
 
     expectReject(plugins, synth, "bad-sink-name",
         "chain c { stage s gen::eno_line { };"
@@ -4081,7 +4082,7 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
 static void
 clearChannels (thSynth *synth)
 {
-    for (int i = 0; i < TH_MIDI_CHANNELS; i++)
+    for (int i = 0; i < TH_ENGINE_CHANNELS; i++)
         synth->removeChan(i);
 
     drainSynth();
@@ -5092,6 +5093,113 @@ checkEffectChanargSink (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     clearChannels(synth);
+}
+
+/* How many instruments a piece may have: the engine's channels, or a
+ * host's fewer. `count' instruments loaded by a loader limited to
+ * `limit' (0 for its default); "" if they loaded, else the first error. */
+static std::string
+loadInstruments (const std::map<std::string, thcPlugin *> &plugins,
+                 thSynth *synth, int count, int limit)
+{
+    std::string body, path = thUtil::tempFile("gencheck-many-");
+
+    for (int i = 0; i < count; i++)
+        body += "instrument i" + std::to_string(i) +
+                " { dsp \"amb01.dsp\"; };\n"
+                "chain c" + std::to_string(i) + " { stage s gen::eno_line { };"
+                " sink { instrument = i" + std::to_string(i) + "; }; };\n";
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    std::string got;
+
+    {
+        thcScheduler sched(synth);
+
+        sched.setAuditionSynchronous(true);
+
+        thcGenLoader loader(plugins);
+
+        if (limit > 0)
+            loader.setChannelLimit(limit);
+
+        clearChannels(synth);
+
+        if (!loader.load(path, &sched))
+            got = loader.errors().empty() ? "(no error)" : loader.errors()[0];
+        else if ((int)sched.instruments().size() != count ||
+                 sched.instruments()[count - 1].channel != count - 1 ||
+                 synth->getChannel(count - 1) == NULL)
+            got = "the last instrument is not on channel " +
+                  std::to_string(count);
+    }
+
+    std::filesystem::remove(path);
+    clearChannels(synth);
+    return got;
+}
+
+static void
+checkChannelLimit (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    for (int count : { 17, TH_ENGINE_CHANNELS })
+    {
+        const std::string got = loadInstruments(plugins, synth, count, 0);
+
+        if (!got.empty())
+            fail(std::to_string(count) + " instruments did not load: " + got);
+    }
+
+    const struct
+    {
+        int count, limit;
+        std::string says;
+    } refused[] = {
+        { TH_ENGINE_CHANNELS + 1, 0,
+          std::to_string(TH_ENGINE_CHANNELS) + " is all there are" },
+        { 17, 16, "16 is all there are" },
+    };
+
+    for (const auto &r : refused)
+    {
+        const std::string got = loadInstruments(plugins, synth, r.count,
+                                                r.limit);
+
+        if (got.find(r.says) == std::string::npos)
+            fail(std::to_string(r.count) + " instruments on a host of " +
+                 std::to_string(r.limit) + " were not refused with '" +
+                 r.says + "': " + got);
+    }
+
+    /* The last channel, by hand. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-last-");
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "chain c { stage s gen::eno_line { }; sink { channel = " +
+                   std::to_string(TH_ENGINE_CHANNELS) + "; }; };\n";
+        }
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched) || sched.chain(0) == NULL ||
+            sched.chain(0)->sinks.size() != 1 ||
+            sched.chain(0)->sinks[0].channel != TH_ENGINE_CHANNELS - 1)
+            fail("a sink on channel " + std::to_string(TH_ENGINE_CHANNELS) +
+                 " did not load: " +
+                 (loader.errors().empty() ? "" : loader.errors()[0]));
+
+        std::filesystem::remove(path);
+    }
 }
 
 static void
@@ -10585,6 +10693,59 @@ checkMidiOut (const std::map<std::string, thcPlugin *> &plugins,
 
             if (out.calls.back().what != "detach" || sched.playsOverMidi(ch))
                 fail("the route did not go with the piece");
+        }
+    }
+
+    /* A channel past the engine's, as a host may write one: refused, and
+       no device table written past its end. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+
+        if (!play(withDsp(""), &out, 0.02, sched))
+            fail("the MIDI piece did not load for a channel past the end");
+        else
+        {
+            std::string why;
+
+            sched.instrument(0)->channel = 1000;
+            out.calls.clear();
+
+            if (sched.applyInstrument(0, why) || out.count("attach") != 0 ||
+                why.find("past the engine's last") == std::string::npos)
+                fail("an instrument on channel 1001 was applied: " + why);
+
+            sched.clearChains();
+        }
+    }
+
+    /* Past MIDI's sixteen: an instrument on a device on engine channel 21
+       is flushed by a stop and detached by a clear, as one on channel 1
+       is above. */
+    {
+        FakeMidiOut out;
+        thcScheduler sched(synth);
+
+        sched.setChannelTaken([](int channel) { return channel < 20; });
+
+        if (!play(withDsp(""), &out, 2.1, sched))
+            fail("the MIDI piece did not load on channel 21");
+        else
+        {
+            const int ch = sched.instruments()[0].channel;
+
+            if (ch != 20 || !sched.playsOverMidi(ch))
+                fail("the device's instrument is not on channel 21: " +
+                     std::to_string(ch + 1));
+
+            if (out.calls.empty() || out.calls.back().what != "flush" ||
+                out.calls.back().channel != ch)
+                fail("stopping did not flush the device on channel 21");
+
+            sched.clearChains();
+
+            if (out.calls.back().what != "detach" || sched.playsOverMidi(ch))
+                fail("the route on channel 21 did not go with the piece");
         }
     }
 
@@ -17083,6 +17244,7 @@ main (int argc, char *argv[])
         checkGrid(plugins, &synth);
         checkTempoAndRevival(plugins, &synth);
         checkInstruments(plugins, &synth);
+        checkChannelLimit(plugins, &synth);
         checkInstrumentEffects(plugins, &synth);
         checkEffectSide(plugins, &synth);
         checkEffectChanargSink(plugins, &synth);

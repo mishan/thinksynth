@@ -100,6 +100,11 @@ public:
     bool loadText (const std::string &text, const std::string &path,
                    thcScheduler *sched);
 
+    /* How many channels a piece's instruments and sinks may use, counted
+       from channel 1: the engine's by default, fewer on a host that holds
+       fewer. Before load. */
+    void setChannelLimit (int channels) { channelLimit_ = channels; }
+
     const std::vector<std::string> &errors (void) const { return errors_; }
     const std::vector<std::string> &warnings (void) const
     { return warnings_; }
@@ -381,6 +386,7 @@ private:
     std::string name_, author_, description_, category_;
     bool        hasSeed_;
     unsigned    seed_;
+    int         channelLimit_;
 };
 
 #endif /* THCGENFILE_H */
