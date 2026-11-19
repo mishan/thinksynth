@@ -3529,6 +3529,99 @@ try
         await page.evaluate(() => window.solo.settled());
     }
 
+    /* Typing in the patch box is in the graph's history, and the box's
+       Ctrl+Z walks it: on a patch nothing has edited yet, a line typed
+       before the graph's first edit, a write from elsewhere, another
+       line, and an Arrange, each undone in turn and redone. */
+    {
+        const box = () => page.$eval('#dsp', (e) => e.value);
+        const settled = () => page.evaluate(() => window.solo.settled());
+        const was = await page.$eval('#patch', (s) => s.value);
+        const wasText = await box();
+
+        await page.selectOption('#patch', 'pluck.dsp');
+        await settled();
+
+        const type = async (line) =>
+        {
+            await page.click('#dsp .cm-content');
+            await page.keyboard.press('Control+End');
+            await page.keyboard.type(line);
+            await settled();
+            return box();
+        };
+        const keys = async (key, n) =>
+        {
+            const texts = [];
+
+            for (let i = 0; i < n; i++)
+            {
+                await page.keyboard.press(key);
+                await settled();
+                texts.push(await box());
+            }
+
+            return texts;
+        };
+
+        const t0 = await box();
+        const t1 = await type('\n# one');
+        const put = t1 + '\n# put';
+
+        await page.evaluate((t) =>
+        {
+            document.getElementById('dsp').value = t;
+        }, put);
+
+        const t2 = await type('\n# two');
+
+        await page.click('#nodearrange');
+        await settled();
+
+        const t3 = await box();
+
+        await page.click('#dsp .cm-content');
+
+        const back = await keys('Control+z', 5);
+        /* `Z', as a real Shift sends it: a `z' with Shift held, which
+           Playwright can send and no keyboard does, is CodeMirror's
+           Mod-z. */
+        const forth = await keys('Control+Shift+Z', 4);
+        const all = [t0, t1, put, t2, t3];
+
+        check(new Set(all).size === 5 &&
+              JSON.stringify(back) === JSON.stringify([t2, put, t1, t0, t0]) &&
+              JSON.stringify(forth) === JSON.stringify([t1, put, t2, t3]),
+              'Ctrl+Z in the patch box undoes an Arrange, the typing, the ' +
+              'write from elsewhere as a step of its own, and the typing ' +
+              'before any graph edit, and stops there; Ctrl+Shift+Z redoes ' +
+              'them: ' + JSON.stringify(
+                  [...back, ...forth].map((t) => all.indexOf(t))));
+
+        /* The browser's own Undo, from its menu, goes the same way. */
+        await page.$eval('#dsp .cm-content', (c) => c.dispatchEvent(
+            new InputEvent('beforeinput', { inputType: 'historyUndo',
+                                            bubbles: true,
+                                            cancelable: true })));
+        await settled();
+
+        check((await box()) === t2,
+              'and the browser\'s Undo, from its menu, undoes the Arrange');
+
+        await page.selectOption('#patch', was);
+        await settled();
+
+        if ((await box()) !== wasText)
+        {
+            await page.evaluate((t) =>
+            {
+                document.getElementById('dsp').value = t;
+            }, wasText);
+            await page.click('#load');
+            await settled();
+        }
+    }
+
     /* The view dragged (canvasview.js, `pans'): the middle button and
        Space with the main one scroll the graph and move nothing in it; an
        arrow to a box out of sight brings it into view; and on a touch
