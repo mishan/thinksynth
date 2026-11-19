@@ -1697,8 +1697,9 @@ async function undoTogether (pages)
         return;
     }
 
-    await A.page.selectOption('#nodepalette', 'osc::simple');
     await A.page.click('#nodeadd');
+    await A.page.fill('#nodepickfilter', 'osc::simple');
+    await A.page.press('#nodepickfilter', 'Enter');
     await A.page.waitForFunction(([n, t]) => window.jam.file(n) !== t,
                                  [name, typed], { timeout: 10000 })
         .catch(() => {});
@@ -1721,6 +1722,7 @@ async function undoTogether (pages)
     const redid = await everywhere(typed);
 
     await A.page.click('#nodeadd');
+    await A.page.press('#nodepickfilter', 'Enter');
     await A.page.waitForFunction(([n, t]) => window.jam.file(n) !== t,
                                  [name, typed], { timeout: 10000 })
         .catch(() => {});
@@ -1780,8 +1782,9 @@ async function undoRefused (pages)
     {
         const was = await text(A.page);
 
-        await A.page.selectOption('#nodepalette', 'osc::simple');
         await A.page.click('#nodeadd');
+        await A.page.fill('#nodepickfilter', 'osc::simple');
+        await A.page.press('#nodepickfilter', 'Enter');
         await A.page.waitForFunction(([n, t]) => window.jam.file(n) !== t,
                                      [name, was], { timeout: 10000 })
             .catch(() => {});
