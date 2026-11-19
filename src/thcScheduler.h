@@ -395,7 +395,7 @@ struct thcInstrument
     int midiProgram;            /* 0-127 sent on apply; -1 none           */
     std::vector<thcMidiCC> ccs;
 
-    int channel;                /* 0-15, engine numbering; -1 unallocated */
+    int channel;                /* engine channel; -1 unallocated */
 
     thcInstrument (void)
         : sideChannel(-1), midiChannel(-1), midiProgram(-1), channel(-1) {}
