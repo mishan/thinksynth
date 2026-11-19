@@ -49,6 +49,12 @@
 
 /* ---- little local helpers --------------------------------------------- */
 
+/* A sink's channel is the engine's, which a MIDI channel is not: there are
+   more of them, and a piece's instruments sit on them. */
+static const std::string kSinkChannelTip =
+    "Engine channel, 1-" + std::to_string(TH_ENGINE_CHANNELS) +
+    " -- the number in the main window's channel list, not a MIDI channel";
+
 static bool
 copyOver (const std::string &from, const std::string &to)
 {
@@ -4789,7 +4795,7 @@ Composer::buildSinkTarget (Gtk::Box *row, Gtk::SpinButton *chan,
     Gtk::DropDown *tgt = manage(new Gtk::DropDown(shown));
 
     tgt->set_tooltip_text("What this sink plays: one of the piece's own "
-                          "instruments, or a bare MIDI channel for a patch "
+                          "instruments, or a bare engine channel for a patch "
                           "loaded from somewhere else");
 
     guint at = (guint)(targets.size() - 1);
@@ -4845,15 +4851,14 @@ Composer::buildSinkSelection (size_t ci, size_t ki)
        switched to a bare channel. */
     Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
         Gtk::Adjustment::create(chain.sinks[ki].channel > 0
-                                ? chain.sinks[ki].channel : 1, 1, 16, 1)));
+                                ? chain.sinks[ki].channel : 1, 1, TH_ENGINE_CHANNELS, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *rm = manage(new Gtk::Button("Remove"));
     std::vector<std::string> targets;
     Gtk::DropDown *tgt = buildSinkTarget(row, chan,
                                          chain.sinks[ki].instrument, targets);
 
-    chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
-                           "the main window's patch tab");
+    chan->set_tooltip_text(kSinkChannelTip);
     arg->set_text(chain.sinks[ki].chanarg);
     arg->set_placeholder_text("chanarg (empty: notes)");
     arg->set_max_width_chars(12);
@@ -4958,7 +4963,7 @@ Composer::buildAddSink (size_t ci)
 
     Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
     Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(1, 1, 16, 1)));
+        Gtk::Adjustment::create(1, 1, TH_ENGINE_CHANNELS, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *add = manage(new Gtk::Button("Add sink"));
     std::vector<std::string> targets;
@@ -4971,8 +4976,7 @@ Composer::buildAddSink (size_t ci)
                                          ? std::string()
                                          : doc_.instruments[0].name, targets);
 
-    chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
-                           "the main window's patch tab");
+    chan->set_tooltip_text(kSinkChannelTip);
     arg->set_placeholder_text("chanarg (empty: notes)");
     arg->set_max_width_chars(12);
 
@@ -5029,7 +5033,7 @@ Composer::buildAddChain (void)
 
     Gtk::DropDown *genSel = manage(new Gtk::DropDown(gens));
     Gtk::SpinButton *chanSel = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(1, 1, 16, 1)));
+        Gtk::Adjustment::create(1, 1, TH_ENGINE_CHANNELS, 1)));
     Gtk::Button *addBtn = manage(new Gtk::Button("Add chain"));
     std::vector<std::string> targets;
 
@@ -5044,8 +5048,7 @@ Composer::buildAddChain (void)
                                          ? std::string()
                                          : doc_.instruments[0].name, targets);
 
-    chanSel->set_tooltip_text("MIDI channel, 1-16 -- the number on "
-                              "the main window's patch tab");
+    chanSel->set_tooltip_text(kSinkChannelTip);
 
     addBtn->signal_clicked().connect(
         [this, nameEntry, genSel, chanSel, tgt, genNames, targets]
