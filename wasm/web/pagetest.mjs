@@ -1412,6 +1412,29 @@ try
               'a key and a pedal held before a route takes their channel ' +
               'let go where they went: ' +
               JSON.stringify({ twice, held, lifted: lifted.slice(-20) }));
+
+        /* Two keyboards' pedals routed onto one engine channel: it comes
+           up when the last of them does, whether it lets up or goes. */
+        await page.evaluate(() => window.fakeMidi.plug('k3', 'Third Keys'));
+        await page.evaluate(() => window.solo.midiRoutes('piece',
+                                                        [{ midi: 4, engine: 10 }]));
+        await k2([0xb4, 64, 127]);
+        await page.evaluate(() => window.fakeMidi.send('k3', [0xb4, 64, 127]));
+        await k2([0xb4, 64, 0]);
+
+        const stillDown = await pedals();
+
+        await page.evaluate(() => window.fakeMidi.unplug('k3'));
+
+        const gone = await pedals();
+
+        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+        check(stillDown.endsWith('10:127 10:127') &&
+              gone.endsWith('10:127 10:127 10:0'),
+              'a pedal two keyboards route onto one channel comes up with ' +
+              'the last of them: ' +
+              JSON.stringify({ stillDown: stillDown.slice(-16),
+                               gone: gone.slice(-20) }));
     }
 
     await page.click('#midi');

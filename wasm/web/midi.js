@@ -220,9 +220,33 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
     /* The inputs whose pedal is down on the page's channel. */
     const pedaling = new Set();
 
-    /* input id -> MIDI channel -> the engine channels a routed pedal went
-       down on. */
-    const pedaled = new Map();
+    /* engine channel -> the routed pedals holding it down, each an input
+       and a MIDI channel. */
+    const holders = new Map();
+    const holder = (id, channel) => JSON.stringify([id, channel]);
+
+    /* Lets `who' go of every engine channel it holds and of `also',
+       and says which of them no other pedal holds now. */
+    const unhold = (who, also) =>
+    {
+        const up = [];
+
+        for (const e of new Set([...holders.keys(), ...also]))
+        {
+            const by = holders.get(e);
+            const had = [...(by ?? [])].filter(who);
+
+            had.forEach((h) => by.delete(h));
+
+            if ((had.length > 0 || also.includes(e)) && !(by?.size > 0))
+            {
+                holders.delete(e);
+                up.push(e);
+            }
+        }
+
+        return up;
+    };
 
     /* What an input holds for a note: on its channel, or where it is
        omni, on any. */
@@ -269,28 +293,34 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
     };
 
     /* Down on where the routes reach now, or the page's channel; up where
-       it went down, and where the routes reach now as well. */
+       it went down, and where the routes reach now as well, on each
+       engine channel no other input's routed pedal still holds. */
     const pedal = (id, channel, value) =>
     {
         const reach = routes?.reach(channel) ?? null;
-
-        if (!pedaled.has(id))
-            pedaled.set(id, new Map());
-
-        const mine = pedaled.get(id);
-        const went = mine.get(channel);
+        const me = holder(id, channel);
 
         if (value >= PEDAL_DOWN && reach !== null)
         {
-            mine.set(channel, [...new Set([...(went ?? []), ...reach])]);
+            for (const e of reach)
+            {
+                if (!holders.has(e))
+                    holders.set(e, new Set());
+                holders.get(e).add(me);
+            }
+
             onPedal(value, reach);
             return;
         }
 
-        if (value < PEDAL_DOWN && (went !== undefined || reach !== null))
+        const held = [...holders.values()].some((by) => by.has(me));
+
+        if (value < PEDAL_DOWN && (held || reach !== null))
         {
-            mine.delete(channel);
-            onPedal(value, [...new Set([...(went ?? []), ...(reach ?? [])])]);
+            const up = unhold((h) => h === me, reach ?? []);
+
+            if (up.length > 0)
+                onPedal(value, up);
 
             /* And the page's channel too, if this input held it down. */
             if (!pedaling.has(id))
@@ -325,10 +355,10 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
         if (pedaling.delete(id) && pedaling.size === 0)
             onPedal(0, null);
 
-        for (const went of pedaled.get(id)?.values() ?? [])
-            onPedal(0, went);
+        const up = unhold((h) => JSON.parse(h)[0] === id, []);
 
-        pedaled.delete(id);
+        if (up.length > 0)
+            onPedal(0, up);
     };
 
     const attach = (input) =>
@@ -403,7 +433,7 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
                 down.clear();
 
             pedaling.clear();
-            pedaled.clear();
+            holders.clear();
         },
 
         close ()
