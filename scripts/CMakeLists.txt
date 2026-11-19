@@ -477,6 +477,9 @@ think_harness(notebendcheck)
 # MIDI's pitch bend and an MPE controller's per-note expression
 # (src/gthMidiPlay.h).
 think_harness(mpecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiPlay.cpp")
+# Live MIDI input routes (libthink/thMidiRoutes.h), and gthMidiPlay keeping
+# each held note and the pedal where they went as the routes change.
+think_harness(routecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiPlay.cpp")
 
 # Loops of the notes the hands play (hid/thhLooper.h).
 think_harness(hidloopcheck COMPOSERHOST HID)
@@ -1416,6 +1419,8 @@ add_test(NAME notebendcheck
          COMMAND notebendcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME mpecheck
          COMMAND mpecheck -p "${PROJECT_BINARY_DIR}/plugins/")
+add_test(NAME routecheck
+         COMMAND routecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
 add_test(NAME hidcamcheck COMMAND hidcamcheck)
 add_test(NAME boxcheck COMMAND boxcheck)

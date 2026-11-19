@@ -118,6 +118,8 @@ static const Row ROWS[] = {
       "92 3c 64  e2 00 50", 2, 60, "note=72.00 a0=0.00 a1=0.00" },
     { "a velocity of 0 is an off", 2,
       "92 3c 64  92 3c 00", 2, 60, "gone" },
+    { "MPE folds onto an engine channel past 16", 20,
+      "93 3c 64  e3 00 50", 20, 60, "note=72.00 a0=0.00 a1=0.00" },
 };
 
 int
@@ -145,6 +147,7 @@ main (int argc, char *argv[])
 
         for (int c = 0; c < 3; c++)
             synth.loadTree(file.string(), c, 100);
+        synth.loadTree(file.string(), row.chan, 100);
         midi.setMpe(row.mpe);
         while (bytes >> std::hex >> x)
             b.push_back(x);

@@ -24,10 +24,12 @@
  * channel on the solo page, the seat in a room -- is already decided there,
  * and a MIDI key is one more hand on the same keys.
  *
- * THE DEVICE'S CHANNEL IS IGNORED. Every input is omni. The page's channel
- * is where a note goes, as it is for a computer key: in a room a seat is a
+ * Every input is omni unless routes say otherwise. The page's channel is
+ * where a note goes, as it is for a computer key: in a room a seat is a
  * channel, and a keyboard left on channel 1 would otherwise play whoever
- * sits there.
+ * sits there. A page that hands openMidi a MidiRoutes has a MIDI channel
+ * its routes name go to the engine channels they say instead, and keeps
+ * each such note's targets for its off; a room hands none.
  *
  * Each input keeps the notes it holds. A second note on for a note already
  * down is dropped, a note off for one not down is dropped, and an input
@@ -52,6 +54,59 @@
    down (TH_MIDI_CC_SUSTAIN, thMidiChan). */
 const CC_SUSTAIN = 64;
 const PEDAL_DOWN = 64;
+
+/* Which engine channels a MIDI note goes to, as libthink's thMidiRoutes
+ * says: per MIDI channel, the highest layer naming it, machine then
+ * piece, decides all of it -- its routes ({ midi, engine, lo, hi }, engine
+ * -1 for off) whose key range takes the note -- and a channel no layer
+ * names is the base's. The base is omni onto the page's own channel, so
+ * resolve() and reach() answer null for it.
+ */
+export class MidiRoutes
+{
+    constructor ()
+    {
+        this.layers = { machine: [], piece: [] };
+    }
+
+    set (layer, routes)
+    {
+        if (layer in this.layers)
+            this.layers[layer] = routes.map((r) => ({ lo: 0, hi: 127, ...r }));
+    }
+
+    deciding (midi)
+    {
+        for (const layer of [this.layers.machine, this.layers.piece])
+            if (layer.some((r) => r.midi === midi))
+                return layer.filter((r) => r.midi === midi);
+
+        return null;
+    }
+
+    /* The engine channels, each once, or null for the page's channel. */
+    resolve (midi, note)
+    {
+        const routes = this.deciding(midi);
+
+        return routes === null ? null
+            : [...new Set(routes.filter((r) => r.engine >= 0 &&
+                                               note >= r.lo && note <= r.hi)
+                                .map((r) => r.engine))];
+    }
+
+    /* Every engine channel some note on `midi' goes to: the pedal's. */
+    reach (midi)
+    {
+        const routes = this.deciding(midi);
+
+        return routes === null ? null
+            : [...new Set(routes.filter((r) => r.engine >= 0 &&
+                                               Math.max(r.lo, 0) <=
+                                               Math.min(r.hi, 127))
+                                .map((r) => r.engine))];
+    }
+}
 
 /* True where the browser has Web MIDI at all: Chromium and Firefox, over
    https or on localhost. Safari has none. */
@@ -90,7 +145,7 @@ export async function midiAccess ()
  * Returns { forget }, which is openMidi's forget on whatever is open.
  */
 export function midiToggle ({ button, status, onNoteOn, onNoteOff,
-                             onPedal })
+                             onPedal, routes = null })
 {
     const label = button.textContent;
     let open = null;
@@ -117,7 +172,7 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
 
         try
         {
-            open = await openMidi({ onNoteOn, onNoteOff, onPedal,
+            open = await openMidi({ onNoteOn, onNoteOff, onPedal, routes,
                                     onChange: say });
         }
         catch (e)
@@ -138,10 +193,13 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
 /* Asks for MIDI access and listens on every input there is, and on every
  * input plugged in afterwards.
  *
- * `onNoteOn(note, velocity)' and `onNoteOff(note)' are called once per key,
- * `onPedal(value)' for every sustain pedal message but a let-up while
- * another input's pedal is still down, and `onChange(names)' with the
- * connected inputs' names whenever one comes or goes.
+ * `onNoteOn(note, velocity, targets)' and `onNoteOff(note, targets)' are
+ * called once per key, `onPedal(value, targets)' for every sustain pedal
+ * message but a let-up while another input's pedal is still down, and
+ * `onChange(names)' with the connected inputs' names whenever one comes
+ * or goes. `targets' is null for the page's channel, or the engine
+ * channels `routes' sent the note or the pedal to: a note's off goes
+ * where its on went, and a pedal's let-up where it went down as well.
  *
  * Resolves to { names, forget, close }. `forget' drops what every input
  * holds, pedal included, without calling onNoteOff or onPedal, for a page
@@ -151,35 +209,134 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
  * Rejects with a message fit to put on the page.
  */
 export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
-                                  onChange = () => {} })
+                                  onChange = () => {}, routes = null })
 {
     const access = await midiAccess();
 
-    /* input id -> the notes it holds */
+    /* input id -> the notes it holds, by `channel note', each to the
+       targets its on had: null for the page's channel. */
     const held = new Map();
 
-    /* The inputs whose pedal is down. */
+    /* The inputs whose pedal is down on the page's channel. */
     const pedaling = new Set();
 
-    const noteOn = (id, note, velocity) =>
+    /* engine channel -> the routed pedals holding it down, each an input
+       and a MIDI channel. */
+    const holders = new Map();
+    const holder = (id, channel) => JSON.stringify([id, channel]);
+
+    /* Lets `who' go of every engine channel it holds and of `also',
+       and says which of them no other pedal holds now. */
+    const unhold = (who, also) =>
     {
-        const down = held.get(id);
+        const up = [];
 
-        if (down === undefined || down.has(note))
-            return;
+        for (const e of new Set([...holders.keys(), ...also]))
+        {
+            const by = holders.get(e);
+            const had = [...(by ?? [])].filter(who);
 
-        down.add(note);
-        onNoteOn(note, velocity);
+            had.forEach((h) => by.delete(h));
+
+            if ((had.length > 0 || also.includes(e)) && !(by?.size > 0))
+            {
+                holders.delete(e);
+                up.push(e);
+            }
+        }
+
+        return up;
     };
 
-    const noteOff = (id, note) =>
+    /* What an input holds for a note: on its channel, or where it is
+       omni, on any. */
+    const holding = (down, channel, note) =>
+    {
+        if (down.has(`${channel} ${note}`))
+            return `${channel} ${note}`;
+
+        for (const [key, targets] of down)
+            if (targets === null && key.endsWith(` ${note}`))
+                return key;
+
+        return null;
+    };
+
+    /* A second on for a key down goes where the first went, which is
+       nowhere new: it is dropped. */
+    const noteOn = (id, channel, note, velocity) =>
     {
         const down = held.get(id);
+        const targets = routes?.resolve(channel, note) ?? null;
 
-        if (down === undefined || !down.delete(note))
+        if (down === undefined ||
+            down.has(`${channel} ${note}`) ||
+            (targets === null && holding(down, channel, note) !== null))
             return;
 
-        onNoteOff(note);
+        down.set(`${channel} ${note}`, targets);
+        onNoteOn(note, velocity, targets);
+    };
+
+    const noteOff = (id, channel, note) =>
+    {
+        const down = held.get(id);
+        const key = down === undefined ? null : holding(down, channel, note);
+
+        if (key === null)
+            return;
+
+        const targets = down.get(key);
+
+        down.delete(key);
+        onNoteOff(note, targets);
+    };
+
+    /* Down on where the routes reach now, or the page's channel; up where
+       it went down, and where the routes reach now as well, on each
+       engine channel no other input's routed pedal still holds. */
+    const pedal = (id, channel, value) =>
+    {
+        const reach = routes?.reach(channel) ?? null;
+        const me = holder(id, channel);
+
+        if (value >= PEDAL_DOWN && reach !== null)
+        {
+            for (const e of reach)
+            {
+                if (!holders.has(e))
+                    holders.set(e, new Set());
+                holders.get(e).add(me);
+            }
+
+            onPedal(value, reach);
+            return;
+        }
+
+        const held = [...holders.values()].some((by) => by.has(me));
+
+        if (value < PEDAL_DOWN && (held || reach !== null))
+        {
+            const up = unhold((h) => h === me, reach ?? []);
+
+            if (up.length > 0)
+                onPedal(value, up);
+
+            /* And the page's channel too, if this input held it down. */
+            if (!pedaling.has(id))
+                return;
+        }
+
+        if (value >= PEDAL_DOWN)
+            pedaling.add(id);
+        else
+            pedaling.delete(id);
+
+        /* Another input's pedal still holds it down. */
+        if (value < PEDAL_DOWN && pedaling.size > 0)
+            return;
+
+        onPedal(value, null);
     };
 
     const letGo = (id) =>
@@ -189,17 +346,25 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
         if (down === undefined)
             return;
 
-        for (const note of [...down])
-            noteOff(id, note);
+        for (const [key, targets] of [...down])
+        {
+            down.delete(key);
+            onNoteOff(Number(key.split(' ')[1]), targets);
+        }
 
         if (pedaling.delete(id) && pedaling.size === 0)
-            onPedal(0);
+            onPedal(0, null);
+
+        const up = unhold((h) => JSON.parse(h)[0] === id, []);
+
+        if (up.length > 0)
+            onPedal(0, up);
     };
 
     const attach = (input) =>
     {
         if (!held.has(input.id))
-            held.set(input.id, new Set());
+            held.set(input.id, new Map());
 
         /* Assigning the handler is also what opens the port. */
         input.onmidimessage = (e) =>
@@ -210,28 +375,18 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
                 return;
 
             const kind = data[0] & 0xf0;
+            const channel = data[0] & 0x0f;
             const data1 = data[1] & 0x7f;
             const data2 = data[2] & 0x7f;
 
             /* A note on at velocity 0 is a note off, which is how a
                keyboard using running status sends most of them. */
             if (kind === 0x90 && data2 > 0)
-                noteOn(input.id, data1, data2);
+                noteOn(input.id, channel, data1, data2);
             else if (kind === 0x80 || kind === 0x90)
-                noteOff(input.id, data1);
+                noteOff(input.id, channel, data1);
             else if (kind === 0xb0 && data1 === CC_SUSTAIN)
-            {
-                if (data2 >= PEDAL_DOWN)
-                    pedaling.add(input.id);
-                else
-                    pedaling.delete(input.id);
-
-                /* Another input's pedal still holds it down. */
-                if (data2 < PEDAL_DOWN && pedaling.size > 0)
-                    return;
-
-                onPedal(data2);
-            }
+                pedal(input.id, channel, data2);
         };
     };
 
@@ -278,6 +433,7 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
                 down.clear();
 
             pedaling.clear();
+            holders.clear();
         },
 
         close ()

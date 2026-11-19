@@ -73,7 +73,7 @@ import { createSeqView } from './seqview.js';
 import { createSynth } from './host.js';
 import { TextHistory } from './history.js';
 import { micAvailable, openMic } from './mic.js';
-import { midiAvailable, midiToggle } from './midi.js';
+import { MidiRoutes, midiAvailable, midiToggle } from './midi.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
 import { createVideoView } from './videoview.js';
 import { MidiOutControls } from './midioutui.js';
@@ -460,6 +460,20 @@ let synth = null;
 let midiOutUI = null;
 let mic = null;                  /* what openMic returned, or null */
 let midiIn = null;               /* the MIDI in button (midi.js)    */
+
+/* Where MIDI in's notes go: the key channel unless a layer is set, and
+   nothing sets one yet but a harness. */
+const midiRoutes = new MidiRoutes();
+
+/* `channel note' -> how many routed MIDI keys hold that note there; and
+   the channels a routed pedal holds down. */
+const routed = new Map();
+const routedPedal = new Set();
+
+/* `channel note' -> how many holds a note has on an engine channel in
+   piece mode, the page's keys and routed MIDI keys alike: one voice, on
+   with the first and off with the last. */
+const engineHolds = new Map();
 let cameraIn = null;             /* the camera button (camera.js)   */
 let video = null;                /* the picture (videoview.js)      */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
@@ -722,7 +736,7 @@ function press (note, velocity = VELOCITY, from = null)
                          piece: piecing, channel });
 
     if (piecing)
-        synth.midiOn(note, velocity, -1, channel);
+        holdOn(channel, note, velocity);
     else
         synth.noteOn(note, velocity);
 
@@ -754,11 +768,87 @@ function release (note, from = null)
     sounding.delete(note);
 
     if (held.piece)
-        synth.midiOff(note, -1, held.channel);
+        holdOff(held.channel, note);
     else
         synth.noteOff(note);
 
     keyboard?.hold(note, false);
+}
+
+/* A MIDI key the routes sent to engine channels of their own: played on
+   each, past the key channel and the piece's listening alike. */
+function holdOn (channel, note, velocity)
+{
+    const key = `${channel} ${note}`;
+    const count = engineHolds.get(key) ?? 0;
+
+    engineHolds.set(key, count + 1);
+
+    if (count === 0)
+        synth.midiOn(note, velocity, -1, channel);
+}
+
+function holdOff (channel, note)
+{
+    const key = `${channel} ${note}`;
+    const count = engineHolds.get(key);
+
+    if (count === undefined)
+        return;
+
+    if (count > 1)
+        engineHolds.set(key, count - 1);
+    else
+    {
+        engineHolds.delete(key);
+        synth?.midiOff(note, -1, channel);
+    }
+}
+
+function routedPress (note, velocity, targets)
+{
+    if (synth === null)
+        return;
+
+    for (const c of targets)
+    {
+        const key = `${c} ${note}`;
+
+        routed.set(key, (routed.get(key) ?? 0) + 1);
+        holdOn(c, note, velocity);
+    }
+}
+
+function routedRelease (note, targets)
+{
+    for (const c of targets)
+    {
+        const key = `${c} ${note}`;
+        const count = routed.get(key);
+
+        if (count === undefined)
+            continue;
+
+        if (count > 1)
+            routed.set(key, count - 1);
+        else
+            routed.delete(key);
+
+        holdOff(c, note);
+    }
+}
+
+function routedPedalTo (value, targets)
+{
+    for (const c of targets)
+    {
+        synth?.chanarg(c, 'SusPedal', value);
+
+        if (value >= 64)
+            routedPedal.add(c);
+        else
+            routedPedal.delete(c);
+    }
 }
 
 /* Everything, whoever is holding it, and the pedal: a mode change is about
@@ -766,6 +856,19 @@ function release (note, from = null)
 function releaseAll ()
 {
     midiIn?.forget();
+
+    for (const [key, count] of [...routed])
+    {
+        const [c, note] = key.split(' ').map(Number);
+
+        routed.delete(key);
+
+        for (let i = 0; i < count; i++)
+            holdOff(c, note);
+    }
+
+    routedPedalTo(0, [...routedPedal]);
+
     cameraIn?.forget();
     pedal(0);
 
@@ -4142,6 +4245,11 @@ window.solo = {
        and velocity each note went out with. */
     sounding: () => [...sounding].map(([note, held]) => ({ note, ...held })),
 
+    /* MIDI in's routes (midi.js's MidiRoutes), and the notes they hold
+       as `channel note'. */
+    midiRoutes: (layer, routes) => midiRoutes.set(layer, routes),
+    routed: () => [...routed.keys()].sort(),
+
     /* What the page last read of the engine's channels (tw_loaded). */
     loaded: () => [...loaded],
 
@@ -4556,10 +4664,14 @@ async function init ()
     $('start').addEventListener('click', start);
     $('mic').addEventListener('click', toggleMic);
     midiIn = midiToggle({
-        button: $('midi'), status: $('midistatus'),
-        onNoteOn: (note, velocity) => press(note, velocity, 'midi'),
-        onNoteOff: (note) => release(note, 'midi'),
-        onPedal: pedal,
+        button: $('midi'), status: $('midistatus'), routes: midiRoutes,
+        onNoteOn: (note, velocity, targets) => targets === null
+            ? press(note, velocity, 'midi')
+            : routedPress(note, velocity, targets),
+        onNoteOff: (note, targets) => targets === null
+            ? release(note, 'midi') : routedRelease(note, targets),
+        onPedal: (value, targets) => targets === null
+            ? pedal(value) : routedPedalTo(value, targets),
     });
     cameraIn = cameraToggle({
         button: $('camera'), status: $('camerastatus'), zones: $('camerazones'),

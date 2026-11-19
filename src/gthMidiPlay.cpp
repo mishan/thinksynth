@@ -44,8 +44,16 @@ void gthMidiPlay::setMpe (int channel)
         ch.held.clear();
     }
     for (int c = 0; c < TH_ENGINE_CHANNELS; c++)
+    {
         for (int n = 0; n < 128; n++)
             owner_[c][n] = -1;
+        pedalBy_[c].clear();
+    }
+    for (int c = 0; c < 16; c++)
+    {
+        for (int n = 0; n < 128; n++)
+            targets_[c][n].clear();
+    }
     ranges();
 }
 
@@ -58,7 +66,7 @@ void gthMidiPlay::ranges ()
                                              : GTH_BEND_RANGE;
 }
 
-int gthMidiPlay::target (int midiChannel) const
+int gthMidiPlay::mapChannel (int midiChannel) const
 {
     return mpe_ >= 0 ? mpe_ : midiChannel;
 }
@@ -78,17 +86,115 @@ void gthMidiPlay::express (int midiChannel, bool bend, bool pressure,
 
     for (size_t i = 0; i < ch.held.size(); i++)
     {
-        const int to = target(midiChannel), note = ch.held[i];
+        const int note = ch.held[i];
 
-        if (owner_[to][note] != midiChannel)
-            continue;
+        for (int to : targets_[midiChannel][note])
+        {
+            if (owner_[to][note] != midiChannel)
+                continue;
 
-        if (bend)
-            synth_->bendNote(to, note, bendOf(midiChannel));
-        if (pressure)
-            synth_->setNoteAux(to, note, 0, ch.pressure);
-        if (timbre)
-            synth_->setNoteAux(to, note, 1, ch.timbre);
+            if (bend)
+                synth_->bendNote(to, note, bendOf(midiChannel));
+            if (pressure)
+                synth_->setNoteAux(to, note, 0, ch.pressure);
+            if (timbre)
+                synth_->setNoteAux(to, note, 1, ch.timbre);
+        }
+    }
+}
+
+/* A key down: to where its last on went if it is still held, so a
+   repeated key retriggers what it sounds rather than following a route
+   changed since; else to where MPE or the routes send it. */
+void gthMidiPlay::strike (int c, int note, int velocity)
+{
+    Chan &ch = chans_[c];
+    std::vector<int> &to = targets_[c][note];
+    const bool mpe = mpe_ >= 0;
+
+    if (std::find(ch.held.begin(), ch.held.end(), note) == ch.held.end())
+    {
+        ch.held.push_back(note);
+
+        if (mpe)
+            to.assign(1, mpe_);
+        else
+            routes_.resolve(c, note, to);
+    }
+
+    for (int e : to)
+    {
+        owner_[e][note] = c;
+        synth_->addNote(e, note, velocity);
+        if (noteOn)
+            noteOn(e, note, velocity);
+
+        /* A note starts where its channel's expression is. */
+        if (bendOf(c))
+            synth_->bendNote(e, note, bendOf(c));
+        if (mpe && ch.pressure)
+            synth_->setNoteAux(e, note, 0, ch.pressure);
+        if (mpe && ch.timbre)
+            synth_->setNoteAux(e, note, 1, ch.timbre);
+    }
+}
+
+void gthMidiPlay::letGo (int c, int note)
+{
+    Chan &ch = chans_[c];
+
+    ch.held.erase(std::remove(ch.held.begin(), ch.held.end(), note),
+                  ch.held.end());
+
+    for (int e : targets_[c][note])
+    {
+        if (owner_[e][note] != c)
+            continue;           /* another member's now */
+        owner_[e][note] = -1;
+        synth_->delNote(e, note);
+        if (noteOff)
+            noteOff(e, note);
+    }
+
+    targets_[c][note].clear();
+}
+
+/* SusPedal holds the controller's own 0..127, as
+   thSynth::handleMidiController puts it. Down reaches every engine
+   channel the MIDI channel's notes can go to now. Up reaches every one
+   it went down on as well, so a route changed between the two strands no
+   held note -- but lets a channel up only once no other MIDI channel's
+   pedal holds it down. */
+void gthMidiPlay::sustain (int c, int value)
+{
+    std::vector<int> reach;
+
+    if (mpe_ >= 0)
+        reach.assign(1, mpe_);
+    else
+        routes_.reach(c, reach);
+
+    const float v = (float)std::min(value, MIDIVALMAX);
+
+    if (value >= 64)
+    {
+        for (int e : reach)
+        {
+            pedalBy_[e].insert(c);
+            synth_->setChanArg(e, new thArg("SusPedal", v));
+        }
+
+        return;
+    }
+
+    for (int e = 0; e < TH_ENGINE_CHANNELS; e++)
+    {
+        const bool held = pedalBy_[e].erase(c) > 0;
+
+        if ((held || std::find(reach.begin(), reach.end(), e) !=
+                         reach.end()) &&
+            pedalBy_[e].empty())
+            synth_->setChanArg(e, new thArg("SusPedal", v));
     }
 }
 
@@ -105,34 +211,13 @@ void gthMidiPlay::play (unsigned char status, unsigned char data1,
     case 0x90:
         if (data2)
         {
-            if (std::find(ch.held.begin(), ch.held.end(), data1) ==
-                ch.held.end())
-                ch.held.push_back(data1);
-            owner_[target(c)][data1 & 0x7f] = c;
-            synth_->addNote(target(c), data1, data2);
-            if (noteOn)
-                noteOn(target(c), data1, data2);
-
-            /* A note starts where its channel's expression is. */
-            if (bendOf(c))
-                synth_->bendNote(target(c), data1, bendOf(c));
-            if (mpe && ch.pressure)
-                synth_->setNoteAux(target(c), data1, 0, ch.pressure);
-            if (mpe && ch.timbre)
-                synth_->setNoteAux(target(c), data1, 1, ch.timbre);
+            strike(c, data1 & 0x7f, data2);
             break;
         }
         /* a velocity of 0 is an off */
         [[fallthrough]];
     case 0x80:
-        ch.held.erase(std::remove(ch.held.begin(), ch.held.end(), data1),
-                      ch.held.end());
-        if (owner_[target(c)][data1 & 0x7f] != c)
-            break;              /* another member's now */
-        owner_[target(c)][data1 & 0x7f] = -1;
-        synth_->delNote(target(c), data1);
-        if (noteOff)
-            noteOff(target(c), data1);
+        letGo(c, data1 & 0x7f);
         break;
 
     case 0xe0:
@@ -189,8 +274,12 @@ void gthMidiPlay::play (unsigned char status, unsigned char data1,
             ch.timbre = data2 / 127.0f;
             express(c, false, false, true);
         }
+        else if (data1 == TH_MIDI_CC_SUSTAIN &&
+                 synth_->getMidiControllerConnection(mapChannel(c), data1) ==
+                     NULL)
+            sustain(c, data2);
         else
-            synth_->handleMidiController(target(c), data1, data2);
+            synth_->handleMidiController(mapChannel(c), data1, data2);
         break;
     }
     }
