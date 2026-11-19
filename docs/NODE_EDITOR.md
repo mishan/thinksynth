@@ -41,9 +41,9 @@ patch mode, or the ones a piece's instruments name. An edit is spliced into
 that text with the same `NodeEdit::Text` and `NodeLayout::Text` calls the
 desktop makes; on the solo page the patch then loads again, and in a room the
 splice is the shared document's, so every peer has it. There is no Save, since
-the text is the file, and Undo is the solo page's alone so far (see below).
-When what is playing uses only the shipped patches there is nothing to edit,
-and the pane says so.
+the text is the file, and Undo is the page's (see below). When what is
+playing uses only the shipped patches there is nothing to edit, and the
+pane says so.
 
 `thPluginManager` loads plugins by name and cannot enumerate them, so
 `NodeCatalog` walks the plugin directory instead, and the palette shows the
@@ -166,8 +166,8 @@ key comes up, since every write reloads the patch or goes to every peer, and a
 rebuild before that drops it rather than writing an old graph's positions over
 the new text. Ctrl+S saves on the desktop (Cmd on macOS); in the browser it
 says there is nothing to save, and Ctrl+Z undoes the graph rather than the
-piece -- in a room, says there is no Undo there yet. A screen reader
-hears what a key did -- the box an arrow reached, a group, a wire, a delete, an
+piece. A screen reader hears what a key did -- the box an arrow reached, a
+group, a wire, a delete, an
 Undo: the desktop announces it (GTK 4.14 and up, with an accessibility bus),
 and the browser writes it in a live line under the graph, since the page's
 status is the patch reload's a moment after every edit. A rebuild keeps the selection by name
@@ -228,6 +228,14 @@ and the box's Undo and Redo walk the same history. Opening another piece
 starts its instruments' histories over, and loading the same one again does
 not; any other change made outside the graph is taken up as a step of its
 own, `change the text`, when the next one is taken.
+
+A room's graph has the same buttons and keys, over the file's own
+`Y.UndoManager` (`wasm/web/roomundo.js`), which its code view shares: one
+history for both. It tracks this page's typing and graph edits, which carry
+an origin of their own, and not a peer's, which arrive with the provider's,
+nor what the page writes for a knob or a pick; an Undo takes back one's own
+step, rebased over whatever else changed since. Typing and a graph
+step never join, and values set on one arg less than a second apart do.
 
 **A value, a slider, a drag or a probe changes the graph in place; a wire, a
 node added or deleted, or a control's range parses the text again.** A node's
@@ -611,8 +619,9 @@ finding them means sitting in front of it.
 
 ## 9. Still ahead
 
-- **A room's graph has no Undo yet.** It wants the file's `Y.UndoManager`,
-  shared with the code view, so that an Undo takes back only one's own edits.
+- **A room's Undo can leave a patch that does not parse.** A peer's edit since
+  a step can depend on it, and taking the step back then breaks the text;
+  such an Undo should be refused and said.
 - **`dspcheck` should grow a "load this and process it" check** for anything the
   editor writes.
 - **`thSynthTree::buildSynthTree` walks the graph recursively with a `recalc`

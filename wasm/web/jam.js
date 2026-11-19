@@ -55,6 +55,7 @@ import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
 import { createNodeView } from './nodeview.js';
+import { GRAPH, roomHistory } from './roomundo.js';
 import { createPanes } from './panes.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
@@ -2871,7 +2872,7 @@ async function start ()
                save. */
             files: {
                 read: (name) => readFile(doc, name),
-                write: (name, next) => spliceFile(doc, name, next),
+                write: (name, next) => spliceFile(doc, name, next, GRAPH),
                 /* By name: a switch puts a new text under it. */
                 watch: (name, onChange) =>
                 {
@@ -2897,6 +2898,7 @@ async function start ()
                     };
                 },
             },
+            history: roomHistory(doc),
             onStatus: status,
             sampleRate: ctx.sampleRate,
 

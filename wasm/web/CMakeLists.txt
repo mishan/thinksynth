@@ -534,7 +534,7 @@ set(BUNDLE_SOURCES jam.js chat.js room.js mesh.js editor.js doc.js clock.js
                    midi.js midiout.js midioutui.js ../tape.mjs
                    canvasview.js composerview.js nodeview.js rollview.js
                    tapediff.js offline.js layouts.js sourcebox.js seqview.js
-                   packs.js evolveui.js
+                   packs.js evolveui.js roomundo.js
                    thinklang.js bundle.mjs ../../package-lock.json)
 set(BUNDLE_DEPENDS "")
 

@@ -132,6 +132,7 @@ export async function createNodeView ({ files, history = null,
 
     let file = null;            /* the .dsp this is showing */
     let watching = null;        /* how to stop watching it change */
+    let hearing = null;         /* and its Undo's steps */
     let selected = -1;
 
     /* The probes the file's `# @probe' lines name: what each watches, the
@@ -1912,6 +1913,8 @@ export async function createNodeView ({ files, history = null,
             /* Somebody else's edit to this file -- another peer's, or the
                text editor's on this page -- is a rebuild like our own. */
             watching = files.watch?.(name, rebuild) ?? null;
+            hearing?.();
+            hearing = history?.onChange?.(name, showSteps) ?? null;
 
             /* Or the build would keep a box of the same name selected, in
                a file where nobody chose it, one key from Delete. */
@@ -2071,10 +2074,7 @@ export async function createNodeView ({ files, history = null,
         e.preventDefault();
         e.stopPropagation();
 
-        if (history === null)
-            onStatus('No Undo in the browser\'s graph yet.');
-        else
-            undo(key === 'z' && !e.shiftKey);
+        undo(key === 'z' && !e.shiftKey);
     });
 
     /* And the browser's own menu stays out of the way: a right-click here
@@ -2112,6 +2112,8 @@ export async function createNodeView ({ files, history = null,
         {
             watching?.();
             watching = null;
+            hearing?.();
+            hearing = null;
             file = null;
             nudged = false;
             selected = -1;

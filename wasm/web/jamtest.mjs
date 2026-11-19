@@ -1651,6 +1651,99 @@ async function undoOwnEdits (pages)
              JSON.stringify((await text(A.page)).split('\n', 2)));
 }
 
+/* One Undo per file for both views, and only one's own: A types a line
+ * into amb01.dsp, B types one above it, and A adds a node on the graph.
+ * A's Ctrl+Z in the code view takes the node back, the graph's Undo then
+ * takes A's line, B's staying on both pages, and Redo puts the line back.
+ * Then a node added and a line typed at once after it are two steps. */
+async function undoTogether (pages)
+{
+    const [A, B] = pages;
+    const name = 'amb01.dsp';
+
+    await enter(pages, 'jamgraphundo', PIECE);
+    await A.page.evaluate(() =>
+    {
+        document.getElementById('nodeview').open = true;
+    });
+    await A.page.selectOption('#nodefile', name);
+    await A.page.waitForFunction(() => window.jam.node()?.boxes > 0, null,
+                                 { timeout: 30000 }).catch(() => {});
+
+    const was = await A.page.evaluate((n) => window.jam.file(n), name);
+    const type = async (page, line) =>
+    {
+        await page.click(`#tabs button:text-is("${name}")`);
+        await page.click('.cm-content');
+        await page.keyboard.press('Control+Home');
+        await page.keyboard.type(line);
+    };
+    const everywhere = (want) => Promise.all(pages.map(({ page }) =>
+        page.waitForFunction(([n, w]) => window.jam.file(n) === w,
+                             [name, want], { timeout: 10000 })
+            .then(() => true, () => false)))
+        .then((r) => r.every(Boolean));
+    const said = () => A.page.$eval('#nodesay', (e) => e.textContent);
+
+    await type(A.page, '# A\n');
+    await everywhere('# A\n' + was);
+    await type(B.page, '# B\n');
+
+    const typed = '# B\n# A\n' + was;
+
+    if (!(await everywhere(typed)))
+    {
+        fail(`the two lines typed into ${name} did not reach both pages`);
+        return;
+    }
+
+    await A.page.selectOption('#nodepalette', 'osc::simple');
+    await A.page.click('#nodeadd');
+    await A.page.waitForFunction(([n, t]) => window.jam.file(n) !== t,
+                                 [name, typed], { timeout: 10000 })
+        .catch(() => {});
+
+    const tip = await A.page.$eval('#nodeundo', (b) => b.title);
+
+    await A.page.click('.cm-content');
+    await A.page.keyboard.press('Control+z');
+
+    const codeUndid = await everywhere(typed);
+
+    await A.page.$eval('#nodeundo', (b) => b.click());
+
+    const graphUndid = await everywhere('# B\n' + was);
+    const undid = await said();
+    const spent = await A.page.$eval('#nodeundo', (b) => b.disabled);
+
+    await A.page.$eval('#noderedo', (b) => b.click());
+
+    const redid = await everywhere(typed);
+
+    await A.page.click('#nodeadd');
+    await A.page.waitForFunction(([n, t]) => window.jam.file(n) !== t,
+                                 [name, typed], { timeout: 10000 })
+        .catch(() => {});
+
+    const added = await A.page.evaluate((n) => window.jam.file(n), name);
+
+    await type(A.page, '# C\n');
+    await everywhere('# C\n' + added);
+    await A.page.keyboard.press('Control+z');
+
+    const apart = added !== typed && await everywhere(added);
+
+    if (tip.startsWith('Undo add ') && codeUndid && graphUndid &&
+        undid === 'Undid edit text.' && spent && redid && apart)
+        ok(`${A.label}'s Ctrl+Z in the code view takes back the node ` +
+           `added on the graph, the graph's Undo then ${A.label}'s line ` +
+           `and not ${B.label}'s, on both pages, and Redo puts it back; ` +
+           'a line typed straight after a node added is a step of its own');
+    else
+        fail(`one Undo for both views of ${name}: ` + JSON.stringify(
+            { tip, codeUndid, graphUndid, undid, spent, redid, apart }));
+}
+
 /* Keys into a piece, from both pages: hands.gen, which composes nothing
  * but what it is played. One page sits on the quantizer's channel and
  * plays quantised, the other on an arpeggiator's and plays a bar ahead. A
@@ -3590,6 +3683,7 @@ try
     await sectionsTogether(pages, browsers[0]);
     await pasteTogether(pages);
     await undoOwnEdits(pages);
+    await undoTogether(pages);
 
     /* ---- and talks ---- */
 

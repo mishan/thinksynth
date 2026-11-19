@@ -98,9 +98,9 @@ export function putFile (doc, name, text)
  * deletes the wrong range (section 12.5).
  *
  * Returns the number of characters replaced, or -1 if there is no such
- * file.
+ * file. `origin' is the transaction's, for an undo history to know it by.
  */
-export function spliceFile (doc, name, next)
+export function spliceFile (doc, name, next, origin = null)
 {
     let replaced = -1;
 
@@ -142,7 +142,7 @@ export function spliceFile (doc, name, next)
 
         if (inserted.length > 0)
             t.insert(head, inserted);
-    });
+    }, origin);
 
     return replaced;
 }
