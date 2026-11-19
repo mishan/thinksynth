@@ -6853,8 +6853,8 @@ try
     }
 
     /* This browser's own MIDI routes: a route added in the MIDI routes
-       table outranks a piece's for its MIDI channel, and is there again
-       after a reload. */
+       table outranks a piece's `midiin' for its MIDI channel, and is
+       there again after a reload. */
     {
         const pr = await page.context().newPage();
 
@@ -6883,10 +6883,23 @@ try
                 document.getElementById('midistatus').textContent ===
                 'Route Keys');
         };
+        /* A piece that takes MIDI channel 2 for its instrument; the route
+           kept here sends the channel to 9 instead. */
         const routedOn = async () =>
         {
-            await pr.evaluate(() => window.solo.midiRoutes('piece',
-                [{ midi: 1, engine: 3 }]));
+            await pr.selectOption('#mode', 'piece');
+            await pr.evaluate(() => window.solo.settled());
+            await pr.evaluate(() =>
+            {
+                document.getElementById('gen').value =
+                    'tempo 120;\n' +
+                    'instrument pad { dsp "organ0.dsp"; midiin = 2; };\n' +
+                    'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                    ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                    ' sink { instrument = pad; }; };\n';
+            });
+            await pr.click('#loadpiece');
+            await pr.evaluate(() => window.solo.settled());
             await pr.evaluate(() => window.sendMidi([0x91, 60, 100]));
 
             const got = await pr.evaluate(() =>
