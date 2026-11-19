@@ -123,9 +123,9 @@ export async function createNodeView ({ files, history = null,
 
     /* What this view says goes in its own line as well as the page's: the
        page's is the reload's a moment after an edit. */
-    const say = (text) =>
+    const say = (text, id = 'nodesay') =>
     {
-        const line = $('nodesay');
+        const line = $(id);
 
         if (line !== null)
             line.textContent = text;
@@ -469,12 +469,13 @@ export async function createNodeView ({ files, history = null,
                        chosen: SELECTION says that. */
                     if (a >= 0 && M._tw_node_canvas_selection_count() <= 1)
                         say(`${call('tw_graph_box_name', ['number'], [a])}, ` +
-                            call('tw_graph_box_plugin', ['number'], [a]));
+                            call('tw_graph_box_plugin', ['number'], [a]),
+                            'nodeheard');
                     break;
 
                 case SIG.SELECTION:
                     if (a > 1)
-                        say(`${a} nodes selected.`);
+                        say(`${a} nodes selected.`, 'nodeheard');
                     break;
 
                 /* Written when the key comes up: a held arrow repeats,

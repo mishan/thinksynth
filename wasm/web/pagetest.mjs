@@ -3064,10 +3064,11 @@ try
         const name = await page.evaluate((i) => window.solo.node().box(i).name,
                                          arrowed);
         const said = () => page.$eval('#nodesay', (e) => e.textContent);
+        const heard = () => page.$eval('#nodeheard', (e) => e.textContent);
 
-        check((await said()).startsWith(`${name}, `),
-              `the graph's own line says where the arrow went: ` +
-              `${await said()}`);
+        check((await heard()).startsWith(`${name}, `),
+              `the graph says where the arrow went, to a screen reader: ` +
+              `${await heard()}`);
         /* One first, so the file has a layout block to read numbers from:
            this patch has none until something moves. */
         const plain = await dsp();
@@ -3244,9 +3245,9 @@ try
 
         await page.keyboard.press('Control+a');
 
-        check(/^\d+ nodes selected\.$/.test(await said()),
+        check(/^\d+ nodes selected\.$/.test(await heard()),
               `...and that Ctrl+A took a group, not one box: ` +
-              `${await said()}`);
+              `${await heard()}`);
 
         await page.keyboard.press('Escape');
 

@@ -342,20 +342,28 @@
 <details id="nodeview"
          data-pane data-pane-title="Patch graph" data-pane-min="400">
   <summary>The instrument, as a graph</summary>
-  <div class="row">
+  <div class="row tools">
     <label>File <select id="nodefile"></select></label>
-    <label>Add <select id="nodepalette"></select></label>
-    <button id="nodeadd">Add node</button>
-    <button id="nodeaddcontrol">Add control</button>
-    <button id="nodedelete" disabled>Delete</button>
-    <button id="nodearrange">Arrange</button>
-    <button id="nodeundo" disabled>Undo</button>
-    <button id="noderedo" disabled>Redo</button>
-    <button id="nodezoomout" aria-label="Zoom out" title="Zoom out">−</button>
-    <button id="nodezoom1" title="Actual size">1:1</button>
-    <button id="nodezoomin" aria-label="Zoom in" title="Zoom in">+</button>
-    <button id="nodefit">Fit</button>
+    <span>
+      <label>Add <select id="nodepalette"></select></label>
+      <button id="nodeadd">Add node</button>
+      <button id="nodeaddcontrol">Add control</button>
+    </span>
+    <span>
+      <button id="nodedelete" disabled>Delete</button>
+      <button id="nodearrange">Arrange</button>
+    </span>
+    <span>
+      <button id="nodeundo" disabled>Undo</button>
+      <button id="noderedo" disabled>Redo</button>
+    </span>
     <span id="nodeselected"></span>
+    <span class="zoom">
+      <button id="nodezoomout" aria-label="Zoom out" title="Zoom out">−</button>
+      <button id="nodezoom1" title="Actual size">1:1</button>
+      <button id="nodezoomin" aria-label="Zoom in" title="Zoom in">+</button>
+      <button id="nodefit">Fit</button>
+    </span>
   </div>
   <!-- Said instead of an empty menu over a blank canvas when what is
        playing has no graph of its own here (nodeview.js, offer). -->
@@ -372,6 +380,8 @@
   <!-- What a key on the graph did, for a screen reader and anyone else:
        the page's status is taken over by a reload after every edit. -->
   <p id="nodesay" class="hint" aria-live="polite"></p>
+  <!-- And where the selection went, which the toolbar already shows. -->
+  <p id="nodeheard" class="unseen" aria-live="polite"></p>
   <!-- The graph without the canvas: its nodes to choose, and the chosen
        one's wires, to cut, make and watch (nodeview.js). -->
   <details id="nodeoutline">
