@@ -468,6 +468,10 @@ const midiRoutes = new MidiRoutes();
 /* `channel note' -> how many routed MIDI keys hold that note there; and
    the channels a routed pedal holds down. */
 const routed = new Map();
+
+/* A harness's: while set, a load waits here between the piece going in
+   and its aiming. */
+let aimHold = null;
 const routedPedal = new Set();
 
 /* `channel note' -> how many holds a note has on an engine channel in
@@ -2348,7 +2352,18 @@ async function loadPiece ()
         {
             const loaded = await synth.loadPiece($('gen').value);
 
+            /* MIDI in follows the piece the engine has now, not after the
+               aiming: a key played while it is awaited goes to this
+               piece's instruments. */
+            midiRoutes.set('piece', loaded.errors.length === 0
+                ? loaded.routes ?? [] : []);
             nodes?.rearm();
+
+            if (aimHold !== null)
+            {
+                aimHold.waiting = true;
+                await aimHold;
+            }
 
             if (loaded.errors.length === 0)
                 aiming = await patch.aim(
@@ -4257,6 +4272,19 @@ window.solo = {
     /* MIDI in's routes (midi.js's MidiRoutes), and the notes they hold
        as `channel note'. */
     midiRoutes: (layer, routes) => midiRoutes.set(layer, routes),
+    holdAim: () =>
+    {
+        let open;
+
+        aimHold = new Promise((resolve) => { open = resolve; });
+        aimHold.open = open;
+    },
+    aimHeld: () => aimHold?.waiting === true,
+    releaseAim: () =>
+    {
+        aimHold?.open();
+        aimHold = null;
+    },
     routed: () => [...routed.keys()].sort(),
 
     /* What the page last read of the engine's channels (tw_loaded). */

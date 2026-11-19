@@ -1505,6 +1505,40 @@ try
         const keyed = (await sounding()).map((h) => h.note).join(',');
 
         await k2([0x81, 61, 0]);
+
+        /* A key played while a load is aiming goes to the new piece's
+           instrument: `second' on channel 2 in the first piece, `solo'
+           on channel 1 in the one loading. */
+        await load('tempo 120;\n' +
+                   'instrument first { dsp "organ0.dsp"; };\n' +
+                   'instrument second { dsp "organ0.dsp"; midiin = 2; };\n' +
+                   'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                   ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                   ' sink { instrument = first; }; };\n');
+        await page.evaluate(() => window.solo.holdAim());
+        await page.evaluate(() =>
+        {
+            document.getElementById('gen').value =
+                'tempo 120;\n' +
+                'instrument solo { dsp "organ0.dsp"; midiin = 2; };\n' +
+                'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                ' sink { instrument = solo; }; };\n';
+        });
+        await page.click('#loadpiece');
+        await page.waitForFunction(() => window.solo.aimHeld(), null,
+                                   { timeout: 15000 });
+        await k2([0x91, 62, 100]);
+
+        const midLoad = await routed();
+
+        await k2([0x81, 62, 0]);
+        await page.evaluate(() => window.solo.releaseAim());
+        await page.evaluate(() => window.solo.settled());
+        check(midLoad === '0 62',
+              'a key played while a piece is loading plays the new piece: ' +
+              midLoad);
+
         await load(was);
 
         /* Each half on a channel of its own: the two instruments'. */
