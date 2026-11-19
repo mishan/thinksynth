@@ -290,9 +290,9 @@ Chrome or Edge, whose WebHID is what reads them; Firefox and Safari have
 none, and the page says so. On Linux the browser needs the same udev rule
 as the application.
 
-Press Controller, under the keys, and pick a controller or a dongle in
-the browser's list; once picked, the page takes it up again by itself at
-every load, and when it is plugged in again. What it reads is the
+Press Start, then Controller, under the keys, and pick a controller or a
+dongle in the browser's list. From then on the page takes it up by itself
+once Start is pressed, and whenever it is plugged in. What it reads is the
 application's own code, built small for the page, so a controller plays
 the same in both: the same controls, the controller's own profile, a
 patch's `controller index` block, a pair as a left and right hand. The

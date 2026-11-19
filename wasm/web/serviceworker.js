@@ -64,7 +64,11 @@ const PACKS = PREFIX + 'packs';
    kept the first time it is asked for instead, in the same cache, which
    only a page that needs it ever asks for (precache.mjs). */
 const PRECACHED = new Set(FILES.map((f) => new URL(f, self.location).href));
-const KEPT_URLS = new Set(KEPT.map((f) => new URL(f, self.location).href));
+const KEPT_URLS = new Map(KEPT.map((f) =>
+    [new URL(f, self.location).href, KEPT_SHA256[f]]));
+
+const hex = (bytes) => [...new Uint8Array(bytes)]
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
 
 /* The site's root, which a navigation reaches as the directory. */
 const ROOT = new URL('./', self.location).href;
@@ -166,11 +170,23 @@ self.addEventListener('fetch', (e) =>
                 return hit;
 
             /* `reload', as at install: the HTTP cache could hold the build
-               before this one's. */
+               before this one's. And only this build's bytes: a deploy since
+               would hand a page of this build another build's module, which
+               it can't drive. Refused, the page tries again once this worker
+               has been replaced by the one that build brought. */
             const got = await fetch(new Request(key, { cache: 'reload' }));
 
-            if (got.ok)
-                await cache.put(key, got.clone());
+            if (!got.ok)
+                return got;
+
+            const bytes = await got.clone().arrayBuffer();
+
+            if (hex(await crypto.subtle.digest('SHA-256', bytes)) !==
+                KEPT_URLS.get(key))
+                return new Response('another build', { status: 503 });
+
+            /* Not kept, if the browser has no room: played anyway. */
+            await cache.put(key, got.clone()).catch(() => {});
             return got;
         }));
         return;

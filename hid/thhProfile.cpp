@@ -201,8 +201,15 @@ thhReadProfile (const std::string &path, std::string &text, std::string &err)
     std::error_code ec;
 
     text.clear();
+    /* No file is no profile; one that can't even be looked for is one that
+       can't be read. */
     if (!std::filesystem::exists(path, ec))
-        return true;
+    {
+        if (!ec)
+            return true;
+        err = path + ": can't read it";
+        return false;
+    }
 
     std::ifstream in(path.c_str());
     std::ostringstream all;

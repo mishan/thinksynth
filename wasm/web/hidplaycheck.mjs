@@ -81,7 +81,7 @@ const heard = async (action, early = false) =>
 
     const out = [];
 
-    for (let done = 0; done < 4096; done += 128)
+    for (let done = 0; done < 16384; done += 128)
     {
         const p = M._tw_render(128) >> 2;
 
@@ -90,6 +90,23 @@ const heard = async (action, early = false) =>
     return { M, out };
 };
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/* How often the left channel rises through zero: the pitch, near enough
+   to tell two semitones up (x 1.12) from down. */
+const rises = (out) =>
+{
+    let n = 0;
+
+    for (let i = 2; i < out.length; i += 2)
+        n += out[i - 2] < 0 && out[i] >= 0 ? 1 : 0;
+    return n;
+};
+const upTwo = (bent, plain) =>
+{
+    const ratio = rises(bent) / rises(plain);
+
+    return ratio > 1.08 && ratio < 1.17 ? '' : `the pitch went x ${ratio.toFixed(3)}`;
+};
 
 const plain = await heard(null);
 const said = JSON.parse(plain.M.ccall('tw_controller', 'string', ['number'],
@@ -104,13 +121,11 @@ const again = await heard(null);
 report('the same note rendered twice is the same', same(plain.out, again.out)
        ? '' : 'it differs, so nothing below can be heard');
 
-report('a bend reaches the note it names',
-       !same(plain.out, (await heard({ kind: BEND, note: 60, t: 2 })).out)
-       ? '' : 'the note sounds as it did');
+report('a bend reaches the note it names, two semitones up',
+       upTwo((await heard({ kind: BEND, note: 60, t: 2 })).out, plain.out));
 report('a bend sent with its note, before it sounds, reaches it',
-       !same((await heard(null, true)).out,
-             (await heard({ kind: BEND, note: 60, t: 2 }, true)).out)
-       ? '' : 'the note sounds as it did');
+       upTwo((await heard({ kind: BEND, note: 60, t: 2 }, true)).out,
+             (await heard(null, true)).out));
 report('a bend of a note not sounding moves nothing',
        same(plain.out, (await heard({ kind: BEND, note: 61, t: 2 })).out)
        ? '' : 'the note sounding moved');
@@ -118,9 +133,9 @@ report('a value is written onto its arg',
        !same(plain.out, (await heard({ kind: VALUE, arg: 'level', t: 1 })).out)
        ? '' : 'the level is as it was');
 report('a value is put in the profile\'s range where it gives one',
-       same((await heard({ kind: VALUE, arg: 'level', t: 1 })).out,
-            (await heard({ kind: VALUE, arg: 'level', t: 0, min: 1,
-                           max: 1 })).out)
+       same((await heard({ kind: VALUE, arg: 'level', t: 0.375 })).out,
+            (await heard({ kind: VALUE, arg: 'level', t: 0.25, min: 0.25,
+                           max: 0.75 })).out)
        ? '' : 'the arg\'s own range was used');
 report('a value for an arg the patch hasn\'t got is dropped',
        same(plain.out, (await heard({ kind: VALUE, arg: 'nothere', t: 1 })).out)

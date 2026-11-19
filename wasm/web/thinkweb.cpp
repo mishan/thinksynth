@@ -4520,8 +4520,9 @@ EMSCRIPTEN_KEEPALIVE const char *tw_holding (int channel)
 
 /* What a Valve Index controller plays on channel (thinkhid.cpp, hid.js):
    its patch's name, its `controller index' block (thSynthTree::controller),
-   and the names of its args, for the controller pane to say which knob a
-   binding has nothing to turn. JSON, kept until the next call. */
+   and the args a binding can turn -- the one-valued ones thhPlay writes,
+   the effect's as fx.<name> -- for the controller pane to say which knob
+   a binding has nothing to turn. JSON, kept until the next call. */
 EMSCRIPTEN_KEEPALIVE const char *tw_controller (int channel)
 {
     static std::string out;
@@ -4534,12 +4535,15 @@ EMSCRIPTEN_KEEPALIVE const char *tw_controller (int channel)
     out += ",\"block\":";
     jsonString(out, tree ? tree->controller("index") : "");
     out += ",\"args\":[";
-    for (const auto &a : synth_->getChanArgs(channel))
-    {
-        out += comma;
-        jsonString(out, a.first);
-        comma = ",";
-    }
+    for (const char *prefix : { "", "fx." })
+        for (const auto &a : *prefix ? synth_->getEffectArgs(channel)
+                                     : synth_->getChanArgs(channel))
+            if (a.second && a.second->len() == 1)
+            {
+                out += comma;
+                jsonString(out, prefix + a.first);
+                comma = ",";
+            }
     out += "]}";
     return out.c_str();
 }

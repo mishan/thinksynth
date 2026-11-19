@@ -262,7 +262,7 @@ try
         check(await postedHas(page, 'midion 60'),
               'in a sequence, A pressed goes in as its input, as the keys\' do');
         await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x00]));
-        await postedHas(page, 'midioff 60');
+        check(await postedHas(page, 'midioff 60'), 'and let go of, goes in as its release');
 
         await page.selectOption('#mode', 'patch');
         await page.evaluate(() => window.solo.settled());
@@ -330,8 +330,11 @@ try
         await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
         await postedHas(page, 'midion 60');
         await page.evaluate(() => window.unplug(window.dongles[0]));
-        check(await postedHas(page, 'midioff 60') && await statusIs(page, ''),
-              'and unplugged with a note held, lets it go');
+        check(await postedHas(page, 'midioff 60') &&
+              await page.waitForFunction(
+                  () => document.getElementById('hidstatus').textContent === '',
+                  null, { timeout: 5000 }).then(() => true, () => false),
+              'and unplugged with a note held, lets it go, and says nothing is playing');
         await page.context().close();
     }
 
@@ -368,25 +371,31 @@ try
             ({ serial: 'D-1', part, second: i > 2 })) });
 
         await page.click('#hid');
+        await statusIs(page, 'A Valve Index controller is playing');
 
         /* The first playing, so that a note from the second would sound. */
         await page.evaluate(() => window.dongles.filter((d) => d.part === 'input')[0].press(true));
-        await postedHas(page, 'midion 60');
+
+        const first = await postedHas(page, 'midion 60');
+
         await page.evaluate(() =>
         {
-            const first = window.dongles.filter((d) => d.part === 'input')[0];
+            const one = window.dongles.filter((d) => d.part === 'input')[0];
 
-            first.press(false);
+            one.press(false);
         });
-        await postedHas(page, 'midioff 60');
+
+        const firstOff = await postedHas(page, 'midioff 60');
         await page.evaluate(() =>
         {
             window.posted.length = 0;
             window.dongles.filter((d) => d.part === 'input')[1].press(true);
         });
         await page.waitForTimeout(500);
-        check(await page.evaluate(() => !window.posted.some((p) => p.startsWith('midion'))),
-              'a second wired controller is turned away, its A playing nothing');
+        check(first && firstOff &&
+              await page.evaluate(() => !window.posted.some((p) => p.startsWith('midion'))),
+              'a second wired controller is turned away, its A playing nothing, ' +
+              'while the first plays');
     }
 
     {

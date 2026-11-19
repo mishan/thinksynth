@@ -129,6 +129,7 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
     const values = new Map();       /* "channel arg" -> latest value       */
     let wired = null;               /* the wired controller's slot id      */
     let pairUntil = 0;              /* when the dongle stops listening     */
+    let pairing = null;             /* and which one it is                 */
     let problem = '';               /* what is wrong with the profile      */
     let profile = kept(PROFILE_KEY);
 
@@ -192,7 +193,10 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
             {
                 values.set(`${a.channel} ${a.arg}`,
                            { ...a, kind: KIND.value });
-                flushing ||= requestAnimationFrame(flush);
+                /* A hidden tab draws no frames, and a controller still plays
+                   in one. */
+                flushing ||= document.hidden ? setTimeout(flush, 15)
+                                             : requestAnimationFrame(flush);
             }
             else
             {
@@ -237,9 +241,14 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
        the worklet can say: asked once a second while one plays. */
     const follow = async () =>
     {
-        const c = await controller(track());
+        const asked = track();
+        const c = await controller(asked);
         const said = JSON.stringify(c);
 
+        /* The page moved to another channel while the worklet answered:
+           that one's question is asked next. */
+        if (channel() !== asked)
+            return;
         if (said !== block)
         {
             block = said;
@@ -286,14 +295,18 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         const length = (start[1] << 8) | start[2];
         const bytes = [];
 
-        while (bytes.length < length)
+        /* No more reads than the length needs, and none that is shorter
+           than it says (thhIndexHidraw.cpp, readHand). */
+        for (let k = 0; bytes.length < length && k < length / 62 + 4; k++)
         {
             const part = await feature(r, 0x11);
 
-            if (part === null || part[1] === 0)
+            if (part === null || part[1] === 0 || part.length < 2 + part[1])
                 break;
             bytes.push(...part.subarray(2, 2 + part[1]));
         }
+        if (bytes.length < length)
+            return null;
 
         const json = await new Response(new Blob([new Uint8Array(bytes)])
             .stream().pipeThrough(new DecompressionStream('deflate'))).text()
@@ -332,7 +345,8 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
                 await follow();
                 if (said !== null && !r.closed)
                 {
-                    pairUntil = 0;
+                    if (pairing === r)
+                        pairUntil = 0;
                     r.id = add(said);
                     take();
                     tellStatus();
@@ -388,7 +402,9 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
 
     const takeUp = async (device) =>
     {
-        if (device.vendorId !== VALVE || open.has(device))
+        if (open.has(device) ||
+            !FILTERS.some((f) => f.vendorId === device.vendorId &&
+                                 f.productId === device.productId))
             return;
 
         const r = { device, kind: kindOf(device), id: null, closed: false,
@@ -425,8 +441,18 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         else if (r.kind === 'imu')
             queued(r, async () =>
             {
-                await device.sendFeatureReport(0x04, new Uint8Array(4));
-                await device.sendFeatureReport(0x07, Uint8Array.of(3, 0, 0, 0));
+                try
+                {
+                    await device.sendFeatureReport(0x04, new Uint8Array(4));
+                    await device.sendFeatureReport(0x07,
+                                                   Uint8Array.of(3, 0, 0, 0));
+                }
+                catch (e)
+                {
+                    gone(device);
+                    say(`Can't wake the controller: ${e.message}. Pick it again.`);
+                    return;
+                }
 
                 const said = await configure(r);
 
@@ -448,6 +474,8 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         open.delete(device);
         r.closed = true;
         device.removeEventListener('inputreport', r.listen);
+        if (pairing === r)
+            pairUntil = 0;
         if (r.kind === 'dongle' && r.id !== null)
             drop(r.id);
         else if (r.kind !== 'dongle' && wired !== null)
@@ -469,6 +497,7 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
 
         if (r === undefined)
             return;
+        pairing = r;
         pairUntil = now() + PAIR_S;
         queued(r, () => r.device.sendFeatureReport(0xff, PAIR).catch((e) =>
         {
@@ -577,9 +606,15 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         });
     };
 
+    let started = false;
+
     return {
+        /* Once: a Start that fails and is pressed again calls it again. */
         async start ()
         {
+            if (started)
+                return;
+            started = true;
             if (!hidAvailable())
             {
                 say('Controllers need Chrome or Edge.');
@@ -610,9 +645,7 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
             navigator.hid.addEventListener('disconnect', (e) => gone(e.device));
 
             for (const device of await navigator.hid.getDevices())
-                if (FILTERS.some((f) => f.productId === device.productId &&
-                                        f.vendorId === device.vendorId))
-                    await takeUp(device);
+                await takeUp(device);
         },
 
         forget ()

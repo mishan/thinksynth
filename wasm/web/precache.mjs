@@ -78,5 +78,8 @@ const version = hash.digest('hex').slice(0, 16);
 fs.writeFileSync(path.join(root, 'sw.js'),
     `const VERSION = ${JSON.stringify(version)};\n` +
     `const FILES = ${JSON.stringify(files)};\n` +
-    `const KEPT = ${JSON.stringify(kept)};\n\n` +
+    `const KEPT = ${JSON.stringify(kept)};\n` +
+    `const KEPT_SHA256 = ${JSON.stringify(Object.fromEntries(kept.map((rel) =>
+        [rel, crypto.createHash('sha256')
+                  .update(fs.readFileSync(path.join(root, rel))).digest('hex')])))};\n\n` +
     fs.readFileSync(template, 'utf8'));
