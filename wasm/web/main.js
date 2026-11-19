@@ -546,6 +546,10 @@ let placed = new Map();
    every load; empty until the first. */
 let loaded = [];
 
+/* And which of the piece's instruments each channel holds now, which a
+   swap changes while it plays (tw_holding). */
+let holding = [];
+
 /* The modes somebody chose the key channel in this session, which a
    piece's load then leaves alone; and the channel the page last said was
    silent, so that it says so once. */
@@ -555,7 +559,7 @@ let saidSilent = null;
 async function readLoaded ()
 {
     if (synth !== null)
-        ({ names: loaded } = await synth.loaded());
+        ({ names: loaded, holding } = await synth.loaded());
 }
 
 /* Whether keys on `channel' reach nothing. While a piece plays, a key
@@ -2767,7 +2771,7 @@ function showChannels ()
             const own = document.createElement('span');
 
             own.className = 'own';
-            own.textContent = `${inst.name}, the piece's`;
+            own.textContent = `${holding[channel] || inst.name}, the piece's`;
             line.append(own);
 
             if (inst.midi)
@@ -3301,6 +3305,12 @@ async function start ()
                                          },
                                          onParamEdits: paramsEdited,
                                          onEdited: edited,
+                                         onChannels: (m) =>
+                                         {
+                                             ({ names: loaded,
+                                                holding } = m);
+                                             showChannels();
+                                         },
                                          onRecorded: (m) =>
                                              takes.recorded(m),
                                          onMidi: (msgs) => midiOutUI.take(msgs),

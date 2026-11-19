@@ -102,6 +102,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.handled = [];      /* [cmd, frame] for the mirror (host.js) */
         this.quanta = 0;        /* since the last post to the page */
         this.edits = 0;         /* tw_edit_count when last told */
+        this.channelsSaid = ''; /* what was on the channels when last told */
         this.catchQuanta = 0;   /* ended with tw_catching set */
         this.events = [];
         this.keys = [];         /* played since the last post (drainKeys) */
@@ -397,13 +398,8 @@ class ThinkProcessor extends AudioWorkletProcessor
          */
         if (m.type === 'onchannels')
         {
-            const names = [];
-
-            for (let c = 0; c < 16; c++)
-                names.push(this.M.ccall('tw_loaded', 'string', ['number'],
-                                        [c]));
-
-            this.port.postMessage({ type: 'onchannels', id: m.id, names });
+            this.port.postMessage({ type: 'onchannels', id: m.id,
+                                    ...this.channels() });
             return;
         }
 
@@ -1119,7 +1115,10 @@ class ThinkProcessor extends AudioWorkletProcessor
             this.catchQuanta++;
 
         if (++this.quanta >= TAPE_EVERY)
+        {
             this.postTape();
+            this.postChannels();
+        }
 
         /* After the post, so the call that posted counts in the next
            batch and not in none. */
@@ -1134,6 +1133,38 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.took[Math.min(took, TOOK_BINS - 1)]++;
 
         return true;
+    }
+
+    /* What is on each of the sixteen channels the page offers: the
+       graph's name (tw_loaded) and which of the piece's instruments that
+       is (tw_holding), "" for nothing. */
+    channels ()
+    {
+        const names = [];
+        const holding = [];
+
+        for (let c = 0; c < 16; c++)
+        {
+            names.push(this.M.ccall('tw_loaded', 'string', ['number'], [c]));
+            holding.push(this.M.ccall('tw_holding', 'string', ['number'],
+                                      [c]));
+        }
+
+        return { names, holding };
+    }
+
+    /* And said unasked when it changes, on the tape's beat: a piece swaps
+       instruments as it plays, and the page names what is on a channel. */
+    postChannels ()
+    {
+        const now = this.channels();
+        const said = JSON.stringify(now);
+
+        if (said === this.channelsSaid)
+            return;
+
+        this.channelsSaid = said;
+        this.port.postMessage({ type: 'onchannels', ...now });
     }
 
     /* MIDI out, every quantum it has any rather than with the tape: a

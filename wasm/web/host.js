@@ -123,6 +123,7 @@ export async function createSynth (ctx, { windowlen = 128,
                                           onMidi = () => {},
                                           onMidiState = () => {},
                                           onEdited = () => {},
+                                          onChannels = () => {},
                                           onRecorded = () => {},
                                           onMirror = null,
                                           mirrorScript = 'mirror.js' } = {})
@@ -403,7 +404,6 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'panel':
             case 'panelvalues':
             case 'patchstate':
-            case 'onchannels':
             case 'patchcompose':
             case 'settempo':
             case 'genparam':
@@ -439,6 +439,18 @@ export async function createSynth (ctx, { windowlen = 128,
 
             case 'midistate':
                 onMidiState(m.instruments);
+                break;
+
+            /* An answer to synth.loaded(), or what is on the channels
+               said unasked when it changed. */
+            case 'onchannels':
+                if (m.id === undefined)
+                    onChannels(m);
+                else
+                {
+                    waiting.get(m.id)?.(m);
+                    waiting.delete(m.id);
+                }
                 break;
 
             case 'edited':
@@ -591,7 +603,8 @@ export async function createSynth (ctx, { windowlen = 128,
         patchState: (channel) => ask({ type: 'patchstate', channel }),
 
         /* What the engine has on each channel, whatever put it there:
-           resolves to `{ names }', a graph's name or "" by channel. */
+           resolves to `{ names, holding }', by channel a graph's name and
+           which of the piece's instruments it is, or "". */
         loaded: () => ask({ type: 'onchannels' }),
 
         /* The bytes a Save would write for a channel: the slot's graph,

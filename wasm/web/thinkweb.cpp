@@ -4492,6 +4492,18 @@ EMSCRIPTEN_KEEPALIVE const char *tw_loaded (int channel)
     return name.c_str();
 }
 
+/* Which of the piece's instruments `channel' holds now: the last one a
+ * swap put there, or the one declared on it, or "" for a channel the
+ * piece has none on. Valid until the next call. */
+EMSCRIPTEN_KEEPALIVE const char *tw_holding (int channel)
+{
+    static std::string name;
+
+    name = sched_->holding(channel);
+
+    return name.c_str();
+}
+
 /* A chanarg on the tree loaded on `channel', through the path the
  * application's slider uses. Nonzero if it was set.
  *
