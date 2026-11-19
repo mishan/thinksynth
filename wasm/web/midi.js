@@ -213,64 +213,88 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
 {
     const access = await midiAccess();
 
-    /* input id -> the notes it holds: `note' for one on the page's channel,
-       `channel note' for a routed one, each to the targets its on had */
+    /* input id -> the notes it holds, by `channel note', each to the
+       targets its on had: null for the page's channel. */
     const held = new Map();
 
-    /* The inputs whose pedal is down. */
+    /* The inputs whose pedal is down on the page's channel. */
     const pedaling = new Set();
 
-    /* The engine channels routed pedals went down on. */
-    const pedaled = new Set();
+    /* input id -> MIDI channel -> the engine channels a routed pedal went
+       down on. */
+    const pedaled = new Map();
 
+    /* What an input holds for a note: on its channel, or where it is
+       omni, on any. */
+    const holding = (down, channel, note) =>
+    {
+        if (down.has(`${channel} ${note}`))
+            return `${channel} ${note}`;
+
+        for (const [key, targets] of down)
+            if (targets === null && key.endsWith(` ${note}`))
+                return key;
+
+        return null;
+    };
+
+    /* A second on for a key down goes where the first went, which is
+       nowhere new: it is dropped. */
     const noteOn = (id, channel, note, velocity) =>
     {
         const down = held.get(id);
         const targets = routes?.resolve(channel, note) ?? null;
-        const key = targets === null ? `${note}` : `${channel} ${note}`;
 
-        if (down === undefined || down.has(key))
+        if (down === undefined ||
+            down.has(`${channel} ${note}`) ||
+            (targets === null && holding(down, channel, note) !== null))
             return;
 
-        down.set(key, targets);
+        down.set(`${channel} ${note}`, targets);
         onNoteOn(note, velocity, targets);
     };
 
     const noteOff = (id, channel, note) =>
     {
         const down = held.get(id);
-        const key = down?.has(`${channel} ${note}`) ? `${channel} ${note}`
-                                                     : `${note}`;
-        const targets = down?.get(key);
+        const key = down === undefined ? null : holding(down, channel, note);
 
-        if (targets === undefined || !down.delete(key))
+        if (key === null)
             return;
 
+        const targets = down.get(key);
+
+        down.delete(key);
         onNoteOff(note, targets);
     };
 
+    /* Down on where the routes reach now, or the page's channel; up where
+       it went down, and where the routes reach now as well. */
     const pedal = (id, channel, value) =>
     {
         const reach = routes?.reach(channel) ?? null;
 
-        /* Up where a routed pedal went down, whatever the routes say by
-           now. */
-        if (value < PEDAL_DOWN && pedaled.size > 0)
-        {
-            onPedal(value, [...new Set([...pedaled, ...(reach ?? [])])]);
-            pedaled.clear();
+        if (!pedaled.has(id))
+            pedaled.set(id, new Map());
 
-            if (reach !== null)
-                return;
-        }
-        else if (reach !== null)
-        {
-            if (value >= PEDAL_DOWN)
-                for (const e of reach)
-                    pedaled.add(e);
+        const mine = pedaled.get(id);
+        const went = mine.get(channel);
 
+        if (value >= PEDAL_DOWN && reach !== null)
+        {
+            mine.set(channel, [...new Set([...(went ?? []), ...reach])]);
             onPedal(value, reach);
             return;
+        }
+
+        if (value < PEDAL_DOWN && (went !== undefined || reach !== null))
+        {
+            mine.delete(channel);
+            onPedal(value, [...new Set([...(went ?? []), ...(reach ?? [])])]);
+
+            /* And the page's channel too, if this input held it down. */
+            if (!pedaling.has(id))
+                return;
         }
 
         if (value >= PEDAL_DOWN)
@@ -295,17 +319,16 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
         for (const [key, targets] of [...down])
         {
             down.delete(key);
-            onNoteOff(Number(key.split(' ').pop()), targets);
+            onNoteOff(Number(key.split(' ')[1]), targets);
         }
 
         if (pedaling.delete(id) && pedaling.size === 0)
             onPedal(0, null);
 
-        if (pedaled.size > 0)
-        {
-            onPedal(0, [...pedaled]);
-            pedaled.clear();
-        }
+        for (const went of pedaled.get(id)?.values() ?? [])
+            onPedal(0, went);
+
+        pedaled.delete(id);
     };
 
     const attach = (input) =>

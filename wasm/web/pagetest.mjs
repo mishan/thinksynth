@@ -1386,6 +1386,32 @@ try
               'routed MIDI channels play their split and their layer, and ' +
               'let go where they went after the routes are gone: ' +
               JSON.stringify({ on, base, off, up: up.slice(-24) }));
+
+        /* A key and a pedal held before a route names their channel: the
+           key struck again is dropped, its off lets go of the one there
+           is, and the pedal comes up on the key channel as well as where
+           the route reaches. */
+        await k2([0x93, 65, 100]);
+        await k2([0xb3, 64, 127]);
+        await page.evaluate(() => window.solo.midiRoutes('piece',
+                                                        [{ midi: 3, engine: 9 }]));
+        await k2([0x93, 65, 100]);
+
+        const twice = await routed();
+
+        await k2([0x83, 65, 0]);
+        await k2([0xb3, 64, 0]);
+        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+
+        const held = (await sounding()).map((h) => h.note).join(',');
+        const kc = Number(await page.inputValue('#keychan'));
+        const lifted = await pedals();
+
+        check(twice === '' && held === '64' &&
+              lifted.endsWith(`${kc}:127 9:0 ${kc}:0`),
+              'a key and a pedal held before a route takes their channel ' +
+              'let go where they went: ' +
+              JSON.stringify({ twice, held, lifted: lifted.slice(-20) }));
     }
 
     await page.click('#midi');
