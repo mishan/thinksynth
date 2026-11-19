@@ -129,6 +129,20 @@ signed16 (const uint8_t *p)
     return (float)(int16_t)(p[0] | (p[1] << 8)) / 32767;
 }
 
+void
+thhIndexXY (const uint8_t *p, thhState &s)
+{
+    /* One x and y, the trackpad's while it is touched and the stick's
+       otherwise; the one not reporting rests at the middle. */
+    const bool pad = s.buttons & (1u << THH_INDEX_TRACKPAD_TOUCH);
+    const float x = signed16(p), y = signed16(p + 2);
+
+    s.axis[THH_INDEX_PAD_X] = pad ? x : 0;
+    s.axis[THH_INDEX_PAD_Y] = pad ? y : 0;
+    s.axis[THH_INDEX_STICK_X] = pad ? 0 : x;
+    s.axis[THH_INDEX_STICK_Y] = pad ? 0 : y;
+}
+
 bool
 thhIndexFeed (const uint8_t *data, size_t len, thhState &s)
 {
@@ -144,16 +158,7 @@ thhIndexFeed (const uint8_t *data, size_t len, thhState &s)
 
     for (size_t i = 0; i < sizeof(BYTES) / sizeof(BYTES[0]); i++)
         s.axis[BYTES[i][0]] = data[BYTES[i][1]] / 255.0f;
-
-    /* One x and y, the trackpad's while it is touched and the stick's
-       otherwise; the one not reporting rests at the middle. */
-    const bool pad = s.buttons & (1u << THH_INDEX_TRACKPAD_TOUCH);
-    const float x = signed16(data + 0x10), y = signed16(data + 0x12);
-
-    s.axis[THH_INDEX_PAD_X] = pad ? x : 0;
-    s.axis[THH_INDEX_PAD_Y] = pad ? y : 0;
-    s.axis[THH_INDEX_STICK_X] = pad ? 0 : x;
-    s.axis[THH_INDEX_STICK_Y] = pad ? 0 : y;
+    thhIndexXY(data + 0x10, s);
 
     return true;
 }

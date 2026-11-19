@@ -1414,7 +1414,8 @@ add_test(NAME boxcheck COMMAND boxcheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"
                           "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt"
-                          "${PROJECT_SOURCE_DIR}/scripts/hid/index-imu.txt")
+                          "${PROJECT_SOURCE_DIR}/scripts/hid/index-imu.txt"
+                          "${PROJECT_SOURCE_DIR}/scripts/hid/index-wireless.txt")
 
 # The corpus, because "a row says what loading the file would have said" is a
 # claim about the shipped graphs; the fixtures run either way. The plugins are
