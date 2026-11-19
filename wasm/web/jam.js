@@ -54,7 +54,7 @@ import { DEFAULT_PIECE, docOf, dspNames, fileNames, files, hashOf, hasSeen,
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
-import { createNodeView } from './nodeview.js';
+import { createNodeView, loadModel, parsesIn } from './nodeview.js';
 import { GRAPH, roomHistory } from './roomundo.js';
 import { createPanes } from './panes.js';
 import { createSynth } from './host.js';
@@ -2376,7 +2376,11 @@ async function join ()
     await new Promise((resolve) =>
         provider.synced ? resolve() : provider.once('synced', resolve));
 
-    undos = roomHistory(doc, (text) => nodes?.parses(text) ?? true);
+    let model = null;
+
+    loadModel().then((M) => { model = M; });
+    undos = roomHistory(doc, (text) => (model === null ? null
+                                                       : parsesIn(model, text)));
     editor = new Editor($('editor'), $('tabs'), doc, provider.awareness,
                         (file, back) =>
                         {

@@ -1819,6 +1819,8 @@ async function undoRefused (pages)
 
     const yUndid = await undo();
     const withoutY = await text(A.page);
+    const xFed = withoutY.endsWith(feed(x)) && !withoutY.includes(feed(y)) &&
+                 await everywhere(withoutY);
     const xRefused = await undo();
     const xKept = (await text(A.page)) === withoutY;
 
@@ -1828,11 +1830,11 @@ async function undoRefused (pages)
     const left = await everywhere(withoutY.replace('# A\n', ''));
     const status = await A.page.$eval('#status', (e) => e.textContent);
 
-    const got = { yRefused, yKept, yUndid, xRefused, xKept, left, status,
-                  gone: !withoutY.includes(`node ${y} `) };
+    const got = { yRefused, yKept, yUndid, xFed, xRefused, xKept, left,
+                  status, gone: !withoutY.includes(`node ${y} `) };
 
     if (x !== y && yRefused === can(y) && yKept && yUndid === `Undid add ${y}.` &&
-        got.gone && xRefused === can(x) && xKept && left &&
+        got.gone && xFed && xRefused === can(x) && xKept && left &&
         status === `Left add ${x} as it is, and undid edit text.`)
         ok(`${A.label}'s Undo of a node ${B.label}'s edit feeds from is ` +
            'refused and says why, goes through once that node is gone, and ' +

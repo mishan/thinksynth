@@ -142,7 +142,8 @@ const nameOf = (item) => (item === undefined || item === null ? null
                           : item.meta.get('what') ?? TYPED);
 
 /* The history the node view takes (nodeview.js, createNodeView), and the
-   code view's keys. `parses' says whether a text builds a graph. */
+   code view's keys. `parses' says whether a text builds a graph, or null
+   while it cannot yet tell. */
 export function roomHistory (doc, parses = () => true)
 {
     return {
@@ -195,11 +196,18 @@ export function roomHistory (doc, parses = () => true)
                 return null;
 
             const stack = back ? e.um.undoStack : e.um.redoStack;
-            const again = e.refused !== null && e.refused.back === back &&
-                          e.refused.item === stack.at(-1);
             const verb = back ? 'undo' : 'redo';
             const before = e.text.toString();
+            const parsed = parses(before);
+
+            if (parsed === null)
+                return stack.length === 0 ? null
+                    : { what: nameOf(stack.at(-1)),
+                        said: `${back ? 'Undo' : 'Redo'} waits a moment: ` +
+                              'what parses is not known yet.' };
+
             const item = back ? e.um.undo() : e.um.redo();
+            const again = e.refused?.back === back && e.refused.item === item;
 
             e.refused = null;
 
@@ -208,7 +216,7 @@ export function roomHistory (doc, parses = () => true)
 
             const what = nameOf(item);
 
-            if (!parses(before) || parses(e.text.toString()))
+            if (!parsed || parses(e.text.toString()))
                 return { what };
 
             if (back)

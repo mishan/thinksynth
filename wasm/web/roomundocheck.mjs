@@ -54,6 +54,12 @@ const build = path.resolve(process.argv[2] ??
                            path.join(here, '..', '..', 'build-web'));
 const seed0 = Number(process.argv[3] ?? 1);
 const RUNS = Number(process.argv[4] ?? 200);
+
+if (!Number.isSafeInteger(seed0) || !Number.isSafeInteger(RUNS) || RUNS < 1)
+{
+    process.stderr.write('usage: roomundocheck.mjs [BUILD_DIR] [SEED] [RUNS]\n');
+    process.exit(2);
+}
 const STEPS = 40;
 const NAME = 'amb01.dsp';
 
@@ -140,6 +146,9 @@ function run (seed)
             const at = pick([...text.toString().matchAll(/^node /gm)]
                 .map((m) => m.index));
 
+            /* Each a step of its own, so that a seed runs the same at any
+               speed: the manager joins by the clock. */
+            undoFor(a, NAME).stopCapturing();
             a.transact(() => text.insert(at, `# typed ${made++}\n`),
                        TYPING);
             return `A types at ${at}`;
@@ -227,6 +236,35 @@ function run (seed)
 }
 
 let failures = 0;
+
+/* First that Undo and Redo do anything at all: one line typed, with
+   nobody else about, taken back and put back on both pages. */
+{
+    const a = new Y.Doc();
+    const b = new Y.Doc();
+
+    a.on('update', (u) => Y.applyUpdate(b, u, 'a'));
+    putFile(a, NAME, start);
+
+    const history = roomHistory(a, parses);
+
+    undoFor(a, NAME).addTrackedOrigin(TYPING);
+    a.transact(() => files(a).get(NAME).insert(0, '# typed\n'), TYPING);
+
+    const typed = readFile(b, NAME);
+    const undid = history.go(NAME, true);
+    const back = readFile(b, NAME);
+    const redid = history.go(NAME, false);
+
+    if (typed !== `# typed\n${start}` || undid?.what !== 'edit text' ||
+        back !== start || redid?.what !== 'edit text' ||
+        readFile(b, NAME) !== typed)
+    {
+        failures++;
+        process.stdout.write('FAIL  a line typed is undone and redone on ' +
+                             `both pages: ${JSON.stringify({ undid, redid })}\n`);
+    }
+}
 
 for (let s = seed0; s < seed0 + RUNS; s++)
 {
