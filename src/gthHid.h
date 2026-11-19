@@ -19,6 +19,7 @@
 #ifndef GTH_HID_H
 #define GTH_HID_H
 
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
@@ -66,6 +67,9 @@ public:
     bool canSwapHands () const;
     void swapHands ();
     std::string loops () const;
+    bool canPair () const;
+    void pair ();
+    std::string pairing () const;
     void clearLoops ();
     std::string patch () const;
 
@@ -75,6 +79,9 @@ private:
     struct Slot
     {
         std::string                usb, serial, hand, said;
+        bool                       dongle = false;
+        double                     pairUntil = 0;     /* on now()'s clock */
+        std::atomic<bool>          pairFailed { false };  /* the reader's */
         std::unique_ptr<thhReader> reader;
         thhState                   latest;
     };

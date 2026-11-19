@@ -63,7 +63,8 @@ public:
     /* A controller silent for silenceMs is taken as gone: an Index pings
        about once a second while it is awake. */
     thhReader (const Connect &connect, const std::function<void ()> &wake,
-               int silenceMs = 3000);
+               int silenceMs = 3000,
+               const std::function<void ()> &pair = nullptr);
     ~thhReader ();
 
     /* What arrived since the last drain: each state at which a button or
@@ -80,6 +81,12 @@ public:
     /* The hand the controller last connected said it is, or empty. */
     std::string hand () const;
 
+    /* pair, done on the reader's thread before it next tries to connect:
+       a dongle's pairing, which must not land among a connect's reads of
+       the same dongle, and may take a while. Dropped if a controller is
+       connected, or connects first. */
+    void pair ();
+
 private:
     Connect               connect_;
     std::function<void ()> wake_;
@@ -87,6 +94,8 @@ private:
     std::thread           thread_;
     int                   stop_[2];
     std::atomic<bool>     notified_;
+    std::function<void ()> pair_;
+    std::atomic<bool>     pairing_;
 
     mutable std::mutex    lock_;
     std::vector<thhState> edges_;

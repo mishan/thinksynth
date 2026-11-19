@@ -3,7 +3,7 @@
 A Valve Index controller, wired or through a Watchman dongle, plays
 thinksynth like a keyboard: buttons play notes, the stick or trackpad
 moves the pitch, and the trigger, grip and trackpad drive a patch's knobs.
-It needs no base stations. Linux only, for now.
+It needs no SteamVR and no base stations. Linux only, for now.
 
 ## Setting it up
 
@@ -15,11 +15,15 @@ cable leaves the radio, so one plugged in to charge plays over the cable
 and goes back to its dongle when the cable comes out.
 
 A dongle plays only the controller paired to it. Pairing is once, and a
-dongle bought on its own has none: pair it with SteamVR's
-`lighthouse_console`, its `serial` command naming the dongle and then
-`pair`, and hold the controller's System and B buttons, from off, until
-its light blinks blue. Until one is paired, or turned on, the Controller
-pane says there is no controller on the dongle.
+dongle bought on its own has none: with the dongle plugged in, press Pair
+a controller in the Controller pane, then turn the controller off and
+hold its System and B buttons until its light blinks blue. The dongle
+listens for 30 seconds; a controller paired to it is played at once.
+Until one is paired, or turned on, the pane says there is no controller
+on the dongle, and offers the button: also for a dongle whose controller
+is only turned off, which keeps that controller unless another pairs in
+its place. Pair one controller at a time, each with its own dongle: the
+button pairs the first dongle hearing none.
 
 To read it without root, install the udev rule once:
 

@@ -159,11 +159,21 @@ gthHid::scan ()
 
         slot->usb = usb;
         slot->serial = found[i].serial;
+        slot->dongle = i >= wired;
         slot->reader.reset(new thhReader(
             [usb, connect](thhConnection &c, std::string &status) {
                 return connect("/sys", "/dev", usb, c, status);
             },
-            [this]() { dispatcher_.emit(); }));
+            [this]() { dispatcher_.emit(); }, 3000,
+            [usb, slot]() {
+                std::string why;
+
+                if (!thhPairDongle("/sys", "/dev", usb, why))
+                {
+                    fprintf(stderr, "controller: %s\n", why.c_str());
+                    slot->pairFailed = true;
+                }
+            }));
         slots_.push_back(std::unique_ptr<Slot>(slot));
         generation_++;
     }
@@ -313,6 +323,54 @@ gthHid::canSwapHands () const
         playing += slots_[i]->latest.connected && !slots_[i]->hand.empty() &&
                    slots_[i]->reader->hand().empty();
     return playing == 2;
+}
+
+/* A dongle that answers and hears no controller, which is what pairing is
+   for: not one that can't be opened, where pairing would fail too. Its own
+   controller may only be turned off; pairing replaces it only if another
+   pairs in its place. */
+static bool
+empty (const std::string &status)
+{
+    return status.rfind(THH_DONGLE_EMPTY, 0) == 0;
+}
+
+bool
+gthHid::canPair () const
+{
+    for (size_t i = 0; i < slots_.size(); i++)
+        if (slots_[i]->dongle && !slots_[i]->latest.connected &&
+            empty(slots_[i]->reader->status()))
+            return true;
+    return false;
+}
+
+/* The first such dongle, for as long as it listens. */
+void
+gthHid::pair ()
+{
+    for (size_t i = 0; i < slots_.size(); i++)
+        if (slots_[i]->dongle && !slots_[i]->latest.connected &&
+            empty(slots_[i]->reader->status()))
+        {
+            slots_[i]->pairFailed = false;
+            slots_[i]->reader->pair();
+            slots_[i]->pairUntil = now() + 30;
+            generation_++;
+            return;
+        }
+}
+
+std::string
+gthHid::pairing () const
+{
+    for (size_t i = 0; i < slots_.size(); i++)
+        if (!slots_[i]->latest.connected && !slots_[i]->pairFailed &&
+            now() < slots_[i]->pairUntil)
+            return "the dongle " + slots_[i]->serial + " is listening: turn "
+                   "the controller off, then hold its System and B buttons "
+                   "until its light blinks blue";
+    return "";
 }
 
 /* The pair's hands each other's, remembered by serial number for next

@@ -19,6 +19,7 @@
 #include "thhIndexWireless.h"
 
 const uint8_t THH_INDEX_WIRELESS_V2[6] = { 0xff, 0x87, 0x03, 0x00, 0x01, 0x00 };
+const uint8_t THH_INDEX_WIRELESS_PAIR[6] = { 0xff, 0xad, 0x03, 0x01, 0x30, 0x75 };
 
 /* How many messages not v2 in a row mean a controller in v1: a second of
    its IMU's. */

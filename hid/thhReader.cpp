@@ -27,9 +27,10 @@
 #include "thhReader.h"
 
 thhReader::thhReader (const Connect &connect,
-                      const std::function<void ()> &wake, int silenceMs)
+                      const std::function<void ()> &wake, int silenceMs,
+                      const std::function<void ()> &pair)
     : connect_(connect), wake_(wake), silenceMs_(silenceMs), notified_(false),
-      fresh_(false)
+      pair_(pair), pairing_(false), fresh_(false)
 {
     if (pipe2(stop_, O_CLOEXEC) < 0)
     {
@@ -102,6 +103,12 @@ thhReader::status () const
     return status_;
 }
 
+void
+thhReader::pair ()
+{
+    pairing_.store(true);
+}
+
 std::string
 thhReader::hand () const
 {
@@ -123,6 +130,8 @@ thhReader::run ()
         {
             std::string why;
 
+            if (pairing_.exchange(false) && pair_)
+                pair_();
             c = thhConnection();
             up = connect_(c, why);
 
@@ -196,6 +205,7 @@ thhReader::run ()
             up = false;
             s = thhState();
             publish(s);
+            pairing_.store(false);
 
             /* As after a connect that fails: a controller that goes as soon
                as it is woken is not woken again at once. */

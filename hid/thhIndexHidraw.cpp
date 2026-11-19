@@ -345,10 +345,11 @@ thhIndexFeeder ()
     };
 }
 
-bool
-thhConnectDongle (const std::string &sysRoot, const std::string &devRoot,
-                  const std::string &usb, thhConnection &c,
-                  std::string &status)
+/* The dongle at usb, or the first, opened: -1, saying why, if it can't be,
+   and its serial number. */
+static int
+openDongle (const std::string &sysRoot, const std::string &devRoot,
+            const std::string &usb, std::string &serial, std::string &status)
 {
     const std::vector<thhIndexNodes> all = thhFindDongles(sysRoot, devRoot);
     size_t i = 0;
@@ -358,36 +359,52 @@ thhConnectDongle (const std::string &sysRoot, const std::string &devRoot,
     if (i == all.size())
     {
         status = "no Valve Index controller is plugged in";
-        return false;
+        return -1;
     }
 
-    const std::string &node = all[i].input;
-    const int fd = open(node.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    const int fd = open(all[i].input.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+
+    if (fd < 0)
+        status = cantOpen(all[i].input);
+    serial = all[i].serial;
+    return fd;
+}
+
+/* One of the dongle's commands, padded to its 64 bytes. */
+static bool
+command (int fd, const uint8_t (&bytes)[6])
+{
+    uint8_t buf[64] = { 0 };
+
+    memcpy(buf, bytes, sizeof(bytes));
+    return ioctl(fd, HIDIOCSFEATURE(sizeof(buf)), buf) >= 0;
+}
+
+bool
+thhConnectDongle (const std::string &sysRoot, const std::string &devRoot,
+                  const std::string &usb, thhConnection &c,
+                  std::string &status)
+{
+    std::string serial;
+    const int fd = openDongle(sysRoot, devRoot, usb, serial, status);
     uint8_t probe[65];
 
     if (fd < 0)
-    {
-        status = cantOpen(node);
         return false;
-    }
 
     /* Its configuration is the controller's, so the dongle answers for it
        only while one is on the radio. */
     if (!getFeature(fd, 0x10, probe))
     {
-        status = "no controller on the dongle " + all[i].serial +
-                 ": turn one on, or pair it";
+        status = THH_DONGLE_EMPTY + serial + ": turn one on, or pair it";
         close(fd);
         return false;
     }
 
-    uint8_t v2[64] = { 0 };
-
-    memcpy(v2, THH_INDEX_WIRELESS_V2, sizeof(THH_INDEX_WIRELESS_V2));
-    if (ioctl(fd, HIDIOCSFEATURE(sizeof(v2)), v2) < 0)
+    if (!command(fd, THH_INDEX_WIRELESS_V2))
     {
-        status = "can't switch the controller on " + node + ": " +
-                 strerror(errno);
+        status = "can't switch the controller on the dongle " + serial +
+                 ": " + strerror(errno);
         close(fd);
         return false;
     }
@@ -398,6 +415,25 @@ thhConnectDongle (const std::string &sysRoot, const std::string &devRoot,
     c.feed = thhIndexDongleFeeder();
     status.clear();
     return true;
+}
+
+bool
+thhPairDongle (const std::string &sysRoot, const std::string &devRoot,
+               const std::string &usb, std::string &status)
+{
+    std::string serial;
+    const int fd = openDongle(sysRoot, devRoot, usb, serial, status);
+
+    if (fd < 0)
+        return false;
+
+    const bool ok = command(fd, THH_INDEX_WIRELESS_PAIR);
+
+    if (!ok)
+        status = "can't pair with the dongle " + serial + ": " +
+                 strerror(errno);
+    close(fd);
+    return ok;
 }
 
 thhFeed

@@ -78,6 +78,12 @@ public:
        loop stopped, which a controller gone can't ask for. */
     virtual std::string loops () const { return ""; }
     virtual void clearLoops () {}
+
+    /* A dongle answering with no controller on it put to pairing, and
+       while it is, what to do, as a line to show; or nothing. */
+    virtual bool canPair () const { return false; }
+    virtual void pair () {}
+    virtual std::string pairing () const { return ""; }
 };
 
 #endif /* THH_PANE_H */

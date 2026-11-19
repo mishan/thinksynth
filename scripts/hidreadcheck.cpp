@@ -317,7 +317,8 @@ struct Rig
     thhState                   latest;
 
     /* Silence well past any wait here, unless it is what's being checked. */
-    Rig (int silenceMs = 60000, const thhFeed &feed = thhIndexFeeder ())
+    Rig (int silenceMs = 60000, const thhFeed &feed = thhIndexFeeder (),
+         const std::function<void ()> &pair = nullptr)
         : far(-1), farImu(-1), connects(0), wakes(0)
     {
         int sv[2], mv[2];
@@ -337,7 +338,7 @@ struct Rig
                 c.hand = "left";
                 return true;
             },
-            [this]() { wakes++; }, silenceMs));
+            [this]() { wakes++; }, silenceMs, pair));
     }
 
     ~Rig ()
@@ -552,6 +553,49 @@ checkDongleReader (void)
            "asked " + std::to_string(r.connects) + " times");
 }
 
+/* Pairing, asked for from another thread, is done on the reader's, between
+   connects; asked for while connected, it is dropped, not done when the
+   controller next goes. */
+static void
+checkPair (void)
+{
+    std::atomic<int> paired(0);
+    std::atomic<bool> elsewhere(false);
+    const std::thread::id caller = std::this_thread::get_id();
+    const auto pair = [&]() {
+        elsewhere = std::this_thread::get_id() != caller;
+        paired++;
+    };
+
+    {
+        thhReader idle([](thhConnection &, string &) { return false; },
+                       []() {}, 60000, pair);
+
+        idle.pair();
+        report("pairing is done between connects, on the reader's thread",
+               waitFor([&]() { return paired > 0; }) && elsewhere ? "" :
+               "paired " + std::to_string(paired) + " times");
+        std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+        report("pairing once asked is done once",
+               paired == 1 ? "" : "paired " + std::to_string(paired) + " times");
+    }
+
+    paired = 0;
+
+    Rig r(60000, thhIndexFeeder(), pair);
+
+    r.send(input(0, 0));
+    r.settle(1);
+    r.reader->pair();
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    close(r.far);
+    r.far = -1;
+    r.settle(1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    report("pairing asked for while connected is dropped",
+           paired == 0 ? "" : "paired " + std::to_string(paired) + " times");
+}
+
 /* A dongle that won't answer, as one with no controller on it doesn't,
    says so, and that it may need pairing. */
 static void
@@ -569,9 +613,15 @@ checkDongleEmpty (const string &scratch)
     const bool ok = thhConnectDongle(sys, dev, "", c, status);
 
     report("a dongle with no controller says so",
-           !ok && status.find("no controller") != string::npos &&
+           !ok && status.rfind(THH_DONGLE_EMPTY, 0) == 0 &&
            status.find("pair") != string::npos ? "" :
            ok ? "connected" : "said \"" + status + "\"");
+
+    status.clear();
+    report("a dongle that can't be put to pairing says why",
+           !thhPairDongle(sys, dev, "", status) &&
+           status.find("can't pair") != string::npos ? "" :
+           "said \"" + status + "\"");
 }
 
 static void
@@ -633,6 +683,7 @@ main (int argc, char *argv[])
     checkPingFirst();
     checkPermission(scratch);
     checkDongleReader();
+    checkPair();
     checkDongleEmpty(scratch);
     fs::remove_all(scratch);
 

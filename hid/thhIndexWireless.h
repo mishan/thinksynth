@@ -58,6 +58,11 @@
    bytes as SteamVR's lighthouse_console sends it. */
 extern const uint8_t THH_INDEX_WIRELESS_V2[6];
 
+/* And the dongle's pairing, sent as the switch is: for the next 30 seconds
+   (0x7530 ms) it pairs with a controller put in its own pairing mode, by
+   holding System and B from off, and keeps it from then on. */
+extern const uint8_t THH_INDEX_WIRELESS_PAIR[6];
+
 struct thhIndexWireless
 {
     thhIndexImu imu;
