@@ -403,6 +403,7 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'panel':
             case 'panelvalues':
             case 'patchstate':
+            case 'onchannels':
             case 'patchcompose':
             case 'settempo':
             case 'genparam':
@@ -588,6 +589,10 @@ export async function createSynth (ctx, { windowlen = 128,
            worklet alone -- it is a question, and the instance that sounds
            is the one whose answer counts. */
         patchState: (channel) => ask({ type: 'patchstate', channel }),
+
+        /* What the engine has on each channel, whatever put it there:
+           resolves to `{ names }', a graph's name or "" by channel. */
+        loaded: () => ask({ type: 'onchannels' }),
 
         /* The bytes a Save would write for a channel: the slot's graph,
            effect, side and info, and the values the channel holds now.

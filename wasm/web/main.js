@@ -540,6 +540,47 @@ const aimed = new Map();
    deciding from what the page did before is the bug. */
 let placed = new Map();
 
+/* What the engine has on each channel, by graph name, "" for nothing
+   (tw_loaded): the answer `placed' cannot give, since a mode switch
+   leaves the last mode's instruments where they were. Read again after
+   every load; empty until the first. */
+let loaded = [];
+
+/* The modes somebody chose the key channel in this session, which a
+   piece's load then leaves alone; and the channel the page last said was
+   silent, so that it says so once. */
+const keysChosen = new Set();
+let saidSilent = null;
+
+async function readLoaded ()
+{
+    if (synth !== null)
+        ({ names: loaded } = await synth.loaded());
+}
+
+/* Whether keys on `channel' reach nothing. While a piece plays, a key
+   is played by a chain that takes `input midi' on its channel and by
+   nothing else (CMD_MIDI_ON), whatever instrument is on it. */
+function silentOn (channel)
+{
+    return composing() && piece !== null &&
+           !(piece.listens ?? []).includes(channel);
+}
+
+/* A piece loaded under a key channel nobody chose in this mode, and that
+   it does not listen on, moves the keys to where it does. */
+function keysWhereTheySound ()
+{
+    const to = piece?.listens?.[0];
+
+    if (keysChosen.has(keysMode) || to === undefined ||
+        !silentOn(keyChannel()))
+        return;
+
+    $('keychan').value = String(to);
+    saidSilent = null;
+}
+
 function log (text)
 {
     $('log').textContent += text + '\n';
@@ -656,6 +697,21 @@ function press (note, velocity = VELOCITY, from = null)
 
     const piecing = composing();
     const channel = keyChannel();
+
+    if (silentOn(channel) && saidSilent !== channel)
+    {
+        const listens = piece.listens ?? [];
+
+        saidSilent = channel;
+        status(listens.length === 0
+            ? `${piece.name || 'This piece'} does not take keys: the keys ` +
+              'are silent while it plays.'
+            : `The piece does not listen on channel ${channel + 1}, so the ` +
+              'keys there are silent: it listens on ' +
+              listens.map((c) => c + 1).join(', ') +
+              `. Choose ${listens.length === 1 ? 'it' : 'one of them'} as ` +
+              'the key channel.', true);
+    }
 
     sounding.set(note, { count: 1, midi: from === 'midi' ? 1 : 0,
                          camera: from === 'camera' ? 1 : 0, velocity,
@@ -2252,6 +2308,8 @@ async function followPiece ()
     drawn = (async () =>
     {
         await drawKnobs();
+        await readLoaded();
+        keysWhereTheySound();
         showChannels();
         showNodes();
         await showParams();
@@ -2864,8 +2922,11 @@ function chooser (channel)
 
     sel.setAttribute('aria-label', `Channel ${channel + 1}`);
 
+    /* Not placed by this page: what the engine has there, which may be
+       the last mode's, or nothing. */
     if (here === undefined)
-        sel.add(new Option('nothing yet', '', true, true));
+        sel.add(new Option(loaded[channel] ? `${loaded[channel]}, as it was`
+                                           : 'nothing', '', true, true));
 
     if (dspGroups.length > 0)
         patch.fillGraphs(sel, dspGroups, here?.dsp);
@@ -2926,6 +2987,8 @@ async function aimByHand (channel, name)
            piece that names this channel for the rest of the session. */
         aimed.set(channel, name);
         placed.set(channel, what);
+        await readLoaded();
+        saidSilent = null;
         status(`${what.title} on channel ${channel + 1}. Play.`);
 
         /* And every menu that says what is on a channel, since a choice
@@ -4048,6 +4111,9 @@ window.solo = {
        and velocity each note went out with. */
     sounding: () => [...sounding].map(([note, held]) => ({ note, ...held })),
 
+    /* What the page last read of the engine's channels (tw_loaded). */
+    loaded: () => [...loaded],
+
     /* The four numbers the last tape message carried about the clock, and
        the rate to read them against.
      *
@@ -4528,6 +4594,8 @@ async function init ()
        keys go and what a channel sounds like are two questions. */
     $('keychan').addEventListener('change', () =>
     {
+        keysChosen.add(keysMode);
+        saidSilent = null;
         showChannels();
         showParams();
     });

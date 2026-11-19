@@ -254,16 +254,6 @@ The browser page
   popover in the top layer is clipped by nothing, which is the whole reason
   overlay() exists. Worth checking before more is built on overlay().
 
-- The page cannot ask what is on a channel. It knows what it put there
-  itself, which is not the same question: a piece's own instruments, and
-  whatever an earlier mode left, are invisible to it. Two things want the
-  answer. The channels row says "as it is" over a channel nothing is loaded
-  on, where it should say "nothing" -- and in piece mode, keys aimed at a
-  channel the piece neither names nor listens on are silent with nothing in
-  the page to say why. A `tw_loaded(channel)' export beside tw_sink_channel
-  would settle both, and would let the key channel take a default too.
-  (wasm/web/main.js)
-
 - Four measurements the browser build has only ever been given on a fast
   desktop. The scheduler runs in the worklet on numbers taken there, and
   each of these could move that decision:
