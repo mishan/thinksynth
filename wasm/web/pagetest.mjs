@@ -354,6 +354,9 @@ try
           'Live in shows only for what listens: ' +
           `${liveBefore} on the sequence, ${liveVoice} on Voice`);
 
+    check(await page.$eval('#nodeview .tools', (t) => t.hidden),
+          'before Start the graph\'s toolbar is not shown over no graph');
+
     /* Start, then a piece, and the knobs it declared. */
     await page.click('#start');
     await page.waitForFunction(
@@ -2741,6 +2744,40 @@ try
 
     await page.waitForFunction(() => window.solo.node()?.boxes > 0,
                                null, { timeout: 60000 });
+
+    /* A patch opens fitted when that shrinks it little and at 1:1 when
+       it would not: bd10 fits at about 0.87 here, amb01 at about half.
+       Each against what Fit gives it after. */
+    {
+        const was = await page.$eval('#patch', (s) => s.value);
+        const opened = async (name) =>
+        {
+            await page.selectOption('#patch', name);
+            await page.evaluate(() => window.solo.settled());
+            await page.waitForFunction((n) =>
+                document.getElementById('nodefile').value === n &&
+                window.solo.node()?.boxes > 0, name, { timeout: 10000 });
+            await new Promise((r) => setTimeout(r, 300));
+
+            const at = await page.evaluate(() => window.solo.node().zoom);
+
+            await page.click('#nodefit');
+
+            return [at, await page.evaluate(() => window.solo.node().zoom)];
+        };
+        const [small, smallFit] = await opened('bd10.dsp');
+        const [big, bigFit] = await opened('amb01.dsp');
+
+        check(smallFit >= 0.85 && smallFit < 1 &&
+              Math.abs(small - smallFit) < 0.02 && bigFit < 0.85 && big === 1,
+              'a patch opens fitted when that shrinks it little, and at 1:1 ' +
+              'when it would shrink it more: ' +
+              JSON.stringify({ small, smallFit, big, bigFit }));
+
+        await page.selectOption('#patch', was);
+        await page.evaluate(() => window.solo.settled());
+        await page.click('#nodezoom1');
+    }
 
     const graph = await page.evaluate(() => window.solo.node());
     const offered = await page.$$eval('#nodefile option',

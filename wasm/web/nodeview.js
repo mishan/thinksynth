@@ -56,6 +56,9 @@ const OK = 0;
 /* thPanel::Kind, for the panel over the selected box. */
 const NODE_VALUE = 3;
 
+/* The least zoom a file opens fitted at (fitOpened). */
+const FIT_FLOOR = 0.85;
+
 /* What tw_node_propose says an edit of a node panel's row is:
    thPanelEdit::Kind, or text typed back as it stands. */
 const EDIT_VALUE = 3, EDIT_INFO = 4, EDIT_RENAME = 5, EDIT_EXPRESSION = 6;
@@ -142,6 +145,7 @@ export async function createNodeView ({ files, history = null,
     const M = await loadModel();
 
     let file = null;            /* the .dsp this is showing */
+    let fitting = false;        /* it opened, and fitOpened() is owed */
     let watching = null;        /* how to stop watching it change */
     let hearing = null;         /* and its Undo's steps */
     let selected = -1;
@@ -357,6 +361,7 @@ export async function createNodeView ({ files, history = null,
                 if (m.fit)
                     M._tw_node_canvas_zoom_to_fit();
 
+                fitOpened();
                 break;
 
             case 'press':
@@ -2060,6 +2065,31 @@ export async function createNodeView ({ files, history = null,
         refit();
     };
 
+    /* A file opened fits the view if it can do it without shrinking much:
+       below FIT_FLOOR, labels are too small to work on, and it opens at
+       1:1 for the Fit button to answer the other question. Waits for a
+       view with a size, which a closed pane has not. */
+    function fitOpened ()
+    {
+        if (!fitting || $('nodescroll').clientWidth < 100 ||
+            $('nodescroll').clientHeight < 100)
+            return;
+
+        /* Cleared first: telling the module the view's size now -- it can
+           be a frame behind the page's -- comes back through here. */
+        fitting = false;
+        view.viewport();
+        M._tw_node_canvas_zoom_to_fit();
+
+        if (M._tw_node_canvas_zoom() < FIT_FLOOR)
+        {
+            M._tw_node_canvas_set_zoom(1);
+            $('nodescroll').scrollTo(0, 0);
+        }
+
+        paint();
+    }
+
     /* Which .dsp this is over. */
     const showFile = (name) =>
     {
@@ -2080,6 +2110,11 @@ export async function createNodeView ({ files, history = null,
             selected = -1;
             M._tw_node_canvas_select(-1);
             rebuild();
+
+            /* On the next frame: the page can name a file before its
+               text has come, and a fit now would fit the last one. */
+            fitting = true;
+            requestAnimationFrame(fitOpened);
         }
 
         refit();
@@ -2333,9 +2368,12 @@ export async function createNodeView ({ files, history = null,
         hasFile = !none;
         refit();
 
+        /* No toolbar over no graph, on either page: until there is one,
+           its menus are empty and its buttons do nothing. */
+        select.closest('.row').hidden = none;
+
         if (empty !== null)
         {
-            select.closest('.row').hidden = none;
             $('nodescroll').hidden = none;
             empty.hidden = !none;
         }
