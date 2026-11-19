@@ -1089,6 +1089,16 @@ jobs:
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
 
+      # Valve Index controllers on the page (hid.js), through a fake
+      # navigator.hid: the module fetched only once one is in play, a
+      # dongle switched and asked again, a wired one woken, and their notes,
+      # values and bends posted where the page's own go. Chromium alone:
+      # WebHID is Chrome's and Edge's.
+      - name: Controllers on the page
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node hidtest.mjs ../../build-web
+
       # The SDK as a game uses it, from its package alone: every note the
       # worklet plays was announced by the look-ahead, through a mute, an
       # unmute and a stage put in and taken out, each on the SDK's line.

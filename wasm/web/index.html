@@ -412,6 +412,11 @@
     <button id="midi" disabled>MIDI in</button>
     <span id="midistatus" class="hint"></span>
 
+    <!-- Valve Index controllers onto the same keys, wired or through a
+         Watchman dongle (hid.js): Chrome and Edge only, as WebHID is. -->
+    <button id="hid" disabled>Controller</button>
+    <span id="hidstatus" class="hint" aria-live="polite"></span>
+
     <!-- A webcam onto the same keys (camera.js): a hand struck through one
          of nine zones of the picture plays a note, and the zones light as
          the camera sees them move, laid out as the player sees them. -->

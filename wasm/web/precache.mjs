@@ -39,23 +39,27 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const [build, template, list] = process.argv.slice(2);
+const [build, template, list, keptList] = process.argv.slice(2);
 
 if (list === undefined)
 {
-    process.stderr.write('usage: precache.mjs BUILD_DIR TEMPLATE LIST\n');
+    process.stderr.write('usage: precache.mjs BUILD_DIR TEMPLATE LIST ' +
+                         '[KEPT_LIST]\n');
     process.exit(2);
 }
 
 const root = path.resolve(build);
-const files = fs.readFileSync(list, 'utf8').split('\n')
-    .filter((line) => line !== '')
-    .map((abs) => path.relative(root, abs).split(path.sep).join('/'))
-    .sort();
+const read = (from) => from === undefined ? [] :
+    fs.readFileSync(from, 'utf8').split('\n')
+        .filter((line) => line !== '')
+        .map((abs) => path.relative(root, abs).split(path.sep).join('/'))
+        .sort();
+const files = read(list);
+const kept = read(keptList);
 
 const hash = crypto.createHash('sha256');
 
-for (const rel of files)
+for (const rel of [...files, ...kept])
 {
     if (rel.startsWith('..'))
     {
@@ -73,5 +77,6 @@ const version = hash.digest('hex').slice(0, 16);
 
 fs.writeFileSync(path.join(root, 'sw.js'),
     `const VERSION = ${JSON.stringify(version)};\n` +
-    `const FILES = ${JSON.stringify(files)};\n\n` +
+    `const FILES = ${JSON.stringify(files)};\n` +
+    `const KEPT = ${JSON.stringify(kept)};\n\n` +
     fs.readFileSync(template, 'utf8'));

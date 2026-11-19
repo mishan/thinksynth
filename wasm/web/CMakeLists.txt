@@ -342,7 +342,7 @@ target_link_options(thinkhid PRIVATE
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js midi.js midiout.js midioutui.js clock.js
-                camera.js camworker.js videoview.js videoworker.js videopart.js videoscale.js mirror.js
+                camera.js camworker.js hid.js videoview.js videoworker.js videopart.js videoscale.js mirror.js
                 ear.js evolve.js evolveui.js
                 growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
@@ -640,15 +640,24 @@ list(REMOVE_ITEM PRECACHE_DEPENDS "${PROJECT_BINARY_DIR}/thinkweb.wasm"
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/precache.list"
      CONTENT "${precache_list}\n")
 
+# Kept on first use rather than at install: the controllers' module, which
+# a page loads only once one is in play (hid.js), so a player without one
+# never downloads it. In the version's hash all the same, or a new one
+# beside an otherwise unchanged site would be served from the old cache.
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/kept.list" CONTENT
+     "${PROJECT_BINARY_DIR}/thinkhid.js\n${PROJECT_BINARY_DIR}/thinkhid.wasm\n")
+
 add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
     COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
             "${PROJECT_BINARY_DIR}"
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${PROJECT_BINARY_DIR}/precache.list"
-    DEPENDS ${PRECACHE_DEPENDS} thinkweb thinkevolve
+            "${PROJECT_BINARY_DIR}/kept.list"
+    DEPENDS ${PRECACHE_DEPENDS} thinkweb thinkevolve thinkhid
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
             "${PROJECT_BINARY_DIR}/precache.list"
+            "${PROJECT_BINARY_DIR}/kept.list"
     COMMENT "Writing the service worker")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/sw.js")
 
@@ -690,7 +699,9 @@ list(APPEND DIST_ROOT_FILES
     "$<TARGET_FILE:thinkweb>"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm"
     "$<TARGET_FILE:thinkevolve>"
-    "${PROJECT_BINARY_DIR}/thinkevolve.wasm")
+    "${PROJECT_BINARY_DIR}/thinkevolve.wasm"
+    "$<TARGET_FILE:thinkhid>"
+    "${PROJECT_BINARY_DIR}/thinkhid.wasm")
 
 install(FILES ${DIST_ROOT_FILES} DESTINATION . PERMISSIONS ${SITE_FILE_MODE})
 install(FILES ${DIST_ICON_FILES} DESTINATION icons PERMISSIONS ${SITE_FILE_MODE})

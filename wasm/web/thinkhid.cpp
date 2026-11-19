@@ -37,6 +37,17 @@ static std::string said;
 
 extern "C" {
 
+/* What a controller's configuration, inflated, says it is (thhIndexConfig):
+   its hand, a newline, and its serial number, either empty. */
+EMSCRIPTEN_KEEPALIVE const char *th_config (const char *json)
+{
+    std::string hand, serial;
+
+    thhIndexConfig(json, hand, serial);
+    said = hand + "\n" + serial;
+    return said.c_str();
+}
+
 /* A controller connected, wired or once a dongle's answers; its id. */
 EMSCRIPTEN_KEEPALIVE int th_add (const char *hand, const char *serial,
                                  double now)
