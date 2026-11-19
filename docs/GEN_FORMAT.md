@@ -621,6 +621,35 @@ answers, a swap onto a MIDI instrument plays its `dsp`, as applying it would.
 When the ports or a route change, a swapped channel is decided again like
 any other.
 
+### Live MIDI input
+
+A keyboard plugged in plays by MIDI channel. With nothing said, MIDI channel
+N plays channel N on the desktop, and every MIDI channel plays the page's key
+channel in the browser. An instrument can say which live input it takes:
+
+```
+instrument strings { dsp "section.dsp"; midiin = 3; };
+instrument choir   { dsp "choir.dsp";   midiin = 3; };          # a layer
+instrument bass    { dsp "ebass.dsp";   midiin = 1 { high = B3; }; };
+instrument piano   { dsp "grand.dsp";   midiin = 1 { low = C4; }; };  # a split
+```
+
+`midiin = N` is a MIDI channel, 1-16; `low` and `high` are note names or
+numbers 0-127, inclusive, either left out for the end of the keyboard, and
+`low` no higher than `high`. An instrument may have several `midiin` lines
+and hears each, and one played on a device (`midi`) takes live input onto
+its channel like any other.
+
+A piece that names a MIDI channel takes all of it: MIDI channel 3 above plays
+`strings` and `choir`, and no longer the channel numbered 3, and a key on it
+that no range takes plays nothing. MIDI channels the piece does not name play
+as they would without it. The routes last as long as the piece: loading
+another, or one that does not load, puts them back. Routes a machine sets for
+itself will outrank the piece's, MIDI channel by MIDI channel. A note keeps
+the channels its key went to until it is let go, and the sustain pedal comes
+up where it went down, so a piece loaded while a key is held never strands
+it. In a jam room, live input plays your own seat.
+
 ## 5. Chains
 
 A `chain` is a named, *ordered* pipeline. Order in the file is order of
@@ -1247,9 +1276,12 @@ instrstmt   : "dsp" graph ";"
             | "midiprogram" "=" NUMBER ";"              # 1-128; optional
             | "cc" WORD "=" NUMBER ccrange? ";"         # 0-119
             | "bend" WORD ccrange? ";"                  # the pitch wheel
+            | "midiin" "=" NUMBER keyrange? ";"         # live input, 1-16
             | WORD "." WORD "=" STRING ";"              # a node's text arg
             | instrval
 ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
+keyrange    : "{" ("low" "=" key ";" | "high" "=" key ";")* "}"
+key         : NUMBER | WORD | STRING                   # 0-127, C4 or "C#4"
 graph       : STRING | "{" dspstmt* "}"                # a file, or a .dsp's
                                                        #   statements inline
                                                        #   (DSP_FORMAT.md)
