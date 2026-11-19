@@ -503,6 +503,10 @@ think_harness(hidplaycheck COMPOSERHOST HID)
 # (hid/thhSession.h).
 think_harness(sessioncheck COMPOSERHOST HID)
 
+# What the session asks to play for the captures, for wasm/web/hidcheck.mjs
+# to hold the browser's build of it to (hid/thhHost.h).
+think_harness(hidactions COMPOSERHOST HID)
+
 # Finding a controller and reading it on a thread (hid/thhReader.h), which
 # is Linux's.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

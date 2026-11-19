@@ -585,7 +585,8 @@ jobs:
       # compared against; dspcatalog and gencheck are the two lists a
       # chooser is drawn from, which the module reads out of its own copy of
       # the same files; rollcheck is the piano roll's own drawing, op for
-      # op. All seven are what the browser build has to agree with.
+      # op; hidactions is what a controller's reports play. All eight are
+      # what the browser build has to agree with.
       # think_compiled is the shipped video patches compiled, which the
       # browser build links (wasm/web/CMakeLists.txt).
       #
@@ -604,7 +605,8 @@ jobs:
           cmake -S . -B build -G Ninja
           cmake --build build \
                 --target genwav dspedit panelcheck patchcheck \
-                         dspcatalog gencheck rollcheck think_compiled plugins
+                         dspcatalog gencheck rollcheck hidactions \
+                         think_compiled plugins
 
       # Most of a gigabyte, so cached on the version.
       - name: Cache emsdk
@@ -710,6 +712,7 @@ jobs:
             build/scripts/dspcatalog
             build/scripts/gencheck
             build/scripts/rollcheck
+            build/scripts/hidactions
             build/libthink/libthink.so.*
             build/plugins/*/*.so
             build-wasm/thinksynth.mjs
@@ -888,6 +891,12 @@ jobs:
           THINK_DSP_PATH=dsp build/scripts/rollcheck -p build/plugins/ \
               gen/belfry.gen
           node wasm/web/rollcheck.mjs build-web build
+
+      # Valve Index controllers: the captures through the page's module
+      # (thinkhid) and through the native build of the same host, line for
+      # line (wasm/web/hidcheck.mjs).
+      - name: The controllers, the browser's against the desktop's
+        run: node wasm/web/hidcheck.mjs build/scripts/hidactions build-web
 
       # A parameter panel is described once (src/PanelModel.h) and rendered
       # twice, and the point of describing it once is that the two

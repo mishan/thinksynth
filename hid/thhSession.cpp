@@ -18,7 +18,7 @@
 
 #include "thhHands.h"
 #include "thhIndex.h"
-#include "thhPlay.h"
+#include "thhProfile.h"
 #include "thhSession.h"
 
 thhSession::thhSession (

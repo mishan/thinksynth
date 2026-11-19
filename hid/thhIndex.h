@@ -22,6 +22,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <string>
+
 #include "thhControls.h"
 
 /* The Valve Index controller, wired (28de:2300), read from its input
@@ -55,6 +57,13 @@ enum thhIndexAxis
 };
 
 const thhControls &thhIndexControls ();
+
+/* What a controller's configuration (its JSON, inflated) says it is: hand
+   "left" or "right" from model_number ("Knuckles Left", or a revision of
+   one), or empty if it doesn't say, and serial its device_serial_number,
+   or empty. A scan rather than a parser, which is all two strings need. */
+void thhIndexConfig (const std::string &json, std::string &hand,
+                     std::string &serial);
 
 /* What the controller plays with no profile of the player's own. */
 extern const char *const THH_INDEX_PROFILE;

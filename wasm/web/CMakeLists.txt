@@ -304,6 +304,33 @@ target_link_options(thinkevolve PRIVATE
     -sJSPI_EXPORTS=tw_evolve
     -sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString,HEAPU8)
 
+# Valve Index controllers, for the page to feed WebHID's reports to
+# (thinkhid.cpp): the decoders, the session and the profile reader, and of
+# the engine only what a profile's expressions need, so the page loads no
+# second synth.
+add_executable(thinkhid thinkhid.cpp
+    "${THINK_TOP}/hid/thhControls.cpp"
+    "${THINK_TOP}/hid/thhHands.cpp"
+    "${THINK_TOP}/hid/thhHost.cpp"
+    "${THINK_TOP}/hid/thhIndex.cpp"
+    "${THINK_TOP}/hid/thhIndexWireless.cpp"
+    "${THINK_TOP}/hid/thhLooper.cpp"
+    "${THINK_TOP}/hid/thhMapper.cpp"
+    "${THINK_TOP}/hid/thhProfile.cpp"
+    "${THINK_TOP}/hid/thhSession.cpp"
+    "${THINK_TOP}/src/thcHidBlock.cpp"
+    "${THINK_TOP}/src/thcGenFile.cpp")
+target_include_directories(thinkhid PRIVATE ${THINKWEB_INCLUDES})
+target_link_libraries(thinkhid PRIVATE think_objects sigc)
+set_target_properties(thinkhid PROPERTIES SUFFIX ".js")
+target_link_options(thinkhid PRIVATE
+    -sMODULARIZE=1
+    -sEXPORT_ES6=1
+    -sEXPORT_NAME=createThinkHid
+    -sENVIRONMENT=web,node
+    -sALLOW_MEMORY_GROWTH=1
+    -sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString)
+
 # ---------------------------------------------------------------------------
 # The site
 # ---------------------------------------------------------------------------

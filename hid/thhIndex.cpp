@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #include "thhIndex.h"
 
@@ -73,6 +74,37 @@ const char *const THH_INDEX_PROFILE =
     "    turn = bend { range = 2; of = both; smooth = 0.05; };\n"
     "    ignore fist;\n"
     "};\n";
+
+/* The string a key names in JSON, or empty. */
+static std::string
+value (const std::string &json, const char *key)
+{
+    const size_t at = json.find(std::string("\"") + key + "\"");
+    const size_t open = at == std::string::npos ? at
+                        : json.find('"', json.find(':', at + strlen(key) + 2));
+    const size_t close = open == std::string::npos ? open
+                         : json.find('"', open + 1);
+
+    return close == std::string::npos ? ""
+                                      : json.substr(open + 1, close - open - 1);
+}
+
+void
+thhIndexConfig (const std::string &json, std::string &hand,
+                std::string &serial)
+{
+    const std::string model = value(json, "model_number");
+    const auto ends = [&model](const char *with) {
+        const std::string w = with;
+
+        return model.size() >= w.size() &&
+               model.compare(model.size() - w.size(), w.size(), w) == 0;
+    };
+
+    hand = model.compare(0, 8, "Knuckles") != 0 ? ""
+           : ends(" Left") ? "left" : ends(" Right") ? "right" : "";
+    serial = value(json, "device_serial_number");
+}
 
 /* In enum order, so a button's or an axis's index is its slot. */
 const thhControls &

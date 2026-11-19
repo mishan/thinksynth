@@ -269,6 +269,14 @@ checkHand (void)
 
         report(rows[i].name, got == rows[i].want ? "" : "said \"" + got + "\"");
     }
+
+    string hand, serial;
+
+    thhIndexConfig("{\"device_serial_number\":\"LHR-1\",\"model_number\":"
+                   "\"Knuckles Left\"}", hand, serial);
+    report("a configuration's serial number, with its hand",
+           hand == "left" && serial == "LHR-1" ? "" :
+           "said \"" + hand + "\", \"" + serial + "\"");
 }
 
 static std::vector<uint8_t>

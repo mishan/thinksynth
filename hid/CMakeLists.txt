@@ -8,12 +8,14 @@ add_library(think_hid OBJECT
     thhCamera.cpp
     thhControls.cpp
     thhHands.cpp
+    thhHost.cpp
     thhIndex.cpp
     thhIndexWireless.cpp
     thhLooper.cpp
     thhMapper.cpp
     thhPane.cpp
     thhPlay.cpp
+    thhProfile.cpp
     thhSession.cpp)
 
 target_include_directories(think_hid PUBLIC
