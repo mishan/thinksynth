@@ -6931,13 +6931,47 @@ try
 
         const left = await pr.evaluate(() =>
             localStorage.getItem('thinksynth.midiroutes'));
+        const lastGone = await pr.evaluate(() => document.activeElement?.id);
 
-        await pr.close();
         check(first === '8 60' && kept === '1 8' && again === '8 60' &&
               left === '[]',
               'a MIDI route kept in this browser outranks the piece\'s, ' +
               'and comes back after a reload: ' +
               JSON.stringify({ first, kept, again, left }));
+
+        /* With storage refusing to keep anything, a route still plays; and
+           Remove leaves the keyboard on the route after it, or on Add
+           route when none is left. */
+        await pr.evaluate(() =>
+        {
+            Storage.prototype.setItem = () =>
+            {
+                throw new DOMException('full', 'QuotaExceededError');
+            };
+        });
+        await pr.click('#midirouteadd');
+        await pr.click('#midirouteadd');
+        await pr.selectOption('[aria-label="MIDI channel of route 2"]',
+                              { value: '2' });
+        await pr.selectOption('[aria-label="Channel it plays of route 2"]',
+                              { value: '9' });
+        await pr.evaluate(() => window.sendMidi([0x92, 60, 100]));
+
+        const unkept = await pr.evaluate(() =>
+            window.solo.routed().join(','));
+
+        await pr.evaluate(() => window.sendMidi([0x82, 60, 0]));
+        await pr.click('[aria-label="Remove route 1"]');
+
+        const next = await pr.evaluate(() =>
+            document.activeElement?.getAttribute('aria-label'));
+
+        await pr.close();
+        check(unkept === '9 60' && lastGone === 'midirouteadd' &&
+              next === 'MIDI channel of route 1',
+              'a route plays where storage keeps nothing, and Remove leaves ' +
+              'the keyboard in the table: ' +
+              JSON.stringify({ unkept, lastGone, next }));
     }
 
     for (const e of errors)

@@ -52,9 +52,19 @@ export function routesTable ({ rows, add, onChange })
 {
     let routes = storedRoutes();
 
+    /* Live whether or not the browser will keep them: a private window
+       or a full store refuses, and the routes still play this page. */
     const changed = () =>
     {
-        localStorage.setItem(STORED, JSON.stringify(routes));
+        try
+        {
+            localStorage.setItem(STORED, JSON.stringify(routes));
+        }
+        catch
+        {
+            /* For this page only, then. */
+        }
+
         onChange(routes);
     };
 
@@ -115,11 +125,18 @@ export function routesTable ({ rows, add, onChange })
             row.className = 'midiroute';
             remove.textContent = 'Remove';
             remove.setAttribute('aria-label', `Remove route ${i + 1}`);
+            /* The keyboard stays in the table: on the route that takes
+               this one's place, or the one before it, or Add route. */
             remove.addEventListener('click', () =>
             {
                 routes.splice(i, 1);
                 draw();
                 changed();
+
+                const at = Math.min(i, routes.length - 1);
+
+                (at >= 0 ? rows.children[at].querySelector('select')
+                         : add).focus();
             });
 
             row.append(
