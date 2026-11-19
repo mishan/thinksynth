@@ -3319,6 +3319,18 @@ async function showParams ()
     showPresets();
 }
 
+/* Until when the panel is polled every frame: a second past the last
+ * value something wrote behind the page, so a sweep is drawn smoothly
+ * and an idle panel costs four polls a second. A source that writes args
+ * (a controller) calls pollSoon with each value it plays.
+ */
+let pollFastUntil = 0;
+
+function pollSoon ()
+{
+    pollFastUntil = performance.now() + 1000;
+}
+
 /* The panel following the arg.
  *
  * A control moves behind the page all the time -- a piece's knob wired to
@@ -4727,7 +4739,11 @@ async function init ()
         button: $('hid'), status: $('hidstatus'),
         onNoteOn: (note, velocity) => press(note, velocity, 'hid'),
         onNoteOff: (note) => release(note, 'hid'),
-        play: (action) => synth?.hid(action),
+        play: (action) =>
+        {
+            pollSoon();
+            synth?.hid(action);
+        },
         channel: () => playsPatch() ? PATCH_CHANNEL : keyChannel(),
         bendChannel: (note) =>
         {
@@ -4901,12 +4917,22 @@ async function init ()
        With no synth yet it does nothing else. */
     await pickMode();
 
-    /* Four times a second, which is about the desktop's 50 ms draw timer
-       and far below an animation frame: the poll is a message each way,
-       and a panel following a knob does not need sixty of them a second.
+    /* Four times a second, or each frame as pollSoon asks, one at a time.
        Only while the panel is in front of somebody, which is what the
        layout above answers -- so it is started after there is one. */
-    setInterval(pollParams, 250);
+    let polled = 0;
+    const pollEachFrame = (t) =>
+    {
+        if (t < pollFastUntil || t - polled >= 250)
+        {
+            polled = t;
+            pollParams().finally(() => requestAnimationFrame(pollEachFrame));
+        }
+        else
+            requestAnimationFrame(pollEachFrame);
+    };
+
+    requestAnimationFrame(pollEachFrame);
 
     /* The two popovers, out of the panes and over them. Each is placed
        beside the box on a canvas that asked for it, in page coordinates,
