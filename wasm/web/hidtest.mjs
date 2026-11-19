@@ -187,6 +187,7 @@ function fake ({ granted, offered, configs, absent })
 
     /* What the page posts the worklet: notes and a controller's actions. */
     window.posted = [];
+    window.panelPolls = 0;
 
     const post = MessagePort.prototype.postMessage;
 
@@ -196,6 +197,8 @@ function fake ({ granted, offered, configs, absent })
             window.posted.push(`${m.type} ${m.note}`);
         else if (m?.type === 'hid')
             window.posted.push(`hid ${m.kind} ${m.channel} ${m.arg ?? m.note}`);
+        else if (m?.type === 'panelvalues')
+            window.panelPolls++;
         return post.call(this, m, ...rest);
     };
 }
@@ -286,10 +289,25 @@ try
         await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x00]));
         check(await postedHas(page, 'off 60'), 'and A let go of lets it go');
 
+        const polls = (ms) => page.evaluate(async (ms) =>
+        {
+            const n = window.panelPolls;
+
+            await new Promise((go) => setTimeout(go, ms));
+            return window.panelPolls - n;
+        }, ms);
+
+        await page.evaluate(() => document.getElementById('paramview').scrollIntoView());
+        await page.waitForTimeout(1200);
         await page.evaluate(() => window.dongles[0].send(
             [0x20, 0xf0, 0xa1, 0x00, 0, 0, 0, 0, 0xff, 0]));
         check(await postedHas(page, 'hid 2 0 level'),
               'a squeeze is a value for the patch\'s level, on the patch\'s channel');
+        check(await polls(500) >= 15,
+              'and the patch\'s panel follows it every frame');
+        await page.waitForTimeout(1000);
+        check(await polls(1000) <= 5,
+              'and four times a second again once nothing moves');
 
         /* The controller turned off, held note and all: the dongle says so,
            and answers nothing until it is turned on again. */
