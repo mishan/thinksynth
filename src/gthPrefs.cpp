@@ -32,6 +32,7 @@
 
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
+#include "thcGenFile.h"
 #include "gui-util.h"
 
 namespace fs = std::filesystem;
@@ -190,9 +191,15 @@ void gthPrefs::Load (void)
     }
 
     std::string line;
+    int lineNo = 0;
+
+    midiRoutes_.clear();
+    badLines_.clear();
 
     while (readLine(prefsFile, line))
     {
+        lineNo++;
+
         std::vector<char> text(line.begin(), line.end());
 
         text.push_back('\0');
@@ -263,6 +270,26 @@ void gthPrefs::Load (void)
 
                 consumed = true;
             }
+            else if (key == "midiroute")
+            {
+                thMidiRoute r;
+                string why;
+
+                if (len == 1 && parseMidiRoute(*values[0], r, why))
+                    midiRoutes_.push_back(r);
+                else
+                {
+                    if (len != 1)
+                        why = "a route has no commas";
+
+                    badLines_.push_back(std::to_string(lineNo) + ": " +
+                                        line + ": " + why);
+                    fprintf(stderr, "%s:%d: %s\n", prefsPath_.c_str(),
+                            lineNo, why.c_str());
+                }
+
+                consumed = true;
+            }
             else if (key == "channel" && values[0] && values[1])
             {
                 int chan = atoi(values[0]->c_str());
@@ -298,6 +325,8 @@ void gthPrefs::Load (void)
             }
         }
     }
+
+    midiRoutesChanged_.emit(midiRoutes_);
 }
 
 /* Applies the built-in defaults, as though they had been read from a file.
@@ -421,6 +450,9 @@ void gthPrefs::Save (void)
         fprintf(prefsFile, "\n");
     }
 
+    for (const thMidiRoute &r : midiRoutes_)
+        fprintf(prefsFile, "midiroute %s\n", formatMidiRoute(r).c_str());
+
     /* master output gain */
     {
         thSynth *synth = thSynth::instance();
@@ -458,6 +490,106 @@ void gthPrefs::Save (void)
     }
 
     fclose(prefsFile);
+}
+
+void gthPrefs::setMidiRoutes (const std::vector<thMidiRoute> &routes)
+{
+    midiRoutes_ = routes;
+    midiRoutesChanged_.emit(midiRoutes_);
+}
+
+/* "3 5", "3 off", "1 2 C2 B3": counted from 1, the keys inclusive. */
+bool gthPrefs::parseMidiRoute (const string &text, thMidiRoute &out,
+                               string &why)
+{
+    std::vector<string> word;
+    size_t at = 0;
+
+    while ((at = text.find_first_not_of(" \t", at)) != string::npos)
+    {
+        const size_t end = text.find_first_of(" \t", at);
+
+        word.push_back(text.substr(at, end - at));
+        at = end;
+    }
+
+    const auto whole = [](const string &w, int lo, int hi, int &n)
+    {
+        char *end = NULL;
+        const long v = strtol(w.c_str(), &end, 10);
+
+        if (w.empty() || *end != '\0' || v < lo || v > hi)
+            return false;
+
+        n = (int)v;
+        return true;
+    };
+    const auto key = [&whole](const string &w, int &n)
+    {
+        std::vector<int> notes;
+        string bad;
+
+        if (whole(w, 0, 127, n))
+            return true;
+        if (!thcGenLoader::parseNoteList(w, notes, bad) ||
+            notes.size() != 1 || notes[0] < 0 || notes[0] > 127)
+            return false;
+
+        n = notes[0];
+        return true;
+    };
+
+    if (word.size() != 2 && word.size() != 4)
+    {
+        why = "a route is a MIDI channel, an engine channel or off, and "
+              "optionally a low and a high key";
+        return false;
+    }
+
+    int midi, engine = 0;
+
+    if (!whole(word[0], 1, TH_MIDI_CHANNELS, midi))
+    {
+        why = "'" + word[0] + "' is no MIDI channel, 1-" +
+              std::to_string(TH_MIDI_CHANNELS);
+        return false;
+    }
+
+    if (word[1] != "off" && !whole(word[1], 1, TH_ENGINE_CHANNELS, engine))
+    {
+        why = "'" + word[1] + "' is no engine channel, 1-" +
+              std::to_string(TH_ENGINE_CHANNELS) + " or off";
+        return false;
+    }
+
+    out = { midi - 1, engine - 1, 0, 127 };
+
+    if (word.size() == 4 && (!key(word[2], out.lo) || !key(word[3], out.hi)))
+    {
+        why = "'" + word[2] + " " + word[3] + "' is not two keys, names "
+              "like C4 or numbers 0-127";
+        return false;
+    }
+
+    if (out.lo > out.hi)
+    {
+        why = "its low key is above its high one";
+        return false;
+    }
+
+    return true;
+}
+
+string gthPrefs::formatMidiRoute (const thMidiRoute &r)
+{
+    string s = std::to_string(r.midi + 1) + " " +
+               (r.engine < 0 ? string("off") : std::to_string(r.engine + 1));
+
+    if (r.lo != 0 || r.hi != 127)
+        s += " " + thcGenLoader::noteName(r.lo) + " " +
+             thcGenLoader::noteName(r.hi);
+
+    return s;
 }
 
 string **gthPrefs::Get (const string &key)

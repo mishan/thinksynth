@@ -27,6 +27,8 @@
 #include "think.h"
 #include "gthPatchfile.h"
 #include "MidiMap.h"
+#include "MidiRoutesView.h"
+#include "gthPrefs.h"
 #include "ColumnUtil.h"
 
 /* A channel's instrument as Channels names it: its patch file
@@ -274,6 +276,15 @@ MidiMap::MidiMap (thSynth *argsynth)
     connectFrame_->set_vexpand(true);
     mainVBox_->append(*connectFrame_);
     mainVBox_->append(*inputVBox_);
+
+    /* Which engine channels live MIDI input plays: this machine's routes,
+       over any a piece names. */
+    Gtk::Frame *routesFrame = manage(new Gtk::Frame("Input routes"));
+    MidiRoutesView *routes = MidiRoutesView::forPrefs(gthPrefs::instance());
+
+    routes->set_margin(6);
+    routesFrame->set_child(*routes);
+    mainVBox_->append(*routesFrame);
 
 
     patchMgr->signal_patches_changed().connect(

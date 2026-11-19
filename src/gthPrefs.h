@@ -25,6 +25,10 @@
 /* The pre-XDG location, directly in $HOME. Read as a fallback, never written. */
 #define LEGACY_PREFS_FILE ".thinkrc"
 
+#include <sigc++/sigc++.h>
+
+#include "thMidiRoutes.h"
+
 class gthPrefs
 {
 public:
@@ -61,6 +65,26 @@ public:
     void Load (void);
     void Save (void);
 
+    /* `midiroute M ENGINE [LO HI]' lines: this machine's live MIDI input
+       routes, the route table's machine layer. M and ENGINE count from 1,
+       as a person does; ENGINE `off' silences M; LO and HI are note names
+       or numbers. Setting them says so on signal_midi_routes; Save writes
+       them. */
+    const std::vector<thMidiRoute> &midiRoutes (void) const
+    { return midiRoutes_; }
+    void setMidiRoutes (const std::vector<thMidiRoute> &routes);
+    sigc::signal<void (std::vector<thMidiRoute>)> &signal_midi_routes (void)
+    { return midiRoutesChanged_; }
+
+    /* One route as its line says it, and back; false, with why, for a
+       line that says nothing a route can be. */
+    static bool parseMidiRoute (const string &text, thMidiRoute &out,
+                                string &why);
+    static string formatMidiRoute (const thMidiRoute &route);
+
+    /* What the last Load could not read, a line each with its number. */
+    const vector<string> &badLines (void) const { return badLines_; }
+
     /* The built-in first-run configuration: a few channels with patches on
        them, named relatively and resolved through the patch search path.
        Called by Load() when there is no configuration file anywhere. Public
@@ -72,6 +96,9 @@ public:
 private:
     map <string, string**> prefs_;
     string prefsPath_;
+    std::vector<thMidiRoute> midiRoutes_;
+    sigc::signal<void (std::vector<thMidiRoute>)> midiRoutesChanged_;
+    vector<string> badLines_;
 
     static gthPrefs *instance_;
 };
