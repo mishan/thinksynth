@@ -64,4 +64,28 @@ bool thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
                       const std::string &usb, thhConnection &c,
                       std::string &status);
 
+/* Every Watchman dongle (28de:2101, 2102), each a node of its own, in
+   the same order every time. */
+std::vector<thhIndexNodes> thhFindDongles (const std::string &sysRoot,
+                                           const std::string &devRoot);
+
+/* What makes a dongle's reports a state (thhIndexWireless.h). */
+thhFeed thhIndexDongleFeeder ();
+
+/* What thhConnectDongle's status starts with for a dongle that answers but
+   hears no controller: unpaired, or its controller turned off. */
+#define THH_DONGLE_EMPTY "no controller on the dongle "
+
+/* The connect for the controller on the dongle at usb, or the first: false,
+   saying why, while none answers, as one turned off or never paired
+   doesn't; else switched to the messages read, and its hand read. */
+bool thhConnectDongle (const std::string &sysRoot, const std::string &devRoot,
+                       const std::string &usb, thhConnection &c,
+                       std::string &status);
+
+/* The dongle at usb, or the first, put to pairing (THH_INDEX_WIRELESS_PAIR);
+   false, saying why, if it can't be. */
+bool thhPairDongle (const std::string &sysRoot, const std::string &devRoot,
+                    const std::string &usb, std::string &status);
+
 #endif /* THH_INDEX_HIDRAW_H */

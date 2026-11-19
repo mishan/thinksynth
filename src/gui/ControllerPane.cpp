@@ -38,7 +38,7 @@ ControllerPane::ControllerPane (void)
     : Gtk::Box(Gtk::Orientation::VERTICAL, 6), source_(NULL), generation_(0),
       buttons_(Gtk::Orientation::HORIZONTAL, 6), reload_("_Reload", true),
       open_("_Open file", true), swap_("_Swap hands", true),
-      clearLoops_("_Clear loops", true)
+      clearLoops_("_Clear loops", true), pair_("_Pair a controller", true)
 {
     set_margin(6);
 
@@ -58,10 +58,15 @@ ControllerPane::ControllerPane (void)
                            "other's, remembered for next time");
     clearLoops_.signal_clicked().connect(
         sigc::mem_fun(*this, &ControllerPane::onClearLoops));
+    pair_.signal_clicked().connect(
+        sigc::mem_fun(*this, &ControllerPane::onPair));
+    pair_.set_tooltip_text("A Watchman dongle hearing no controller listens "
+                           "for one in pairing mode for 30 seconds");
     buttons_.append(reload_);
     buttons_.append(open_);
     buttons_.append(swap_);
     buttons_.append(clearLoops_);
+    buttons_.append(pair_);
 
     append(status_);
     append(grid_);
@@ -134,6 +139,8 @@ bool ControllerPane::onTick (void)
     open_.set_sensitive(source_ != NULL);
     swap_.set_visible(source_ != NULL && source_->canSwapHands());
     clearLoops_.set_visible(source_ != NULL && !source_->loops().empty());
+    pair_.set_visible(source_ != NULL && source_->canPair() &&
+                      source_->pairing().empty());
 
     if (!source_)
     {
@@ -218,6 +225,8 @@ bool ControllerPane::onTick (void)
         line += "\nPatch: " + source_->patch();
     if (!source_->loops().empty())
         line += "\nLoops: " + source_->loops();
+    if (!source_->pairing().empty())
+        line += "\nPairing: " + source_->pairing() + ".";
     if (status_.get_text().raw() != line)
         status_.set_text(line);
 
@@ -235,6 +244,13 @@ void ControllerPane::onClearLoops (void)
 {
     if (source_)
         source_->clearLoops();
+    onTick();
+}
+
+void ControllerPane::onPair (void)
+{
+    if (source_)
+        source_->pair();
     onTick();
 }
 

@@ -34,6 +34,10 @@
  * Then what isn't an input report, one report built by hand whose every
  * field is known, and which of the controller's report descriptors
  * (scripts/hid/index-descriptors.txt) is the input interface's.
+ *
+ * scripts/hid/index-wireless.txt is the same gestures and poses through a
+ * Watchman dongle, every report that moved the input kept, in order, as
+ * the state carries from one to the next.
  */
 
 #include <algorithm>
@@ -43,11 +47,13 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "thhIndex.h"
+#include "thhIndexWireless.h"
 
 using std::string;
 
@@ -117,10 +123,13 @@ has (const string &list, const string &word)
     return false;
 }
 
+static void checkGestures (std::map<string, std::vector<thhState> > &seen,
+                           const string &name,
+                           const std::set<string> &skip = {});
+
 static void
 checkCapture (const char *path)
 {
-    const thhControls &c = thhIndexControls();
     std::map<string, std::vector<thhState> > seen;
     std::ifstream in(path);
     string line;
@@ -151,16 +160,30 @@ checkCapture (const char *path)
            refused == pings && pings > 0 ? "" :
            std::to_string(refused) + " refused, " + std::to_string(pings) +
            " pings");
+    checkGestures(seen, "");
+}
+
+/* What each gesture's states must show, however they were decoded; name
+   comes before each gesture's in what is reported. */
+static void
+checkGestures (std::map<string, std::vector<thhState> > &seen,
+               const string &name, const std::set<string> &skip)
+{
+    const thhControls &c = thhIndexControls();
 
     for (size_t g = 0; g < sizeof(GESTURES) / sizeof(GESTURES[0]); g++)
     {
         const Gesture &r = GESTURES[g];
+
+        if (skip.count(r.label))
+            continue;
+
         const std::vector<thhState> &ss = seen[r.label];
         string why;
 
         if (ss.empty())
         {
-            report(r.label, "no reports in the capture");
+            report(name + r.label, "no reports in the capture");
             continue;
         }
 
@@ -222,7 +245,7 @@ checkCapture (const char *path)
                 why += string("wanted ") + term + ", " + got;
         }
 
-        report(r.label, why);
+        report(name + r.label, why);
     }
 }
 
@@ -394,9 +417,11 @@ checkDescriptors (const string &path)
 }
 
 /* Each pose's reports through a filter of its own, so a still pose reads
-   as itself rather than as the way there from the last one. */
+   as itself rather than as the way there from the last one: the wired
+   controller's IMU reports, or the dongle's messages. */
 static void
-checkImu (const char *path)
+checkPoses (const char *path, bool wireless,
+            const std::set<string> &skip = {})
 {
     struct Pose
     {
@@ -433,14 +458,20 @@ checkImu (const char *path)
     for (size_t p = 0; p < sizeof(POSES) / sizeof(POSES[0]); p++)
     {
         const Pose &pose = POSES[p];
+
+        if (skip.count(pose.label))
+            continue;
+
         thhIndexImu imu;
+        thhIndexWireless w;
         thhState s;
         float lo = 0, hi = 0, tlo = 0, thi = 0;
         size_t fed = 0;
 
         for (const std::vector<uint8_t> &r : seen[pose.label])
         {
-            if (thhIndexFeedImu(r.data(), r.size(), imu, s))
+            if (wireless ? thhIndexFeedWireless(r.data(), r.size(), w, s)
+                         : thhIndexFeedImu(r.data(), r.size(), imu, s))
             {
                 fed++;
                 lo = std::min(lo, s.axis[THH_INDEX_TWIST]);
@@ -456,7 +487,7 @@ checkImu (const char *path)
         snprintf(got, sizeof(got), "tilt %.2f, roll %.2f, twist %.2f..%.2f, "
                  "turn %.2f..%.2f from %zu reports", tilt, roll, lo, hi, tlo,
                  thi, fed);
-        report(pose.label,
+        report((wireless ? "wireless: " : "") + string(pose.label),
                fed && tilt >= pose.tilt[0] && tilt <= pose.tilt[1] &&
                roll >= pose.roll[0] && roll <= pose.roll[1] &&
                (pose.twist ? hi >= pose.twist && lo <= -pose.twist
@@ -464,6 +495,375 @@ checkImu (const char *path)
                (pose.turn ? thi >= pose.turn * 0.5f && tlo <= -pose.turn
                           : std::max(thi, -tlo) < 0.05f) ? "" : got);
     }
+}
+
+/* The dongle's capture fed in order, one decoder throughout: input comes
+   only when it changes, so each gesture's states follow from what came
+   before it, as they do when played. */
+static void
+checkWireless (const char *path)
+{
+    std::map<string, std::vector<thhState> > seen;
+    std::ifstream in(path);
+    thhIndexWireless w;
+    thhState s;
+    string line;
+    int refused = 0;
+
+    s.connected = true;
+    while (std::getline(in, line))
+    {
+        const size_t tab = line.find('\t');
+        const std::vector<uint8_t> b = unhex(line.substr(tab + 1));
+
+        if (thhIndexFeedWireless(b.data(), b.size(), w, s))
+            seen[line.substr(0, tab)].push_back(s);
+        else
+            refused++;
+    }
+
+    report("wireless: every report in the capture is taken",
+           refused == 0 && !seen.empty() ? "" :
+           std::to_string(refused) + " refused");
+
+    /* What the wired capture's hand did, not what the decoding does: the
+       curls by where the hand sat on the grip (here the index finger was
+       curled toward the trigger, not onto the grip), the slow pull short
+       of the click, the poses at the angles that capture held. The
+       messages built by hand pin each byte to its control instead. */
+    const std::set<string> performed = {
+        "curl index only", "curl middle only", "curl ring only",
+        "fist, light", "trigger pull slowly",
+        "hold it the way you play it, still",
+        "tip the front (the stick end) UP, still",
+        "tip the front DOWN, still",
+        "roll your wrist so the buttons face RIGHT, still",
+    };
+
+    checkGestures(seen, "wireless: ", performed);
+    checkPoses(path, true, performed);
+}
+
+/* A dongle report: one radio message (0x23) or two (0x24), each its time,
+   its length and its payload, in 29 bytes. */
+static std::vector<uint8_t>
+radio (const std::vector<std::vector<uint8_t> > &payloads, uint8_t hi = 0x10,
+       uint8_t lo = 0)
+{
+    std::vector<uint8_t> r(1 + 29 * payloads.size(), 0);
+
+    r[0] = payloads.size() == 1 ? 0x23 : 0x24;
+    for (size_t m = 0; m < payloads.size(); m++)
+    {
+        uint8_t *at = &r[1 + 29 * m];
+
+        at[0] = hi;
+        at[1] = (uint8_t)(payloads[m].size() + 1);
+        at[2] = (uint8_t)(lo + m);
+        std::copy(payloads[m].begin(), payloads[m].end(), at + 3);
+    }
+    return r;
+}
+
+static bool
+feed (const std::vector<uint8_t> &r, thhIndexWireless &w, thhState &s)
+{
+    return thhIndexFeedWireless(r.data(), r.size(), w, s);
+}
+
+static void
+checkWirelessByHand (void)
+{
+    /* The wired report built by hand, sent as the dongle sends it: the
+       buttons, the trigger and x and y in one message, the touches and the
+       grip in another. Buttons and trigger differ, so their order shows. */
+    const std::vector<uint8_t> input = radio({ { 0x20, 0xf7, 0x3f, 0x80,
+                                                 0x00, 0x40, 0x00, 0x80 } });
+    const std::vector<uint8_t> grip = radio({ { 0x20, 0xf0, 0xa1, 0x79, 0xff,
+                                                0x00, 0x81, 0x40, 0x10,
+                                                0xfe } });
+    const string want =
+        "a b system trigger_click thumbstick a_touch b_touch system_touch "
+        "trigger_touch thumbstick_touch trackpad_touch | grip_top=1.000 "
+        "grip_mid=0.000 grip_low=0.506 trigger_near=0.251 grip_force=0.063 "
+        "trigger=0.502 pad_x=0.500 pad_y=-1.000 pad_force=0.996 "
+        "stick_x=0.000 stick_y=0.000 tilt=0.000 roll=0.000 twist=0.000 "
+        "turn=0.000";
+    thhIndexWireless w;
+    thhState s;
+
+    s.connected = true;
+    const bool ok = feed(input, w, s) && feed(grip, w, s);
+
+    report("wireless: messages built by hand",
+           !ok ? "refused" : describe(s) == want ? "" :
+           "read as\n    " + describe(s) + "\n  wanted\n    " + want);
+
+    /* The trackpad let go: x and y are the stick's. */
+    feed(radio({ { 0x20, 0xf3, 0x3d, 0x00, 0x40, 0x00, 0x80 } }), w, s);
+    report("wireless: x and y are the stick's when the trackpad isn't touched",
+           s.axis[THH_INDEX_STICK_X] > 0.49f && s.axis[THH_INDEX_PAD_X] == 0 ?
+           "" : describe(s));
+
+    /* The trackpad let go, or touched, in a message with only the buttons:
+       neither pair keeps where the other was. */
+    struct Switch
+    {
+        const char *name;
+        uint8_t     touched, then;
+    };
+    static const Switch SWITCHES[] = {
+        { "the trackpad let go with only the buttons", 0x02, 0x00 },
+        { "the trackpad touched with only the buttons", 0x00, 0x02 },
+    };
+
+    for (const Switch &sw : SWITCHES)
+    {
+        thhIndexWireless xw;
+        thhState xs;
+
+        feed(radio({ { 0x20, 0xf3, sw.touched, 0x00, 0x40, 0x00, 0x40 } }),
+             xw, xs);
+        feed(radio({ { 0x20, 0xf1, sw.then } }), xw, xs);
+        report(string("wireless: ") + sw.name,
+               xs.axis[THH_INDEX_PAD_X] == 0 && xs.axis[THH_INDEX_STICK_X] == 0
+               ? "" : describe(xs));
+    }
+
+    /* Metadata, of each kind seen, before input; and light after it, which
+       has no length and is the rest of the message. */
+    struct Around
+    {
+        const char          *name;
+        std::vector<uint8_t> payload;
+    };
+    const std::vector<Around> AROUND = {
+        { "battery",  { 0x60, 0x80, 0x2f, 0xf1, 0x10 } },
+        { "mode",     { 0x60, 0x20, 0x01, 0xf1, 0x10 } },
+        { "0x30",     { 0x60, 0x30, 0x00, 0x00, 0xf1, 0x10 } },
+        { "light",    { 0x30, 0xf1, 0x10, 0x5a, 0xa5, 0x5a } },
+    };
+
+    for (const Around &a : AROUND)
+    {
+        thhIndexWireless aw;
+        thhState as;
+
+        report(string("wireless: input after ") + a.name +
+               " is read where it is",
+               feed(radio({ a.payload }), aw, as) &&
+               as.buttons == 1u << THH_INDEX_A ? "" : describe(as));
+    }
+
+    /* Two messages in one report are both taken, in order: the same as
+       sent one at a time, and not as the second alone. A sample is taken
+       once however often it comes. */
+    const std::vector<uint8_t> turning = { 0x80, 0x00, 0, 0xf0, 0, 0, 0, 0,
+                                           0x00, 0x40, 0, 0, 0, 0 };
+    /* At the second's time but turning less: taken, it would move twist. */
+    const std::vector<uint8_t> again = { 0x80, 0x00, 0, 0xf0, 0, 0, 0, 0,
+                                         0x00, 0x10, 0, 0, 0, 0 };
+    thhIndexWireless both, apart, last, twice;
+    thhState sb, sa, sl, st;
+
+    feed(radio({ turning, turning }, 0x10, 0x00), both, sb);
+    feed(radio({ turning }, 0x10, 0x00), apart, sa);
+    feed(radio({ turning }, 0x10, 0x01), apart, sa);
+    feed(radio({ turning }, 0x10, 0x01), last, sl);
+    feed(radio({ turning }, 0x10, 0x00), twice, st);
+    feed(radio({ turning }, 0x10, 0x01), twice, st);
+    feed(radio({ again }, 0x10, 0x01), twice, st);
+
+    char got[160];
+
+    snprintf(got, sizeof(got), "turn both %.4f, apart %.4f, last %.4f, "
+             "twice %.4f", sb.axis[THH_INDEX_TURN], sa.axis[THH_INDEX_TURN],
+             sl.axis[THH_INDEX_TURN], st.axis[THH_INDEX_TURN]);
+    report("wireless: two messages in a report are both taken, in order, "
+           "and a sample once",
+           sa.axis[THH_INDEX_TURN] != 0 &&
+           describe(sb) == describe(sa) && describe(sl) != describe(sa) &&
+           describe(st) == describe(sa) ? "" : got);
+
+    /* The dongle saying its controller has gone. */
+    thhIndexWireless gw;
+    thhState gs;
+    const uint8_t gone[] = { 0x26, 0x01 };
+
+    gs.connected = true;
+    report("wireless: the controller gone is said at once",
+           thhIndexFeedWireless(gone, sizeof(gone), gw, gs) && !gs.connected ?
+           "" : "still connected");
+
+    /* What isn't a v2 message moves nothing: the controller's own v1
+       messages, as it sends them after power-on until it is switched, and
+       v2 cut short, too long, or with what it doesn't say how to read. */
+    struct Bad
+    {
+        const char *name, *hex;
+    };
+    static const Bad BAD[] = {
+        { "v1 startup 47",
+          "23011b50475717bf4f0fcfb7808080808080809e818081858181803b0054" },
+        { "v1 battery e1",
+          "231411dce134e886da0d74045af919002200fcffe72192de030051cb51fa" },
+        { "v1 IMU e8",
+          "23140f39e83bc30d720473f92300120007009117ab52257c030051cb51fa" },
+        { "v1 grip f0",
+          "23170a92f0a101000000030000e192c440009f63cc0392de030051cb51fa" },
+        { "v1 startup f7",
+          "23010800f700000000000085b6863043145b7d860e0985e2000000000000" },
+        { "v1 startup f8",
+          "23011744f800000000000000008c78fb86f15cfaf9ff0000090017509667" },
+        { "v1 startup ff",
+          "23011541ff0000000000009e77fb84f15efafaffffff0a009e9bd6f20000" },
+        { "a report cut short", "2410040020f110" },
+        { "a message longer than its report", "2310200010" },
+        { "a message longer than what it says", "2310050020f11055" },
+        { "a flag v2 never sets", "2310040022f110" },
+        { "an empty message", "23100100" },
+        { "input that ends early", "2310040020f301" },
+        { "an input header it can't read", "2310030020f8" },
+        { "a grip block without its a1", "23100b0020f0a279000000000000" },
+        { "metadata it can't read", "23100600605010f110" },
+        { "an IMU sample cut short", "23100a00800000000000000000" },
+        { "another report", "250000" },
+    };
+
+    for (const Bad &b : BAD)
+    {
+        std::vector<uint8_t> r = unhex(b.hex);
+        thhIndexWireless bw;
+        thhState before, bs;
+
+        if (r[0] == 0x23)
+            r.resize(30, 0);
+        before.connected = true;
+        before.axis[0] = 0.25f;
+        bs = before;
+
+        const bool took = thhIndexFeedWireless(r.data(), r.size(), bw, bs);
+
+        report("wireless: " + string(b.name),
+               !took && describe(bs) == describe(before) && bs.connected ? "" :
+               took ? "taken" : "refused but changed the state");
+    }
+
+    /* Nor does a message refused after its IMU sample, which would
+       otherwise be the one the next is smoothed from. */
+    const std::vector<uint8_t> tilted = { 0x80, 0x00, 0x00, 0x10, 0, 0, 0, 0,
+                                          0, 0, 0, 0, 0, 0 };
+    const std::vector<uint8_t> refused = { 0xa0, 0x00, 0x00, 0xf0, 0, 0, 0, 0,
+                                           0, 0, 0, 0, 0, 0, 0xf8 };
+    thhIndexWireless rw, cw;
+    thhState rs, cs;
+
+    feed(radio({ refused }, 0x10, 0x00), rw, rs);
+    feed(radio({ tilted }, 0x10, 0x01), rw, rs);
+    feed(radio({ tilted }, 0x10, 0x01), cw, cs);
+    report("wireless: a refused message's IMU sample isn't taken",
+           describe(rs) == describe(cs) ? "" : describe(rs));
+
+    /* A second of what it can't read, as from a controller that came back
+       in v1 before it was switched, is taken as gone, so it is connected
+       and switched again; anything it can read starts the count over. */
+    const std::vector<uint8_t> v1 = unhex(
+        "23140f39e83bc30d720473f92300120007009117ab52257c030051cb51fa");
+    thhIndexWireless vw;
+    thhState vs;
+    int n = 0;
+
+    vs.connected = true;
+    while (vs.connected && n < 1000)
+    {
+        if (n == 100)
+            feed(radio({ { 0x20, 0xf1, 0x10 } }), vw, vs);
+        thhIndexFeedWireless(v1.data(), v1.size(), vw, vs);
+        n++;
+    }
+    report("wireless: 250 messages it can't read in a row are taken as gone",
+           n == 350 ? "" : "gone after " + std::to_string(n));
+}
+
+/* The capture's reports, broken at random, the same way every run: a
+   report refused moves nothing, and one taken leaves every axis in its
+   range and no button the controller hasn't. Run under the sanitizers,
+   nothing is read out of bounds either. */
+static void
+checkWirelessFuzz (const char *path)
+{
+    const thhControls &c = thhIndexControls();
+    std::vector<std::vector<uint8_t> > seeds;
+    std::ifstream in(path);
+    string line, why;
+    uint32_t rng = 1;
+    const auto next = [&rng]() {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return rng;
+    };
+
+    while (std::getline(in, line))
+        seeds.push_back(unhex(line.substr(line.find('\t') + 1)));
+    if (seeds.empty())
+    {
+        report("wireless: broken reports", "no reports to break");
+        return;
+    }
+
+    thhIndexWireless w;
+    thhState s;
+
+    s.connected = true;
+    for (int n = 0; n < 50000 && why.empty(); n++)
+    {
+        std::vector<uint8_t> r = seeds[next() % seeds.size()];
+        const int edits = 1 + next() % 4;
+
+        for (int e = 0; e < edits && !r.empty(); e++)
+        {
+            /* A message's length byte, which most needs to be wrong. */
+            const size_t len = 2 + 29 * (next() % 2);
+
+            switch (next() % 4)
+            {
+            case 0: r[next() % r.size()] ^= (uint8_t)(1 << next() % 8); break;
+            case 1: r[next() % r.size()] = (uint8_t)next(); break;
+            case 2: r[len < r.size() ? len : 0] = next() % 32; break;
+            case 3: r.resize(next() % (r.size() + 1)); break;
+            }
+        }
+
+        const thhState before = s;
+        const bool took = thhIndexFeedWireless(r.data(), r.size(), w, s);
+
+        if (!took && describe(s) != describe(before))
+            why = "refused but changed the state";
+        for (size_t a = 0; a < c.axes.size() && why.empty(); a++)
+            if (s.axis[a] < (c.axes[a].bipolar ? -1.0001f : 0) ||
+                s.axis[a] > 1.0001f)
+                why = c.axes[a].name + " out of range";
+        if (s.buttons >> THH_INDEX_BUTTONS)
+            why = "a button the controller hasn't";
+        if (!why.empty())
+        {
+            char hex[3];
+
+            why += " after " + std::to_string(n) + ", from";
+            for (uint8_t b : r)
+                why += (snprintf(hex, sizeof(hex), "%02x", b), string(hex));
+        }
+        if (!s.connected)
+            s = thhState(), s.connected = true;
+    }
+    report("wireless: 50,000 broken reports", why);
+}
+
+static void
+checkImu (const char *path)
+{
+    checkPoses(path, false);
 
     /* Rolled on past a quarter turn, and with the front straight up, roll
        moves smoothly: no wrap at the far side, no swing when gravity
@@ -577,11 +977,12 @@ checkImu (const char *path)
 int
 main (int argc, char *argv[])
 {
-    if (argc < 4)
+    if (argc < 5)
     {
         fprintf(stderr, "usage: hidcheck <scripts/hid/index-input.txt> "
                 "<scripts/hid/index-descriptors.txt> "
-                "<scripts/hid/index-imu.txt>\n");
+                "<scripts/hid/index-imu.txt> "
+                "<scripts/hid/index-wireless.txt>\n");
         return 2;
     }
 
@@ -595,6 +996,9 @@ main (int argc, char *argv[])
     checkByHand();
     checkDescriptors(argv[2]);
     checkImu(argv[3]);
+    checkWireless(argv[4]);
+    checkWirelessByHand();
+    checkWirelessFuzz(argv[4]);
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
 

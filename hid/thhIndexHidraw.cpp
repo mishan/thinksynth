@@ -33,6 +33,7 @@
 
 #include "thhIndex.h"
 #include "thhIndexHidraw.h"
+#include "thhIndexWireless.h"
 
 namespace fs = std::filesystem;
 
@@ -54,8 +55,17 @@ isIndex (const std::string &uevent)
                std::string::npos;
 }
 
-std::vector<thhIndexNodes>
-thhFindIndexes (const std::string &sysRoot, const std::string &devRoot)
+static bool
+isDongle (const std::string &uevent)
+{
+    return uevent.find("\nHID_ID=0003:000028DE:00002101\n") !=
+               std::string::npos ||
+           uevent.find("\nHID_ID=0003:000028DE:00002102\n") !=
+               std::string::npos;
+}
+
+static std::vector<thhIndexNodes>
+find (const std::string &sysRoot, const std::string &devRoot, bool dongles)
 {
     /* Each interface's HID device sits in an interface directory under its
        USB device's, which is what ties a controller's nodes together. Keyed
@@ -69,7 +79,12 @@ thhFindIndexes (const std::string &sysRoot, const std::string &devRoot)
     {
         const fs::path dev = fs::canonical(it->path() / "device", ec);
 
-        if (ec || !isIndex("\n" + slurp(dev / "uevent")))
+        if (ec)
+            continue;
+
+        const std::string uevent = "\n" + slurp(dev / "uevent");
+
+        if (!(dongles ? isDongle(uevent) : isIndex(uevent)))
             continue;
 
         const std::string node = devRoot + "/" +
@@ -78,9 +93,9 @@ thhFindIndexes (const std::string &sysRoot, const std::string &devRoot)
         thhIndexNodes &n = byUsb[dev.parent_path().parent_path()];
 
         n.all.push_back(node);
-        if (thhIndexIsInput((const uint8_t *)desc.data(), desc.size()))
+        if (dongles || thhIndexIsInput((const uint8_t *)desc.data(), desc.size()))
             n.input = node;
-        if (thhIndexIsImu((const uint8_t *)desc.data(), desc.size()))
+        if (!dongles && thhIndexIsImu((const uint8_t *)desc.data(), desc.size()))
             n.imu = node;
     }
 
@@ -97,6 +112,18 @@ thhFindIndexes (const std::string &sysRoot, const std::string &devRoot)
         }
 
     return out;
+}
+
+std::vector<thhIndexNodes>
+thhFindIndexes (const std::string &sysRoot, const std::string &devRoot)
+{
+    return find(sysRoot, devRoot, false);
+}
+
+std::vector<thhIndexNodes>
+thhFindDongles (const std::string &sysRoot, const std::string &devRoot)
+{
+    return find(sysRoot, devRoot, true);
 }
 
 bool
@@ -211,6 +238,17 @@ readHand (const std::vector<int> &fds)
     return "";
 }
 
+/* Why a node wouldn't open, from errno: what to do about it, if
+   anything can be. */
+static std::string
+cantOpen (const std::string &node)
+{
+    return errno == EACCES
+        ? "no permission to open " + node + "; run hid/install-udev-rule.sh "
+          "to install the udev rule that allows it"
+        : "can't open " + node + ": " + strerror(errno);
+}
+
 bool
 thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
                  const std::string &usb, thhConnection &c,
@@ -250,12 +288,8 @@ thhConnectIndex (const std::string &sysRoot, const std::string &devRoot,
 
         if (!woke)
         {
-            status = fd < 0 && errno == EACCES
-                ? "no permission to open " + n.all[i] + "; run "
-                  "hid/install-udev-rule.sh to install the udev rule that "
-                  "allows it"
-                : (fd < 0 ? "can't open " : "can't wake ") + n.all[i] + ": " +
-                  strerror(errno);
+            status = fd < 0 ? cantOpen(n.all[i])
+                            : "can't wake " + n.all[i] + ": " + strerror(errno);
             if (fd >= 0)
                 close(fd);
             for (size_t k = 0; k < opened.size(); k++)
@@ -308,5 +342,106 @@ thhIndexFeeder ()
 
         heard = heard || fed;
         return fed;
+    };
+}
+
+/* The dongle at usb, or the first, opened: -1, saying why, if it can't be,
+   and its serial number. */
+static int
+openDongle (const std::string &sysRoot, const std::string &devRoot,
+            const std::string &usb, std::string &serial, std::string &status)
+{
+    const std::vector<thhIndexNodes> all = thhFindDongles(sysRoot, devRoot);
+    size_t i = 0;
+
+    while (i < all.size() && !usb.empty() && all[i].usb != usb)
+        i++;
+    if (i == all.size())
+    {
+        status = "no Valve Index controller is plugged in";
+        return -1;
+    }
+
+    const int fd = open(all[i].input.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+
+    if (fd < 0)
+        status = cantOpen(all[i].input);
+    serial = all[i].serial;
+    return fd;
+}
+
+/* One of the dongle's commands, padded to its 64 bytes. */
+static bool
+command (int fd, const uint8_t (&bytes)[6])
+{
+    uint8_t buf[64] = { 0 };
+
+    memcpy(buf, bytes, sizeof(bytes));
+    return ioctl(fd, HIDIOCSFEATURE(sizeof(buf)), buf) >= 0;
+}
+
+bool
+thhConnectDongle (const std::string &sysRoot, const std::string &devRoot,
+                  const std::string &usb, thhConnection &c,
+                  std::string &status)
+{
+    std::string serial;
+    const int fd = openDongle(sysRoot, devRoot, usb, serial, status);
+    uint8_t probe[65];
+
+    if (fd < 0)
+        return false;
+
+    /* Its configuration is the controller's, so the dongle answers for it
+       only while one is on the radio. */
+    if (!getFeature(fd, 0x10, probe))
+    {
+        status = THH_DONGLE_EMPTY + serial + ": turn one on, or pair it";
+        close(fd);
+        return false;
+    }
+
+    if (!command(fd, THH_INDEX_WIRELESS_V2))
+    {
+        status = "can't switch the controller on the dongle " + serial +
+                 ": " + strerror(errno);
+        close(fd);
+        return false;
+    }
+
+    c.read.assign(1, fd);
+    c.fds = c.read;
+    c.hand = readHand(c.read);
+    c.feed = thhIndexDongleFeeder();
+    status.clear();
+    return true;
+}
+
+bool
+thhPairDongle (const std::string &sysRoot, const std::string &devRoot,
+               const std::string &usb, std::string &status)
+{
+    std::string serial;
+    const int fd = openDongle(sysRoot, devRoot, usb, serial, status);
+
+    if (fd < 0)
+        return false;
+
+    const bool ok = command(fd, THH_INDEX_WIRELESS_PAIR);
+
+    if (!ok)
+        status = "can't pair with the dongle " + serial + ": " +
+                 strerror(errno);
+    close(fd);
+    return ok;
+}
+
+thhFeed
+thhIndexDongleFeeder ()
+{
+    thhIndexWireless w;
+
+    return [w](size_t, const uint8_t *data, size_t len, thhState &s) mutable {
+        return thhIndexFeedWireless(data, len, w, s);
     };
 }

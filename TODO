@@ -222,6 +222,19 @@ Composition
   (docs/UNIFICATION.md)
 
 
+Controllers
+-----------
+
+- A binding in the either-hand block of the player's hid/index replaces the
+  controller's own bindings of that control, and so also undoes the
+  controller's own per-hand `ignore` of it: the default right hand ignores
+  grip_force so only the left hand's squeeze drives level, but a player's
+  `grip_force = "level";` for either hand has both hands of a pair drive it,
+  the idle one pulling it back whenever its grip block changes. Whether a
+  per-hand ignore should outlast an either-hand binding, or the pane should
+  warn, is undecided. (docs/HID.md, "Your own profile")
+
+
 The browser page
 ----------------
 

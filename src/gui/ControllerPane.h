@@ -46,7 +46,7 @@ private:
     Gtk::Label  status_;
     Gtk::Grid   grid_;
     Gtk::Box    buttons_;
-    Gtk::Button reload_, open_, swap_, clearLoops_;
+    Gtk::Button reload_, open_, swap_, clearLoops_, pair_;
     /* A binding's labels: the control and its value now, what it does and
        where, and what won't work. */
     struct Cells
@@ -61,6 +61,7 @@ private:
     void onOpen (void);
     void onSwap (void);
     void onClearLoops (void);
+    void onPair (void);
     void rebuild (size_t rows);
 };
 

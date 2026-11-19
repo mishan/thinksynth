@@ -75,6 +75,10 @@ bool thhIndexIsImu (const uint8_t *desc, size_t len);
    isn't one: a ping, another report, too few bytes. */
 bool thhIndexFeed (const uint8_t *data, size_t len, thhState &s);
 
+/* x and y, int16 little-endian at p, into the trackpad's axes or the
+   stick's by whether s has the trackpad touched. */
+void thhIndexXY (const uint8_t *p, thhState &s);
+
 /* The IMU's report 0x20 carries three samples of the accelerometer and the
    gyro. Gravity, smoothed, gives tilt (the front's angle above level,
    -1..1 over a quarter turn) and roll (how far the buttons face left, +,
@@ -105,5 +109,11 @@ struct thhIndexImu
 
 bool thhIndexFeedImu (const uint8_t *data, size_t len, thhIndexImu &imu,
                       thhState &s);
+
+/* One sample, however it came: p is its accelerometer's x, y and z and
+   then its gyro's, int16 little-endian, and tick its time on the IMU's
+   48 MHz clock. The axes it moves are written by thhIndexImuAxes. */
+void thhIndexImuSample (thhIndexImu &imu, const uint8_t *p, uint32_t tick);
+void thhIndexImuAxes (const thhIndexImu &imu, thhState &s);
 
 #endif /* THH_INDEX_H */
