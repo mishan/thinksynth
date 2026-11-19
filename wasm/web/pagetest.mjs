@@ -284,6 +284,7 @@ try
         /* And the chanarg commands the page posts to the worklet, which is
            where a sustain pedal goes. */
         window.chanargs = [];
+        window.midis = [];
 
         const post = MessagePort.prototype.postMessage;
 
@@ -292,6 +293,8 @@ try
             if (m?.type === 'chanarg')
                 window.chanargs.push(
                     { channel: m.channel, name: m.name, value: m.values[0] });
+            else if (m?.type === 'midion' || m?.type === 'midioff')
+                window.midis.push(`${m.type} ${m.channel} ${m.note}`);
 
             return post.call(this, m, ...rest);
         };
@@ -1412,6 +1415,32 @@ try
               'a key and a pedal held before a route takes their channel ' +
               'let go where they went: ' +
               JSON.stringify({ twice, held, lifted: lifted.slice(-20) }));
+
+        /* A key on the key channel and a routed one on the same channel
+           and note: one voice, on with the first and off with the
+           last. */
+        const kc2 = Number(await page.inputValue('#keychan'));
+        const voice = () => page.evaluate((k) => window.midis
+            .filter((m) => m.endsWith(` ${k} 62`)).join(','), kc2);
+
+        await page.evaluate(() => { window.midis.length = 0; });
+        await page.evaluate((k) => window.solo.midiRoutes('piece',
+            [{ midi: 5, engine: k }]), kc2);
+        await k2([0x90, 62, 100]);
+        await k2([0x95, 62, 100]);
+        await k2([0x80, 62, 0]);
+
+        const between = await voice();
+
+        await k2([0x85, 62, 0]);
+        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+
+        const after = await voice();
+
+        check(between === `midion ${kc2} 62` &&
+              after === `midion ${kc2} 62,midioff ${kc2} 62`,
+              'a note held on one channel by a key and a routed key is one ' +
+              'voice, off with the last: ' + JSON.stringify({ between, after }));
 
         /* Two keyboards' pedals routed onto one engine channel: it comes
            up when the last of them does, whether it lets up or goes. */

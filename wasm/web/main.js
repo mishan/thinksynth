@@ -469,6 +469,11 @@ const midiRoutes = new MidiRoutes();
    the channels a routed pedal holds down. */
 const routed = new Map();
 const routedPedal = new Set();
+
+/* `channel note' -> how many holds a note has on an engine channel in
+   piece mode, the page's keys and routed MIDI keys alike: one voice, on
+   with the first and off with the last. */
+const engineHolds = new Map();
 let cameraIn = null;             /* the camera button (camera.js)   */
 let video = null;                /* the picture (videoview.js)      */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
@@ -727,7 +732,7 @@ function press (note, velocity = VELOCITY, from = null)
                          piece: piecing, channel });
 
     if (piecing)
-        synth.midiOn(note, velocity, -1, channel);
+        holdOn(channel, note, velocity);
     else
         synth.noteOn(note, velocity);
 
@@ -759,7 +764,7 @@ function release (note, from = null)
     sounding.delete(note);
 
     if (held.piece)
-        synth.midiOff(note, -1, held.channel);
+        holdOff(held.channel, note);
     else
         synth.noteOff(note);
 
@@ -768,6 +773,34 @@ function release (note, from = null)
 
 /* A MIDI key the routes sent to engine channels of their own: played on
    each, past the key channel and the piece's listening alike. */
+function holdOn (channel, note, velocity)
+{
+    const key = `${channel} ${note}`;
+    const count = engineHolds.get(key) ?? 0;
+
+    engineHolds.set(key, count + 1);
+
+    if (count === 0)
+        synth.midiOn(note, velocity, -1, channel);
+}
+
+function holdOff (channel, note)
+{
+    const key = `${channel} ${note}`;
+    const count = engineHolds.get(key);
+
+    if (count === undefined)
+        return;
+
+    if (count > 1)
+        engineHolds.set(key, count - 1);
+    else
+    {
+        engineHolds.delete(key);
+        synth?.midiOff(note, -1, channel);
+    }
+}
+
 function routedPress (note, velocity, targets)
 {
     if (synth === null)
@@ -776,12 +809,9 @@ function routedPress (note, velocity, targets)
     for (const c of targets)
     {
         const key = `${c} ${note}`;
-        const count = routed.get(key) ?? 0;
 
-        routed.set(key, count + 1);
-
-        if (count === 0)
-            synth.midiOn(note, velocity, -1, c);
+        routed.set(key, (routed.get(key) ?? 0) + 1);
+        holdOn(c, note, velocity);
     }
 }
 
@@ -798,10 +828,9 @@ function routedRelease (note, targets)
         if (count > 1)
             routed.set(key, count - 1);
         else
-        {
             routed.delete(key);
-            synth?.midiOff(note, -1, c);
-        }
+
+        holdOff(c, note);
     }
 }
 
@@ -824,12 +853,14 @@ function releaseAll ()
 {
     midiIn?.forget();
 
-    for (const key of [...routed.keys()])
+    for (const [key, count] of [...routed])
     {
         const [c, note] = key.split(' ').map(Number);
 
         routed.delete(key);
-        synth?.midiOff(note, -1, c);
+
+        for (let i = 0; i < count; i++)
+            holdOff(c, note);
     }
 
     routedPedalTo(0, [...routedPedal]);
