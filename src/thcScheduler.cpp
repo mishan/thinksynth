@@ -3033,6 +3033,19 @@ thcScheduler::forgetNodeArgs (int channel)
             nodeArgs_.erase(nodeArgs_.begin() + (i - 1));
 }
 
+std::vector<thMidiRoute>
+thcScheduler::midiRoutes (void) const
+{
+    std::vector<thMidiRoute> out;
+
+    for (const thcInstrument &inst : instruments_)
+        if (inst.channel >= 0)
+            for (const thcMidiIn &in : inst.midiIns)
+                out.push_back({ in.channel, inst.channel, in.lo, in.hi });
+
+    return out;
+}
+
 /* The one way an instrument comes off a channel, so the first attempt
  * and every retry cannot drift apart. */
 bool

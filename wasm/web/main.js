@@ -468,6 +468,10 @@ const midiRoutes = new MidiRoutes();
 /* `channel note' -> how many routed MIDI keys hold that note there; and
    the channels a routed pedal holds down. */
 const routed = new Map();
+
+/* A harness's: while set, a load waits here between the piece going in
+   and its aiming. */
+let aimHold = null;
 const routedPedal = new Set();
 
 /* `channel note' -> how many holds a note has on an engine channel in
@@ -1514,6 +1518,7 @@ async function edited (m)
     }
 
     piece = m;
+    followRoutes();
 
     /* A sink the edit added may name a channel nothing is on yet. */
     const aiming = await patch.aim(
@@ -2347,7 +2352,18 @@ async function loadPiece ()
         {
             const loaded = await synth.loadPiece($('gen').value);
 
+            /* MIDI in follows the piece the engine has now, not after the
+               aiming: a key played while it is awaited goes to this
+               piece's instruments. */
+            midiRoutes.set('piece', loaded.errors.length === 0
+                ? loaded.routes ?? [] : []);
             nodes?.rearm();
+
+            if (aimHold !== null)
+            {
+                aimHold.waiting = true;
+                await aimHold;
+            }
 
             if (loaded.errors.length === 0)
                 aiming = await patch.aim(
@@ -2364,6 +2380,7 @@ async function loadPiece ()
     }
 
     piece = it.errors.length === 0 ? it : null;
+    followRoutes();
     placed = aiming.placed;
 
     if (piece === null)
@@ -2820,6 +2837,13 @@ function touched ()
         all.add(inst.channel);
 
     return [...all].sort((a, b) => a - b);
+}
+
+/* The piece's `midiin' lines are MIDI in's piece layer while it is the
+   piece, from the moment it is; none, when there is none. */
+function followRoutes ()
+{
+    midiRoutes.set('piece', piece?.routes ?? []);
 }
 
 /* Where the keys may go: MIDI's sixteen, and past them each channel the
@@ -4248,6 +4272,19 @@ window.solo = {
     /* MIDI in's routes (midi.js's MidiRoutes), and the notes they hold
        as `channel note'. */
     midiRoutes: (layer, routes) => midiRoutes.set(layer, routes),
+    holdAim: () =>
+    {
+        let open;
+
+        aimHold = new Promise((resolve) => { open = resolve; });
+        aimHold.open = open;
+    },
+    aimHeld: () => aimHold?.waiting === true,
+    releaseAim: () =>
+    {
+        aimHold?.open();
+        aimHold = null;
+    },
     routed: () => [...routed.keys()].sort(),
 
     /* What the page last read of the engine's channels (tw_loaded). */
@@ -4456,6 +4493,7 @@ async function pickMode ()
     {
         synth.transport('stop');
         piece = null;
+        followRoutes();
         placed = new Map();
         showChannels();
         showTempo();               /* nor a speed: see showSpeed */

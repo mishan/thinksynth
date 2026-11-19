@@ -1855,6 +1855,7 @@ Composer::parseWork (void)
     }
 
     releaseInstruments();
+    midiRoutes_.emit(sched_->midiRoutes());
 
     for (size_t ci = 0; ci < sched_->chainCount(); ci++)
     {

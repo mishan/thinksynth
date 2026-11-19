@@ -911,8 +911,19 @@ class ThinkProcessor extends AudioWorkletProcessor
         for (let i = 0; i < this.M._tw_sink_count(); i++)
             sinks.push(this.M._tw_sink_channel(i));
 
+        /* Live MIDI input its instruments take, for midi.js's piece
+           layer. */
+        const routes = this.M.UTF8ToString(this.M._tw_midi_routes())
+            .split('\n').filter((l) => l !== '').map((l) =>
+            {
+                const [midi, engine, lo, hi] = l.split(' ').map(Number);
+
+                return { midi, engine, lo, hi };
+            });
+
         return {
             errors: [],
+            routes,
             name: this.M.UTF8ToString(this.M._tw_piece_name()),
             description: this.M.UTF8ToString(this.M._tw_piece_description()),
             effect: this.M.UTF8ToString(this.M._tw_piece_effect()),

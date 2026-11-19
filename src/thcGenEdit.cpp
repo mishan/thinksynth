@@ -290,6 +290,7 @@ struct InstrumentIdx
 
     std::string midi;            /* `midi "port";', or empty           */
     int midiChannel = -1;        /* 1-16 as written, -1 when none      */
+    std::vector<std::string> midiIns;   /* each `midiin' as written     */
 
     std::vector<PIdx> values;
 
@@ -966,6 +967,40 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                         in.midiChannel = (int)t[j + 2].num;
 
                     j += 4;
+                    continue;
+                }
+
+                /* `midiin = 3 { low = C4; };': recorded as written, and
+                   stepped over for the same reason. */
+                if (t[j].kind == Tok::WORD && t[j].text == "midiin" &&
+                    isPunct(t[j + 1], '='))
+                {
+                    size_t k = j + 2;
+                    int depth = 0;
+
+                    while (t[k].kind != Tok::END && depth >= 0 &&
+                           !(depth == 0 && isPunct(t[k], ';')))
+                    {
+                        if (isPunct(t[k], '{'))
+                            depth++;
+                        else if (isPunct(t[k], '}'))
+                            depth--;
+
+                        k++;
+                    }
+
+                    /* Unterminated, or its block's `;' missing so the
+                       instrument's own `}' closed it: not a shape. */
+                    if (t[k].kind == Tok::END || depth < 0)
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    in.midiIns.push_back(text.substr(t[j].off,
+                                                     t[k - 1].end -
+                                                     t[j].off));
+                    j = k + 1;
                     continue;
                 }
 
@@ -1744,6 +1779,7 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
                : ix.instruments[i].dsp;
         in.midi = ix.instruments[i].midi;
         in.midiChannel = ix.instruments[i].midiChannel;
+        in.midiIns = ix.instruments[i].midiIns;
 
         for (size_t k = 0; k < ix.instruments[i].values.size(); k++)
         {
@@ -3335,8 +3371,8 @@ thcGenEdit::addInstrument (const std::string &filename,
 
     /* The words an instrument block reads as its own statements. */
     static const char *const keywords[] = {
-        "dsp", "midi", "midichannel", "midiprogram", "effect", "cc", "bend",
-        NULL };
+        "dsp", "midi", "midichannel", "midiprogram", "midiin", "effect", "cc",
+        "bend", NULL };
 
     for (const auto &v : values)
         for (int i = 0; keywords[i] != NULL; i++)

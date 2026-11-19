@@ -174,6 +174,7 @@ private:
        and the instrument in messages. */
     bool parseInlineDsp (const std::string &label, thcInstrument &inst,
                          bool effect = false);
+    bool parseMidiIn (thcInstrument &inst, const std::string &where);
     bool parseInstrumentMidi (thcInstrument &inst, const std::string &where,
                               const Token &key);
 

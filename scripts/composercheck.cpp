@@ -1682,6 +1682,87 @@ runManyInstruments (const std::string &pluginPath)
     return failures;
 }
 
+/* A piece's `midiin' lines are live input's piece layer while it is the
+ * piece: what the window hands its host on each parse, into a route
+ * table as main.cpp puts it into the MIDI player's; and nothing once the
+ * piece no longer says so. */
+static int
+runMidiIn (const std::string &pluginPath)
+{
+    const std::string tmp = stagePiece(
+            "name \"routed\";\n"
+            "instrument pad { dsp \"organ0.dsp\"; midiin = 3; };\n"
+            "chain c {\n"
+            "    stage s gen::eno_line { notes = \"C4\"; };\n"
+            "    sink { instrument = pad; };\n"
+            "};\n");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    TestComposer *win = new TestComposer(&synth);
+    thMidiRoutes routes;
+    std::vector<int> to;
+
+    win->signal_midi_routes().connect(
+        [&routes](std::vector<thMidiRoute> r)
+        { routes.set(thMidiRoutes::PIECE, r); });
+    win->set_visible(true);
+    win->structuralReload();
+    pump(6);
+
+    const int pad = win->sched_->instruments().empty()
+                        ? -1 : win->sched_->instruments()[0].channel;
+
+    routes.resolve(2, 60, to);
+
+    const bool routed = pad >= 0 && to == std::vector<int>({ pad });
+
+    {
+        std::ofstream out(win->workPath_.c_str(), std::ios::trunc);
+
+        out << "name \"plain\";\n"
+               "instrument pad { dsp \"organ0.dsp\"; };\n"
+               "chain c {\n"
+               "    stage s gen::eno_line { notes = \"C4\"; };\n"
+               "    sink { instrument = pad; };\n"
+               "};\n";
+    }
+
+    win->structuralReload();
+    pump(6);
+    routes.resolve(2, 60, to);
+
+    if (routed && to == std::vector<int>({ 2 }))
+        ok("a piece's midiin routes live input while it is the piece");
+    else
+        fail("a piece's midiin did not route live input, or outlived it");
+
+    std::vector<int> channels;
+
+    for (const thcInstrument &inst : win->sched_->instruments())
+        channels.push_back(inst.channel);
+
+    delete win;
+    pump(2);
+
+    /* Given back, so the sections after this allocate where they did. */
+    for (int c : channels)
+        gthPatchManager::instance()->unloadPatch(c);
+
+    {
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    return failures;
+}
+
 /* The sequencer pane: one track per `gen::grid', as tall as its grid has
  * rows, and a gesture on one written into the work file when it ends --
  * which is what makes Save keep a pattern drawn there.
@@ -2850,6 +2931,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 rc = runManyInstruments(pluginPath);
+
+            if (rc == 0)
+                rc = runMidiIn(pluginPath);
 
             if (rc == 0)
                 rc = runSequencer(pluginPath);

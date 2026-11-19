@@ -8077,6 +8077,19 @@ EMSCRIPTEN_KEEPALIVE const char *tw_instrument_midi (int k)
         ? sched_->instruments()[k].midi.c_str() : "";
 }
 
+/* The piece's live-input routes, its instruments' `midiin' lines, a line
+   each: MIDI channel, engine channel, low key, high key. */
+EMSCRIPTEN_KEEPALIVE const char *tw_midi_routes (void)
+{
+    static std::string text;
+
+    text.clear();
+    for (const thMidiRoute &r : sched_->midiRoutes())
+        text += std::to_string(r.midi) + " " + std::to_string(r.engine) +
+                " " + std::to_string(r.lo) + " " + std::to_string(r.hi) + "\n";
+    return text.c_str();
+}
+
 /* Where instrument k is playing, for the page to say: "on <port>,
    channel N", or why it is not on a device. Empty for an instrument
    that names no port. */

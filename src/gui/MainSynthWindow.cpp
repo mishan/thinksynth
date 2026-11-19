@@ -2412,6 +2412,12 @@ void MainSynthWindow::setController (thhPaneSource *source)
         controller_->setSource(source);
 }
 
+sigc::signal<void (std::vector<thMidiRoute>)> &
+MainSynthWindow::signal_midi_routes (void)
+{
+    return composer_->signal_midi_routes();
+}
+
 int MainSynthWindow::keyboardChannel (void) const
 {
     return kbPanel_ ? kbPanel_->channel() : 0;

@@ -20,6 +20,9 @@
 #define MAIN_SYNTH_WINDOW_H
 
 #include <memory>
+#include <vector>
+
+#include "thMidiRoutes.h"
 
 /* For gthThemeChoice, which the Appearance menu handlers below take. */
 #include "../gthTheme.h"
@@ -52,6 +55,9 @@ public:
 
     /* The channel the keyboard plays, 0-based. */
     int keyboardChannel (void) const;
+
+    /* The composer's piece routes, for live MIDI input to follow. */
+    sigc::signal<void (std::vector<thMidiRoute>)> &signal_midi_routes (void);
 
     /* What the Controller pane reads; NULL to stop it reading. */
     void setController (thhPaneSource *source);

@@ -1361,7 +1361,7 @@ try
             page.evaluate((b) => window.fakeMidi.send('k2', b), bytes);
         const routed = () => page.evaluate(() => window.solo.routed().join(','));
 
-        await page.evaluate(() => window.solo.midiRoutes('piece', [
+        await page.evaluate(() => window.solo.midiRoutes('machine', [
             { midi: 1, engine: 3, lo: 0, hi: 59 },
             { midi: 1, engine: 6, lo: 60, hi: 127 },
             { midi: 2, engine: 4 }, { midi: 2, engine: 7 }]));
@@ -1374,7 +1374,7 @@ try
         const down = await pedals();
         const base = (await sounding()).map((h) => h.note).join(',');
 
-        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+        await page.evaluate(() => window.solo.midiRoutes('machine', []));
         await k2([0x81, 59, 0]);
         await k2([0x81, 60, 0]);
         await k2([0x82, 64, 0]);
@@ -1396,7 +1396,7 @@ try
            the route reaches. */
         await k2([0x93, 65, 100]);
         await k2([0xb3, 64, 127]);
-        await page.evaluate(() => window.solo.midiRoutes('piece',
+        await page.evaluate(() => window.solo.midiRoutes('machine',
                                                         [{ midi: 3, engine: 9 }]));
         await k2([0x93, 65, 100]);
 
@@ -1404,7 +1404,7 @@ try
 
         await k2([0x83, 65, 0]);
         await k2([0xb3, 64, 0]);
-        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+        await page.evaluate(() => window.solo.midiRoutes('machine', []));
 
         const held = (await sounding()).map((h) => h.note).join(',');
         const kc = Number(await page.inputValue('#keychan'));
@@ -1424,7 +1424,7 @@ try
             .filter((m) => m.endsWith(` ${k} 62`)).join(','), kc2);
 
         await page.evaluate(() => { window.midis.length = 0; });
-        await page.evaluate((k) => window.solo.midiRoutes('piece',
+        await page.evaluate((k) => window.solo.midiRoutes('machine',
             [{ midi: 5, engine: k }]), kc2);
         await k2([0x90, 62, 100]);
         await k2([0x95, 62, 100]);
@@ -1433,7 +1433,7 @@ try
         const between = await voice();
 
         await k2([0x85, 62, 0]);
-        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+        await page.evaluate(() => window.solo.midiRoutes('machine', []));
 
         const after = await voice();
 
@@ -1445,7 +1445,7 @@ try
         /* Two keyboards' pedals routed onto one engine channel: it comes
            up when the last of them does, whether it lets up or goes. */
         await page.evaluate(() => window.fakeMidi.plug('k3', 'Third Keys'));
-        await page.evaluate(() => window.solo.midiRoutes('piece',
+        await page.evaluate(() => window.solo.midiRoutes('machine',
                                                         [{ midi: 4, engine: 10 }]));
         await k2([0xb4, 64, 127]);
         await page.evaluate(() => window.fakeMidi.send('k3', [0xb4, 64, 127]));
@@ -1457,13 +1457,100 @@ try
 
         const gone = await pedals();
 
-        await page.evaluate(() => window.solo.midiRoutes('piece', []));
+        await page.evaluate(() => window.solo.midiRoutes('machine', []));
         check(stillDown.endsWith('10:127 10:127') &&
               gone.endsWith('10:127 10:127 10:0'),
               'a pedal two keyboards route onto one channel comes up with ' +
               'the last of them: ' +
               JSON.stringify({ stillDown: stillDown.slice(-16),
                                gone: gone.slice(-20) }));
+
+        /* A piece's `midiin' split: MIDI channel 2 below C4 to `low', from
+           C4 up to `high'; loading a piece without one puts channel 2
+           back on the key channel. */
+        const was = await page.$eval('#gen', (e) => e.value);
+        const load = async (text) =>
+        {
+            await page.evaluate((t) =>
+            {
+                document.getElementById('gen').value = t;
+            }, text);
+            await page.click('#loadpiece');
+            await page.evaluate(() => window.solo.settled());
+        };
+
+        await load('tempo 120;\n' +
+                   'instrument low { dsp "organ0.dsp";' +
+                   ' midiin = 2 { high = B3; }; };\n' +
+                   'instrument high { dsp "organ0.dsp";' +
+                   ' midiin = 2 { low = C4; }; };\n' +
+                   'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                   ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                   ' sink { instrument = low; }; };\n');
+
+        await k2([0x91, 59, 100]);
+        await k2([0x91, 60, 100]);
+
+        const split = await routed();
+
+        await k2([0x81, 59, 0]);
+        await k2([0x81, 60, 0]);
+        await load('tempo 120;\n' +
+                   'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                   ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                   ' sink { channel = 1; }; };\n');
+        await k2([0x91, 61, 100]);
+
+        const plain = await routed();
+        const keyed = (await sounding()).map((h) => h.note).join(',');
+
+        await k2([0x81, 61, 0]);
+
+        /* A key played while a load is aiming goes to the new piece's
+           instrument: `second' on channel 2 in the first piece, `solo'
+           on channel 1 in the one loading. */
+        await load('tempo 120;\n' +
+                   'instrument first { dsp "organ0.dsp"; };\n' +
+                   'instrument second { dsp "organ0.dsp"; midiin = 2; };\n' +
+                   'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                   ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                   ' sink { instrument = first; }; };\n');
+        await page.evaluate(() => window.solo.holdAim());
+        await page.evaluate(() =>
+        {
+            document.getElementById('gen').value =
+                'tempo 120;\n' +
+                'instrument solo { dsp "organ0.dsp"; midiin = 2; };\n' +
+                'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                ' sink { instrument = solo; }; };\n';
+        });
+        await page.click('#loadpiece');
+        await page.waitForFunction(() => window.solo.aimHeld(), null,
+                                   { timeout: 15000 });
+        await k2([0x91, 62, 100]);
+
+        const midLoad = await routed();
+
+        await k2([0x81, 62, 0]);
+        await page.evaluate(() => window.solo.releaseAim());
+        await page.evaluate(() => window.solo.settled());
+        check(midLoad === '0 62',
+              'a key played while a piece is loading plays the new piece: ' +
+              midLoad);
+
+        await load(was);
+
+        /* Each half on a channel of its own: the two instruments'. */
+        const halves = split.split(',').map((h) => h.split(' '));
+        const lo = halves.find((h) => h[1] === '59');
+        const hi = halves.find((h) => h[1] === '60');
+
+        check(halves.length === 2 && lo && hi && lo[0] !== hi[0] &&
+              plain === '' && keyed.split(',').includes('61'),
+              'a piece\'s midiin split routes MIDI in, and a piece without ' +
+              'one gives the channel back: ' +
+              JSON.stringify({ split, plain, keyed }));
     }
 
     await page.click('#midi');

@@ -171,6 +171,13 @@ public:
         return chooseEffect_;
     }
 
+    /* The piece's live-input routes, each time a piece is parsed: what
+       its instruments' `midiin' lines say, or none. */
+    sigc::signal<void (std::vector<thMidiRoute>)> &signal_midi_routes (void)
+    {
+        return midiRoutes_;
+    }
+
     /* The piece's effect, written to the file; empty takes it off. */
     void setMasterEffect (const std::string &dsp);
 
@@ -532,6 +539,7 @@ protected:
     sigc::signal<void ()> startedSig_;
     sigc::signal<void ()> fileCommand_;
     sigc::signal<void (std::string)> chooseEffect_;
+    sigc::signal<void (std::vector<thMidiRoute>)> midiRoutes_;
 
     /* The document up, and what the other one was left holding: its file,
        its work text and whether that had unsaved edits. `held' false for

@@ -5157,6 +5157,124 @@ loadInstruments (const std::map<std::string, thcPlugin *> &plugins,
     return got;
 }
 
+/* `midiin': live MIDI input onto an instrument. Each valid form as the
+ * routes the piece hands its host, each refusal by its message, and the
+ * editor keeping the lines byte for byte through an edit of the block. */
+static void
+checkMidiIn (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth)
+{
+    const std::string piece =
+        "instrument strings { dsp \"amb01.dsp\"; midiin = 3; };\n"
+        "instrument choir { dsp \"amb01.dsp\"; midiin = 3; };\n"
+        "instrument bass { dsp \"amb01.dsp\";\n"
+        "    midiin = 1 { high = B3; }; midiin = 2; };\n"
+        "instrument piano { dsp \"amb01.dsp\";\n"
+        "    midiin = 1 { low = C4; high = 100; }; };\n"
+        "instrument ext { midi \"Fake\"; midichannel = 1; midiin = 16; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = strings; }; };\n";
+    const std::string path = thUtil::tempFile("gencheck-midiin-");
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << piece;
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        sched.setAuditionSynchronous(true);
+        clearChannels(synth);
+
+        if (!loader.load(path, &sched))
+            fail("a piece with midiin lines did not load: " +
+                 (loader.errors().empty() ? "" : loader.errors()[0]));
+        else
+        {
+            /* MIDI channel, engine channel, low, high; the engine
+               channels are the instruments', strings first. */
+            std::string got;
+
+            for (const thMidiRoute &r : sched.midiRoutes())
+                got += std::to_string(r.midi) + ">" +
+                       std::to_string(r.engine) + " " +
+                       std::to_string(r.lo) + "-" + std::to_string(r.hi) +
+                       ";";
+
+            const std::string want =
+                "2>0 0-127;2>1 0-127;0>2 0-59;1>2 0-127;0>3 60-100;"
+                "15>4 0-127;";
+
+            if (got != want)
+                fail("midiin made the routes " + got + ", not " + want);
+        }
+    }
+
+    clearChannels(synth);
+
+    {
+        std::string why;
+        thcGenEdit::Doc doc;
+
+        if (thcGenEdit::setInstrumentGraph(path, "bass", "organ0.dsp", why) !=
+            thcGenEdit::OK)
+            fail("the editor would not change bass's graph: " + why);
+
+        const std::string after = slurp(path);
+
+        if (after.find("    midiin = 1 { high = B3; }; midiin = 2; };") ==
+                std::string::npos ||
+            after.find("midiin = 1 { low = C4; high = 100; };") ==
+                std::string::npos ||
+            after.find("midiin = 3; };\ninstrument choir") ==
+                std::string::npos)
+            fail("an edit of the block lost its midiin lines:\n" + after);
+
+        if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK ||
+            doc.instruments.size() != 5 ||
+            doc.instruments[2].midiIns !=
+                std::vector<std::string>({ "midiin = 1 { high = B3; }",
+                                           "midiin = 2" }))
+            fail("the editor does not list bass's midiin lines");
+    }
+
+    std::filesystem::remove(path);
+
+    const struct
+    {
+        const char *label, *line, *says;
+    } refused[] = {
+        { "midiin-zero", "midiin = 0;", "a whole number 1-16" },
+        { "midiin-seventeen", "midiin = 17;", "a whole number 1-16" },
+        { "midiin-backwards", "midiin = 1 { low = C5; high = C4; };",
+          "low is above its high" },
+        { "midiin-bad-note", "midiin = 1 { low = H4; };", "not 'H4'" },
+        { "midiin-past-127", "midiin = 1 { high = 128; };", "not '128'" },
+        { "midiin-unknown-key", "midiin = 1 { top = C4; };",
+          "takes low and high, not 'top'" },
+        { "midiin-twice", "midiin = 1 { low = C4; low = D4; };",
+          "sets low twice" },
+    };
+
+    for (const auto &r : refused)
+        expectReject(plugins, synth, r.label,
+                     std::string("instrument a { dsp \"amb01.dsp\";\n    ") +
+                     r.line + " };\n"
+                     "chain c { stage s gen::eno_line { };"
+                     " sink { instrument = a; }; };\n",
+                     r.says);
+
+    /* And on the line the statement is on. */
+    expectReject(plugins, synth, "midiin-line",
+                 "instrument a { dsp \"amb01.dsp\";\n\n    midiin = 17; };\n"
+                 "chain c { stage s gen::eno_line { };"
+                 " sink { instrument = a; }; };\n",
+                 ":3: instrument a: midiin");
+}
+
 static void
 checkChannelLimit (const std::map<std::string, thcPlugin *> &plugins,
                    thSynth *synth)
@@ -17258,6 +17376,7 @@ main (int argc, char *argv[])
         checkTempoAndRevival(plugins, &synth);
         checkInstruments(plugins, &synth);
         checkChannelLimit(plugins, &synth);
+        checkMidiIn(plugins, &synth);
         checkInstrumentEffects(plugins, &synth);
         checkEffectSide(plugins, &synth);
         checkEffectChanargSink(plugins, &synth);

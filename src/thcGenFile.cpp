@@ -2018,6 +2018,98 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
     return expectPunct(';');
 }
 
+/* `midiin = N;' or `midiin = N { low = NOTE; high = NOTE; };', its keyword
+   taken: a note name or number at each end, either end left out. */
+bool
+thcGenLoader::parseMidiIn (thcInstrument &inst, const std::string &where)
+{
+    thcMidiIn in = { 0, 0, 127 };
+
+    if (!expectPunct('='))
+        return false;
+
+    const Token chan = take();
+
+    if (chan.kind != Token::NUMBER || chan.num != std::floor(chan.num) ||
+        chan.num < 1 || chan.num > TH_MIDI_CHANNELS)
+    {
+        error(chan.line, where + ": midiin wants a MIDI channel, a whole "
+              "number 1-" + std::to_string(TH_MIDI_CHANNELS));
+        return false;
+    }
+
+    in.channel = (int)chan.num - 1;
+
+    if (peek().kind == Token::PUNCT && peek().text[0] == '{')
+    {
+        const int line = take().line;
+        bool gotLow = false, gotHigh = false;
+
+        while (!(peek().kind == Token::PUNCT && peek().text[0] == '}'))
+        {
+            const Token field = take();
+
+            if (field.kind != Token::WORD ||
+                (field.text != "low" && field.text != "high"))
+            {
+                error(field.line, where + ": midiin takes low and high, "
+                      "not '" + field.text + "'");
+                return false;
+            }
+
+            bool &got = field.text == "low" ? gotLow : gotHigh;
+
+            if (got)
+            {
+                error(field.line, where + ": midiin sets " + field.text +
+                      " twice");
+                return false;
+            }
+
+            if (!expectPunct('='))
+                return false;
+
+            const Token v = take();
+            std::vector<int> notes;
+            std::string bad;
+            int note = -1;
+
+            if (v.kind == Token::NUMBER && v.num == std::floor(v.num) &&
+                v.num >= 0 && v.num <= 127)
+                note = (int)v.num;
+            else if ((v.kind == Token::WORD || v.kind == Token::STRING) &&
+                     parseNoteList(v.text, notes, bad) && notes.size() == 1 &&
+                     notes[0] >= 0 && notes[0] <= 127)
+                note = notes[0];
+
+            if (note < 0)
+            {
+                error(v.line, where + ": midiin's " + field.text +
+                      " wants a note, a name like C4 or a number 0-127, "
+                      "not '" + v.text + "'");
+                return false;
+            }
+
+            (field.text == "low" ? in.lo : in.hi) = note;
+            got = true;
+
+            if (!expectPunct(';'))
+                return false;
+        }
+
+        take();
+
+        if (in.lo > in.hi)
+        {
+            error(line, where + ": midiin's low is above its high");
+            return false;
+        }
+    }
+
+    inst.midiIns.push_back(in);
+    return expectPunct(';');
+}
+
 /* One of an instrument's MIDI statements, its keyword already taken:
  *
  *   midi "Surge XT";           the port, matched by name by the host
@@ -2028,6 +2120,9 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
  *                              scaled from that range onto 0..127
  *   bend wheel { min = -2; max = 2; };
  *                              onto the pitch wheel, min down, max up
+ *   midiin = 3;                live input on MIDI channel 3 plays this
+ *   midiin = 3 { low = C4; high = 72; };
+ *                              ...its keys from low to high, inclusive
  *
  * Numbered from 1 as a device's front panel numbers them, as `channel =
  * N' in a sink is. Controllers stop at 119: 120-127 are the channel mode
@@ -2092,6 +2187,9 @@ thcGenLoader::parseInstrumentMidi (thcInstrument &inst,
         field = n - 1;
         return expectPunct(';');
     }
+
+    if (key.text == "midiin")
+        return parseMidiIn(inst, where);
 
     /* cc, or bend: the same mapping, onto a controller or onto the pitch
        wheel. A bend's range is -1..1 unless it says, so a chain sending
@@ -2364,7 +2462,7 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
                              peek().kind == Token::WORD;
 
         if (key.text == "midi" || key.text == "midichannel" ||
-            key.text == "midiprogram" || mapping)
+            key.text == "midiprogram" || key.text == "midiin" || mapping)
         {
             if (!parseInstrumentMidi(inst, "instrument " + nameTok.text,
                                      key))

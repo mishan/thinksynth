@@ -35,6 +35,7 @@
 
 #include "libthink/think.h"
 #include "libthink/thcomposer.h"
+#include "libthink/thMidiRoutes.h"
 
 #include "thcAudition.h"
 #include "thcNodeHost.h"
@@ -314,6 +315,12 @@ struct thcInstrumentText
     std::string node, arg, value;
 };
 
+/* A MIDI channel and keys of live input an instrument plays. */
+struct thcMidiIn
+{
+    int channel, lo, hi;
+};
+
 /* `cc cutoff = 74 { min = 60; max = 12000; };' in an instrument played
  * over MIDI: what the chanarg `cutoff' becomes on the device. A value is
  * scaled from [min, max] onto 0..127 and clamped; the default range is
@@ -392,6 +399,10 @@ struct thcInstrument
      * without the device. */
     std::string midi;
     int midiChannel;            /* 0-15; -1 where `midi' is empty         */
+
+    /* `midiin = 3 { low = C4; };': live input this instrument plays, a
+       MIDI channel (0-15) and an inclusive key range each. */
+    std::vector<thcMidiIn> midiIns;
     int midiProgram;            /* 0-127 sent on apply; -1 none           */
     std::vector<thcMidiCC> ccs;
 
@@ -809,6 +820,10 @@ public:
     {
         return instruments_;
     }
+
+    /* The piece's live input, as the route table's piece layer: each
+       instrument's `midiin' lines onto the channel it was given. */
+    std::vector<thMidiRoute> midiRoutes (void) const;
 
     const thcInstrument *instrument (const std::string &name) const;
     thcInstrument       *instrument (size_t index);
