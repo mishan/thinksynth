@@ -36,6 +36,10 @@
  *                ordinary refresh are enough; and a page with the synth
  *                started offers Update rather than reloading under it; and
  *                a forced reload, past the worker, loads again from it
+ *   kept         a file kept on first use (the controllers' module) stays
+ *                kept across that update, so the 23 MB hand tracker isn't
+ *                downloaded again at every deploy, and a kept file the
+ *                new build doesn't list goes
  *
  * And the room page is kept from the same cache, so that it runs the same
  * build as the worklet, mirror and wasm it shares with the solo page.
@@ -88,6 +92,8 @@ if (!fs.existsSync(sw))
 
 const FILES = JSON.parse(/^const FILES = (.*);$/m.exec(
     fs.readFileSync(sw, 'utf8'))[1]);
+const KEPT = JSON.parse(/^const KEPT = (.*);$/m.exec(
+    fs.readFileSync(sw, 'utf8'))[1]);
 
 /* In the build directory rather than /tmp, which other jobs on a shared
    machine clean. */
@@ -95,7 +101,7 @@ const site = path.join(build, 'pwatest-site');
 
 fs.rmSync(site, { recursive: true, force: true });
 
-for (const rel of [...FILES, 'sw.js', 'config.json', 'packs/index.json'])
+for (const rel of [...FILES, ...KEPT, 'sw.js', 'config.json', 'packs/index.json'])
 {
     fs.mkdirSync(path.dirname(path.join(site, rel)), { recursive: true });
     fs.copyFileSync(path.join(build, rel), path.join(site, rel));
@@ -163,6 +169,18 @@ try
 
     check(first.length === 1 && first[0].startsWith('thinksynth-'),
           `one cache, the site's: ${first.join(', ')}`);
+
+    /* A kept file, asked for as a page with a controller asks; and one
+       kept by a build before, which no build lists now. */
+    const keptHid = await page.evaluate(async () =>
+        (await fetch('thinkhid.js')).ok &&
+        (await (await caches.open('thinksynth-kept')).keys())
+            .some((r) => new URL(r.url).pathname.endsWith('/thinkhid.js')));
+
+    check(keptHid, 'a file kept on first use is kept, apart from the build\'s cache');
+    await page.evaluate(async () =>
+        (await caches.open('thinksynth-kept'))
+            .put('gone.js?sha256=00', new Response('old')));
 
     /* What a room is told this page's build is (offline.js, buildOf). */
     const built = /^const VERSION = "(\w+)";$/m.exec(
@@ -307,13 +325,21 @@ try
     await loaded(page);
 
     const all = await caches(page);
-    const after = all.filter((c) => c !== 'thinksynth-packs');
+    const after = all.filter((c) => c !== 'thinksynth-packs' &&
+                                    c !== 'thinksynth-kept');
 
     check(after.length === 1 && after[0] === `thinksynth-${next}`,
           `the next load activates it and the old cache goes: ` +
           after.join(', '));
     check(all.includes('thinksynth-packs'),
           'and the sample packs\' cache stays');
+
+    const kept = await page.evaluate(async () =>
+        (await (await caches.open('thinksynth-kept')).keys())
+            .map((r) => new URL(r.url).pathname.split('/').pop()));
+
+    check(kept.some((k) => k === 'thinkhid.js') && !kept.includes('gone.js'),
+          `and what was kept stays, but what the build doesn't list: ${kept.join(', ')}`);
 
     check(await page.evaluate(async () =>
               (await navigator.serviceWorker.getRegistration()).waiting
@@ -335,9 +361,10 @@ try
        the page as its source, without the variables around it. */
     const only = (v) => until(page, async (want) =>
     {
-        /* The site's caches; the sample packs' outlives every version. */
+        /* The site's caches; the sample packs' and the kept files'
+           outlive every version. */
         const keys = (await caches.keys())
-            .filter((k) => k !== 'thinksynth-packs');
+            .filter((k) => k !== 'thinksynth-packs' && k !== 'thinksynth-kept');
 
         return keys.length === 1 && keys[0] === `thinksynth-${want}`;
     }, 60000, v);
