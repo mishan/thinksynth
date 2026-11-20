@@ -122,6 +122,7 @@ jobs:
     outputs:
       ref: ${{ steps.name.outputs.ref }}
       headless: ${{ steps.name.outputs.ref }}-headless
+      browsers: ${{ steps.name.outputs.ref }}-browsers
 
     steps:
       - uses: actions/checkout@v4
@@ -132,11 +133,21 @@ jobs:
           FORK: ${{ github.event.pull_request.head.repo.fork }}
         run: |
           ref="ghcr.io/mishan/thinksynth-ci:$(sha256sum .github/ci-image/Dockerfile | cut -c1-16)"
-          if [ "$FORK" = true ] && ! docker manifest inspect "$ref" > /dev/null 2>&1; then
+          if [ "$FORK" = true ] && ! { docker manifest inspect "$ref" &&
+               docker manifest inspect "$ref-headless" &&
+               docker manifest inspect "$ref-browsers"; } > /dev/null 2>&1; then
             echo "::warning::A fork can't publish $ref, which its Dockerfile describes; its jobs run on master's images."
             ref=ghcr.io/mishan/thinksynth-ci:latest
           fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      # The browsers image's Playwright is the one npm ci installs, or the
+      # tests look for browsers it doesn't have.
+      - name: Its Playwright is the page's
+        run: |
+          want=$(jq -r .devDependencies.playwright wasm/web/package.json)
+          grep -q "^FROM mcr.microsoft.com/playwright:v$want-" .github/ci-image/Dockerfile ||
+            { echo "::error::.github/ci-image/Dockerfile's Playwright isn't wasm/web/package.json's $want"; exit 1; }
 
       - name: Built and published, unless it is there
         if: github.event.pull_request.head.repo.fork != true
@@ -146,12 +157,15 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" |
             docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           if docker manifest inspect "$REF-headless" > /dev/null 2>&1 &&
+             docker manifest inspect "$REF-browsers" > /dev/null 2>&1 &&
              docker manifest inspect "$REF" > /dev/null 2>&1; then
-            echo "$REF and $REF-headless are there"
+            echo "$REF, $REF-headless and $REF-browsers are there"
           else
             docker build --target headless -t "$REF-headless" .github/ci-image
+            docker build --target browsers -t "$REF-browsers" .github/ci-image
             docker build -t "$REF" .github/ci-image
             docker push "$REF-headless"
+            docker push "$REF-browsers"
             docker push "$REF"
           fi
 
@@ -163,6 +177,7 @@ jobs:
         run: |
           docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest "$REF"
           docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest-headless "$REF-headless"
+          docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest-browsers "$REF-browsers"
 
   linux:
     name: linux (gcc)
@@ -792,9 +807,18 @@ jobs:
   wasm-compare:
     name: wasm (emscripten) against native
     timeout-minutes: 20
-    # wasm-build's image, whose libraries its native tree was linked against.
     runs-on: ubuntu-24.04
-    needs: [wasm-build, linux]
+    needs: [image, wasm-build, linux]
+    # wasm-build's image, whose libraries its native tree was linked against.
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -834,7 +858,16 @@ jobs:
   wasm-pieces:
     name: wasm (emscripten) pieces and draws
     runs-on: ubuntu-latest
-    needs: [wasm-build, linux]
+    needs: [image, wasm-build, linux]
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    permissions:
+      contents: read
+      packages: read
 
     # See wasm-browsers: minutes, not hours.
     timeout-minutes: 45
@@ -1044,7 +1077,21 @@ jobs:
   wasm-browsers:
     name: wasm (emscripten) in ${{ matrix.browser }}
     runs-on: ubuntu-latest
-    needs: [wasm-build, linux]
+    needs: [image, wasm-build, linux]
+    # The browsers image: Playwright's browsers, pulseaudio, and the
+    # libraries the native tree was linked against. As Playwright's own
+    # image wants, its user rather than root, and the host's shared memory
+    # for Chromium.
+    container:
+      image: ${{ needs.image.outputs.browsers }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user 1001 --ipc=host
+
+    permissions:
+      contents: read
+      packages: read
 
     strategy:
       fail-fast: false
@@ -1054,12 +1101,8 @@ jobs:
     # Everything here is minutes, so an hour means something is wedged rather
     # than slow. Without this a hang runs to GitHub's six-hour default, which
     # is what a live AudioContext with no audio backend did once: the job said
-    # nothing, cost everything, and looked exactly like a slow one. Each step
-    # that installs from a package mirror has twenty minutes of its own, so a
-    # stalled mirror fails there and says so, and one crawling a package a
-    # few seconds, as Azure's has, still finishes; the job's limit leaves room
-    # for a slow one on top of the tests' quarter hour.
-    timeout-minutes: 55
+    # nothing, cost everything, and looked exactly like a slow one.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -1071,19 +1114,8 @@ jobs:
       # a null sink by itself; Firefox's AudioContext.resume() never resolves
       # without a backend, and an unresolved promise inside page.evaluate has
       # no timeout of its own. Same module and same reasoning as the jam job,
-      # which needs one for jamtest's two live peers.
-      #
-      # Both legs: Playwright's --with-deps below installs through apt too.
-      - name: The apt mirror
-        run: sudo sh .github/apt-mirror.sh
-
-      # The chromium leg only: browsertest.mjs is offline, and mictest.mjs
-      # runs there.
-      - name: Install dependencies
-        timeout-minutes: 20
-        if: matrix.browser == 'chromium'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
-
+      # which needs one for jamtest's two live peers. The chromium leg only:
+      # browsertest.mjs is offline, and mictest.mjs runs there.
       - name: An audio sink for the live-context tests
         if: matrix.browser == 'chromium'
         run: |
@@ -1092,23 +1124,11 @@ jobs:
           pactl set-default-sink mictest
           pactl info
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
       - uses: ./.github/actions/wasm-trees
         timeout-minutes: 10
 
       - name: npm ci
         run: npm ci
-
-      # Both engines on the chromium leg, for the page's gates below it.
-      - name: Playwright's browsers
-        timeout-minutes: 20
-        working-directory: wasm/web
-        run: >-
-          npx playwright install --with-deps
-          ${{ matrix.browser == 'chromium' && 'chromium firefox' || 'firefox' }}
 
       # browsertest.mjs plays a phrase through the worklet in Chromium and
       # in Firefox and holds each against the module run directly, to the
@@ -1287,17 +1307,24 @@ jobs:
   wasm-jam:
     name: wasm (emscripten) two peers
     runs-on: ubuntu-latest
-    needs: [wasm-build, linux]
+    needs: [image, wasm-build, linux]
+    # See wasm-browsers.
+    container:
+      image: ${{ needs.image.outputs.browsers }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user 1001 --ipc=host
+
+    permissions:
+      contents: read
+      packages: read
 
     # See wasm-browsers: minutes, not hours.
-    timeout-minutes: 55
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        timeout-minutes: 20
-        run: sudo sh .github/apt-mirror.sh && sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
       # A sound card, of sorts, for jamtest below. It opens a live
       # AudioContext in both browsers, because two peers agreeing on a
@@ -1313,10 +1340,6 @@ jobs:
           pactl load-module module-null-sink sink_name=jamtest
           pactl set-default-sink jamtest
           pactl info
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
 
       - uses: ./.github/actions/wasm-trees
         timeout-minutes: 10
@@ -1342,11 +1365,6 @@ jobs:
       # page types a number into a node, and the file in both documents is
       # the one native NodeEdit writes -- which is why the build job builds
       # dspedit.
-      - name: Playwright's browsers
-        timeout-minutes: 20
-        working-directory: wasm/web
-        run: npx playwright install --with-deps chromium firefox
-
       - name: Two browsers, one room
         working-directory: wasm/web
         run: node jamtest.mjs ../../build-web ../../build-wasm ../../build
