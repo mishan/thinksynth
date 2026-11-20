@@ -46,13 +46,9 @@ thhPlay (thSynth &synth, const std::vector<thhAction> &acts,
             continue;
         else
         {
-            /* Looked up every time: a patch loaded since would leave a kept
-               pointer pointing at an arg that has gone. */
-            thArg *arg = synth.getChanArg(a.channel, a.arg);
-
-            /* setValue is the GUI thread's only for a one-element arg. */
-            if (arg && arg->len() == 1)
-                arg->setValue((float)thhActionValue(a, arg->min(), arg->max()));
+            synth.setChanArgFraction(a.channel, a.arg, a.t,
+                                     a.hasMin ? &a.min : NULL,
+                                     a.hasMax ? &a.max : NULL, a.exp);
             continue;
         }
 

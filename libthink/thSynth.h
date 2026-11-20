@@ -406,6 +406,16 @@ public:
     thArg *getChanArg (int channum, const string &argname);
     void setChanArg (int channum, thArg *arg);
 
+    /* GUI thread. A one-valued chanarg set from a position t, 0..1, along
+       *lo..*hi, or along its own travel at an end that is NULL;
+       exponentially if exp and both ends are above 0. A whole number where
+       its step is 1, and a named entry for a menu. What a controller's
+       knob does, by name so a patch loaded since can't leave it holding an
+       arg that has gone. False if it set nothing. */
+    bool setChanArgFraction (int channum, const string &argname, double t,
+                             const double *lo = NULL,
+                             const double *hi = NULL, bool exp = false);
+
     /* The graph that runs on a channel's summed voices, once per window.
      *
      * Beside loadTree, and after it: a channel swap takes its effect with it,
