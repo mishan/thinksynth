@@ -228,17 +228,11 @@ Controllers
   per-hand ignore should outlast an either-hand binding, or the pane should
   warn, is undecided. (docs/HID.md, "Your own profile")
 
-- A camera view: the live picture, mirrored, with the nine zones over it
-  shaded by their motion, a flash at each strike, and the levels a strike
-  has to cross, so a player can see why a swipe did or didn't count. The
-  page has each frame in a canvas already; the desktop decodes them.
-  (docs/CAMERA.md)
-
 - A video theremin: a hand tracker on the camera, one hand's height the
   pitch and the other's distance the level, a pinch to gate the note.
   The browser's trackers (MediaPipe Hands) are a model of several MB,
   fetched only when used as thinkhid is; the desktop would need another.
-  Wants the camera view to show what it tracks.
+  The camera view (cameraview.js) is where to show what it tracks.
 
 - The microphone as notes: one pitch at a time (a voice, a whistle, a
   horn) to note-ons and offs, and the pitch within a note to bend. Only

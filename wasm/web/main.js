@@ -77,6 +77,7 @@ import { MidiRoutes, midiAvailable, midiToggle } from './midi.js';
 import { midiMapView } from './midimap.js';
 import { routesTable } from './midiroutesui.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
+import { createCameraView } from './cameraview.js';
 import { hidToggle } from './hid.js';
 import { createVideoView } from './videoview.js';
 import { MidiOutControls } from './midioutui.js';
@@ -145,7 +146,8 @@ const VELOCITY = 100;
  */
 const PANES = ['roll', 'bandview', 'seqview', 'composerview', 'knobs',
                'channelbox', 'paramview', 'nodeview', 'keyboard', 'patchsource',
-               'growview', 'piecesource', 'detail', 'packs', 'videoview'];
+               'growview', 'piecesource', 'detail', 'packs', 'videoview',
+               'cameraview'];
 
 /* Which of them belong to which mode. Everything not named here is in
    all of them -- the keys, the parameters, the graph, the numbers.
@@ -4774,6 +4776,17 @@ async function init ()
         button: $('camera'), status: $('camerastatus'), zones: $('camerazones'),
         onNoteOn: (note, velocity) => press(note, velocity, 'camera'),
         onNoteOff: (note) => release(note, 'camera'),
+        view: createCameraView({
+            canvas: $('cameracanvas'),
+            shown: () => panes.visible('cameraview'),
+            onOpen: (on) =>
+            {
+                panes.available('cameraview', on);
+
+                if (on)
+                    panes.present('cameraview', { focus: false });
+            },
+        }),
     });
     /* A patch plays its keys on its own channel; a piece's are its, and
        go in as its input, where no voice of theirs can be bent. */

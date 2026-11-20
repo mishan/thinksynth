@@ -1111,6 +1111,15 @@ jobs:
         working-directory: wasm/web
         run: node midimaptest.mjs ../../build-web
 
+      # The camera view (cameraview.js), through a canvas streamed as the
+      # camera: offered only while the camera is on, beside the keys, the
+      # picture mirrored as the zones are, a zone moving shaded and a
+      # strike ringed, read back from its pixels.
+      - name: The camera view
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node cameraviewtest.mjs ../../build-web
+
       # The SDK as a game uses it, from its package alone: every note the
       # worklet plays was announced by the look-ahead, through a mute, an
       # unmute and a stage put in and taken out, each on the SDK's line.

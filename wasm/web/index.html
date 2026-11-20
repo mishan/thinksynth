@@ -608,6 +608,18 @@
   <p id="videostatus" class="hint" aria-live="polite"></p>
 </section>
 
+<!-- What the camera sees, its zones over it (cameraview.js): offered
+     while the camera is on. -->
+<section id="cameraview" data-pane-off
+         data-pane data-pane-title="Camera" data-pane-min="240">
+  <canvas id="cameracanvas" role="img"
+          aria-label="The camera's picture, mirrored, with its nine zones"></canvas>
+  <p class="hint">Each zone lights as it moves, and strikes its note once
+    the bar along its foot passes the tick; a ring flashes when it does.
+    A grey bar means the zone has just struck, and strikes again once it
+    is still.</p>
+</section>
+
 <!-- Recorded instruments, downloaded when asked and kept (packs.js). -->
 <section id="packs" data-pane-off
          data-pane data-pane-title="Sample packs" data-pane-min="280">
