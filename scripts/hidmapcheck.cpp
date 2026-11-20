@@ -462,6 +462,17 @@ static const Row ROWS[] = {
       "down a; axis stick_x 1; axis tilt -0.5; axis grip_force 0.25",
       "on 1 60 100 | bend 1 60 +2.00 | bend 1 60 +1.50 | aux0 1 60 +0.25",
       0, NULL },
+    { "a bend with a scale lands on its steps, below the base too",
+      "device index { a = note 0; stick_x = bend { range = 10; scale = pentatonic; }; };",
+      "down a; axis stick_x 0.25; axis stick_x -0.1; axis stick_x 0.26; "
+      "axis stick_x 0.27",
+      "on 1 60 100 | bend 1 60 +7.00 | bend 1 60 -3.00 | bend 1 60 +7.00 | ",
+      0, NULL },
+    { "and glides between them when smoothed",
+      "device index { a = note 0; stick_x = bend { range = 10; scale = pentatonic; "
+      "smooth = 0.1; }; };",
+      "down a; axis stick_x 0.1; wait 1000",
+      "on 1 60 100 | bend 1 60 +0.19 | bend 1 60 +2.00", 0, NULL },
     { "a strike's note is bent too",
       "device index { grip_top = strike 0; stick_x = bend { range = 2; }; };",
       "axis grip_top 0; axis grip_top 0.9; axis stick_x 1",

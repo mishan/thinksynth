@@ -236,6 +236,9 @@ static const Row ROWS[] = {
     { "a second scale that isn't one",
       "device index { tilt = pitch { scale = major; scale = lydian9; range = 10; }; };",
       NULL, 1, "not a scale" },
+    { "a scale where nothing steps",
+      "device index { grip_force = aux 0 { scale = major; }; };",
+      NULL, 1, "'scale' is not a setting here" },
     { "a scale stepping by octaves",
       "device index {\n  tilt = pitch { step = octave; scale = major; "
       "range = 2; };\n};", NULL, 2, "degrees" },

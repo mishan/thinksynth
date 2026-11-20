@@ -494,6 +494,7 @@ think_harness(hidcheck COMPOSERHOST HID)
 
 # A webcam's motion as a controller's buttons and axes (hid/thhCamera.h).
 think_harness(hidcamcheck COMPOSERHOST HID)
+think_harness(hidhandcheck COMPOSERHOST HID)
 
 # A profile found or not, and a controller's actions on a real synth
 # (hid/thhPlay.h).
@@ -1444,6 +1445,7 @@ add_test(NAME routecheck
 add_test(NAME hidpanecheck COMMAND hidpanecheck)
 add_test(NAME sessioncheck COMMAND sessioncheck)
 add_test(NAME hidcamcheck COMMAND hidcamcheck)
+add_test(NAME hidhandcheck COMMAND hidhandcheck)
 add_test(NAME boxcheck COMMAND boxcheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"

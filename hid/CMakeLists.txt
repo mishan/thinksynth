@@ -7,6 +7,7 @@ add_library(think_hid OBJECT
     thhBox.cpp
     thhCamera.cpp
     thhControls.cpp
+    thhHandTrack.cpp
     thhHands.cpp
     thhHost.cpp
     thhIndex.cpp
