@@ -1051,7 +1051,7 @@ jobs:
 
       # Both engines on the chromium leg, for the page's gates below it.
       - name: Playwright's browsers
-        timeout-minutes: 10
+        timeout-minutes: 20
         working-directory: wasm/web
         run: >-
           npx playwright install --with-deps
@@ -1282,7 +1282,7 @@ jobs:
       # the one native NodeEdit writes -- which is why the build job builds
       # dspedit.
       - name: Playwright's browsers
-        timeout-minutes: 10
+        timeout-minutes: 20
         working-directory: wasm/web
         run: npx playwright install --with-deps chromium firefox
 
