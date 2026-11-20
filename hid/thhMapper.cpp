@@ -43,6 +43,17 @@ thhActionValue (const thhAction &a, double argMin, double argMax)
     return lo + a.t * (hi - lo);
 }
 
+/* Semitones `steps' of `scale' from its first degree, down a degree
+   at a time below it: -1 of the pentatonic is the 9 an octave down. */
+static int
+scaled (int steps, const std::vector<int> &scale)
+{
+    const int n = (int)scale.size();
+    const int octave = steps >= 0 ? steps / n : -((n - 1 - steps) / n);
+
+    return 12 * octave + scale[steps - octave * n];
+}
+
 thhMapper::thhMapper ()
     : buttons_(0), axes_(0), velocity_(100), octave_(0), bend_(0)
 {
@@ -443,16 +454,9 @@ thhMapper::sound (const thcHidBinding &b, Held &h, const thhState &s,
                 continue;
 
             const int steps = (int)std::lround((s.axis[ax] - p.center) * p.range);
-            const int n = (int)p.scale.size();
 
-            if (n)
-            {
-                const int octave = steps >= 0 ? steps / n : -((n - 1 - steps) / n);
-
-                note += 12 * octave + p.scale[steps - octave * n];
-            }
-            else
-                note += steps * (p.octaves ? 12 : 1);
+            note += p.scale.empty() ? steps * (p.octaves ? 12 : 1)
+                                    : scaled(steps, p.scale);
         }
     }
 
@@ -552,8 +556,12 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
 
             if (bd.b.kind == thcHidBinding::BEND)
             {
-                const double v = smoothed(key, (s.axis[ax] - bd.b.center) *
-                                               bd.b.range, bd.b.smooth, s);
+                /* On a scale, the nearest step, which smoothing then
+                   glides to. */
+                const double at = (s.axis[ax] - bd.b.center) * bd.b.range;
+                const double v = smoothed(key, bd.b.scale.empty()
+                                     ? at : scaled((int)std::lround(at), bd.b.scale),
+                                     bd.b.smooth, s);
 
                 bend += v;
                 sharedBend += bd.b.both ? v : 0;

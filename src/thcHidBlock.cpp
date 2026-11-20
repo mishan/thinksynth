@@ -323,7 +323,7 @@ Parser::options (thcHidBinding &b)
                             "octave or semitone");
             i_++;
         }
-        else if (k == "scale" && pitch)
+        else if (k == "scale" && (pitch || bend))
         {
             static const struct { const char *name; std::vector<int> steps; }
                 scales[] = {
