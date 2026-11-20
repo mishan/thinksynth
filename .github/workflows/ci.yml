@@ -842,6 +842,11 @@ jobs:
       - name: A controller's values and bends, through the module
         run: node wasm/web/hidplaycheck.mjs
 
+      # MIDI knobs' mappings and learn (midimap.js), what storage reads back
+      # as, and which messages midi.js hands a page's onControl. No module.
+      - name: MIDI knobs, learned
+        run: node wasm/web/midimapcheck.mjs
+
       # A video synth played live, through the module: notes landing on the
       # line they sounded on, nothing drawn past the audio, a picture far
       # behind skipping to the frame that is due (twvideo.cpp).
@@ -1098,6 +1103,13 @@ jobs:
         if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node hidtest.mjs ../../build-web
+
+      # MIDI knobs on the page, through two fake Web MIDI inputs: a slider
+      # and a menu learned, followed, and kept across a reload.
+      - name: MIDI knobs on the page
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node midimaptest.mjs ../../build-web
 
       # The SDK as a game uses it, from its package alone: every note the
       # worklet plays was announced by the look-ahead, through a mute, an

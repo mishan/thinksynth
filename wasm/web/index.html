@@ -421,6 +421,12 @@
       <button id="midirouteadd">Add route</button>
     </details>
 
+    <!-- Its knobs onto the patch's controls, learned on the patch panel
+         (midimap.js). -->
+    <button id="midilearn" disabled>Learn knob</button>
+    <span id="midilearnstatus" class="hint" aria-live="polite"></span>
+    <ul id="midimaps" aria-label="MIDI knob mappings" hidden></ul>
+
     <!-- Valve Index controllers onto the same keys, wired or through a
          Watchman dongle (hid.js): Chrome and Edge only, as WebHID is. -->
     <button id="hid" disabled>Controller</button>

@@ -74,6 +74,7 @@ import { createSynth } from './host.js';
 import { TextHistory } from './history.js';
 import { micAvailable, openMic } from './mic.js';
 import { MidiRoutes, midiAvailable, midiToggle } from './midi.js';
+import { midiMapView } from './midimap.js';
 import { routesTable } from './midiroutesui.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
 import { hidToggle } from './hid.js';
@@ -84,7 +85,7 @@ import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { createKeyFocus } from './keyfocus.js';
 import { createPanes } from './panes.js';
-import { numberIn, showPanel } from './panel.js';
+import { CHOICE, SLIDER, numberIn, showPanel } from './panel.js';
 import { keepOffline, offerInstall } from './offline.js';
 import { moveLayouts } from './layouts.js';
 import * as packs from './packs.js';
@@ -462,6 +463,7 @@ let synth = null;
 let midiOutUI = null;
 let mic = null;                  /* what openMic returned, or null */
 let midiIn = null;               /* the MIDI in button (midi.js)    */
+let midiMap = null;              /* its knobs' mappings (midimap.js) */
 
 /* Where MIDI in's notes go: the key channel unless a layer is set, and
    nothing sets one yet but a harness. */
@@ -687,6 +689,22 @@ function showAbout ()
 function keyChannel ()
 {
     return Number($('keychan').value);
+}
+
+/* Where a controller's values go: a patch's own channel, else the keys'. */
+function controlChannel ()
+{
+    return playsPatch() ? PATCH_CHANNEL : keyChannel();
+}
+
+/* A MIDI knob, onto each control it is mapped to. */
+function midiKnob (channel, controller, value)
+{
+    for (const arg of midiMap.control(channel, controller, value))
+    {
+        synth?.control(controlChannel(), arg, value / 127);
+        pollSoon();
+    }
 }
 
 /* Whether what is playing is composed: a sequence and a piece are the
@@ -3289,6 +3307,10 @@ async function showParams ()
 
     params = null;
 
+    /* Another patch, or channel: a control learn had is not this one. */
+    if (midiMap.learning())
+        midiMap.learn(true);
+
     if (answer.shape === 0)
     {
         $('params').replaceChildren();
@@ -3316,7 +3338,7 @@ async function showParams ()
         });
 
     params = { channel, panel, setValue };
-
+    midiMap.draw();
     showPresets();
 }
 
@@ -3492,7 +3514,7 @@ async function start ()
     if (!micAvailable())
         $('micstatus').textContent = 'needs https, or localhost';
 
-    $('midi').disabled = !midiAvailable();
+    $('midi').disabled = $('midilearn').disabled = !midiAvailable();
     $('camera').disabled = !cameraAvailable();
     hidIn.start();
 
@@ -4730,6 +4752,23 @@ async function init ()
             ? release(note, 'midi') : routedRelease(note, targets),
         onPedal: (value, targets) => targets === null
             ? pedal(value) : routedPedalTo(value, targets),
+        onControl: midiKnob,
+    });
+    midiMap = midiMapView({
+        button: $('midilearn'), status: $('midilearnstatus'),
+        list: $('midimaps'),
+        has: (arg) => params === null || params.channel !== controlChannel() ||
+                      params.panel.rows.some((r) => r.id === arg),
+    });
+
+    /* Learn's control: a row moved that a knob can set. */
+    $('params').addEventListener('input', (e) =>
+    {
+        const id = e.target.closest('.panelrow')?.dataset.row;
+        const kind = params?.panel.rows.find((r) => r.id === id)?.kind;
+
+        if (kind === SLIDER || kind === CHOICE)
+            midiMap.moved(id);
     });
     cameraIn = cameraToggle({
         button: $('camera'), status: $('camerastatus'), zones: $('camerazones'),
@@ -4747,7 +4786,7 @@ async function init ()
             pollSoon();
             synth?.hid(action);
         },
-        channel: () => playsPatch() ? PATCH_CHANNEL : keyChannel(),
+        channel: controlChannel,
         bendChannel: (note) =>
         {
             const held = sounding.get(note);

@@ -1019,6 +1019,10 @@ export async function createSynth (ctx, { windowlen = 128,
                 node.port.postMessage({ type: 'hid', ...action });
         },
 
+        /* A chanarg set from a position t, 0..1, along it (engine.js,
+           'control'): onto both instances, as a controller's value is. */
+        control: (channel, arg, t) => post({ type: 'control', channel, arg, t }),
+
         /* The graph growth has put on `instrument''s channel in the
            worklet, or '' while it plays what the piece declares. */
         grownText: (instrument) =>
