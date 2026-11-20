@@ -144,9 +144,10 @@ thhHandTrack::update (const std::vector<thhHandPoints> &hands, double seconds,
         return std::hypot(t.x - s.x, t.y - s.y);
     };
     /* Each hand seen goes to the side whose held hand it moved least
-       from, and is that hand if it is near enough; a hand that is not is
-       new, from nothing, so no pinch carries onto it to hold a note it
-       isn't holding. */
+       from, two of them keeping as many held hands as they can, and is
+       that hand if it is near enough; a hand that is not is new, from
+       nothing, so no pinch carries onto it to hold a note it isn't
+       holding. */
     const auto moved = [&](int t, int i) {
         return tracks_[t].held ? dist(tracks_[t], now[i]) : 0.0f;
     };
@@ -158,7 +159,10 @@ thhHandTrack::update (const std::vector<thhHandPoints> &hands, double seconds,
 
     if (now.size() == 2)
     {
-        side[0] = moved(0, 0) + moved(1, 1) <= moved(0, 1) + moved(1, 0) ? 0 : 1;
+        const int keeps[2] = { near(0, 0) + near(1, 1), near(1, 0) + near(0, 1) };
+
+        side[0] = keeps[0] != keeps[1] ? keeps[1] > keeps[0]
+                : moved(0, 1) + moved(1, 0) < moved(0, 0) + moved(1, 1);
         side[1] = 1 - side[0];
         kept[0] = near(side[0], 0);
         kept[1] = near(side[1], 1);
