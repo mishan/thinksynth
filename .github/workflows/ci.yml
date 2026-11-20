@@ -159,6 +159,12 @@ jobs:
       # Docker's open-file limit is a billion, which Valgrind refuses.
       options: --ulimit nofile=65536:65536
 
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
+
     permissions:
       contents: read
       packages: read
@@ -324,6 +330,12 @@ jobs:
       # Docker's open-file limit is a billion, which Valgrind refuses.
       options: --ulimit nofile=65536:65536
 
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
+
     permissions:
       contents: read
       packages: read
@@ -457,6 +469,12 @@ jobs:
       # Docker's open-file limit is a billion, which Valgrind refuses.
       options: --ulimit nofile=65536:65536
 
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
+
     permissions:
       contents: read
       packages: read
@@ -551,6 +569,12 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
       # Docker's open-file limit is a billion, which Valgrind refuses.
       options: --ulimit nofile=65536:65536
+
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
 
     permissions:
       contents: read
