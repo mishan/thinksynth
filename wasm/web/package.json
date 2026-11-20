@@ -26,6 +26,7 @@
     "shotbox": "0.6.0"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "1.2.3",
     "@simplewebauthn/browser": "^14.0.0",
     "cairo-canvas2d": "^0.1.0",
     "codemirror": "^6.0.2",

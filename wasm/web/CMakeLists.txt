@@ -126,6 +126,62 @@ if(NOT EXISTS "${MULLION}/panes.js")
       "mullion is not installed: run `npm ci` at the top first.")
 endif()
 
+# The hand tracker a camera plays as a theremin through: MediaPipe's
+# module-worker build from npm, and the model it runs, which isn't on npm
+# and is fetched from Google here, its hash pinned, into the build
+# directory, where the next configure finds it. Both are Apache-2.0 (the
+# model by its model card), shipped with that license beside them.
+# THINK_HAND_MODEL names a copy for a build with no network. A build that
+# can't have it builds without the theremin, unless THINK_REQUIRE_HAND_MODEL
+# says it must, as CI's does, where losing it quietly would ship a site
+# without it.
+set(MEDIAPIPE "${THINK_TOP}/node_modules/@mediapipe/tasks-vision")
+set(HAND_MODEL_URL "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task")
+set(HAND_MODEL_SHA256
+    fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1)
+set(THINK_HAND_MODEL "" CACHE FILEPATH
+    "A copy of MediaPipe's hand_landmarker.task, for a build with no network")
+option(THINK_REQUIRE_HAND_MODEL "Fail rather than build without the theremin" OFF)
+set(HAND_MODEL "${PROJECT_BINARY_DIR}/mediapipe/hand_landmarker.task")
+set(model_sha "")
+
+if(EXISTS "${HAND_MODEL}")
+  file(SHA256 "${HAND_MODEL}" model_sha)
+endif()
+if(NOT model_sha STREQUAL HAND_MODEL_SHA256)
+  if(THINK_HAND_MODEL)
+    if(EXISTS "${THINK_HAND_MODEL}")
+      configure_file("${THINK_HAND_MODEL}" "${HAND_MODEL}" COPYONLY)
+    endif()
+  else()
+    file(DOWNLOAD "${HAND_MODEL_URL}" "${HAND_MODEL}" STATUS got TIMEOUT 120)
+  endif()
+  set(model_sha "")
+  if(EXISTS "${HAND_MODEL}")
+    file(SHA256 "${HAND_MODEL}" model_sha)
+  endif()
+  if(NOT model_sha STREQUAL HAND_MODEL_SHA256)
+    file(REMOVE "${HAND_MODEL}")
+  endif()
+endif()
+set(HAS_HAND_MODEL OFF)
+if(EXISTS "${HAND_MODEL}" AND EXISTS "${MEDIAPIPE}/vision_bundle.mjs")
+  set(HAS_HAND_MODEL ON)
+else()
+  # Nor what an earlier configure copied, which nothing would update.
+  file(REMOVE_RECURSE "${PROJECT_BINARY_DIR}/mediapipe")
+  if(THINK_HAND_MODEL)
+    set(from "${THINK_HAND_MODEL}")
+  else()
+    set(from "${HAND_MODEL_URL}")
+  endif()
+  if(THINK_REQUIRE_HAND_MODEL)
+    message(FATAL_ERROR "No hand model with the pinned hash from ${from}.")
+  endif()
+  message(WARNING "No hand model with the pinned hash from ${from}: "
+                  "building without the theremin.")
+endif()
+
 set(CAIRO2D_TESTS ON CACHE BOOL "" FORCE)
 add_subdirectory("${CAIRO2D}" cairo2d)
 
@@ -344,7 +400,7 @@ set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js midi.js midimap.js midiroutesui.js midiout.js
                 midioutui.js clock.js
-                camera.js camworker.js hid.js videoview.js videoworker.js videopart.js videoscale.js mirror.js
+                camera.js cameraview.js camworker.js hid.js videoview.js videoworker.js videopart.js videoscale.js mirror.js
                 ear.js evolve.js evolveui.js
                 growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
@@ -390,6 +446,33 @@ foreach(name panes.js panes.css popover.js)
       DEPENDS "${MULLION}/${name}")
   list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/${name}")
 endforeach()
+
+# And the hand tracker beside its model, under mediapipe/, with the license
+# it is shipped under.
+set(MEDIAPIPE_FILES "")
+if(HAS_HAND_MODEL)
+  foreach(pair vision_bundle.mjs:vision_bundle.mjs
+               wasm/vision_wasm_module_internal.js:wasm/vision_wasm_module_internal.js
+               wasm/vision_wasm_module_internal.wasm:wasm/vision_wasm_module_internal.wasm)
+    string(REPLACE ":" ";" pair "${pair}")
+    list(GET pair 0 from)
+    list(GET pair 1 to)
+    add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/mediapipe/${to}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${MEDIAPIPE}/${from}" "${PROJECT_BINARY_DIR}/mediapipe/${to}"
+        DEPENDS "${MEDIAPIPE}/${from}")
+    list(APPEND MEDIAPIPE_FILES "${PROJECT_BINARY_DIR}/mediapipe/${to}")
+  endforeach()
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/mediapipe/LICENSE.txt"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${CMAKE_CURRENT_SOURCE_DIR}/mediapipe-LICENSE.txt"
+              "${PROJECT_BINARY_DIR}/mediapipe/LICENSE.txt"
+      DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/mediapipe-LICENSE.txt")
+  # Not SITE_OUTPUTS, which sw.js fetches at install: these are kept on
+  # first use, and sw.js's rule builds them.
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/mediapipe/LICENSE.txt")
+  list(APPEND MEDIAPIPE_FILES "${HAND_MODEL}")
+endif()
 
 # The shipped DSPs -- dsp/*.dsp -- and the list the page's menu is filled
 # from. Patch mode plays one of these directly; a piece's instruments and a
@@ -643,11 +726,13 @@ file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/precache.list"
      CONTENT "${precache_list}\n")
 
 # Kept on first use rather than at install: the controllers' module, which
-# a page loads only once one is in play (hid.js), so a player without one
-# never downloads it. In the version's hash all the same, or a new one
-# beside an otherwise unchanged site would be served from the old cache.
-file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/kept.list" CONTENT
-     "${PROJECT_BINARY_DIR}/thinkhid.js\n${PROJECT_BINARY_DIR}/thinkhid.wasm\n")
+# a page loads only once one is in play (hid.js), and the hand tracker, only
+# once a camera plays as a theremin, so a player without either never
+# downloads it. In the version's hash all the same, or a new one beside an
+# otherwise unchanged site would be served from the old cache.
+string(REPLACE ";" "\n" kept_list
+       "${PROJECT_BINARY_DIR}/thinkhid.js;${PROJECT_BINARY_DIR}/thinkhid.wasm;${MEDIAPIPE_FILES}")
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/kept.list" CONTENT "${kept_list}\n")
 
 add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
     COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
@@ -655,7 +740,7 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/sw.js"
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${PROJECT_BINARY_DIR}/precache.list"
             "${PROJECT_BINARY_DIR}/kept.list"
-    DEPENDS ${PRECACHE_DEPENDS} thinkweb thinkevolve thinkhid
+    DEPENDS ${PRECACHE_DEPENDS} thinkweb thinkevolve thinkhid ${MEDIAPIPE_FILES}
             "${CMAKE_CURRENT_SOURCE_DIR}/serviceworker.js"
             "${CMAKE_CURRENT_SOURCE_DIR}/precache.mjs"
             "${PROJECT_BINARY_DIR}/precache.list"
@@ -706,6 +791,14 @@ list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/thinkhid.wasm")
 
 install(FILES ${DIST_ROOT_FILES} DESTINATION . PERMISSIONS ${SITE_FILE_MODE})
+if(HAS_HAND_MODEL)
+  install(FILES "${PROJECT_BINARY_DIR}/mediapipe/vision_bundle.mjs"
+                "${HAND_MODEL}" "${PROJECT_BINARY_DIR}/mediapipe/LICENSE.txt"
+          DESTINATION mediapipe PERMISSIONS ${SITE_FILE_MODE})
+  install(FILES "${PROJECT_BINARY_DIR}/mediapipe/wasm/vision_wasm_module_internal.js"
+                "${PROJECT_BINARY_DIR}/mediapipe/wasm/vision_wasm_module_internal.wasm"
+          DESTINATION mediapipe/wasm PERMISSIONS ${SITE_FILE_MODE})
+endif()
 install(FILES ${DIST_ICON_FILES} DESTINATION icons PERMISSIONS ${SITE_FILE_MODE})
 
 # The shipped patches and pieces, from the build directory's copies, with
