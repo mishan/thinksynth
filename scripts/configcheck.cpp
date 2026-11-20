@@ -437,6 +437,53 @@ int main (int argc, char **argv)
            bad);
     }
 
+    /* ---- MPE onto any engine channel ---------------------------------- */
+
+    /* `mpe 64', a space after it as a hand might leave, read and written
+       back; `mpe 65' named as no channel. */
+    {
+        const string file = cfg + ".mpe";
+        const auto with = [&file](const char *line)
+        {
+            std::ofstream(file) << line;
+        };
+        int read = 0, again = 0, past = -1;
+        string why;
+
+        with("mpe 64 \n");
+
+        {
+            gthPrefs prefs(file);
+
+            prefs.Load();
+            read = prefs.mpe();
+            prefs.Save();
+        }
+
+        {
+            gthPrefs prefs(file);
+
+            prefs.Load();
+            again = prefs.mpe();
+        }
+
+        with("mpe 65\n");
+
+        {
+            gthPrefs prefs(file);
+
+            prefs.Load();
+            past = prefs.mpe(&why);
+        }
+
+        std::error_code gone;
+
+        fs::remove(file, gone);
+        ok(read == 64 && again == 64 && past == 0 && !why.empty(),
+           "mpe 64 is read and written back, and mpe 65 is reported: "
+           "%d %d %d (%s)", read, again, past, why.c_str());
+    }
+
     /* ---- a channel effect survives a .patch --------------------------- */
 
     /* The chooser in the patch page puts a graph on a channel's sum, and the

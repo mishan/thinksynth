@@ -233,6 +233,16 @@ const statusIs = (page, text) => page.waitForFunction(
 const postedHas = (page, text) => page.waitForFunction(
     (t) => window.posted.includes(t), text, { timeout: 5000 }).then(() => true, () => false);
 
+/* What a page that did not play holds, for a failure to say. */
+const seen = async (page, errors) => ': ' + JSON.stringify(await page.evaluate(() => ({
+    posted: window.posted.slice(-8),
+    problem: document.getElementById('hidproblem').textContent,
+    status: document.getElementById('hidstatus').textContent,
+    a: [...document.querySelectorAll('#hidrows tr')]
+        .filter((tr) => tr.cells[0]?.textContent === 'a')
+        .map((tr) => [...tr.cells].map((c) => c.textContent).join(' | ')),
+}))) + `, page errors ${JSON.stringify(errors)}`;
+
 try
 {
     {
@@ -420,7 +430,7 @@ try
         /* The pane: its rows, live; the player's profile, kept; what is
            wrong with one, said. */
         const context = await browser.newContext();
-        const { page } = await open(
+        const { page, errors } = await open(
             { granted: [{ productId: 0x2102, serial: 'D-1', on: true }] }, context);
 
         await statusIs(page, 'A Valve Index controller is playing');
@@ -437,7 +447,10 @@ try
         await page.fill('#hidprofile', 'device index {\n    a = note 5;\n};\n');
         await page.click('#hidreload');
         await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
-        check(await postedHas(page, 'midion 65'), 'a profile of the player\'s plays');
+        const plays = await postedHas(page, 'midion 65');
+
+        check(plays, 'a profile of the player\'s plays' +
+              (plays ? '' : await seen(page, errors)));
         await page.close();
 
         const reopened = await open(
@@ -446,9 +459,12 @@ try
 
         await statusIs(again, 'A Valve Index controller is playing');
         await again.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
-        check(await again.inputValue('#hidprofile') === 'device index {\n    a = note 5;\n};\n' &&
-              await postedHas(again, 'midion 65'),
-              'and is kept for the next page, which plays it');
+        const keeps = await again.inputValue('#hidprofile') ===
+                      'device index {\n    a = note 5;\n};\n' &&
+                      await postedHas(again, 'midion 65');
+
+        check(keeps, 'and is kept for the next page, which plays it' +
+              (keeps ? '' : await seen(again, reopened.errors)));
         await again.click('#hidpane summary');
         await again.fill('#hidprofile', 'device index {\n    nonsense = note 0;\n};\n');
         await again.click('#hidreload');

@@ -45,7 +45,7 @@ range (const thcHidBinding &b)
 }
 
 /* One binding's row. channel is the one its layer, or the profile, plays
-   on, 1-16, or 0 for the keyboard's. */
+   on, from 1, or 0 for the keyboard's. */
 static thhPaneRow
 row (const thcHidBinding &b, const std::string &layer, int channel,
      const thhControls &controls, const thhState &now, int curChannel,

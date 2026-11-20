@@ -559,12 +559,16 @@ int main (int argc, char *argv[])
     synthWindow->applyPrefs();
 
     /* `mpe N' in the preferences: an MPE controller's lower zone, folded
-       onto synth channel N. */
-    string **mpe = prefs->Get("mpe");
+       onto engine channel N. */
+    {
+        string why;
+        const int mpe = prefs->mpe(&why);
 
-    if (mpe != NULL && mpe[0] != NULL && atoi(mpe[0]->c_str()) >= 1 &&
-        atoi(mpe[0]->c_str()) <= 16)
-        midiPlay->setMpe(atoi(mpe[0]->c_str()) - 1);
+        if (mpe > 0)
+            midiPlay->setMpe(mpe - 1);
+        else if (!why.empty())
+            fprintf(stderr, "thinkrc: %s\n", why.c_str());
+    }
 
     /* Not make_window_and_run(), and not run(window) either: both of them own
        the window and destroy it when the loop ends, and this window has to

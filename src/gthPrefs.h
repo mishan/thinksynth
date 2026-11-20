@@ -85,6 +85,11 @@ public:
     /* What the last Load could not read, a line each with its number. */
     const vector<string> &badLines (void) const { return badLines_; }
 
+    /* `mpe N': the engine channel, from 1, an MPE controller's lower zone
+       is folded onto; 0 for none, and for a line that names no engine
+       channel, which `why' then says. */
+    int mpe (string *why = NULL);
+
     /* The built-in first-run configuration: a few channels with patches on
        them, named relatively and resolved through the patch search path.
        Called by Load() when there is no configuration file anywhere. Public
