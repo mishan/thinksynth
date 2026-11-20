@@ -30,14 +30,14 @@
 #include <sstream>
 #include <string>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 
 using std::string;
 
 static int failed = 0;
 
 static string
-describe (const thcHidBinding &b)
+describe (const thHidBinding &b)
 {
     std::ostringstream s;
 
@@ -45,23 +45,23 @@ describe (const thcHidBinding &b)
 
     switch (b.kind)
     {
-    case thcHidBinding::NOTE:     s << "note " << b.semis; break;
-    case thcHidBinding::HOLD:     s << "hold " << b.layer; break;
-    case thcHidBinding::TOGGLE:   s << "toggle " << b.layer; break;
-    case thcHidBinding::OCTAVE:   s << "octave " << b.semis; break;
-    case thcHidBinding::VALUE:    s << "value " << b.arg; break;
-    case thcHidBinding::PITCH:
+    case thHidBinding::NOTE:     s << "note " << b.semis; break;
+    case thHidBinding::HOLD:     s << "hold " << b.layer; break;
+    case thHidBinding::TOGGLE:   s << "toggle " << b.layer; break;
+    case thHidBinding::OCTAVE:   s << "octave " << b.semis; break;
+    case thHidBinding::VALUE:    s << "value " << b.arg; break;
+    case thHidBinding::PITCH:
         s << "pitch " << (b.octaves ? "octave" : "semitone") << " " << b.range;
         for (size_t i = 0; i < b.scale.size(); i++)
             s << (i ? "," : " scale ") << b.scale[i];
         break;
-    case thcHidBinding::VELOCITY: s << "velocity"; break;
-    case thcHidBinding::BEND:     s << "bend " << b.range; break;
-    case thcHidBinding::AUX:      s << "aux" << b.semis; break;
-    case thcHidBinding::STRIKE:
+    case thHidBinding::VELOCITY: s << "velocity"; break;
+    case thHidBinding::BEND:     s << "bend " << b.range; break;
+    case thHidBinding::AUX:      s << "aux" << b.semis; break;
+    case thHidBinding::STRIKE:
         s << "strike " << b.semis << " at" << b.at << " off" << b.off;
         break;
-    case thcHidBinding::LOOP:
+    case thHidBinding::LOOP:
         s << "loop " << b.arg << " at" << b.at << " off" << b.off;
         break;
     }
@@ -72,7 +72,7 @@ describe (const thcHidBinding &b)
         s << " min" << b.min;
     if (b.hasMax)
         s << " max" << b.max;
-    if (b.kind == thcHidBinding::VALUE && b.shape == thcHidBinding::EXP)
+    if (b.kind == thHidBinding::VALUE && b.shape == thHidBinding::EXP)
         s << " exp";
     if (b.center)
         s << " center" << b.center;
@@ -89,7 +89,7 @@ describe (const thcHidBinding &b)
 }
 
 static string
-describe (const thcHidBlock &blk)
+describe (const thHidBlock &blk)
 {
     std::ostringstream s;
 
@@ -106,7 +106,7 @@ describe (const thcHidBlock &blk)
 
     for (size_t i = 0; i < blk.layers.size(); i++)
     {
-        const thcHidLayer &l = blk.layers[i];
+        const thHidLayer &l = blk.layers[i];
 
         s << " | layer " << l.name << " ch" << l.channel << " base" << l.base
           << " @" << l.line;
@@ -386,10 +386,10 @@ main (void)
     for (size_t i = 0; i < sizeof(ROWS) / sizeof(ROWS[0]); i++)
     {
         const Row &r = ROWS[i];
-        thcHidBlock blk;
+        thHidBlock blk;
         string err;
         int errLine = -1;
-        bool ok = thcHidParseProfile(r.text, blk, err, errLine);
+        bool ok = thHidParseProfile(r.text, blk, err, errLine);
         string why;
 
         if (r.want && !ok)
@@ -435,11 +435,11 @@ main (void)
 
         for (size_t i = 0; i < sizeof(HANDS) / sizeof(HANDS[0]); i++)
         {
-            std::vector<thcHidBlock> blocks;
+            std::vector<thHidBlock> blocks;
             string err, got;
             int line = -1;
-            const bool ok = thcHidParseProfiles(HANDS[i].text, blocks, err,
-                                                line);
+            const bool ok = thHidParseProfiles(HANDS[i].text, blocks, err,
+                                               line);
 
             for (size_t b = 0; b < blocks.size(); b++)
             {
@@ -463,13 +463,13 @@ main (void)
     }
 
     /* A block read into twice holds the second profile, not both. */
-    thcHidBlock twice;
+    thHidBlock twice;
     string err;
     int errLine;
 
-    thcHidParseProfile("device index { a = note 1; };", twice, err, errLine);
-    if (!thcHidParseProfile("device index { a = note 2; };", twice, err,
-                            errLine) || describe(twice) !=
+    thHidParseProfile("device index { a = note 1; };", twice, err, errLine);
+    if (!thHidParseProfile("device index { a = note 2; };", twice, err,
+                           errLine) || describe(twice) !=
         "index ch0 base60 vel100 | a:note 2 @1")
     {
         printf("FAIL  a block read into twice\n  read as %s\n",

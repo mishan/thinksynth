@@ -150,7 +150,6 @@ set(THINK_COMPOSERHOST_SOURCES
     "${THINK_TOP}/src/thcGenFile.cpp"
     "${THINK_TOP}/src/thcGenEdit.cpp"
     "${THINK_TOP}/src/thcGenDiff.cpp"
-    "${THINK_TOP}/src/thcHidBlock.cpp"
     "${THINK_TOP}/src/thcFreeze.cpp"
     "${THINK_TOP}/src/thcMidiRouter.cpp"
     "${THINK_TOP}/src/thcMidiFile.cpp"

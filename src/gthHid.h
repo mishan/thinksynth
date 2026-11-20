@@ -54,7 +54,7 @@ public:
 
     int controllers () const { return session_.controllers(); }
     std::string handOf (int i) const { return session_.handOf(i); }
-    const thcHidBlock &profileOf (int i) const { return session_.profileOf(i); }
+    const thHidBlock &profileOf (int i) const { return session_.profileOf(i); }
     thhState stateOf (int i) const { return session_.stateOf(i); }
     unsigned generation () const { return session_.generation() + generation_; }
     std::string status () const;

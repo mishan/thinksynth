@@ -547,7 +547,7 @@ bool gthPrefs::parseMidiRoute (const string &text, thMidiRoute &out,
 
         if (whole(w, 0, 127, n))
             return true;
-        if (!thcGenLoader::parseNoteList(w, notes, bad) ||
+        if (!thParseNoteList(w, notes, bad) ||
             notes.size() != 1 || notes[0] < 0 || notes[0] > 127)
             return false;
 

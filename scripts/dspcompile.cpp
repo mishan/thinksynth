@@ -54,7 +54,7 @@
  * With each knob's range, set() turns a knob by name, for what a
  * controller's profile rides. With -c, the patch's controller block for
  * each device named over the device's own, checked against its controls,
- * is profile_DEVICE(): a thcHidBlock a thhMapper plays, so the firmware
+ * is profile_DEVICE(): a thHidBlock a thhMapper plays, so the firmware
  * needn't parse one.
  *
  * It renders what the engine renders, to the bit, for a voice whose knobs
@@ -79,7 +79,7 @@
 #include "config.h"
 #include "think.h"
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thgLife.h"
 #include "thgMarbles.h"
 #include "thhBox.h"
@@ -620,13 +620,13 @@ struct Compiler
 
 /* A binding, as statements filling `b'. */
 static string
-bindingCode (const thcHidBinding &b)
+bindingCode (const thHidBinding &b)
 {
     std::ostringstream s;
     const auto f = [](float v) { return Compiler::literal(v); };
 
-    s << "        b = thcHidBinding();\n"
-      << "        b.kind = (thcHidBinding::Kind)" << (int)b.kind << ";\n"
+    s << "        b = thHidBinding();\n"
+      << "        b.kind = (thHidBinding::Kind)" << (int)b.kind << ";\n"
       << "        b.control = \"" << b.control << "\";\n"
       << "        b.line = " << b.line << ";\n"
       << "        b.semis = " << b.semis << ";\n"
@@ -638,7 +638,7 @@ bindingCode (const thcHidBinding &b)
       << "        b.at = " << f((float)b.at) << "; b.off = " << f((float)b.off) << ";\n"
       << "        b.center = " << f((float)b.center) << "; b.smooth = " << f((float)b.smooth) << ";\n"
       << "        b.latch = " << b.latch << "; b.both = " << b.both << ";\n"
-      << "        b.shape = (thcHidBinding::Shape)" << (int)b.shape << ";\n"
+      << "        b.shape = (thHidBinding::Shape)" << (int)b.shape << ";\n"
       << "        b.patch = " << b.patch << "; b.octaves = " << b.octaves << ";\n"
       << "        b.range = " << b.range << ";\n";
     for (int step : b.scale)
@@ -648,22 +648,22 @@ bindingCode (const thcHidBinding &b)
 
 /* The profile as a function building it. */
 static string
-profileCode (const thcHidBlock &p)
+profileCode (const thHidBlock &p)
 {
     std::ostringstream s;
 
     s << "\n    /* The patch's controller block for " << p.device << ", over its own. */\n"
-      << "    static thcHidBlock profile_" << p.device << " ()\n    {\n"
-      << "        thcHidBlock p;\n        thcHidBinding b;\n\n"
+      << "    static thHidBlock profile_" << p.device << " ()\n    {\n"
+      << "        thHidBlock p;\n        thHidBinding b;\n\n"
       << "        p.device = \"" << p.device << "\";\n"
       << "        p.channel = " << p.channel << ";\n"
       << "        p.base = " << p.base << ";\n"
       << "        p.velocity = " << p.velocity << ";\n";
-    for (const thcHidBinding &b : p.bindings)
+    for (const thHidBinding &b : p.bindings)
         s << bindingCode(b) << "        p.bindings.push_back(b);\n";
-    for (const thcHidLayer &l : p.layers)
+    for (const thHidLayer &l : p.layers)
     {
-        s << "        {\n        thcHidLayer l;\n\n"
+        s << "        {\n        thHidLayer l;\n\n"
           << "        l.name = \"" << l.name << "\";\n"
           << "        l.line = " << l.line << ";\n"
           << "        l.channel = " << l.channel << ";\n"
@@ -672,7 +672,7 @@ profileCode (const thcHidBlock &p)
         for (const auto &w : l.when)
             s << "        l.when.push_back({ \"" << w.first << "\", "
               << Compiler::literal((float)w.second) << " });\n";
-        for (const thcHidBinding &b : l.bindings)
+        for (const thHidBinding &b : l.bindings)
             s << bindingCode(b) << "        l.bindings.push_back(b);\n";
         s << "        p.layers.push_back(l);\n        }\n";
     }
@@ -908,7 +908,7 @@ main (int argc, char **argv)
                 }
 
     /* Each controller block, checked as the app checks one. */
-    std::vector<thcHidBlock> profiles;
+    std::vector<thHidBlock> profiles;
 
     for (size_t from = 0; from < devices.size();)
     {
@@ -922,7 +922,7 @@ main (int argc, char **argv)
         const char *own = device == "box" ? THH_BOX_PROFILE
                         : device == "marbles" ? THG_MARBLES_PROFILE
                         : device == "life" ? THG_LIFE_PROFILE : THH_INDEX_PROFILE;
-        thcHidBlock profile;
+        thHidBlock profile;
         string err;
 
         from = comma == string::npos ? devices.size() : comma + 1;
@@ -1006,7 +1006,7 @@ main (int argc, char **argv)
     }
 
     if (!profiles.empty())
-        printf("#include \"thcHidBlock.h\"\n");
+        printf("#include \"thHidBlock.h\"\n");
     if (engine)
         printf("#include \"think.h\"\n#include \"thCompiled.h\"\n");
     printf("\nstruct thv%s\n{\n    static constexpr float rate = %d;\n"
@@ -1201,7 +1201,7 @@ main (int argc, char **argv)
     printf("            sounding = %s;\n            if (play)\n                play[i] = sounding;\n"
            "        }\n        return sounding > 0;\n    }\n",
            play.text.c_str());
-    for (const thcHidBlock &p : profiles)
+    for (const thHidBlock &p : profiles)
         printf("%s", profileCode(p).c_str());
     if (engine)
         printf("%s", engineCode(c, name, once, outs.size(), tree->fingerprint()).c_str());

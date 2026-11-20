@@ -202,7 +202,7 @@ thgLife::cellAt (float x, float y, float w, float h, int &col, int &row)
 }
 
 bool
-thgLifePlayer::configure (const thcHidBlock &profile, std::vector<thhAction> &out,
+thgLifePlayer::configure (const thHidBlock &profile, std::vector<thhAction> &out,
                           std::string &err, int &errLine)
 {
     for (int r = 0; r < thgLife::ROWS; r++)

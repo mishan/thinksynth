@@ -234,7 +234,7 @@ eraseStmt (const std::string &text, size_t a, size_t b)
 /* A lenient scan: the files this operates on have already been through
  * the loader, so shape surprises mean "leave it alone", not "guess". */
 
-typedef thcGenToken Tok;
+typedef thWordToken Tok;
 
 struct PIdx
 {
@@ -505,7 +505,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     std::string err;
     int errLine = 0;
 
-    if (!thcGenLoader::tokenize(text, t, err, errLine))
+    if (!thWordTokenize(text, t, err, errLine))
     {
         std::ostringstream s;
 
@@ -1523,7 +1523,7 @@ validValueText (const std::string &rhs, bool sums = true)
     std::string err;
     int line;
 
-    if (!thcGenLoader::tokenize(rhs, t, err, line))
+    if (!thWordTokenize(rhs, t, err, line))
         return false;
 
     size_t n = t.size() - 1;             /* END excluded                 */
@@ -1554,7 +1554,7 @@ isExpressionText (const std::string &rhs)
     std::string err;
     int line;
 
-    if (!thcGenLoader::tokenize(rhs, t, err, line))
+    if (!thWordTokenize(rhs, t, err, line))
         return false;
 
     for (size_t i = 0; i + 1 < t.size(); i++)
@@ -1596,7 +1596,7 @@ substituteKnob (const std::string &text, const std::string &name,
     std::string err;
     int line;
 
-    if (!thcGenLoader::tokenize(text, t, err, line))
+    if (!thWordTokenize(text, t, err, line))
         return false;
 
     std::string built;
@@ -2330,7 +2330,7 @@ thcGenEdit::addScale (const std::string &filename, const std::string &name,
     std::vector<int> resolved;
     std::string bad;
 
-    if (!thcGenLoader::parseNoteList(notes, resolved, bad))
+    if (!thParseNoteList(notes, resolved, bad))
     {
         why = "'" + bad + "' is not a note name";
         return REFUSED;
@@ -2377,7 +2377,7 @@ thcGenEdit::setScale (const std::string &filename, const std::string &name,
     std::vector<int> resolved;
     std::string bad;
 
-    if (!thcGenLoader::parseNoteList(notes, resolved, bad))
+    if (!thParseNoteList(notes, resolved, bad))
     {
         why = "'" + bad + "' is not a note name";
         return REFUSED;
@@ -4562,7 +4562,7 @@ thcGenEdit::setParam (const std::string &filename, const std::string &chain,
     std::string err;
     int line;
 
-    thcGenLoader::tokenize(valueText, vt, err, line);
+    thWordTokenize(valueText, vt, err, line);
 
     for (const Tok &k : vt)
         for (const SinkIdx &sk : c->sinks)

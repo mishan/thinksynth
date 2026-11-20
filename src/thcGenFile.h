@@ -27,36 +27,13 @@
 
 #include "thExpr.h"
 #include "thLexer.h"
+#include "thWords.h"
 
 class thArg;
 class thcPlugin;
 class thcScheduler;
 struct thcStage;
 struct thcInstrument;
-
-/* One token of .gen source, with its byte span. Public rather than a
- * loader detail because thcGenEdit splices files by replacing exact
- * token spans -- the same lexer feeds the reader and the writer, which
- * is what guarantees an edit never moves a byte it was not aimed at
- * (comments included; they live between the spans).
- *
- * Not thLexToken itself, though it is built from one. The shared lexer
- * is deliberately language-neutral: it hands back `-' and `5' as two
- * tokens because .dsp has arithmetic, and `@' and `density' as two
- * because .dsp has an operator there. .gen has neither, and its parser
- * is much clearer reading a NUMBER of -5 and a KNOB called density than
- * re-deciding that at every call site. tokenize() below is where the
- * one shape becomes the other. */
-struct thcGenToken
-{
-    enum Kind { WORD, NUMBER, STRING, KNOB, PUNCT, MODSEP, END } kind;
-
-    std::string text;    /* WORD/STRING body/KNOB name, PUNCT char      */
-    double      num;
-    int         line;
-    size_t      off;     /* where the token starts in the source        */
-    size_t      end;     /* one past where it stops (quotes included)   */
-};
 
 /* Loads a .gen file into a scheduler. See docs/GEN_FORMAT.md for the language.
  *
@@ -71,8 +48,8 @@ struct thcGenToken
  * a token. It is now the flex lexer itself, extracted into libthink as
  * thLexer.h and taught to hand back tokens with byte offsets. `#'
  * comments, `;', `=', `::', `{ }', quoted strings and numeric literals
- * are one implementation for both languages, and tokenize() below is a
- * short adapter rather than a second scanner.
+ * are one implementation for both languages, and thWordTokenize (thWords.h)
+ * is a short adapter rather than a second scanner.
  *
  * Everything is validated by name and line: a stage asking gen:: of a
  * plugin that exports no tick, a param the plugin never registered, a
@@ -124,15 +101,9 @@ public:
     bool     hasSeed (void) const { return hasSeed_; }
     unsigned seed (void) const { return seed_; }
 
-    /* The one shared pitch parser the format promises: "F3 Ab3 C4" or
-       "F3,Ab3,C4" to MIDI numbers. [A-G], optional # or b, octave;
-       middle C is C4. On failure `bad' holds the offending token. */
-    static bool parseNoteList (const std::string &text,
-                               std::vector<int> &out, std::string &bad);
-
-    /* The inverse, for anything writing note text: 60 -> "C4". Flats
-       for the black keys, because that is how the shipped piece spells
-       them. Empty for a value off the MIDI range. */
+    /* thParseNoteList's inverse, for anything writing note text: 60 ->
+       "C4". Flats for the black keys, because that is how the shipped
+       piece spells them. Empty for a value off the MIDI range. */
     static std::string noteName (int midi);
 
     /* The name an instrument's inline graph -- `dsp { ... }' -- is loaded
@@ -144,21 +115,8 @@ public:
     static std::string inlineGraphName (const std::string &instrument,
                                         const std::string &body);
 
-    /* The lexical layer in .gen's shape: `out' gets an END-terminated
-       token stream with byte spans. False on a lexical error, with `err'
-       and `errLine' saying what and where. thcGenEdit shares this, which
-       is what keeps "the editor and the loader read the same language"
-       true by construction; thLexString does the scanning under it,
-       which is what keeps that language the same one .dsp is written in.
-       `raw', if given, gets thLexString's own stream, which is what .dsp's
-       expression reader walks. */
-    static bool tokenize (const std::string &text,
-                          std::vector<thcGenToken> &out,
-                          std::string &err, int &errLine,
-                          std::vector<thLexToken> *raw = NULL);
-
 private:
-    typedef thcGenToken Token;
+    typedef thWordToken Token;
 
     bool lex (const std::string &path, std::vector<Token> &out);
 

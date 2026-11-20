@@ -130,12 +130,12 @@ main (void)
     for (size_t i = 0; i < sizeof(ROWS) / sizeof(ROWS[0]); i++)
     {
         const Row &r = ROWS[i];
-        thcHidBlock blk;
+        thHidBlock blk;
         thhState s;
         string err;
         int line;
 
-        if (!thcHidParseProfile(r.profile, blk, err, line))
+        if (!thHidParseProfile(r.profile, blk, err, line))
         {
             printf("FAIL  %s\n  doesn't parse: %s\n", r.name, err.c_str());
             failed++;

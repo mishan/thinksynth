@@ -25,7 +25,7 @@
 #include <cstdio>
 #include <string>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thgMarbles.h"
 #include "thhBox.h"
 #include "thhMapper.h"
@@ -200,13 +200,13 @@ main ()
     /* The game's own profile: a peg mid-screen is C5, harder louder; a
        wall is a note on channel 2, for a percussion patch there. */
     {
-        thcHidBlock p;
+        thHidBlock p;
         thhMapper m;
         thhState st;
         std::vector<thhAction> acts;
         std::string err;
         int line;
-        bool ok = thcHidParseProfile(THG_MARBLES_PROFILE, p, err, line) &&
+        bool ok = thHidParseProfile(THG_MARBLES_PROFILE, p, err, line) &&
                   m.configure(p, thgMarblesControls(), acts, err, line);
         int peg = 0, wall = 0;
 

@@ -23,7 +23,7 @@
 #include <string>
 #include <vector>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhControls.h"
 
 /* What the controller pane shows, without a toolkit: a row per binding,
@@ -41,7 +41,7 @@ struct thhPaneRow
 /* curChannel is the keyboard's, 0-based; hasArg says whether a channel's
    patch has a knob of that name. */
 std::vector<thhPaneRow>
-thhPaneRows (const thcHidBlock &profile, const thhControls &controls,
+thhPaneRows (const thHidBlock &profile, const thhControls &controls,
              const thhState &now, int curChannel,
              const std::function<bool (int, const std::string &)> &hasArg);
 
@@ -55,7 +55,7 @@ public:
        for one playing alone), what it plays and what it is doing now. */
     virtual int controllers () const = 0;
     virtual std::string handOf (int i) const = 0;
-    virtual const thcHidBlock &profileOf (int i) const = 0;
+    virtual const thHidBlock &profileOf (int i) const = 0;
     virtual thhState stateOf (int i) const = 0;
     virtual unsigned generation () const = 0;   /* bumped as any of it changes */
     virtual std::string status () const = 0;

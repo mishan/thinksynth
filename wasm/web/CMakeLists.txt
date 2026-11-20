@@ -375,9 +375,7 @@ add_executable(thinkhid thinkhid.cpp
     "${THINK_TOP}/hid/thhMapper.cpp"
     "${THINK_TOP}/hid/thhPane.cpp"
     "${THINK_TOP}/hid/thhProfile.cpp"
-    "${THINK_TOP}/hid/thhSession.cpp"
-    "${THINK_TOP}/src/thcHidBlock.cpp"
-    "${THINK_TOP}/src/thcGenFile.cpp")
+    "${THINK_TOP}/hid/thhSession.cpp")
 target_include_directories(thinkhid PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkhid PRIVATE think_objects sigc)
 set_target_properties(thinkhid PROPERTIES SUFFIX ".js")

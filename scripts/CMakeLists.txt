@@ -30,8 +30,7 @@ function(think_harness name)
     list(APPEND sources $<TARGET_OBJECTS:think_composerhost>)
   endif()
 
-  # The HID controller library (hid/). Wants COMPOSERHOST beside it, for the
-  # profile reader it is built on.
+  # The HID controller library (hid/), on libthink alone.
   if(H_HID)
     list(APPEND sources $<TARGET_OBJECTS:think_hid>)
   endif()
@@ -250,7 +249,7 @@ think_harness(exprcheck NODEMODEL)
 think_harness(historycheck NODEMODEL)
 
 # A .dsp compiled to a voice of kernels, run a sample at a time.
-think_harness(dspcompile COMPOSERHOST HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgMarbles.cpp"
+think_harness(dspcompile HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgMarbles.cpp"
               "${PROJECT_SOURCE_DIR}/game/thgLife.cpp")
 target_include_directories(dspcompile PRIVATE "${PROJECT_SOURCE_DIR}/game")
 
@@ -402,17 +401,17 @@ add_test(NAME dspcompile.noise
                  "${CMAKE_CURRENT_SOURCE_DIR}/compiled/noise.dsp" Noise)
 set_tests_properties(dspcompile.noise PROPERTIES
                      PASS_REGULAR_EXPRESSION "noise is an osc::noise, which a compiled graph can't")
-think_harness(compilecheck COMPOSERHOST HID EXTRA ${THINK_COMPILED_VOICES})
+think_harness(compilecheck HID EXTRA ${THINK_COMPILED_VOICES})
 target_include_directories(compilecheck PRIVATE "${THINK_COMPILED}"
                            "${PROJECT_SOURCE_DIR}/plugins")
 
 # Marbles and pegs: its physics, taps and shakes (game/thgMarbles.h).
-think_harness(gamecheck COMPOSERHOST HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgMarbles.cpp")
+think_harness(gamecheck HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgMarbles.cpp")
 target_include_directories(gamecheck PRIVATE "${PROJECT_SOURCE_DIR}/game")
 
 # Life as a step sequencer: the rule, the playhead, painting, and the
 # chords its controls play (game/thgLife.h).
-think_harness(lifecheck COMPOSERHOST HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgLife.cpp")
+think_harness(lifecheck HID EXTRA "${PROJECT_SOURCE_DIR}/game/thgLife.cpp")
 target_include_directories(lifecheck PRIVATE "${PROJECT_SOURCE_DIR}/game")
 
 # The plugins' kernels against the arithmetic they stand for (thKernel.h).
@@ -464,11 +463,11 @@ think_harness(wavcheck)
 # changed copies of every shipped file.
 think_harness(parsecheck COMPOSERHOST)
 
-# What a HID controller's mapping block says (src/thcHidBlock.h).
-think_harness(hidblockcheck COMPOSERHOST)
+# What a HID controller's mapping block says (libthink/thHidBlock.h).
+think_harness(hidblockcheck)
 
 # What a HID controller's profile does with its controls (hid/thhMapper.h).
-think_harness(hidmapcheck COMPOSERHOST HID)
+think_harness(hidmapcheck HID)
 
 # One held note's pitch and aux values moved while it sounds
 # (thSynth::bendNote, setNoteAux).
@@ -482,39 +481,39 @@ think_harness(mpecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiPlay.cpp")
 think_harness(routecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiPlay.cpp")
 
 # Loops of the notes the hands play (hid/thhLooper.h).
-think_harness(hidloopcheck COMPOSERHOST HID)
+think_harness(hidloopcheck HID)
 # The BOX's pose from its IMU, leveled where it rests (hid/thhBox.h).
-think_harness(boxcheck COMPOSERHOST HID)
+think_harness(boxcheck HID)
 
 # What the controller pane says about a profile (hid/thhPane.h).
-think_harness(hidpanecheck COMPOSERHOST HID)
+think_harness(hidpanecheck HID)
 
 # What the Index controller's reports mean, against a capture (hid/thhIndex.h).
-think_harness(hidcheck COMPOSERHOST HID)
+think_harness(hidcheck HID)
 
 # A webcam's motion as a controller's buttons and axes (hid/thhCamera.h).
-think_harness(hidcamcheck COMPOSERHOST HID)
-think_harness(hidhandcheck COMPOSERHOST HID)
+think_harness(hidcamcheck HID)
+think_harness(hidhandcheck HID)
 
 # A profile found or not, and a controller's actions on a real synth
 # (hid/thhPlay.h).
-think_harness(hidplaycheck COMPOSERHOST HID)
+think_harness(hidplaycheck HID)
 
 # One controller or a pair, as the desktop and the browser play them
 # (hid/thhSession.h).
-think_harness(sessioncheck COMPOSERHOST HID)
+think_harness(sessioncheck HID)
 
 # What the session asks to play for the captures, for wasm/web/hidcheck.mjs
 # to hold the browser's build of it to (hid/thhHost.h).
-think_harness(hidactions COMPOSERHOST HID)
+think_harness(hidactions HID)
 
 # Finding a controller and reading it on a thread (hid/thhReader.h), which
 # is Linux's.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # Whether a controller's decoded orientation is its real one, posed by
   # hand (hid/thhIndex.h); needs the controllers, so it is no test.
-  think_harness(hidpose COMPOSERHOST HID)
-  think_harness(hidreadcheck COMPOSERHOST HID)
+  think_harness(hidpose HID)
+  think_harness(hidreadcheck HID)
   add_test(NAME hidreadcheck
            COMMAND hidreadcheck
                    "${PROJECT_SOURCE_DIR}/scripts/hid/index-descriptors.txt")
@@ -834,10 +833,9 @@ think_harness(lufscheck)
 think_harness(midicheck COMPOSERHOST)
 
 # The lexical layer .dsp and .gen now share: kinds, lines, byte spans, what it
-# refuses, and that .gen's tokenize() is still an adapter over that scan
-# rather than a second scanner growing back. Needs the composer host only to
-# reach thcGenLoader::tokenize.
-think_harness(lexcheck COMPOSERHOST THREADS)
+# refuses, and that .gen's thWordTokenize is still an adapter over that scan
+# rather than a second scanner growing back.
+think_harness(lexcheck THREADS)
 
 # The two hosts, diffed. Same graph, same rate, same plugin binaries, cut into
 # windows of one and into a window of two hundred -- which is the difference

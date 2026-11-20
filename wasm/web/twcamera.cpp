@@ -41,7 +41,7 @@
 
 #include <emscripten.h>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhCamera.h"
 #include "thhMapper.h"
 
@@ -120,7 +120,7 @@ extern "C" {
    is wrong, which would be this build's fault. */
 EMSCRIPTEN_KEEPALIVE const char *tc_start (void)
 {
-    thcHidBlock profile;
+    thHidBlock profile;
     std::vector<thhAction> none;
     int line = 0;
 
@@ -129,7 +129,7 @@ EMSCRIPTEN_KEEPALIVE const char *tc_start (void)
     camera_ = thhCamera();
     buttons_ = 0;
     motion_.reset();
-    if (thcHidParseProfile(THH_CAMERA_PROFILE, profile, said_, line))
+    if (thHidParseProfile(THH_CAMERA_PROFILE, profile, said_, line))
         mapper_.configure(profile, thhCameraControls(), none, said_, line);
 
     return said_.c_str();

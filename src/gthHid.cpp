@@ -218,7 +218,7 @@ gthHid::reload (std::string &err)
 
     /* The channel the profile plays, without the patch's block: the block
        is the one of the patch on that channel. */
-    thcHidBlock base;
+    thHidBlock base;
     std::string ignored;
 
     thhLoadProfileText(text, path_, thhIndexControls(), THH_INDEX_PROFILE, "",

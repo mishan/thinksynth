@@ -16,6 +16,7 @@ set(THINK_SOURCES
     thArrays.cpp
     thDspParser.cpp
     thExpr.cpp
+    thHidBlock.cpp
     thChanEffect.cpp
     thMidiChan.cpp
     thMidiNote.cpp
@@ -34,6 +35,7 @@ set(THINK_SOURCES
     thVideoSynth.cpp
     thSynth.cpp
     thUtil.cpp
+    thWords.cpp
     ${FLEX_ThinkLexer_OUTPUTS})
 
 # How a plugin is found and opened: dlopen here, a table the build generated

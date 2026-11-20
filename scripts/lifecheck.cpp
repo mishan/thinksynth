@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thgLife.h"
 #include "thhMapper.h"
 
@@ -284,12 +284,12 @@ main ()
        playhead leaves the column, and struck again by the next column's
        cell in the same row. */
     {
-        thcHidBlock p;
+        thHidBlock p;
         thgLifePlayer player;
         std::vector<thhAction> acts;
         std::string err, got;
         int line;
-        const bool ok = thcHidParseProfile(THG_LIFE_PROFILE, p, err, line) &&
+        const bool ok = thHidParseProfile(THG_LIFE_PROFILE, p, err, line) &&
                         player.configure(p, acts, err, line);
         /* Rows 0, 2, 4 and 7 in column 0; row 2 again in column 1. */
         thgLife l = from("O///O//OO//O");

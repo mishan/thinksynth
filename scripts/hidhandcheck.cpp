@@ -31,7 +31,7 @@
 #include <string>
 #include <vector>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhHandTrack.h"
 #include "thhMapper.h"
 
@@ -220,12 +220,12 @@ main (void)
     play({ { 1.25, { { 0.3f, 0.5f, OPEN, "", 0 } }, false } }, &time);
     report("a state says when it was", std::to_string(time), std::to_string(1.25));
 
-    thcHidBlock profile;
+    thHidBlock profile;
     thhMapper mapper;
     std::vector<thhAction> acts;
     string err;
     int line = 0;
-    const bool bound = thcHidParseProfile(THH_HANDS_PROFILE, profile, err, line) &&
+    const bool bound = thHidParseProfile(THH_HANDS_PROFILE, profile, err, line) &&
                        mapper.configure(profile, thhHandsControls(), acts, err, line);
 
     report("the hands' own profile binds", bound ? "" : err, "");

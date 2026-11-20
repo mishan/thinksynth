@@ -36,7 +36,7 @@ signedInt (int v)
 }
 
 static std::string
-range (const thcHidBinding &b)
+range (const thHidBinding &b)
 {
     if (!b.hasMin && !b.hasMax)
         return "";
@@ -47,7 +47,7 @@ range (const thcHidBinding &b)
 /* One binding's row. channel is the one its layer, or the profile, plays
    on, from 1, or 0 for the keyboard's. */
 static thhPaneRow
-row (const thcHidBinding &b, const std::string &layer, int channel,
+row (const thHidBinding &b, const std::string &layer, int channel,
      const thhControls &controls, const thhState &now, int curChannel,
      const std::function<bool (int, const std::string &)> &hasArg)
 {
@@ -66,34 +66,34 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
 
     switch (b.kind)
     {
-    case thcHidBinding::NOTE:
+    case thHidBinding::NOTE:
         r.action = "note " + signedInt(b.semis) + (b.latch ? ", latched" : "");
         r.target = where;
         break;
-    case thcHidBinding::STRIKE:
+    case thHidBinding::STRIKE:
         r.action = "strike " + signedInt(b.semis) + " at " + number(b.at);
         r.target = where;
         break;
-    case thcHidBinding::BEND:
+    case thHidBinding::BEND:
         r.action = "bend held notes, " + std::to_string(b.range) +
                    " semitones" + (axis >= 0 && controls.axes[axis].bipolar
                                    ? " either way" : " up");
         break;
-    case thcHidBinding::AUX:
+    case thHidBinding::AUX:
         r.action = "aux" + std::to_string(b.semis) + " of held notes" + range(b);
         break;
-    case thcHidBinding::OCTAVE:
+    case thHidBinding::OCTAVE:
         r.action = "octave " + signedInt(b.semis);
         break;
-    case thcHidBinding::HOLD:
-    case thcHidBinding::TOGGLE:
-        r.action = std::string(b.kind == thcHidBinding::HOLD ? "hold"
-                                                             : "toggle") +
+    case thHidBinding::HOLD:
+    case thHidBinding::TOGGLE:
+        r.action = std::string(b.kind == thHidBinding::HOLD ? "hold"
+                                                            : "toggle") +
                    " layer " + b.layer;
         break;
-    case thcHidBinding::VALUE:
+    case thHidBinding::VALUE:
         r.action = "knob " + b.arg + range(b) +
-                   (b.shape == thcHidBinding::EXP ? ", exp" : "") +
+                   (b.shape == thHidBinding::EXP ? ", exp" : "") +
                    (b.smooth ? ", smoothed over " + number(b.smooth) + " s"
                              : "");
         r.target = where;
@@ -102,7 +102,7 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
                             : "the keyboard's channel") +
                         "'s patch has no knob '" + b.arg + "'";
         break;
-    case thcHidBinding::PITCH:
+    case thHidBinding::PITCH:
     {
         const bool both = axis >= 0 && controls.axes[axis].bipolar;
         const std::string unit = !b.scale.empty() ? " degree"
@@ -115,10 +115,10 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
                    (both ? " either way" : " up");
         break;
     }
-    case thcHidBinding::VELOCITY:
+    case thHidBinding::VELOCITY:
         r.action = "velocity" + range(b);
         break;
-    case thcHidBinding::LOOP:
+    case thHidBinding::LOOP:
         r.action = "loop " + b.arg + (axis >= 0 ? " at " + number(b.at) : "");
         if (b.arg == "record")
             r.target = where;
@@ -137,7 +137,7 @@ row (const thcHidBinding &b, const std::string &layer, int channel,
 }
 
 std::vector<thhPaneRow>
-thhPaneRows (const thcHidBlock &profile, const thhControls &controls,
+thhPaneRows (const thHidBlock &profile, const thhControls &controls,
              const thhState &now, int curChannel,
              const std::function<bool (int, const std::string &)> &hasArg)
 {
@@ -149,7 +149,7 @@ thhPaneRows (const thcHidBlock &profile, const thhControls &controls,
 
     for (size_t l = 0; l < profile.layers.size(); l++)
     {
-        const thcHidLayer &layer = profile.layers[l];
+        const thHidLayer &layer = profile.layers[l];
 
         for (size_t i = 0; i < layer.bindings.size(); i++)
             rows.push_back(row(layer.bindings[i], layer.name,
