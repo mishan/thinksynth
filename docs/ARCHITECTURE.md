@@ -562,6 +562,67 @@ Song Position and Continue as the transport starts and stops
 (`clockStart`); the output sends them to the ports chosen for clock, raw,
 at their stamps plus the delay.
 
+### Engine channels and MIDI channels
+
+An engine channel is a slot that holds an instrument: there are
+`TH_ENGINE_CHANNELS` (64, libthink/think.h), counted from 0 in the code and
+from 1 wherever a person reads or writes one. A MIDI channel is a status
+byte's low nibble: `TH_MIDI_CHANNELS` (16). They are different numbers and
+the code keeps them apart.
+
+Engine channels: thSynth's slots, a `thcEvent`'s channel, a sink's
+`channel = N`, the desktop's patch slots and channel lists, the keys'
+channel on both hosts, a HID profile's `channel`, `mpe N` in thinkrc, a jam
+room's seats. MIDI channels: an instrument's `midichannel`, MIDI Map's
+source channel, gthMidiPlay's per-channel bend and MPE state, the bytes
+`thcMidiRouter` and `gthMidiOut` send, a MIDI file's channels.
+
+A host can hold fewer instruments than the engine. `thcGenLoader`
+allocates up to `setChannelLimit`, `TH_ENGINE_CHANNELS` unless the host says
+less; the ESP32 box passes its 16, and builds thhMapper with
+`THH_CHANNELS=16`, so a profile naming a channel past 16 plays the host's
+channel there.
+
+### Live MIDI input routing
+
+`thMidiRoutes` (libthink) says which engine channels a note from a MIDI
+channel plays. It has two layers, machine over piece, and a base. For each
+MIDI channel the highest layer that names it decides all of it: its routes
+whose key range takes the note play it, and a route whose engine channel is
+`off` (-1) plays nothing. A MIDI channel no layer names goes to the base:
+identity on the desktop (MIDI channel m plays engine channel m), omni on the
+web (every MIDI channel plays the page's key channel). On the desktop an
+engine channel past the sixteenth hears live input only where a route sends
+it.
+
+The piece layer is the loaded piece's `midiin` lines
+([GEN_FORMAT.md](GEN_FORMAT.md#live-midi-input)), set whenever a piece is
+parsed or loaded and emptied when there is none. The machine layer is
+`midiroute` lines in thinkrc, edited in the MIDI routing pane, on the
+desktop, and the MIDI routes table, kept in localStorage, on the page.
+
+gthMidiPlay (desktop) and midi.js (web) record, for each held key on each
+MIDI channel, the engine channels its note-on reached. Its note-off goes
+there, and on the desktop so do its bend and, with MPE, its pressure and
+timbre, so a route changed while a key is held strands nothing. A second
+note-on for a held key goes where the first went on the desktop and is
+dropped on the web. A sustain pedal MIDI Map does not take goes down where
+its MIDI channel reaches, and comes up where it went down and where it
+reaches now; each engine channel counts the pedals holding it and comes up
+when the last lets go. On the desktop with MPE on, the zone folds onto its
+one channel whatever the routes say. In a jam room live input plays your
+own seat, and no routes apply.
+
+### MIDI files past sixteen channels
+
+A MIDI file has sixteen channels per port, so `thcMidiFile` (the desktop's
+and the page's Export MIDI, `genwav --midi`) writes engine channel e on
+MIDI channel e % 16 of port e / 16. A track on a port past the first starts
+with a MIDI Port meta event (FF 21), and a chain whose notes reach two ports
+is a track on each. A piece whose channels are all on the first port writes
+no port events. A take's MIDI on the page (takes.js) maps channels the same
+way.
+
 ## Plugin linkage
 
 A plugin exports `apiversion`, `module_init`, `module_callback` and

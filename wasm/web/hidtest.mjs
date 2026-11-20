@@ -230,6 +230,20 @@ const open = async (given, context = null) =>
 const statusIs = (page, text) => page.waitForFunction(
     (t) => document.getElementById('hidstatus').textContent.includes(t), text,
     { timeout: 10000 }).then(() => true, () => false);
+/* The pane fills in for a while after it opens, moving Reload down the page:
+   a click aimed at it before it is still lands on whatever is there. */
+const reload = async (page) =>
+{
+    await page.waitForFunction(() =>
+    {
+        const y = document.getElementById('hidreload').getBoundingClientRect().y;
+        const still = y === window.reloadAt;
+
+        window.reloadAt = y;
+        return still;
+    }, null, { polling: 200, timeout: 5000 });
+    await page.click('#hidreload');
+};
 const postedHas = (page, text) => page.waitForFunction(
     (t) => window.posted.includes(t), text, { timeout: 5000 }).then(() => true, () => false);
 
@@ -445,7 +459,7 @@ try
         await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x00]));
 
         await page.fill('#hidprofile', 'device index {\n    a = note 5;\n};\n');
-        await page.click('#hidreload');
+        await reload(page);
         await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
         const plays = await postedHas(page, 'midion 65');
 
@@ -467,7 +481,7 @@ try
               (keeps ? '' : await seen(again, reopened.errors)));
         await again.click('#hidpane summary');
         await again.fill('#hidprofile', 'device index {\n    nonsense = note 0;\n};\n');
-        await again.click('#hidreload');
+        await reload(again);
 
         const said = await again.textContent('#hidproblem');
         const where = /your profile:2/.test(said);

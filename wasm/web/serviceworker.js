@@ -23,9 +23,11 @@
  * of it and writes the result to the build directory as sw.js. FILES is
  * every file either page can ask for -- the solo page and the room page,
  * their modules, the wasm, and every .dsp, .gen and .patch with the
- * indexes naming them. KEPT is what only a page with a controller asks
- * for, kept the first time it does. VERSION is a hash of both lists'
- * contents. A build that
+ * indexes naming them. KEPT is what only a page with a controller or a
+ * camera's theremin asks for, kept the first time it does, by its hash and
+ * across builds: the hand tracker is 23 MB, and a deploy that changed none
+ * of it shouldn't have it downloaded again. VERSION is a hash of both
+ * lists' contents. A build that
  * changes any of them changes sw.js, and a changed sw.js is the only thing
  * that makes a browser install a new worker.
  *
@@ -59,6 +61,9 @@ const CACHE = PREFIX + VERSION;
 /* The sample packs somebody downloaded (packs.js), which belong to no
    build and outlive every one. */
 const PACKS = PREFIX + 'packs';
+/* KEPT's files, each under its URL and hash, which outlive a build that
+   still lists them. */
+const KEEP = PREFIX + 'kept';
 
 /* Every precached file by absolute URL, without a query; and every file
    kept the first time it is asked for instead, in the same cache, which
@@ -66,6 +71,7 @@ const PACKS = PREFIX + 'packs';
 const PRECACHED = new Set(FILES.map((f) => new URL(f, self.location).href));
 const KEPT_URLS = new Map(KEPT.map((f) =>
     [new URL(f, self.location).href, KEPT_SHA256[f]]));
+const keptKey = (url) => `${url}?sha256=${KEPT_URLS.get(url)}`;
 
 const hex = (bytes) => [...new Uint8Array(bytes)]
     .map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -90,8 +96,22 @@ self.addEventListener('activate', (e) =>
     {
         for (const name of await caches.keys())
         {
-            if (name.startsWith(PREFIX) && name !== CACHE && name !== PACKS)
+            if (name.startsWith(PREFIX) && name !== CACHE && name !== PACKS &&
+                name !== KEEP)
                 await caches.delete(name);
+        }
+
+        /* And of what was kept, what this build no longer lists. */
+        if (await caches.has(KEEP))
+        {
+            const keep = await caches.open(KEEP);
+            const listed = new Set([...KEPT_URLS.keys()].map(keptKey));
+
+            for (const r of await keep.keys())
+            {
+                if (!listed.has(r.url))
+                    await keep.delete(r);
+            }
         }
 
         /* The first install has no old version to disagree with: the page
@@ -162,9 +182,9 @@ self.addEventListener('fetch', (e) =>
 
     if (KEPT_URLS.has(key))
     {
-        e.respondWith(caches.open(CACHE).then(async (cache) =>
+        e.respondWith(caches.open(KEEP).then(async (cache) =>
         {
-            const hit = await cache.match(key);
+            const hit = await cache.match(keptKey(key));
 
             if (hit)
                 return hit;
@@ -186,7 +206,7 @@ self.addEventListener('fetch', (e) =>
                 return new Response('another build', { status: 503 });
 
             /* Not kept, if the browser has no room: played anyway. */
-            await cache.put(key, got.clone()).catch(() => {});
+            await cache.put(keptKey(key), got.clone()).catch(() => {});
             return got;
         }));
         return;

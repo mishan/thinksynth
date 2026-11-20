@@ -23,8 +23,8 @@
  * The page draws each frame small and hands its luma here: thMotion reads
  * it, thhCamera makes a controller's state of it, and thhMapper plays the
  * camera's own profile, as the desktop plays it (hid/thhCamera.h). What
- * comes back is the notes, in order, and the zones' levels for the page to
- * light.
+ * comes back is the notes, in order, the zones' levels for the page to
+ * light, and the zones struck, for the camera view to flash.
  *
  * NOTES ONLY. A profile's values ride a patch's args in the args' own
  * ranges, which this realm has no patch to ask; the camera's own profile
@@ -36,6 +36,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <emscripten.h>
@@ -51,9 +52,13 @@ thhCamera                 camera_;
 thhMapper                 mapper_;
 std::vector<uint8_t>      luma_;
 std::string               said_;
+uint32_t                  buttons_;
+std::vector<std::pair<int, float>> hits_;
 
-/* {"notes":[[note,velocity],...],"zones":[...]}: a velocity of 0 lets the
-   note go. */
+/* {"notes":[[note,velocity],...],"zones":[...],"hits":[[zone,strike],...],
+   "down":bits}: a velocity of 0 lets the note go; a zone 0..8, struck as
+   hard as strike, 0..1; bit z set while zone z has struck and not yet gone
+   still, when it can't strike again. */
 const char *
 say (const std::vector<thhAction> &acts, const float *zones)
 {
@@ -72,7 +77,17 @@ say (const std::vector<thhAction> &acts, const float *zones)
         snprintf(level, sizeof(level), "%s%.3f", z ? "," : "", zones ? zones[z] : 0.0f);
         said_ += level;
     }
-    said_ += "]}";
+    said_ += "],\"hits\":[";
+    for (size_t i = 0; i < hits_.size(); i++)
+    {
+        char hit[32];
+
+        snprintf(hit, sizeof(hit), "%s[%d,%.3f]", i ? "," : "",
+                 hits_[i].first, hits_[i].second);
+        said_ += hit;
+    }
+    said_ += "],\"down\":" +
+             std::to_string((buttons_ >> THH_CAMERA_HIT1) & 0x1ff) + "}";
 
     return said_.c_str();
 }
@@ -83,9 +98,18 @@ play (const float *axes, double seconds, bool connected,
 {
     std::vector<thhState> states;
 
+    hits_.clear();
     camera_.update(axes, seconds, connected, states);
     for (const auto &s : states)
+    {
+        const uint32_t down = s.buttons & ~buttons_;
+
+        for (int z = 0; z < 9; z++)
+            if (down & (1u << (THH_CAMERA_HIT1 + z)))
+                hits_.push_back({ z, s.axis[THH_CAMERA_STRIKE] });
+        buttons_ = s.buttons;
         mapper_.update(s, 0, acts);
+    }
 }
 
 } /* namespace */
@@ -103,6 +127,7 @@ EMSCRIPTEN_KEEPALIVE const char *tc_start (void)
     said_.clear();
     mapper_ = thhMapper();
     camera_ = thhCamera();
+    buttons_ = 0;
     motion_.reset();
     if (thcHidParseProfile(THH_CAMERA_PROFILE, profile, said_, line))
         mapper_.configure(profile, thhCameraControls(), none, said_, line);
@@ -124,6 +149,7 @@ EMSCRIPTEN_KEEPALIVE const char *tc_feed (int width, int height,
 {
     std::vector<thhAction> acts;
 
+    hits_.clear();
     if (width < 3 || height < 3 || luma_.size() != (size_t)width * height)
         return say(acts, NULL);
 

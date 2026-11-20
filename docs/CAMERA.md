@@ -8,7 +8,14 @@ loud as the strike was quick. On the web page for now.
 
 Start the synth, then press **Camera** beside **MIDI in** and let the page
 use the camera. Nine squares appear beside the button and light as the camera
-sees each zone move.
+sees each zone move, and the **Camera** pane opens beside the keys: the
+picture, mirrored, with the nine zones over it. Each zone lights as it
+moves, it strikes its note once the bar along its foot passes the tick,
+and a ring flashes round it as it does, wider the harder. A zone that has
+just struck strikes again only once it has gone still, and its bar is grey
+until then. A swipe that didn't play shows how near it came, or that it
+came too soon, and a lamp or a window lighting a zone with no hand in it
+is what is setting it off.
 
 The zones are laid out as you see yourself in a mirror: the square at the top
 left is your top left. Stand where your hands reach every zone at arm's
