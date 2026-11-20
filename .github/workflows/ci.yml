@@ -633,7 +633,7 @@ jobs:
       - name: Browser build
         run: |
           source ~/emsdk/emsdk_env.sh
-          emcmake cmake -S wasm/web -B build-web -G Ninja
+          emcmake cmake -S wasm/web -B build-web -G Ninja -DTHINK_REQUIRE_HAND_MODEL=ON
           cmake --build build-web
 
       # And the packaged site, which is the thing a person actually loads.
@@ -730,6 +730,7 @@ jobs:
             build-web/video
             build-web/icons
             build-web/packs
+            build-web/mediapipe
             build-web/sdk
             build-web/cairo2d/cairo2dtest.js
             build-web/cairo2d/cairo2dtest.wasm
@@ -1094,6 +1095,14 @@ jobs:
         if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
+
+      # The hand tracker as the site serves it (mediapipe/, its model
+      # fetched at configure): a module worker loads it from this server
+      # alone and finds the two hands in a photo.
+      - name: The hand tracker, as served
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node trackcheck.mjs ../../build-web
 
       # Valve Index controllers on the page (hid.js), through a fake
       # navigator.hid: the module fetched only once one is in play, a

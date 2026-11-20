@@ -311,6 +311,7 @@ else
             .filter((n) => fs.statSync(path.join(dist, n)).isFile());
         const gone = [...files, ...later].filter((n) => !present(n));
         const left = all.filter((n) => !kept.has(n) && !NETWORK.has(n));
+        const both = later.filter((n) => files.includes(n));
 
         if (gone.length)
             fail(`sw.js keeps ${gone.length} file(s) the dist does not ` +
@@ -318,6 +319,11 @@ else
         else if (left.length)
             fail(`sw.js leaves ${left.length} file(s) out, which will not ` +
                  `load offline: ${left.slice(0, 8).join(', ')}`);
+        /* One kept on first use and fetched at install too is downloaded
+           by everybody at every deploy, and never served. */
+        else if (both.length)
+            fail(`sw.js fetches ${both.length} file(s) at install that it ` +
+                 `keeps on first use: ${both.join(', ')}`);
         else
             ok(`sw.js keeps all ${files.length} file(s) the pages can ` +
                'load');
