@@ -440,8 +440,9 @@ try
         check(await postedHas(page, 'midion 65'), 'a profile of the player\'s plays');
         await page.close();
 
-        const again = (await open(
-            { granted: [{ productId: 0x2102, serial: 'D-1', on: true }] }, context)).page;
+        const reopened = await open(
+            { granted: [{ productId: 0x2102, serial: 'D-1', on: true }] }, context);
+        const again = reopened.page;
 
         await statusIs(again, 'A Valve Index controller is playing');
         await again.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
@@ -451,8 +452,13 @@ try
         await again.click('#hidpane summary');
         await again.fill('#hidprofile', 'device index {\n    nonsense = note 0;\n};\n');
         await again.click('#hidreload');
-        check(/your profile:2/.test(await again.textContent('#hidproblem')),
-              'and one that is wrong says where');
+
+        const said = await again.textContent('#hidproblem');
+        const where = /your profile:2/.test(said);
+
+        check(where, 'and one that is wrong says where' + (where ? '' :
+              `: ${JSON.stringify(said)}, page errors ` +
+              JSON.stringify(reopened.errors)));
         await context.close();
     }
 

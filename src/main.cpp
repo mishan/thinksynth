@@ -545,6 +545,13 @@ int main (int argc, char *argv[])
 
     prefs->Load();
 
+    /* This machine's own live-input routes, outranking a piece's: from the
+       file, and from the MIDI map's routes table as they are edited. */
+    midiPlay->routes().set(thMidiRoutes::MACHINE, prefs->midiRoutes());
+    prefs->signal_midi_routes().connect(
+        [midiPlay](std::vector<thMidiRoute> routes)
+        { midiPlay->routes().set(thMidiRoutes::MACHINE, routes); });
+
     /* Loading has to come after the window exists -- it puts patches onto
        channels, and the window is what notices -- so the parts of the file
        that are about the window itself are handed over here, before it is

@@ -74,6 +74,7 @@ import { createSynth } from './host.js';
 import { TextHistory } from './history.js';
 import { micAvailable, openMic } from './mic.js';
 import { MidiRoutes, midiAvailable, midiToggle } from './midi.js';
+import { routesTable } from './midiroutesui.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
 import { hidToggle } from './hid.js';
 import { createVideoView } from './videoview.js';
@@ -4718,6 +4719,8 @@ async function init ()
 
     $('start').addEventListener('click', start);
     $('mic').addEventListener('click', toggleMic);
+    routesTable({ rows: $('midirouterows'), add: $('midirouteadd'),
+                  onChange: (routes) => midiRoutes.set('machine', routes) });
     midiIn = midiToggle({
         button: $('midi'), status: $('midistatus'), routes: midiRoutes,
         onNoteOn: (note, velocity, targets) => targets === null

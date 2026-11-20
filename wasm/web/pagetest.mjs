@@ -6852,6 +6852,128 @@ try
         await wide.close();
     }
 
+    /* This browser's own MIDI routes: a route added in the MIDI routes
+       table outranks a piece's `midiin' for its MIDI channel, and is
+       there again after a reload. */
+    {
+        const pr = await page.context().newPage();
+
+        await pr.addInitScript(() =>
+        {
+            const input = { id: 'r', name: 'Route Keys', type: 'input',
+                            state: 'connected', onmidimessage: null,
+                            close: async () => {} };
+
+            window.sendMidi = (b) =>
+                input.onmidimessage?.({ data: new Uint8Array(b) });
+            navigator.requestMIDIAccess = async () =>
+                ({ inputs: new Map([['r', input]]), outputs: new Map(),
+                   onstatechange: null });
+        });
+
+        const open = async () =>
+        {
+            await pr.goto(url);
+            await pr.click('#start');
+            await pr.waitForFunction(
+                () => !document.getElementById('loadpiece').disabled,
+                null, { timeout: 60000 });
+            await pr.click('#midi');
+            await pr.waitForFunction(() =>
+                document.getElementById('midistatus').textContent ===
+                'Route Keys');
+        };
+        /* A piece that takes MIDI channel 2 for its instrument; the route
+           kept here sends the channel to 9 instead. */
+        const routedOn = async () =>
+        {
+            await pr.selectOption('#mode', 'piece');
+            await pr.evaluate(() => window.solo.settled());
+            await pr.evaluate(() =>
+            {
+                document.getElementById('gen').value =
+                    'tempo 120;\n' +
+                    'instrument pad { dsp "organ0.dsp"; midiin = 2; };\n' +
+                    'chain c { stage g gen::euclid { steps = 4; fills = 1;' +
+                    ' notes = "C4"; period = 0.5 s; hold = 0.1 s; };' +
+                    ' sink { instrument = pad; }; };\n';
+            });
+            await pr.click('#loadpiece');
+            await pr.evaluate(() => window.solo.settled());
+            await pr.evaluate(() => window.sendMidi([0x91, 60, 100]));
+
+            const got = await pr.evaluate(() =>
+                window.solo.routed().join(','));
+
+            await pr.evaluate(() => window.sendMidi([0x81, 60, 0]));
+            return got;
+        };
+
+        await open();
+        await pr.click('#midiroutes summary');
+        await pr.click('#midirouteadd');
+        await pr.selectOption('[aria-label="MIDI channel of route 1"]',
+                              { value: '1' });
+        await pr.selectOption('[aria-label="Channel it plays of route 1"]',
+                              { value: '8' });
+
+        const first = await routedOn();
+
+        await open();
+
+        const kept = await pr.evaluate(() =>
+            [...document.querySelectorAll('#midirouterows select')]
+                .map((s) => s.value).join(' '));
+        const again = await routedOn();
+
+        await pr.click('#midiroutes summary');
+        await pr.click('[aria-label="Remove route 1"]');
+
+        const left = await pr.evaluate(() =>
+            localStorage.getItem('thinksynth.midiroutes'));
+        const lastGone = await pr.evaluate(() => document.activeElement?.id);
+
+        check(first === '8 60' && kept === '1 8' && again === '8 60' &&
+              left === '[]',
+              'a MIDI route kept in this browser outranks the piece\'s, ' +
+              'and comes back after a reload: ' +
+              JSON.stringify({ first, kept, again, left }));
+
+        /* With storage refusing to keep anything, a route still plays; and
+           Remove leaves the keyboard on the route after it, or on Add
+           route when none is left. */
+        await pr.evaluate(() =>
+        {
+            Storage.prototype.setItem = () =>
+            {
+                throw new DOMException('full', 'QuotaExceededError');
+            };
+        });
+        await pr.click('#midirouteadd');
+        await pr.click('#midirouteadd');
+        await pr.selectOption('[aria-label="MIDI channel of route 2"]',
+                              { value: '2' });
+        await pr.selectOption('[aria-label="Channel it plays of route 2"]',
+                              { value: '9' });
+        await pr.evaluate(() => window.sendMidi([0x92, 60, 100]));
+
+        const unkept = await pr.evaluate(() =>
+            window.solo.routed().join(','));
+
+        await pr.evaluate(() => window.sendMidi([0x82, 60, 0]));
+        await pr.click('[aria-label="Remove route 1"]');
+
+        const next = await pr.evaluate(() =>
+            document.activeElement?.getAttribute('aria-label'));
+
+        await pr.close();
+        check(unkept === '9 60' && lastGone === 'midirouteadd' &&
+              next === 'MIDI channel of route 1',
+              'a route plays where storage keeps nothing, and Remove leaves ' +
+              'the keyboard in the table: ' +
+              JSON.stringify({ unkept, lastGone, next }));
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }

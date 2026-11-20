@@ -381,6 +381,62 @@ int main (int argc, char **argv)
         tidy.Save();
     }
 
+    /* ---- this machine's MIDI input routes ----------------------------- */
+
+    /* A layer, a split, an off and a line that says nothing, read; then
+       written and read again as the same routes, the bad line gone. */
+    {
+        const string routed = cfg + ".routes";
+
+        {
+            std::ofstream out(routed);
+
+            out << "midiroute 1 3\n"
+                   "midiroute 1 20\n"
+                   "midiroute 2 4 C2 B3\n"
+                   "midiroute 2 5 60 127\n"
+                   "midiroute 16 off\n"
+                   "midiroute 17 3\n"
+                   "midiroute\n";
+        }
+
+        const auto said = [](const std::vector<thMidiRoute> &v)
+        {
+            string s;
+
+            for (const thMidiRoute &r : v)
+                s += gthPrefs::formatMidiRoute(r) + ";";
+
+            return s;
+        };
+        const string want = "1 3;1 20;2 4 C2 B3;2 5 C4 G9;16 off;";
+        string first, again;
+        size_t bad = 0;
+
+        {
+            gthPrefs prefs(routed);
+
+            prefs.Load();
+            first = said(prefs.midiRoutes());
+            bad = prefs.badLines().size();
+            prefs.Save();
+        }
+
+        {
+            gthPrefs prefs(routed);
+
+            prefs.Load();
+            again = said(prefs.midiRoutes());
+        }
+
+        fs::remove(routed);
+
+        ok(first == want && again == want && bad == 2,
+           "midiroute lines are read, a bad one reported, and written back "
+           "as they were: %s / %s, %zu bad", first.c_str(), again.c_str(),
+           bad);
+    }
+
     /* ---- a channel effect survives a .patch --------------------------- */
 
     /* The chooser in the patch page puts a graph on a channel's sum, and the
