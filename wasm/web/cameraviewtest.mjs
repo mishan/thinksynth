@@ -51,7 +51,7 @@ const check = (ok, what, detail = '') =>
 function fake ()
 {
     const lens = document.createElement('canvas');
-    let square = null, moving = false, n = 0;
+    let square = null, moving = false, n = 0, painting = 0;
 
     lens.width = 640;
     lens.height = 480;
@@ -70,11 +70,15 @@ function fake ()
         }
     };
 
-    window.fakeCamera = { show (at, move = false) { square = at; moving = move; } };
+    window.fakeCamera = {
+        show (at, move = false) { square = at; moving = move; },
+        /* No more frames, as a camera another app has taken sends. */
+        freeze () { clearInterval(painting); },
+    };
     navigator.mediaDevices.getUserMedia = async () =>
     {
         paint();
-        setInterval(paint, 1000 / 60);
+        painting = setInterval(paint, 1000 / 60);
         return lens.captureStream(60);
     };
 }
@@ -179,6 +183,23 @@ try
     check(blue(ringed) > blue(shaded) + 40, 'and a strike rings it',
           JSON.stringify([shaded, ringed]));
     check(grey, 'and greys its bar till it may strike again');
+
+    /* Struck again, and the camera stops: no frame comes to draw the ring
+       out, so the view has to. */
+    await page.evaluate(() => window.fakeCamera.show(null));
+    await page.waitForTimeout(500);
+    await page.evaluate(() => new Promise((done) =>
+    {
+        window.fakeCamera.show([5 / 6, 5 / 6], true);
+        setTimeout(() => { window.fakeCamera.freeze(); done(); }, 40);
+    }));
+    await page.waitForTimeout(1000);
+
+    const [frozenInside, frozenEdge] = [await pixel(page, ...inside), await pixel(page, ...edge)];
+
+    check(Math.abs(blue(frozenEdge) - blue(frozenInside)) < 15,
+          'a ring runs out when the camera stops after a strike',
+          JSON.stringify([frozenInside, frozenEdge]));
 
     await page.click('#camera');
     check(await off(), 'and with the camera off again the pane goes');

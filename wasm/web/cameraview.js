@@ -45,7 +45,7 @@ export function createCameraView ({ canvas, shown, onOpen })
 {
     const g = canvas.getContext('2d');
     const flashes = new Array(9).fill(null);
-    let held = '';
+    let held = '', expire = 0;
 
     return {
         open: () =>
@@ -56,6 +56,7 @@ export function createCameraView ({ canvas, shown, onOpen })
 
         close: () =>
         {
+            clearTimeout(expire);
             flashes.fill(null);
             g.clearRect(0, 0, canvas.width, canvas.height);
             onOpen(false);
@@ -67,6 +68,15 @@ export function createCameraView ({ canvas, shown, onOpen })
 
             for (const [zone, strike] of hits)
                 flashes[zone] = { at: now, strike };
+
+            /* Drawn once more when the last ring is out, should no frame
+               come to do it: a camera that stops would leave it up. */
+            const last = Math.max(...flashes.map((f) => f?.at ?? -FLASH_MS));
+
+            clearTimeout(expire);
+            if (now - last < FLASH_MS)
+                expire = setTimeout(() => this.frame(video, levels, [], down),
+                                    last + FLASH_MS - now);
 
             if (!shown() || !(video.videoWidth > 0))
                 return;
