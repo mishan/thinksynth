@@ -233,6 +233,31 @@ const turn = (map, channel, controller, from, steps, by = 1) =>
           'onControl hears controllers 0..119 but the pedal, on their channel', JSON.stringify(heard));
     check(same(pedals, [127, 0]) && same(notes, ['on 60', 'off 60']),
           'and the pedal and the notes go where they went', JSON.stringify([pedals, notes]));
+
+    /* Random messages, as a broken device or a sysex torn apart sends:
+       nothing throws, and only a knob reaches onControl. */
+    let seed = 7, bad = '';
+    const byte = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) >> 16) & 255;
+
+    heard.length = 0;
+    for (let i = 0; i < 20000 && bad === ''; i++)
+    {
+        const bytes = Array.from({ length: byte() % 5 }, byte);
+
+        try
+        {
+            send(...bytes);
+        }
+        catch (e)
+        {
+            bad = `[${bytes}] threw ${e.message}`;
+        }
+    }
+    bad ||= heard.map((h) => h.split(' ').map(Number))
+        .filter(([c, cc, v]) => !(c < 16 && cc < 120 && cc !== 64 && v < 128))
+        .slice(0, 5).map(String).join('; ');
+    check(bad === '' && heard.length > 0, 'random messages throw nothing, and only knobs reach onControl',
+          bad || 'none reached it');
     open.close();
 
     const quiet = await openMidi({ onNoteOn: () => {}, onNoteOff: () => {} });
