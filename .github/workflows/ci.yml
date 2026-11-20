@@ -99,7 +99,7 @@ jobs:
           desktop=$(grep -qvE '^(wasm|relay)/|^package(-lock)?\.json$|^$' <<< "$built" && echo true || echo false)
           printf 'code=%s\ndesktop=%s\n' "$code" "$desktop" >> "$GITHUB_OUTPUT"
 
-  # The image the desktop's Linux jobs run in (.github/ci-image), named by
+  # The images the desktop's Linux jobs run in (.github/ci-image), named by
   # a hash of its Dockerfile, and built and published only when that name
   # isn't on ghcr.io yet: a pull request that changes it runs on the image
   # it describes, and every other run pulls the one there. Installing the
@@ -121,6 +121,7 @@ jobs:
 
     outputs:
       ref: ${{ steps.name.outputs.ref }}
+      headless: ${{ steps.name.outputs.ref }}-headless
 
     steps:
       - uses: actions/checkout@v4
@@ -132,7 +133,7 @@ jobs:
         run: |
           ref="ghcr.io/mishan/thinksynth-ci:$(sha256sum .github/ci-image/Dockerfile | cut -c1-16)"
           if [ "$FORK" = true ] && ! docker manifest inspect "$ref" > /dev/null 2>&1; then
-            echo "::warning::A fork can't publish $ref, which its Dockerfile describes; its jobs run on master's image."
+            echo "::warning::A fork can't publish $ref, which its Dockerfile describes; its jobs run on master's images."
             ref=ghcr.io/mishan/thinksynth-ci:latest
           fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
@@ -144,10 +145,13 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" |
             docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          if docker manifest inspect "$REF" > /dev/null 2>&1; then
-            echo "$REF is there"
+          if docker manifest inspect "$REF-headless" > /dev/null 2>&1 &&
+             docker manifest inspect "$REF" > /dev/null 2>&1; then
+            echo "$REF and $REF-headless are there"
           else
+            docker build --target headless -t "$REF-headless" .github/ci-image
             docker build -t "$REF" .github/ci-image
+            docker push "$REF-headless"
             docker push "$REF"
           fi
 
@@ -156,7 +160,9 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         env:
           REF: ${{ steps.name.outputs.ref }}
-        run: docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest "$REF"
+        run: |
+          docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest "$REF"
+          docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest-headless "$REF-headless"
 
   linux:
     name: linux (gcc)
@@ -296,28 +302,20 @@ jobs:
   headless:
     name: linux without the GUI
     timeout-minutes: 40
-    needs: changes
+    needs: [changes, image]
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
-    container: ubuntu:24.04
+    container:
+      image: ${{ needs.image.outputs.headless }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    permissions:
+      contents: read
+      packages: read
 
     steps:
-      # The container's image fetches from archive.ubuntu.com, which times
-      # out on GitHub's runners now and then; their own mirror, which the
-      # runner's host uses, answers. Security updates stay on
-      # security.ubuntu.com: some of the mirror's servers list a new one
-      # before they hold its files. apt retries a failed fetch too.
-      - name: Install dependencies
-        timeout-minutes: 20
-        run: |
-          sed -Ei 's#http://archive\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
-            /etc/apt/sources.list.d/ubuntu.sources
-          echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80retries
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build flex pkg-config \
-            libsigc++-3.0-dev zlib1g-dev
-
       - uses: actions/checkout@v4
 
       - name: Configure
