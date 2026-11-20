@@ -204,13 +204,15 @@ add_library(thinkweb_parts OBJECT
     ${THINK_COMPOSERHOST_SOURCES}
     twdraw.cpp
     thinknode.cpp
-    # The camera worker's controller (twcamera.cpp): the desktop's own
-    # mapper, so a camera profile plays the same on both.
+    # The camera worker's controllers (twcamera.cpp, twhands.cpp): the
+    # desktop's own mapper, so a profile plays the same on both.
     "${THINK_TOP}/hid/thhCamera.cpp"
     "${THINK_TOP}/hid/thhControls.cpp"
+    "${THINK_TOP}/hid/thhHandTrack.cpp"
     "${THINK_TOP}/hid/thhMapper.cpp"
     "${THINK_TOP}/hid/thhPlay.cpp"
     twcamera.cpp
+    twhands.cpp
     # The video worker's synth (videoworker.js).
     twvideo.cpp)
 

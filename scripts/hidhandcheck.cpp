@@ -199,6 +199,14 @@ static const struct
       { { 0.00, { { 0.3f, 0.5f, OPEN, "", 0 } }, false },
         { 0.03, { { 0.8f, 0.5f, OPEN, "", 0 } }, false } },
       "L 0.30 0.50 0.0, R - | L 0.30 0.50 0.0, R 0.80 0.50 0.0" },
+    { "two hands far from the one held are new, as they lie",
+      { { 0.00, { { 0.4f, 0.1f, OPEN, "", 0 } }, false },
+        { 0.03, { { 0.1f, 0.9f, OPEN, "", 0 }, { 0.4f, 0.9f, OPEN, "", 0 } }, false } },
+      "L 0.40 0.10 0.0, R - | L 0.10 0.90 0.0, R 0.40 0.90 0.0" },
+    { "a new hand where a pinched one was doesn't carry its pinch",
+      { { 0.00, { { 0.1f, 0.2f, SHUT, "", 0 } }, false },
+        { 0.03, { { 0.4f, 0.8f, 0.6f, "", 0 } }, false } },
+      "L 0.10 0.20 1.0+, R - | L 0.40 0.80 0.6, R -" },
     { "a hand that isn't numbers isn't a hand",
       { { 0, { { NAN, 0.5f, OPEN, "", 0 } }, false } },
       "L -, R -" },
@@ -230,7 +238,16 @@ main (void)
 
     report("the hands' own profile binds", bound ? "" : err, "");
 
-    /* Played: the left hand pinched at half height, the right a fifth of
+    {
+        thcHidBlock free;
+        thhMapper m;
+
+        report("and so does its unsnapped one",
+               thcHidParseProfile(THH_HANDS_FREE_PROFILE, free, err, line) &&
+               m.configure(free, thhHandsControls(), acts, err, line) ? "" : err, "");
+    }
+
+    /* Played: the left hand pinched 0.8 up, the right a fifth of
        the way up, a tenth of a second at a time, then the left gone. */
     thhHandTrack track;
     string notes;
@@ -242,7 +259,7 @@ main (void)
         thhState s;
 
         if (f < 8)
-            hands.push_back(points({ 0.3f, 0.5f, SHUT, "", 0 }));
+            hands.push_back(points({ 0.3f, 0.8f, SHUT, "", 0 }));
         acts.clear();
         track.update(hands, f * 0.1, true, s);
         mapper.update(s, 0, acts);
@@ -253,15 +270,15 @@ main (void)
                          std::to_string(a.note);
             else if (a.kind == thhAction::NOTE_BEND)
                 bend = a.t;
-            else if (a.kind == thhAction::NOTE_AUX)
+            else if (a.kind == thhAction::NOTE_AUX && a.aux == 3)
                 aux = a.t;
     }
     report("a left pinch plays C3 and letting the hand go ends it", notes,
            "on 48, off 48");
     report("the right hand's height bends it to the scale's step there",
            std::to_string(std::lround(bend * 100)), "700");
-    report("the left hand's height is its aux0", std::to_string(std::lround(aux * 100)),
-           "50");
+    report("how far the left hand is below the top is its aux3",
+           std::to_string(std::lround(aux * 100)), "20");
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
     return failed;
