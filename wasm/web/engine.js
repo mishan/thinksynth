@@ -22,9 +22,9 @@
  * One switch: a `load', `instrument', `patch', `chanarg', `piece',
  * `transport', `begin', `batch', `edit', `noteat', `at', `knob', `paneledit',
  * `stageparam', `param', `mute', `solo', `section', `knobwrite', `input',
- * `midion', `midioff', `on', `off' or `alloff' message, turned into the tw_
- * call that applies it. It used to live in worklet.js, and moved here when
- * there were two instances to apply it to.
+ * `midion', `midioff', `on', `off', `alloff', `hid' or `control' message,
+ * turned into the tw_ call that applies it. It used to live in worklet.js,
+ * and moved here when there were two instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
  * same module in a worker with a synth that never renders -- fed the same
@@ -208,6 +208,12 @@ export function apply (M, m, host = NOWHERE)
                      m.min !== undefined ? 1 : 0, m.min ?? 0,
                      m.max !== undefined ? 1 : 0, m.max ?? 0,
                      m.exp ? 1 : 0]);
+            return true;
+
+        case 'control':
+            /* A MIDI knob's position along a chanarg (midimap.js). */
+            M.ccall('tw_control', null, ['number', 'string', 'number'],
+                    [m.channel, m.arg, m.t]);
             return true;
 
         case 'knob':

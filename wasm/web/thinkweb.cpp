@@ -4591,6 +4591,12 @@ EMSCRIPTEN_KEEPALIVE void tw_hid (double frame, int kind, int channel,
     thhPlay(*synth_, { a }, nullptr);
 }
 
+/* A MIDI knob: `name' on `channel' at t along its travel. */
+EMSCRIPTEN_KEEPALIVE void tw_control (int channel, const char *name, double t)
+{
+    synth_->setChanArgFraction(channel, name ? name : "", t);
+}
+
 /* A chanarg on the tree loaded on `channel', through the path the
  * application's slider uses. Nonzero if it was set.
  *

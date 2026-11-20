@@ -184,6 +184,14 @@ place of 1. Its lower zone is folded onto that channel, each note's bend is
 note's `aux0` and `aux1` (`ionode->aux0`). Two fingers on one pitch are one
 voice, the later finger's, and a note let go of is bent no further.
 
+A controller's knobs and sliders can move a patch's controls. On the desktop
+the MIDI routing pane maps one by hand. In the browser, press **MIDI in**,
+then **Learn knob**, and move a control on the patch panel and turn a knob,
+in either order. The knob then moves the control of that name on whatever
+patch the keys play, over that control's own range, so a menu steps through
+its entries. The browser keeps the mappings; **Remove** takes one away. The
+sustain pedal stays the pedal, and in a jam room knobs aren't mapped yet.
+
 A piece can be taken into a DAW as a MIDI file: **Export MIDI** in the
 Composer's menu or under the page's piece source, or `genwav --midi`. Each
 chain is a track, sections are markers, and chanargs are labeled

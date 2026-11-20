@@ -495,11 +495,13 @@ all portable.
 
 A controller that sets a control by its position along it goes through
 `thSynth::setChanArgFraction`, as the Valve Index's values do
-(`hid/thhPlay.cpp`). It finds the arg by name every time, because a patch
+(`hid/thhPlay.cpp`) and the web page's MIDI knobs (`wasm/web/midimap.js`,
+through `tw_control`). It finds the arg by name every time, because a patch
 loaded in between would leave a kept pointer to an arg that has gone. A
-menu's travel is its named entries, and an arg with a step of 1 rounds. MIDI Map's connections still hold an arg
-each and set it along `.min` to `.max`, unrounded, and so does the box
-(`esp32/`), which has no thSynth and uses `thhActionValue`.
+menu's travel is its named entries, and an arg with a step of 1 rounds.
+MIDI Map's connections still hold an arg each and set it along `.min` to
+`.max`, unrounded, and so does the box (`esp32/`), which has no thSynth and
+uses `thhActionValue`.
 
 **One ordering worth not breaking.** `gthMidiQueue::drain` clears its notify
 flag *before* the pop loop rather than after. Clearing after leaves a roughly

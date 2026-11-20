@@ -42,9 +42,11 @@
  * letting its pedal up while another's is still down is dropped, and one
  * that goes away with its pedal down puts it up only if it was the last.
  *
- * Every other controller, pitch bend and program change are ignored. A
- * controller mapped to an arg has to reach every peer at the same transport
- * time, which is a stamped knob command and not a write here.
+ * Controllers 0..119 but the pedal go to `onControl', for a page that maps
+ * knobs to args (midimap.js); a room passes none, since a knob mapped to
+ * an arg there has to reach every peer at the same transport time, which
+ * is a stamped knob command and not a write here. 120..127 are channel
+ * mode messages, not knobs. Pitch bend and program change are ignored.
  *
  * Web MIDI hands over one complete message per event, running status
  * already expanded, so data[0] is always a status byte.
@@ -54,6 +56,9 @@
    down (TH_MIDI_CC_SUSTAIN, thMidiChan). */
 const CC_SUSTAIN = 64;
 const PEDAL_DOWN = 64;
+
+/* The first channel mode message (All Sound Off). */
+const CC_MODE = 120;
 
 /* Which engine channels a MIDI note goes to, as libthink's thMidiRoutes
  * says: per MIDI channel, the highest layer naming it, machine then
@@ -145,7 +150,7 @@ export async function midiAccess ()
  * Returns { forget }, which is openMidi's forget on whatever is open.
  */
 export function midiToggle ({ button, status, onNoteOn, onNoteOff,
-                             onPedal, routes = null })
+                             onPedal, onControl, routes = null })
 {
     const label = button.textContent;
     let open = null;
@@ -172,8 +177,8 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
 
         try
         {
-            open = await openMidi({ onNoteOn, onNoteOff, onPedal, routes,
-                                    onChange: say });
+            open = await openMidi({ onNoteOn, onNoteOff, onPedal, onControl,
+                                    routes, onChange: say });
         }
         catch (e)
         {
@@ -197,9 +202,11 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
  * called once per key, `onPedal(value, targets)' for every sustain pedal
  * message but a let-up while another input's pedal is still down, and
  * `onChange(names)' with the connected inputs' names whenever one comes
- * or goes. `targets' is null for the page's channel, or the engine
- * channels `routes' sent the note or the pedal to: a note's off goes
- * where its on went, and a pedal's let-up where it went down as well.
+ * or goes; `onControl(channel, controller, value)' for every other
+ * controller below the mode messages, the channel 0..15. `targets' is
+ * null for the page's channel, or the engine channels `routes' sent the
+ * note or the pedal to: a note's off goes where its on went, and a
+ * pedal's let-up where it went down as well.
  *
  * Resolves to { names, forget, close }. `forget' drops what every input
  * holds, pedal included, without calling onNoteOff or onPedal, for a page
@@ -209,7 +216,8 @@ export function midiToggle ({ button, status, onNoteOn, onNoteOff,
  * Rejects with a message fit to put on the page.
  */
 export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
-                                  onChange = () => {}, routes = null })
+                                  onControl = () => {}, onChange = () => {},
+                                  routes = null })
 {
     const access = await midiAccess();
 
@@ -387,6 +395,8 @@ export async function openMidi ({ onNoteOn, onNoteOff, onPedal = () => {},
                 noteOff(input.id, channel, data1);
             else if (kind === 0xb0 && data1 === CC_SUSTAIN)
                 pedal(input.id, channel, data2);
+            else if (kind === 0xb0 && data1 < CC_MODE)
+                onControl(channel, data1, data2);
         };
     };
 
