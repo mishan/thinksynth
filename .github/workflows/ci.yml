@@ -1136,6 +1136,16 @@ jobs:
         working-directory: wasm/web
         run: node cameraviewtest.mjs ../../build-web
 
+      # The camera as a theremin (camera.js, handworker.js), with a stub in
+      # the tracker's place: a pinch plays, the hands bend and hush it, one
+      # frame at a time reaches the tracker, a tracker that stops answering
+      # or a switch to the harp lets the note go, and a build with no hand
+      # model says so.
+      - name: The camera as a theremin
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node theremintest.mjs ../../build-web
+
       # The SDK as a game uses it, from its package alone: every note the
       # worklet plays was announced by the look-ahead, through a mute, an
       # unmute and a stage put in and taken out, each on the SDK's line.

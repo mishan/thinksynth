@@ -2,7 +2,8 @@
 
 A webcam plays thinksynth as an air harp: the picture is split into nine
 zones, three by three, and striking a hand through a zone plays its note, as
-loud as the strike was quick. On the web page for now.
+loud as the strike was quick. Or as a theremin, which tracks your two hands
+(below). On the web page for now.
 
 ## Setting it up
 
@@ -53,6 +54,34 @@ with the camera's own controls:
 | `spread` | how spread out it is |
 | `bright` | how bright the picture is |
 | `zone_1` .. `zone_9` | how much each zone is moving |
+
+## The theremin
+
+Pick **Theremin** beside **Camera**, then press **Camera**. Pinch your left
+hand, thumb to forefinger, to play; let go to stop. Raise your right hand
+for pitch, up to three octaves above C3, and your left for volume: a hand
+at the top of the picture is loud, one at the bottom silent. With **Snap to
+a scale** on, pitch steps through a pentatonic scale; off, it slides
+freely, as a theremin's does. The **Camera** pane
+draws what the tracker sees: each hand's points, a ring for each hand that
+fills while you pinch, the steps up the right edge with the one you're on
+marked (or where your hand is, unsnapped), and your volume up the left.
+
+It plays any patch, and `theremin.dsp` was made for it: a sine that glides
+between the steps, hushed by each note's `aux3`, which the left hand sends
+as how far it is below the top. A patch that doesn't read `aux3` plays at
+one volume. In a piece, the hands play plain notes, which only a patch
+bends.
+
+The hand tracker is downloaded the first time you turn the camera on as a
+theremin, about 23 MB, and kept for offline use after that; it runs in your browser, and
+no picture leaves it. A build made without the tracker's model says the
+theremin isn't in it.
+
+The tracker is Google's MediaPipe hand landmarker, under the Apache
+License 2.0, shipped with that license in `mediapipe/LICENSE.txt`. Since
+thinksynth is GPL version 2 or later, the site with the tracker in it is
+distributed under the terms of GPL version 3.
 
 ## Limits
 
