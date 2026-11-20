@@ -101,7 +101,7 @@ jobs:
 
   linux:
     name: linux (gcc)
-    timeout-minutes: 30
+    timeout-minutes: 40
     needs: changes
     if: needs.changes.outputs.code == 'true'
     # Pinned, not ubuntu-latest: instrcount's baseline and corpushash.txt
@@ -126,7 +126,7 @@ jobs:
           save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           sudo sh .github/apt-mirror.sh
           sudo apt-get update
@@ -243,7 +243,7 @@ jobs:
   # there is none to find.
   headless:
     name: linux without the GUI
-    timeout-minutes: 30
+    timeout-minutes: 40
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
@@ -256,7 +256,7 @@ jobs:
       # security.ubuntu.com: some of the mirror's servers list a new one
       # before they hold its files. apt retries a failed fetch too.
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           sed -Ei 's#http://archive\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
             /etc/apt/sources.list.d/ubuntu.sources
@@ -283,7 +283,7 @@ jobs:
   # tree or its tests.
   gtk-data:
     name: linux GTK runtime data
-    timeout-minutes: 20
+    timeout-minutes: 30
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
@@ -302,7 +302,7 @@ jobs:
           save: ${{ github.event_name == 'push' }}
 
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           sudo sh .github/apt-mirror.sh
           sudo apt-get update
@@ -417,7 +417,7 @@ jobs:
   # a new one included, is the third shard's.
   asan:
     name: linux asan + ubsan (${{ matrix.shard }})
-    timeout-minutes: 40
+    timeout-minutes: 50
     needs: changes
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
@@ -448,7 +448,7 @@ jobs:
           save: ${{ github.event_name == 'push' && strategy.job-index == 0 }}
 
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           sudo sh .github/apt-mirror.sh
           sudo apt-get update
@@ -518,7 +518,7 @@ jobs:
   # trees on is the whole of it.
   wasm-build:
     name: wasm (emscripten) build
-    timeout-minutes: 30
+    timeout-minutes: 40
     needs: changes
     if: needs.changes.outputs.code == 'true'
     # Pinned, with wasm-compare: the native tree built here is what the wasm
@@ -548,7 +548,7 @@ jobs:
       # No pulseaudio here: the live-context tests are in the jam job, and
       # this one opens nothing.
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           sudo sh .github/apt-mirror.sh
           sudo apt-get update
@@ -1009,10 +1009,11 @@ jobs:
     # than slow. Without this a hang runs to GitHub's six-hour default, which
     # is what a live AudioContext with no audio backend did once: the job said
     # nothing, cost everything, and looked exactly like a slow one. Each step
-    # that installs from a package mirror has ten minutes of its own, so a
-    # stalled mirror fails there and says so; the job's limit leaves room for
-    # a slow one on top of the tests' quarter hour.
-    timeout-minutes: 45
+    # that installs from a package mirror has twenty minutes of its own, so a
+    # stalled mirror fails there and says so, and one crawling a package a
+    # few seconds, as Azure's has, still finishes; the job's limit leaves room
+    # for a slow one on top of the tests' quarter hour.
+    timeout-minutes: 55
 
     steps:
       - uses: actions/checkout@v4
@@ -1033,7 +1034,7 @@ jobs:
       # The chromium leg only: browsertest.mjs is offline, and mictest.mjs
       # runs there.
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         if: matrix.browser == 'chromium'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
@@ -1057,7 +1058,7 @@ jobs:
 
       # Both engines on the chromium leg, for the page's gates below it.
       - name: Playwright's browsers
-        timeout-minutes: 10
+        timeout-minutes: 20
         working-directory: wasm/web
         run: >-
           npx playwright install --with-deps
@@ -1243,13 +1244,13 @@ jobs:
     needs: [wasm-build, linux]
 
     # See wasm-browsers: minutes, not hours.
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: sudo sh .github/apt-mirror.sh && sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
 
       # A sound card, of sorts, for jamtest below. It opens a live
@@ -1296,7 +1297,7 @@ jobs:
       # the one native NodeEdit writes -- which is why the build job builds
       # dspedit.
       - name: Playwright's browsers
-        timeout-minutes: 10
+        timeout-minutes: 20
         working-directory: wasm/web
         run: npx playwright install --with-deps chromium firefox
 
