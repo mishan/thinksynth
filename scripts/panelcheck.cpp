@@ -2053,6 +2053,60 @@ static void checkUnlistable (ArgPanel &argPanel, thSynth &synth)
     wave->setValue(was);
 }
 
+/* A control set from a position along it, as a controller's knob sets one:
+ * along the travel the panel draws, and onto a value the panel could show. */
+static void checkFraction (thSynth &synth)
+{
+    const float pair[2] = { 1, 2 };
+
+    synth.setChanArg(0, new thArg("pair", pair, 2));
+
+    const struct
+    {
+        const char *what, *name;
+        int channel;
+        double t;
+        bool ranged;
+        double lo, hi;
+        bool exp, set;
+        double want;
+    } cases[] = {
+        { "a slider at half way is half way", "cutoff", 0, 0.5, false, 0, 0,
+          false, true, 0.5 },
+        { "a range of the caller's own", "cutoff", 0, 0.25, true, 100, 200,
+          false, true, 125 },
+        { "an exponential range", "cutoff", 0, 0.5, true, 1, 100, true, true,
+          10 },
+        { "a whole-number control rounds down", "quant", 0, 0.51, false, 0, 0,
+          false, true, 6 },
+        { "and up", "quant", 0, 0.55, false, 0, 0, false, true, 7 },
+        { "a menu's travel is its list", "wave", 0, 1, false, 0, 0, false,
+          true, 3 },
+        { "and lands on the named entry nearest, not the hole", "wave", 0,
+          0.4, false, 0, 0, false, true, 2 },
+        { "and does along a range of the caller's own", "wave", 0, 0.6, true,
+          0, 2, false, true, 2 },
+        { "a control of two values is left alone", "pair", 0, 0.5, false, 0,
+          0, false, false, 1 },
+        { "a name the patch lacks sets nothing", "nope", 0, 0.5, false, 0, 0,
+          false, false, 0 },
+        { "and a channel with nothing on it", "cutoff", 5, 0.5, false, 0, 0,
+          false, false, 0 },
+    };
+
+    for (const auto &c : cases)
+    {
+        const bool set = synth.setChanArgFraction(
+            c.channel, c.name, c.t, c.ranged ? &c.lo : NULL,
+            c.ranged ? &c.hi : NULL, c.exp);
+        thArg *arg = synth.getChanArg(c.channel, c.name);
+        const double got = arg ? (*arg)[0] : 0;
+
+        check(set == c.set && (!arg || fabs(got - c.want) < 1e-4), c.what,
+              "set " + std::to_string(set) + ", " + std::to_string(got));
+    }
+}
+
 /* Rows appearing or vanishing is a rebuild; a value moving is not.
  *
  * This is what lets a panel follow a MIDI controller without being torn down
@@ -2515,6 +2569,7 @@ int main (int argc, char **argv)
         checkUnlistable(argPanel, synth);
         checkEdits(argPanel, synth);
         checkEffect(synth, effect);
+        checkFraction(synth);
     }
 
     checkNodes(pluginPath, graph);

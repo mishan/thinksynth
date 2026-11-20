@@ -32,6 +32,7 @@
 #include <system_error>
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <thread>
 
@@ -1717,6 +1718,50 @@ void thSynth::setChanArg (int channum, thArg *arg)
        it yet. `existing' stays alive until the audio thread retires it. */
     guiChannels_[channum]->putArg(arg);
 
+}
+
+bool thSynth::setChanArgFraction (int channum, const string &argname,
+                                  double t, const double *loAt,
+                                  const double *hiAt, bool exp)
+{
+    thArg *arg = getChanArg(channum, argname);
+
+    /* setValue is the GUI thread's only for a one-element arg. */
+    if (arg == NULL || arg->len() != 1)
+        return false;
+
+    /* A menu's travel is its named entries, whatever `.min' and `.max' say,
+       as its panel row's is (thArg::valueNames). */
+    const vector<string> &names = arg->valueNames();
+    int first = -1, last = -1;
+
+    for (int i = 0; i < (int)names.size(); i++)
+        if (!names[i].empty())
+        {
+            first = first < 0 ? i : first;
+            last = i;
+        }
+
+    const double lo = loAt ? *loAt : first >= 0 ? first : arg->min();
+    const double hi = hiAt ? *hiAt : first >= 0 ? last : arg->max();
+    double v = exp && lo > 0 && hi > 0 ? lo * std::pow(hi / lo, t)
+                                       : lo + t * (hi - lo);
+
+    if (first >= 0)
+    {
+        /* The nearest entry with a name: an unnamed one may be silence. */
+        int best = first;
+
+        for (int i = first; i <= last; i++)
+            if (!names[i].empty() && std::fabs(i - v) < std::fabs(best - v))
+                best = i;
+        v = best;
+    }
+    else if (arg->step() == 1)
+        v = std::round(v);
+
+    arg->setValue((float)v);
+    return true;
 }
 
 /* GUI thread.
