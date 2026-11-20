@@ -105,6 +105,9 @@ jobs:
   # it describes, and every other run pulls the one there. Installing the
   # same packages from a mirror at the start of every job was the slowest
   # and least reliable part of a run.
+  #
+  # A fork's pull request has no token to publish with, so one whose image
+  # isn't there runs on master's, :latest, and says so.
   image:
     name: the CI image
     timeout-minutes: 30
@@ -124,11 +127,18 @@ jobs:
 
       - name: Its name
         id: name
+        env:
+          FORK: ${{ github.event.pull_request.head.repo.fork }}
         run: |
-          echo "ref=ghcr.io/mishan/thinksynth-ci:$(sha256sum .github/ci-image/Dockerfile | cut -c1-16)" \
-            >> "$GITHUB_OUTPUT"
+          ref="ghcr.io/mishan/thinksynth-ci:$(sha256sum .github/ci-image/Dockerfile | cut -c1-16)"
+          if [ "$FORK" = true ] && ! docker manifest inspect "$ref" > /dev/null 2>&1; then
+            echo "::warning::A fork can't publish $ref, which its Dockerfile describes; its jobs run on master's image."
+            ref=ghcr.io/mishan/thinksynth-ci:latest
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
       - name: Built and published, unless it is there
+        if: github.event.pull_request.head.repo.fork != true
         env:
           REF: ${{ steps.name.outputs.ref }}
         run: |
@@ -136,10 +146,17 @@ jobs:
             docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           if docker manifest inspect "$REF" > /dev/null 2>&1; then
             echo "$REF is there"
-            exit 0
+          else
+            docker build -t "$REF" .github/ci-image
+            docker push "$REF"
           fi
-          docker build -t "$REF" .github/ci-image
-          docker push "$REF"
+
+      # What a fork falls back on.
+      - name: Master's image, as latest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          REF: ${{ steps.name.outputs.ref }}
+        run: docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest "$REF"
 
   linux:
     name: linux (gcc)

@@ -9,7 +9,8 @@
 #
 # Beyond what the build asks for: git for actions/checkout, sudo so a step
 # written for the runner's own image runs as it is, ccache for
-# ccache-action, python3 and xz-utils for emsdk, and the comma-decimal
+# ccache-action, jq for the site's config.json, python3 and xz-utils for
+# emsdk, and the comma-decimal
 # locale localecheck needs. And xvfb-run's screen made 2560x1440: the
 # plugin editor at 2x is 1768 wide (guicheck), and a window past the
 # screen's edge can't be read back.
@@ -33,7 +34,7 @@ RUN sed -Ei 's#http://archive\.ubuntu\.com#http://azure.archive.ubuntu.com#' \
         libx11-dev libxcursor-dev libxext-dev libxrandr-dev \
         libxtst-dev libdbus-1-dev \
         valgrind xvfb xauth locales \
-        git sudo ccache ca-certificates curl python3 xz-utils \
+        git sudo ccache ca-certificates curl jq python3 xz-utils \
  && locale-gen de_DE.UTF-8 && locale -a | grep -qix de_DE.utf8 \
  && sed -i 's/^XVFBARGS="-screen 0 1280x1024x24"$/XVFBARGS="-screen 0 2560x1440x24"/' \
         /usr/bin/xvfb-run \
