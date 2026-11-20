@@ -1889,6 +1889,10 @@ body.tiled #videoframe { flex: 1 1 0; min-height: 90px; aspect-ratio: auto; max-
     image-rendering: pixelated;
 }
 
+/* What the camera sees (cameraview.js), as large as fits at its own shape. */
+#cameracanvas { display: block; width: 100%; max-height: 70vh; object-fit: contain; }
+body.tiled #cameracanvas { flex: 1 1 0; min-height: 90px; max-height: none; }
+
 /* The controller pane's lines -- the pair, the profile, the patch, the
    loops -- one under another, as hid.js joins them. */
 #hidpaneline {

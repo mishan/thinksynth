@@ -52,10 +52,13 @@ export function cameraAvailable ()
 /* A button that opens the camera and closes it again, a line beside it
  * saying how it went, and nine cells that light with the zones. The button
  * is left disabled for the page to enable once there is a synth to play.
+ * `view', if given, is a camera view (cameraview.js): opened and closed
+ * with the camera, and handed each frame.
  *
  * Returns { forget }, which is openCamera's forget on whatever is open.
  */
-export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff })
+export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
+                                view = null })
 {
     const label = button.textContent;
     const cells = [...zones.children];
@@ -68,6 +71,7 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff })
         button.textContent = label;
         status.textContent = why;
         zones.hidden = true;
+        view?.close();
     };
 
     button.addEventListener('click', async () =>
@@ -88,10 +92,11 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff })
         {
             open = await openCamera({
                 onNoteOn, onNoteOff,
-                onZones: (levels) =>
+                onZones: (levels, hits, down, video) =>
                 {
                     for (let z = 0; z < cells.length; z++)
                         cells[z].style.opacity = String(0.15 + 0.85 * Math.min(1, levels[z] * 2));
+                    view?.frame(video, levels, hits, down);
                 },
                 onFailed: (why) =>
                 {
@@ -109,7 +114,12 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff })
             return;
         }
 
+        /* Where the click left it, which disabling it took away, unless the
+           player has gone on to something else while the camera was asked
+           for: so a view raised now goes beside the pane played in. */
         button.disabled = false;
+        if (document.activeElement === document.body)
+            button.focus({ preventScroll: true });
         if (failed !== null)
         {
             shut(failed);
@@ -119,15 +129,18 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff })
         button.textContent = `${label}: on`;
         status.textContent = 'strike the zones';
         zones.hidden = false;
+        view?.open();
     });
 
     return { forget: () => open?.forget() };
 }
 
 /* Asks for a camera and plays it. `onNoteOn(note, velocity)' and
- * `onNoteOff(note)' are called once per note, `onZones(levels)' with the
- * nine zones' levels for every frame, and `onFailed(why)' if the camera or
- * the worker goes for good, after every note has been let go.
+ * `onNoteOff(note)' are called once per note, `onZones(levels, hits, down,
+ * video)' for every frame with the nine zones' levels, the zones it struck
+ * as [zone, strike], a bit for each zone that can't strike again till it
+ * is still (twcamera.cpp) and the camera's <video>, and `onFailed(why)' if
+ * the camera or the worker goes for good, after every note has been let go.
  *
  * Resolves to { forget, close }. `forget' drops the notes held without
  * calling onNoteOff, for a page that has just released everything itself.
@@ -239,7 +252,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
             else if (velocity === 0 && held.delete(note))
                 onNoteOff(note);
 
-        onZones(m.zones);
+        onZones(m.zones, m.hits, m.down, video);
     };
     worker.onerror = (e) => fail(`the camera's worker: ${e.message ?? 'failed'}`);
 
