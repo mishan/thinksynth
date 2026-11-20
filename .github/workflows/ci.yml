@@ -99,16 +99,92 @@ jobs:
           desktop=$(grep -qvE '^(wasm|relay)/|^package(-lock)?\.json$|^$' <<< "$built" && echo true || echo false)
           printf 'code=%s\ndesktop=%s\n' "$code" "$desktop" >> "$GITHUB_OUTPUT"
 
+  # The image the desktop's Linux jobs run in (.github/ci-image), named by
+  # a hash of its Dockerfile, and built and published only when that name
+  # isn't on ghcr.io yet: a pull request that changes it runs on the image
+  # it describes, and every other run pulls the one there. Installing the
+  # same packages from a mirror at the start of every job was the slowest
+  # and least reliable part of a run.
+  #
+  # A fork's pull request has no token to publish with, so one whose image
+  # isn't there runs on master's, :latest, and says so.
+  image:
+    name: the CI image
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      ref: ${{ steps.name.outputs.ref }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Its name
+        id: name
+        env:
+          FORK: ${{ github.event.pull_request.head.repo.fork }}
+        run: |
+          ref="ghcr.io/mishan/thinksynth-ci:$(sha256sum .github/ci-image/Dockerfile | cut -c1-16)"
+          if [ "$FORK" = true ] && ! docker manifest inspect "$ref" > /dev/null 2>&1; then
+            echo "::warning::A fork can't publish $ref, which its Dockerfile describes; its jobs run on master's image."
+            ref=ghcr.io/mishan/thinksynth-ci:latest
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Built and published, unless it is there
+        if: github.event.pull_request.head.repo.fork != true
+        env:
+          REF: ${{ steps.name.outputs.ref }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" |
+            docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if docker manifest inspect "$REF" > /dev/null 2>&1; then
+            echo "$REF is there"
+          else
+            docker build -t "$REF" .github/ci-image
+            docker push "$REF"
+          fi
+
+      # What a fork falls back on.
+      - name: Master's image, as latest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          REF: ${{ steps.name.outputs.ref }}
+        run: docker buildx imagetools create -t ghcr.io/mishan/thinksynth-ci:latest "$REF"
+
   linux:
     name: linux (gcc)
     timeout-minutes: 40
-    needs: changes
+    needs: [changes, image]
     if: needs.changes.outputs.code == 'true'
     # Pinned, not ubuntu-latest: instrcount's baseline and corpushash.txt
     # are this image's compiler and glibc, so a move to a new Ubuntu is a
     # commit that records the new image's numbers rather than a gate that
     # fails every PR.
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # Docker's open-file limit is a billion, which Valgrind refuses.
+      options: --ulimit nofile=65536:65536
+
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
+
+    permissions:
+      contents: read
+      packages: read
 
     env:
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -124,30 +200,6 @@ jobs:
           key: linux
           max-size: 500M
           save: ${{ github.event_name == 'push' }}
-
-      - name: Install dependencies
-        timeout-minutes: 20
-        run: |
-          sudo sh .github/apt-mirror.sh
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
-            libasound2-dev libjack-jackd2-dev \
-            adwaita-icon-theme librsvg2-common \
-            libx11-dev libxcursor-dev libxext-dev libxrandr-dev \
-            libxtst-dev libdbus-1-dev \
-            valgrind xvfb
-
-      # localecheck wants a locale whose decimal separator is a comma, and
-      # the runner image has none; without one it skips. Checked here, so a
-      # locale that fails to generate is a failed step and not a quiet skip.
-      - name: A comma-decimal locale
-        timeout-minutes: 10
-        run: |
-          sudo apt-get install -y --no-install-recommends locales
-          sudo locale-gen de_DE.UTF-8
-          locale -a | grep -qix 'de_DE.utf8'
 
       # Before Configure: scripts/CMakeLists.txt adds the mcp test, which
       # drives mcp/server.mjs through its npm SDK, only where mcp/node_modules
@@ -284,9 +336,26 @@ jobs:
   gtk-data:
     name: linux GTK runtime data
     timeout-minutes: 30
-    needs: changes
+    needs: [changes, image]
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # Docker's open-file limit is a billion, which Valgrind refuses.
+      options: --ulimit nofile=65536:65536
+
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
+
+    permissions:
+      contents: read
+      packages: read
 
     env:
       CMAKE_C_COMPILER_LAUNCHER: ccache
@@ -300,18 +369,6 @@ jobs:
           key: gtk-data
           max-size: 500M
           save: ${{ github.event_name == 'push' }}
-
-      - name: Install dependencies
-        timeout-minutes: 20
-        run: |
-          sudo sh .github/apt-mirror.sh
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
-            libasound2-dev libjack-jackd2-dev \
-            adwaita-icon-theme librsvg2-common \
-            xvfb
 
       # The bundled GTK data -- schemas, pixbuf loaders, icon themes -- exists
       # for macOS and Windows, which are precisely the two platforms where it
@@ -418,9 +475,26 @@ jobs:
   asan:
     name: linux asan + ubsan (${{ matrix.shard }})
     timeout-minutes: 50
-    needs: changes
+    needs: [changes, image]
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # Docker's open-file limit is a billion, which Valgrind refuses.
+      options: --ulimit nofile=65536:65536
+
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
+
+    permissions:
+      contents: read
+      packages: read
 
     strategy:
       fail-fast: false
@@ -446,26 +520,6 @@ jobs:
           max-size: 500M
           # The shards build the same tree; one saving it is enough.
           save: ${{ github.event_name == 'push' && strategy.job-index == 0 }}
-
-      - name: Install dependencies
-        timeout-minutes: 20
-        run: |
-          sudo sh .github/apt-mirror.sh
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
-            libasound2-dev libjack-jackd2-dev \
-            adwaita-icon-theme librsvg2-common \
-            xvfb
-
-      # See the linux job.
-      - name: A comma-decimal locale
-        timeout-minutes: 10
-        run: |
-          sudo apt-get install -y --no-install-recommends locales
-          sudo locale-gen de_DE.UTF-8
-          locale -a | grep -qix 'de_DE.utf8'
 
       # THINK_SANITIZE applies the flags globally rather than per-target, so
       # they reach libthink and all 62 plugins. An earlier round of
@@ -519,12 +573,29 @@ jobs:
   wasm-build:
     name: wasm (emscripten) build
     timeout-minutes: 40
-    needs: changes
+    needs: [changes, image]
     if: needs.changes.outputs.code == 'true'
     # Pinned, with wasm-compare: the native tree built here is what the wasm
     # module is held to, sample for sample, and GCC 15 on 26.04 renders 11
     # pieces differently from the GCC 13 the comparison was settled on.
     runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.image.outputs.ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # Docker's open-file limit is a billion, which Valgrind refuses.
+      options: --ulimit nofile=65536:65536
+
+    # As on the runner: in a container a step's shell is sh, which has no
+    # `source' and no bash.
+    defaults:
+      run:
+        shell: bash
+
+    permissions:
+      contents: read
+      packages: read
 
     env:
       # Pinned: the comparison is only as repeatable as the compiler on the
@@ -539,23 +610,6 @@ jobs:
           key: wasm-native
           max-size: 500M
           save: ${{ github.event_name == 'push' }}
-
-      # The whole top-level configure runs for the native half, and it wants
-      # gtkmm, even though only the harness and the plugins are built. gtkmm
-      # brings cairo's headers too, which the wasm build compiles the drawing
-      # composers against.
-      #
-      # No pulseaudio here: the live-context tests are in the jam job, and
-      # this one opens nothing.
-      - name: Install dependencies
-        timeout-minutes: 20
-        run: |
-          sudo sh .github/apt-mirror.sh
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build flex pkg-config \
-            libgtkmm-4.0-dev libsigc++-3.0-dev libjpeg-dev \
-            libasound2-dev libjack-jackd2-dev
 
       # The module runs the same on 20, 22 and 24; pinned so that a change of
       # runner image is not what moves the result.
