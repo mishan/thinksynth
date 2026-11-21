@@ -43,6 +43,8 @@
  *                        piece
  *   WS   /doc/<room>     the Yjs document, y-websocket's protocol
  *   WS   /room/<room>    JSON: presence, seats, clock, signalling, chat
+ *   WS   /pair          a phone and the page it plays, introduced
+ *                        (pair.mjs)
  *   /api/account/...     accounts: handles, keys, sessions (accounts.mjs),
  *                        and passkeys (passkeys.mjs)
  *
@@ -90,6 +92,7 @@ import { ACCOUNT_API, isOrigin, normalizeName, shownName }
 import { AccountStore, Accounts, ADMIN_USAGE, Bucket as TokenBucket,
          TieredLimit, accountRoutes, clientOf, runAdmin }
     from './accounts.mjs';
+import { Pairs } from './pair.mjs';
 import { Passkeys, passkeyConfig } from './passkeys.mjs';
 import { RELAY, TRANSPORT_LEAD } from '../wasm/web/commands.js';
 import { DEFAULT_PIECE, dspNames, files, hashOfFiles, hasSeen, meta,
@@ -3094,6 +3097,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
                          roomMaxBytes = ROOM_MAX_BYTES,
                          roomLimits = ROOM_LIMITS, joinLimits = JOIN_LIMITS,
                          peersMax = PEERS_PER_ROOM_MAX, limits = {},
+                         pairs = {},
                          updateLimits = UPDATE_LIMITS,
                          heapMaxBytes = v8.getHeapStatistics().heap_size_limit,
                          memoryMaxBytes = null } = {})
@@ -3387,7 +3391,11 @@ export function relay ({ port = 8787, host = '0.0.0.0',
                                           maxPayload: ROOM_FRAME_MAX });
     const docWss = new WebSocketServer({ noServer: true,
                                          maxPayload: DOC_FRAME_MAX });
-    const queues = new Queues(() => [roomWss.clients, docWss.clients],
+    const pairing = new Pairs({ now: relayNow, ...pairs });
+    const pairWss = new WebSocketServer({
+        noServer: true, maxPayload: pairing.o.frameMax });
+    const queues = new Queues(() => [roomWss.clients, docWss.clients,
+                                     pairWss.clients],
                               { socketMax: queuedMaxBytes,
                                 totalMax: queuedTotalMaxBytes });
     v8.setFlagsFromString('--expose-gc');
@@ -3537,6 +3545,37 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     const upgrade = (req, socket, head) =>
     {
         const url = new URL(req.url, 'http://localhost');
+        const pair = url.pathname === '/pair';
+
+        /* A pairing plays someone's page, so only that page's own site
+           may make one, where the relay is told which that is. */
+        if (pair && corsOrigin !== null &&
+            req.headers.origin !== corsOrigin)
+        {
+            socket.end('HTTP/1.1 403 Forbidden\r\n' +
+                       'Connection: close\r\n\r\n');
+            return;
+        }
+        if (pair)
+        {
+            const client = keyOf(req);
+
+            if (!pairing.mayOpen(client))
+            {
+                socket.end('HTTP/1.1 429 Too Many Requests\r\n' +
+                           'Connection: close\r\n\r\n');
+                return;
+            }
+
+            pairWss.handleUpgrade(req, socket, head, (ws) =>
+            {
+                ws.alive = true;
+                ws.on('pong', () => { ws.alive = true; });
+                pairing.open(ws, client);
+            });
+            return;
+        }
+
         const m = /^\/(doc|room)\/([A-Za-z0-9_.-]{1,64})$/.exec(url.pathname);
 
         if (m === null)
@@ -3600,7 +3639,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
     const heartbeat = setInterval(() =>
     {
-        for (const ws of [...roomWss.clients, ...docWss.clients])
+        for (const ws of [...roomWss.clients, ...docWss.clients,
+                          ...pairWss.clients])
         {
             if (!ws.alive)
             {
@@ -3646,6 +3686,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
 
             forget(r);
         }
+
+        pairing.sweep();
     }, SWEEP_EVERY_MS);
 
     sweep.unref();
@@ -3711,7 +3753,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             rooms: rooms.size, roomBytes: costs.bytes, peers,
             roomSockets: roomWss.clients.size,
             docSockets: docWss.clients.size, awarenessClients,
-            bufferedMaxBytes: [...roomWss.clients, ...docWss.clients]
+            bufferedMaxBytes: [...roomWss.clients, ...docWss.clients,
+                               ...pairWss.clients]
                 .reduce((max, ws) => Math.max(max, ws.bufferedAmount), 0),
             room: Object.fromEntries(traffic.room),
             doc: traffic.doc,
@@ -3763,6 +3806,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             r.destroy();
 
         rooms.clear();
+        pairing.close();
         store.close();
         server.closeAllConnections?.();
         server.close();
@@ -3782,6 +3826,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     ]).then(() =>
     {
         server.rooms = rooms;
+        server.pairs = pairing;
         server.accounts = accounts;
         server.metrics = metrics;
         return server;

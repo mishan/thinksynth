@@ -6,6 +6,7 @@
   "scripts": {
     "relay": "node relay.mjs",
     "relaytest": "node relaytest.mjs",
+    "pairtest": "node pairtest.mjs",
     "accountstest": "node accountstest.mjs"
   },
   "devDependencies": {
