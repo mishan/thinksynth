@@ -488,7 +488,8 @@ void MidiMap::populateConnections (void)
         connectModel_->append(MidiMapRow::create(connection->chan(),
                                                 connection->controller(),
                                                 instrument,
-                                                arg ? arg->label()
+                                                arg && !arg->label().empty()
+                                                    ? arg->label()
                                                     : connection->argName()));
     }
 
