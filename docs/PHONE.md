@@ -110,7 +110,7 @@ in the relay's socket costs a working connection about a second, while
 the new one opens. The page hears 'paired', 'token', 'peer', 'ended' and 'refused';
 'joined', 'left', 'signal' and 'relayed' are the mesh's.
 
-## What the phone sends
+## What the phone sends (its logic built: phonepad.js, thinkhid's th_phone_*)
 
 A snapshot, not events: each frame is the whole state, so a lost one is
 made good by the next and no note waits on one.
