@@ -150,6 +150,7 @@ f1c218be115db09d  syndrum.dsp
 a7aa2e52aaf1dc6d  talkbox.dsp
 79d7f7ee63586c5d  tambourine.dsp
 aa30bd76de657875  templebell.dsp
+8a41d6fc60c5239d  theremin.dsp
 708dac5d93dd87f5  timbale.dsp
 5ebd687ec69fd075  tom808.dsp
 163981871e5fc6d5  tonewheel.dsp

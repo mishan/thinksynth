@@ -37,7 +37,16 @@ const char *const THH_HANDS_PROFILE =
     "    base = \"C3\";\n"
     "    left_pinch = note 0;\n"
     "    right_y = bend { range = 15; scale = pentatonic; smooth = 0.05; };\n"
-    "    left_y = aux 0 { smooth = 0.03; };\n"
+    "    left_y = aux 3 { min = 1; max = 0; smooth = 0.03; };\n"
+    "};\n";
+
+/* The same unsnapped: the bend free across the same three octaves. */
+const char *const THH_HANDS_FREE_PROFILE =
+    "device hands {\n"
+    "    base = \"C3\";\n"
+    "    left_pinch = note 0;\n"
+    "    right_y = bend { range = 36; smooth = 0.05; };\n"
+    "    left_y = aux 3 { min = 1; max = 0; smooth = 0.03; };\n"
     "};\n";
 
 const thhControls &
@@ -134,39 +143,42 @@ thhHandTrack::update (const std::vector<thhHandPoints> &hands, double seconds,
     const auto dist = [](const Track &t, const Seen &s) {
         return std::hypot(t.x - s.x, t.y - s.y);
     };
+    /* Each hand seen goes to the side whose held hand it moved least
+       from, two of them keeping as many held hands as they can, and is
+       that hand if it is near enough; a hand that is not is new, from
+       nothing, so no pinch carries onto it to hold a note it isn't
+       holding. */
+    const auto moved = [&](int t, int i) {
+        return tracks_[t].held ? dist(tracks_[t], now[i]) : 0.0f;
+    };
+    const auto near = [&](int t, int i) {
+        return tracks_[t].held && dist(tracks_[t], now[i]) < THH_HANDS_NEAR;
+    };
     int side[2] = { -1, -1 };
+    bool kept[2] = { false, false };
 
     if (now.size() == 2)
     {
-        const int held = tracks_[0].held + 2 * tracks_[1].held;
+        const int keeps[2] = { near(0, 0) + near(1, 1), near(1, 0) + near(0, 1) };
 
-        /* A hand held keeps its own: the nearer, and the other the free
-           side; a pinch carried onto the hand that came would be a note
-           nobody is holding. */
-        if (held == 3)
-            side[0] = dist(tracks_[0], now[0]) + dist(tracks_[1], now[1]) <=
-                      dist(tracks_[0], now[1]) + dist(tracks_[1], now[0]) ? 0 : 1;
-        else if (held)
-        {
-            const Track &t = tracks_[held - 1];
-
-            side[0] = (dist(t, now[0]) <= dist(t, now[1])) == (held == 1) ? 0 : 1;
-        }
-        else
-            side[0] = now[0].x <= now[1].x ? 0 : 1;
+        side[0] = keeps[0] != keeps[1] ? keeps[1] > keeps[0]
+                : moved(0, 1) + moved(1, 0) < moved(0, 0) + moved(1, 1);
         side[1] = 1 - side[0];
+        kept[0] = near(side[0], 0);
+        kept[1] = near(side[1], 1);
+        if (!kept[0] && !kept[1])
+        {
+            side[0] = now[0].x <= now[1].x ? 0 : 1;
+            side[1] = 1 - side[0];
+        }
     }
     else if (now.size() == 1)
     {
-        float nearest = THH_HANDS_NEAR;
-
         for (int t = 0; t < 2; t++)
-            if (tracks_[t].held && dist(tracks_[t], now[0]) < nearest)
-            {
-                nearest = dist(tracks_[t], now[0]);
+            if (near(t, 0) && (side[0] < 0 || moved(t, 0) < moved(side[0], 0)))
                 side[0] = t;
-            }
-        if (side[0] < 0)
+        kept[0] = side[0] >= 0;
+        if (!kept[0])
             side[0] = now[0].side >= 0 ? now[0].side : now[0].x < 0.5f ? 0 : 1;
     }
 
@@ -174,6 +186,8 @@ thhHandTrack::update (const std::vector<thhHandPoints> &hands, double seconds,
     {
         Track &t = tracks_[side[i]];
 
+        if (!kept[i])
+            t = Track();
         t.held = true;
         t.seen = seconds;
         t.x = now[i].x;
