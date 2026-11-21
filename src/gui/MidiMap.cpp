@@ -607,6 +607,7 @@ void MidiMap::onConnectionMoved (void)
                 ? synth_->getChanArg(selectedConnection->destChan(),
                                      selectedConnection->argName())
                 : NULL;
+            set_sensitive(selectedArg_ != NULL);
             if (selectedArg_ == NULL)
                 return;
 
@@ -624,6 +625,9 @@ void MidiMap::onConnectionMoved (void)
 void MidiMap::onAddButton (void)
 {
     thMidiControllerConnection *connection;
+
+    if (selectedArg_ == NULL)
+        return;
 
     connection = synth_->getMidiControllerConnection(
         (unsigned char)selectedChan_,
