@@ -28,7 +28,7 @@ the relay, over the TLS the room page uses, and then talk over a WebRTC
 data channel: direct on a local network, where the latency is won, and
 through the relay when WebRTC can't connect.
 
-## Pairing: `/pair` on the relay
+## Pairing: `/pair` on the relay (built)
 
 A WebSocket path beside `/doc/` and `/room/`, not a room: a room carries
 a document, seats and a place in the public list, none of which a
@@ -54,14 +54,18 @@ pairing wants, and a pairing holds exactly two.
   token it kept.
 - An unjoined code dies after 2 minutes, so a QR code on a stream or a
   projector is short-lived; New code makes another. A pairing ends when
-  either side has been gone 10 minutes, or at once on the host's
-  Disconnect (`{type:'end'}`), which closes both.
+  either side has been gone 10 minutes, after a day in any case, or at
+  once when either side ends it (`{type:'end'}`: the host's Disconnect,
+  the phone's), which closes both.
 - What either sends, `{type:'signal'|'relayed', data}`, reaches the
-  other unread, under a frame cap of 4 KiB and a rate bucket per socket,
-  and is dropped past it, as `relayed` is in a room.
-- Its own limits, not a room's: `PAIRS_MAX` live pairings, a few live
-  per client, new ones from their own bucket; and the Origin must be
-  `CORS_ORIGIN` where that is set.
+  other unread, under a frame cap of 4 KiB and a rate bucket for each
+  side that its reconnects draw on too, and is dropped past it, or while
+  the other side has 64 KiB it hasn't read: a late frame is worth
+  nothing.
+- Its own limits, not a room's (`PAIR` in `relay/pair.mjs`): live
+  pairings on the relay and per client, new ones from their own bucket,
+  and sockets waiting for their hello per client; and where `CORS_ORIGIN`
+  is set, the Origin must be it, so a socket with none is refused too.
 
 Nothing is kept: pairings are in memory, as rooms are.
 

@@ -17,7 +17,7 @@ COPY wasm/web/package.json wasm/web/
 RUN npm ci --omit=dev --ignore-scripts --workspace relay \
     && npm cache clean --force
 
-COPY relay/relay.mjs relay/accounts.mjs relay/passkeys.mjs \
+COPY relay/relay.mjs relay/accounts.mjs relay/pair.mjs relay/passkeys.mjs \
      relay/wordlist.mjs relay/
 COPY wasm/web/doc.js wasm/web/commands.js wasm/web/account.js \
      wasm/web/confusables.js wasm/web/

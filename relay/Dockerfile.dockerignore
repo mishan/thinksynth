@@ -6,6 +6,7 @@
 !relay/package.json
 !relay/relay.mjs
 !relay/accounts.mjs
+!relay/pair.mjs
 !relay/passkeys.mjs
 !relay/wordlist.mjs
 !wasm/web/package.json

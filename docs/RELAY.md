@@ -363,6 +363,25 @@ Rejoin.
   in the same turn of the loop -- it cannot catch, and the charges are
   what bound.
 
+### Pairings
+
+A phone paired with a page (`/pair`, `relay/pair.mjs`, docs/PHONE.md)
+needs nothing set up: it is in memory, as rooms are, and gone with a
+restart, after which the page offers a new code. With `CORS_ORIGIN` set,
+only that origin may pair, and a socket that names no origin is
+refused. Its limits are its own, in `PAIR`:
+
+- A code nobody joins lasts 2 minutes, and is spent once a phone has;
+  a side gone 10 minutes ends the pairing, and any ends after a day.
+- 4096 pairings on the relay, 8 live per client, and new ones 10 at
+  once then one every 6 s per address (40, then one every 1.5 s, per
+  IPv6 /48). Past them a page is told `full`, `busy` or `rate`.
+- 16 sockets per client waiting for their first line, which they have
+  5 s to send; past them, 429.
+- A frame over 4 KiB closes its socket; past 240 at once and 160 a
+  second for a side, its reconnects included, what it sends is dropped,
+  and so is what would wait behind 64 KiB its other side hasn't read.
+
 ## Metrics
 
 - `METRICS_PORT`: a port to serve the relay's metrics on, for a load

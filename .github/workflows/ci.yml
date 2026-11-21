@@ -1313,6 +1313,12 @@ jobs:
         working-directory: relay
         run: node relaytest.mjs
 
+      # A phone paired with a page (pair.mjs): a code joined once, tokens
+      # to come back with, expiry on a clock the script turns, the limits.
+      - name: Pairing
+        working-directory: relay
+        run: node pairtest.mjs
+
       # The relay's accounts over HTTP, on a clock the script turns: keys,
       # handles, sessions, passkeys from a software authenticator, the
       # limits and the admin commands.
