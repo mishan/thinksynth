@@ -118,9 +118,9 @@ function(think_harness name)
     target_link_libraries(${name} PRIVATE PkgConfig::CAIROMM)
   endif()
 
-  # $<TARGET_OBJECTS:> carries no link requirements, and the node model and
-  # the composer host start threads.
-  if(H_THREADS OR H_NODEMODEL OR H_COMPOSERHOST)
+  # $<TARGET_OBJECTS:> carries no link requirements, and the node model, the
+  # composer host and the HID library's reader start threads.
+  if(H_THREADS OR H_NODEMODEL OR H_COMPOSERHOST OR H_HID)
     find_package(Threads REQUIRED)
     target_link_libraries(${name} PRIVATE Threads::Threads)
   endif()
