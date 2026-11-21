@@ -308,6 +308,7 @@ try
         await page.click('#camera');
         await until(page, () => /pinch your left hand/.test(
             document.getElementById('camerastatus').textContent));
+        await stats(page);      /* there to hear what follows */
         await stub(page, { quiet: true });
         check(await until(page, () => /stopped answering/.test(
             document.getElementById('camerastatus').textContent), null, 20000),
