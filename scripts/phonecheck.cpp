@@ -362,6 +362,46 @@ checkMoments ()
               "a layer switched to in a note's own moment bends it from the start",
               b ? std::to_string(b->t) : "no bend");
     }
+
+    {
+        /* Two hands sharing a bend: one silent, its tilt swinging, while
+           the other holds a note. The shared bend glides for that note;
+           the silent hand starting afresh is no reason for it to jump. */
+        thhMapper mine, theirs;
+
+        if (!bind("device phone {\n"
+                  "    touch_1 = note 0;\n"
+                  "    tilt_x = bend { range = 12; of = both; smooth = 0.5; };\n"
+                  "};\n", mine) ||
+            !bind("device phone {\n"
+                  "    touch_1 = note 0;\n"
+                  "};\n", theirs))
+            return;
+        mine.shareWith(&theirs);
+        theirs.shareWith(&mine);
+
+        thhState silent, holding;
+        std::vector<thhAction> a;
+
+        silent.connected = holding.connected = true;
+        holding.buttons = 1u << THH_PHONE_TOUCH_1;
+        silent.axis[THH_PHONE_TILT_X] = -1;
+        theirs.update(holding, 0, a);
+        mine.update(silent, 0, a);
+
+        silent.axis[THH_PHONE_TILT_X] = 1;
+        silent.time = holding.time = 0.1;
+        a.clear();
+        theirs.update(holding, 0, a);
+        mine.update(silent, 0, a);
+
+        const thhAction *bend = find(a, thhAction::NOTE_BEND);
+
+        check(bend && bend->t > -12 && bend->t < 6,
+              "a bend shared with a hand holding a note glides for it, though "
+              "this hand is silent",
+              bend ? std::to_string(bend->t) : "no bend");
+    }
 }
 
 /* The second and third fingers: an octave up and down, as often as

@@ -532,7 +532,8 @@ thhMapper::smoothed (int key, double raw, double k, const thhState &s)
 /* Changes in the bend and the aux values, sent to every note this mapper is
    holding: each once, however many buttons hold it. */
 void
-thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
+thhMapper::expression (const thhState &s, bool silent,
+                       std::vector<thhAction> &out)
 {
     double bend = 0, aux[4], sharedBend = 0, sharedAux[4];
     bool shares[4] = { false, false, false, false };
@@ -550,6 +551,11 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
                the axis is another binding. */
             const int key = ((int)(l - &layers_[0]) * THH_MAX_AXES + ax) * 64 +
                             (int)i;
+
+            /* Afresh, unless it is a share the other hand's notes are
+               still hearing glide. */
+            if (silent && !(bd.b.both && other_ && !other_->soundingList_.empty()))
+                smoothing_.erase(key);
 
             if (bd.b.kind == thHidBinding::BEND)
             {
@@ -775,9 +781,7 @@ thhMapper::update (const thhState &s, int curChannel,
     for (int ax = 0; ax < axes_; ax++)
         strike(ax, s, curChannel, out);
 
-    if (silent)
-        smoothing_.clear();
-    expression(s, out);
+    expression(s, silent, out);
 
     for (int ax = 0; ax < axes_; ax++)
     {

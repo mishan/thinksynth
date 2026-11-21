@@ -188,7 +188,10 @@ private:
     std::vector<std::pair<int, int> > fresh_;
     std::map<int, std::pair<double, double> > smoothing_;  /* value, time */
 
-    void expression (const thhState &s, std::vector<thhAction> &out);
+    /* `silent': nothing was sounding before this update, so the bend and
+       aux start afresh where they are rather than gliding in. */
+    void expression (const thhState &s, bool silent,
+                     std::vector<thhAction> &out);
     void express (thhAction::Kind kind, int aux, double value, int channel,
                   int note, std::vector<thhAction> &out) const;
     double smoothed (int key, double raw, double k, const thhState &s);
