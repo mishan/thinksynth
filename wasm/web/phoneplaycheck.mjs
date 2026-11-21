@@ -102,6 +102,19 @@ check(tick(0.5) === 1 && !take().some((a) => a.kind === 'off'),
 check(tick(1.2) === 0 && take().some((a) => a.kind === 'off'),
       'a second is the phone gone, and its note let go');
 
+/* A smoothed value glides with each frame: the finger high, then lower a
+   tenth of a second later, is most of the way there by that frame. */
+frame(1.2, true, 0.5, 0.9);
+take();
+frame(1.3, true, 0.5, 0.5);
+
+const glide = take().find((a) => a.kind === 'aux' && a.aux === 3);
+
+check(glide && glide.t > 0.4 && glide.t < 0.5,
+      'a smoothed value glides toward each frame as it comes', JSON.stringify(glide));
+frame(1.32, false, 0.5, 0.5);
+take();
+
 /* A gap with no tick in it, then a frame: the quiet second is still the
    phone gone, the held note let go before the frame plays afresh. */
 frame(1.5, true, 0.5, 0.5);

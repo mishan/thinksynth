@@ -126,9 +126,13 @@ EMSCRIPTEN_KEEPALIVE int th_phone_frame (uint32_t id, uint32_t seq,
     for (int a = 0; a < THH_PHONE_AXES; a++)
         f.axes[a] = axes[a];
 
-    /* The phone as it is up to now first: a quiet second with no tick in
-       it is still the phone gone, its notes let go before this one plays. */
-    phoneMapper.update(phone.state(now), phoneChannel, phonePlayed);
+    /* A quiet second with no tick in it is still the phone gone: its notes
+       let go before this one plays. Only then, since an update of the
+       state it is still in would leave its smoothing no time to move. */
+    const thhState was = phone.state(now);
+
+    if (!was.connected)
+        phoneMapper.update(was, phoneChannel, phonePlayed);
 
     const bool taken = phone.take(f, now);
 
