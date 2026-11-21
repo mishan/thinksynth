@@ -197,8 +197,12 @@ export class Pair
             /* Refused coming back: the pairing ended while this side was
                away, or the relay has forgotten it. */
             this.finish('ended', m.why);
-        else if (m.type === 'ended' || m.type === 'refused')
-            this.finish(m.type, m.why);
+        /* By name here, not by what the message says it is: what a socket
+           sends never names the handler it reaches. */
+        else if (m.type === 'ended')
+            this.finish('ended', m.why);
+        else if (m.type === 'refused')
+            this.finish('refused', m.why);
     }
 
     finish (type, why)
