@@ -1248,6 +1248,13 @@ jobs:
         working-directory: wasm/web
         run: node keycheck.mjs
 
+      # A phone and its page linked directly (pair.js, mesh.js): opened,
+      # frames on their channels, and a phone page reloaded direct again.
+      - name: A phone linked to its page
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node linktest.mjs
+
       # The chat box against a relay the script plays: a slow echo, a
       # refusal, no connection.
       - name: The chat box
@@ -1305,6 +1312,11 @@ jobs:
       # tape between them, and genwav's tape under the same commands.
       - name: Two peers, one tape
         run: node wasm/web/protocoltest.mjs
+
+      # The same link through the relay: a pairing made and joined, frames
+      # both ways, a side cut and back, an end.
+      - name: A phone linked through the relay
+        run: node wasm/web/pairlinktest.mjs
 
       # The relay, driven from Node by the clients the page will be:
       # presence, seats, the clock, signalling, the relayed fallback, and

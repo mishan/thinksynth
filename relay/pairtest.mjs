@@ -303,10 +303,11 @@ async function cameBack ()
                                   { type: 'hello', token: p.joined.token });
 
         check(again.joined.type === 'joined' &&
-              (await within(back.closed)) !== 'not in time' &&
-              await h2.count('peer') === before,
+              (await within(back.closed)) === 4001 &&
+              await h2.count('peer') === before + 1 &&
+              h2.got.filter((m) => m.type === 'peer').at(-1).here === true,
               'a side that comes back again replaces its older socket, and ' +
-              'the page hears nothing of it');
+              'the page is told it is back, though it never saw it go');
     }
     finally
     {
