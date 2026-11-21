@@ -217,7 +217,15 @@ while (queue.length)
 
             seen.add(rel);
 
-            if (present(rel))
+            /* A directory a script joins the names it loads onto
+               (`new URL('mediapipe/', ...)'): there, and not empty. */
+            if (rel.endsWith('/'))
+            {
+                if (!fs.existsSync(path.join(dist, rel)) ||
+                    fs.readdirSync(path.join(dist, rel)).length === 0)
+                    broken.push(`${rel} (named by ${from})`);
+            }
+            else if (present(rel))
                 queue.push(rel);
             else
                 broken.push(`${rel} (named by ${from})`);
