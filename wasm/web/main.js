@@ -699,6 +699,16 @@ function controlChannel ()
     return playsPatch() ? PATCH_CHANNEL : keyChannel();
 }
 
+/* The channel a note sounds on that a controller can bend, or null where
+   none can: a piece's keys go in as its input, where no voice of theirs is
+   a note to bend. */
+function bendChannel (note)
+{
+    const held = sounding.get(note);
+
+    return held === undefined || held.piece ? null : PATCH_CHANNEL;
+}
+
 /* A MIDI knob, onto each control it is mapped to. */
 function midiKnob (channel, controller, value)
 {
@@ -4776,6 +4786,25 @@ async function init ()
         button: $('camera'), status: $('camerastatus'), zones: $('camerazones'),
         onNoteOn: (note, velocity) => press(note, velocity, 'camera'),
         onNoteOff: (note) => release(note, 'camera'),
+        mode: $('cameramode'), snap: $('camerasnap'),
+        /* As a theremin's: a bend and an aux on the note's own voice, which
+           thhAction calls NOTE_BEND (3) and NOTE_AUX (4), as hid.js's are. */
+        onBend: (note, semitones) =>
+        {
+            const channel = bendChannel(note);
+
+            if (channel !== null)
+                synth?.hid({ kind: 3, channel, note, t: semitones, frame: -1 });
+        },
+        onAux: (note, aux, value) =>
+        {
+            const channel = bendChannel(note);
+
+            if (channel !== null)
+                synth?.hid({ kind: 4, channel, note, aux, t: value, frame: -1 });
+        },
+        hint: () => playsPatch() ? ''
+            : '; in a piece it plays plain notes, which only a patch bends',
         view: createCameraView({
             canvas: $('cameracanvas'),
             shown: () => panes.visible('cameraview'),
@@ -4800,12 +4829,7 @@ async function init ()
             synth?.hid(action);
         },
         channel: controlChannel,
-        bendChannel: (note) =>
-        {
-            const held = sounding.get(note);
-
-            return held === undefined || held.piece ? null : PATCH_CHANNEL;
-        },
+        bendChannel,
         controller: (channel) => synth.controller(channel),
         pane: {
             root: $('hidpane'), line: $('hidpaneline'), rows: $('hidrows'),

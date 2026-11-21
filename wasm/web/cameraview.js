@@ -39,13 +39,36 @@ const FLASH_MS = 400;
  * `onOpen(on)' is told when the camera opens and closes, for the page to
  * offer the view only while there is a camera.
  *
- * Returns { open, close, frame(video, levels, hits, down) }, for camera.js.
+ * Returns { open, close, frame(video, levels, hits, down), hands(video,
+ * left, right, points) }, for camera.js: the zones as the air harp plays,
+ * or the hands as the theremin does.
  */
 export function createCameraView ({ canvas, shown, onOpen })
 {
     const g = canvas.getContext('2d');
     const flashes = new Array(9).fill(null);
     let held = '', expire = 0;
+
+    /* The camera's picture, mirrored, sized to it; false while there is
+       nobody to see it or nothing to draw. */
+    const picture = (video) =>
+    {
+        if (!shown() || !(video.videoWidth > 0))
+            return false;
+
+        const w = video.videoWidth, h = video.videoHeight;
+
+        if (canvas.width !== w || canvas.height !== h)
+        {
+            canvas.width = w;
+            canvas.height = h;
+        }
+        g.save();
+        g.scale(-1, 1);
+        g.drawImage(video, -w, 0, w, h);
+        g.restore();
+        return true;
+    };
 
     return {
         open: () =>
@@ -78,21 +101,10 @@ export function createCameraView ({ canvas, shown, onOpen })
                 expire = setTimeout(() => this.frame(video, levels, [], down),
                                     last + FLASH_MS - now);
 
-            if (!shown() || !(video.videoWidth > 0))
+            if (!picture(video))
                 return;
 
-            const w = video.videoWidth, h = video.videoHeight;
-
-            if (canvas.width !== w || canvas.height !== h)
-            {
-                canvas.width = w;
-                canvas.height = h;
-            }
-
-            g.save();
-            g.scale(-1, 1);
-            g.drawImage(video, -w, 0, w, h);
-            g.restore();
+            const w = canvas.width, h = canvas.height;
 
             const zw = w / 3, zh = h / 3, bar = Math.max(4, zh / 16);
 
@@ -133,6 +145,58 @@ export function createCameraView ({ canvas, shown, onOpen })
                                  zw - g.lineWidth, zh - bar * 2 - g.lineWidth);
                     g.lineWidth = Math.max(1, w / 320);
                 }
+            }
+            g.globalAlpha = 1;
+        },
+
+        /* The tracker's points; each hand as the theremin has it, a ring
+           filled while pinched; the right hand's pitch up the right edge,
+           on the profile's 15 steps while `snapped'; and the left hand's
+           volume up the left. */
+        hands (video, left, right, points, snapped)
+        {
+            if (!picture(video))
+                return;
+
+            const w = canvas.width, h = canvas.height;
+            const steps = 15, bar = Math.max(6, w / 80), r = w / 30;
+
+            g.fillStyle = '#fff';
+            for (let p = 0; p + 44 <= points.length; p += 44)
+                for (let i = 0; i < 21; i++)
+                    g.fillRect((1 - points[p + i]) * w - 2, points[p + 21 + i] * h - 2, 4, 4);
+
+            g.globalAlpha = 0.6;
+            for (let k = 0; snapped && k <= steps; k++)
+                g.fillRect(w - bar, (1 - k / steps) * h - 1, bar, 2);
+            g.globalAlpha = 0.85;
+            g.fillStyle = held;
+            if (right)
+                g.fillRect(w - 2 * bar, (1 - (snapped ? Math.round(right[1] * steps) / steps
+                                                      : right[1])) * h - 3, 2 * bar, 6);
+            if (left)
+                g.fillRect(0, (1 - left[1]) * h, bar, left[1] * h);
+
+            g.lineWidth = Math.max(2, w / 160);
+            g.font = `${Math.round(r)}px sans-serif`;
+            g.textAlign = 'center';
+            g.textBaseline = 'middle';
+            for (const [hand, name] of [[left, 'L'], [right, 'R']])
+            {
+                if (!hand)
+                    continue;
+
+                const x = hand[0] * w, y = (1 - hand[1]) * h;
+
+                g.beginPath();
+                g.arc(x, y, r, 0, 2 * Math.PI);
+                g.strokeStyle = held;
+                g.stroke();
+                if (hand[3])
+                    g.fill();
+                g.fillStyle = '#fff';
+                g.fillText(name, x, y);
+                g.fillStyle = held;
             }
             g.globalAlpha = 1;
         },

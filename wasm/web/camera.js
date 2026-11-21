@@ -37,6 +37,11 @@ import { wasmBytes } from './host.js';
    (camera/thiCamera.h): enough for thMotion's zones, and little to post. */
 const WIDTH = 160;
 
+/* How long the tracker may take to answer before its notes are let go:
+   longer than a camera's frames may be apart, since a tracker's first
+   answer, or a phone's, can take a few hundred milliseconds. */
+const TRACKER_STALL_MS = 1000;
+
 /* thMotion's MAX_GAP_SECONDS. */
 const STALL_MS = 250;
 
@@ -53,12 +58,17 @@ export function cameraAvailable ()
  * saying how it went, and nine cells that light with the zones. The button
  * is left disabled for the page to enable once there is a synth to play.
  * `view', if given, is a camera view (cameraview.js): opened and closed
- * with the camera, and handed each frame.
+ * with the camera, and handed each frame. `mode' and `snap', if given, are
+ * a <select> of harp and theremin and a checkbox, which the camera plays
+ * by (openCamera, which takes `onBend' and `onAux'), opened afresh when
+ * either changes while it is on; `hint()' adds to what the theremin's
+ * status line says.
  *
  * Returns { forget }, which is openCamera's forget on whatever is open.
  */
 export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
-                                view = null })
+                                view = null, mode = null, snap = null,
+                                onBend, onAux, hint = () => '' })
 {
     const label = button.textContent;
     const cells = [...zones.children];
@@ -85,13 +95,19 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
         button.disabled = true;
         status.textContent = 'asking...';
 
-        /* The worker can fail before the camera has finished opening. */
+        /* The worker can fail before the camera has finished opening. And
+           what it plays is read once, before the permission prompt, which a
+           change of mode made under it mustn't contradict. */
         let failed = null;
+        const playing = mode?.value ?? 'harp';
 
         try
         {
             open = await openCamera({
-                onNoteOn, onNoteOff,
+                onNoteOn, onNoteOff, onBend, onAux,
+                mode: playing, snap: snap?.checked ?? true,
+                onHands: (left, right, video, points) =>
+                    view?.hands(video, left, right, points, snap?.checked ?? true),
                 onZones: (levels, hits, down, video) =>
                 {
                     for (let z = 0; z < cells.length; z++)
@@ -127,10 +143,36 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
         }
 
         button.textContent = `${label}: on`;
-        status.textContent = 'strike the zones';
-        zones.hidden = false;
+        if (playing === 'theremin')
+            status.textContent = `pinch your left hand to play; raise your right ` +
+                                 `for pitch, your left for volume${hint()}`;
+        else
+        {
+            status.textContent = 'strike the zones';
+            zones.hidden = false;
+        }
         view?.open();
     });
+
+    /* Shown for the theremin alone, at the start too: a browser may give
+       the menu back as it was left, which no change says. */
+    const offer = () =>
+    {
+        if (snap)
+            snap.closest('label').hidden = mode.value !== 'theremin';
+    };
+
+    offer();
+    for (const control of [mode, snap])
+        control?.addEventListener('change', () =>
+        {
+            offer();
+            if (open !== null)
+            {
+                shut();
+                button.click();
+            }
+        });
 
     return { forget: () => open?.forget() };
 }
@@ -142,6 +184,13 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
  * is still (twcamera.cpp) and the camera's <video>, and `onFailed(why)' if
  * the camera or the worker goes for good, after every note has been let go.
  *
+ * `mode' 'theremin' plays the hands handworker.js finds instead of the
+ * zones, snapped to a scale if `snap': `onBend(note, semitones)' and
+ * `onAux(note, which, value)' are then each note's bend and aux, and
+ * `onHands(left, right, video, points)' replaces onZones, each hand
+ * [x, y, close, pinched] as the player sees it or null, and `points' the
+ * tracker's own, as handworker.js packs them.
+ *
  * Resolves to { forget, close }. `forget' drops the notes held without
  * calling onNoteOff, for a page that has just released everything itself.
  * `close' lets go of everything held and lets the camera go.
@@ -149,7 +198,9 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
  * Rejects with a message fit to put on the page.
  */
 export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
-                                    onFailed = () => {} })
+                                    onFailed = () => {}, mode = 'harp', snap = true,
+                                    onBend = () => {}, onAux = () => {},
+                                    onHands = () => {} })
 {
     let stream;
 
@@ -194,6 +245,14 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
     video.playsInline = true;
     video.srcObject = stream;
 
+    /* The theremin's tracker, which answers one frame at a time: the next
+       frame is made only once it has answered, so none queue behind it. */
+    const tracker = mode === 'theremin'
+        ? new Worker(new URL('handworker.js', import.meta.url), { type: 'module' })
+        : null;
+    let ready = false, tracking = false, asked = 0, points = new Float32Array(0);
+    const stallMs = tracker === null ? STALL_MS : TRACKER_STALL_MS;
+
     const held = new Set();
     let open = true, last = performance.now(), stalled = false, frame = 0;
     /* Advanced by forget: a reply to a frame posted before it would press
@@ -222,6 +281,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
         for (const t of stream.getTracks())
             t.stop();
         worker.terminate();
+        tracker?.terminate();
         letGo();
     };
 
@@ -252,11 +312,53 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
             else if (velocity === 0 && held.delete(note))
                 onNoteOff(note);
 
-        onZones(m.zones, m.hits, m.down, video);
+        if (tracker === null)
+        {
+            onZones(m.zones, m.hits, m.down, video);
+            return;
+        }
+        for (const [note, semitones] of m.bends)
+            onBend(note, semitones);
+        for (const [note, which, value] of m.aux)
+            onAux(note, which, value);
+        onHands(m.left, m.right, video, points);
     };
     worker.onerror = (e) => fail(`the camera's worker: ${e.message ?? 'failed'}`);
 
-    worker.postMessage({ type: 'start', bytes }, [bytes]);
+    worker.postMessage({ type: 'start', bytes, mode, snap }, [bytes]);
+
+    if (tracker !== null)
+    {
+        tracker.onmessage = (e) =>
+        {
+            const m = e.data;
+
+            if (m.type === 'failed')
+                fail(m.text);
+            else if (m.type === 'ready')
+                ready = true;
+            else if (m.type === 'hands')
+            {
+                /* Free for the next frame only once the last one sent is
+                   answered: an answer to one given up on is still hands. */
+                if (m.id === asked)
+                    tracking = false;
+                if (!open || m.generation !== generation)
+                    return;
+
+                /* Answered, which is what the stall watch waits for here:
+                   a tracker that stops answering lets the note go, as a
+                   camera that stops sending does. */
+                last = performance.now();
+                stalled = false;
+                points = new Float32Array(m.points.slice(0));
+                worker.postMessage({ type: 'hands', generation, points: m.points,
+                                     count: m.count, seconds: m.seconds }, [m.points]);
+            }
+        };
+        tracker.onerror = (e) => fail(`the hand tracker: ${e.message ?? 'failed'}`);
+        tracker.postMessage({ type: 'start' });
+    }
 
     /* Sized from the video, and again whenever its size changes: a phone
        turned on its side. */
@@ -286,7 +388,9 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
 
         try
         {
-            if (sized())
+            if (tracker !== null)
+                toTracker(now);
+            else if (sized())
                 post(now, meta);
         }
         catch (e)
@@ -295,6 +399,24 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
             return;
         }
         frame = video.requestVideoFrameCallback(onFrame);
+    };
+
+    /* One clock for the tracker's times, the page's: a capture time is the
+       camera's and isn't always there. */
+    const toTracker = (now) =>
+    {
+        if (!ready || tracking)
+            return;
+
+        tracking = true;
+        createImageBitmap(video).then((bitmap) =>
+        {
+            if (open)
+                tracker.postMessage({ type: 'frame', bitmap, seconds: now / 1000,
+                                      generation, id: ++asked }, [bitmap]);
+            else
+                bitmap.close();
+        }, () => { tracking = false; });
     };
 
     const post = (now, meta) =>
@@ -318,12 +440,19 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
 
     watch = setInterval(() =>
     {
-        if (!stalled && performance.now() - last > STALL_MS)
+        if (performance.now() - last <= stallMs)
+            return;
+
+        if (!stalled)
         {
             stalled = true;
             worker.postMessage({ type: 'gone', generation });
         }
-    }, STALL_MS / 2);
+
+        /* And a frame the tracker hasn't answered is given up on, each time,
+           or none would be sent again. */
+        tracking = false;
+    }, stallMs / 2);
 
     track.onended = () => fail('the camera went away');
 
