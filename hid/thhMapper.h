@@ -183,6 +183,9 @@ private:
     /* The notes sounding_ and reached_ hold, as lists, so an update visits
        a handful rather than every place a note could be. */
     std::vector<std::pair<int, int> > soundingList_, reachedList_;
+    /* Notes started in this update, sent their bend and aux by
+       expression() once the update's values, and layers, are settled. */
+    std::vector<std::pair<int, int> > fresh_;
     std::map<int, std::pair<double, double> > smoothing_;  /* value, time */
 
     void expression (const thhState &s, std::vector<thhAction> &out);

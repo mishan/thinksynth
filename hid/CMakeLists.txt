@@ -8,6 +8,7 @@ add_library(think_hid OBJECT
     thhCamera.cpp
     thhControls.cpp
     thhHandTrack.cpp
+    thhPhone.cpp
     thhHands.cpp
     thhHost.cpp
     thhIndex.cpp
