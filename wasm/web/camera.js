@@ -42,6 +42,10 @@ const WIDTH = 160;
    answer, or a phone's, can take a few hundred milliseconds. */
 const TRACKER_STALL_MS = 1000;
 
+/* How many frames in a row the tracker may leave unanswered, a stall watch
+   apart, before it is taken for hung: ten seconds of them. */
+const TRACKER_UNANSWERED = 20;
+
 /* thMotion's MAX_GAP_SECONDS. */
 const STALL_MS = 250;
 
@@ -100,14 +104,15 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
            change of mode made under it mustn't contradict. */
         let failed = null;
         const playing = mode?.value ?? 'harp';
+        const snapped = snap?.checked ?? true;
 
         try
         {
             open = await openCamera({
                 onNoteOn, onNoteOff, onBend, onAux,
-                mode: playing, snap: snap?.checked ?? true,
+                mode: playing, snap: snapped,
                 onHands: (left, right, video, points) =>
-                    view?.hands(video, left, right, points, snap?.checked ?? true),
+                    view?.hands(video, left, right, points, snapped),
                 onZones: (levels, hits, down, video) =>
                 {
                     for (let z = 0; z < cells.length; z++)
@@ -139,6 +144,14 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
         if (failed !== null)
         {
             shut(failed);
+            return;
+        }
+        /* Changed while it was asked for, when there was nothing yet to
+           open afresh. */
+        if ((mode?.value ?? 'harp') !== playing || (snap?.checked ?? true) !== snapped)
+        {
+            shut();
+            button.click();
             return;
         }
 
@@ -250,7 +263,8 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
     const tracker = mode === 'theremin'
         ? new Worker(new URL('handworker.js', import.meta.url), { type: 'module' })
         : null;
-    let ready = false, tracking = false, asked = 0, points = new Float32Array(0);
+    let ready = false, tracking = false, asked = 0, unanswered = 0;
+    let points = new Float32Array(0);
     const stallMs = tracker === null ? STALL_MS : TRACKER_STALL_MS;
 
     const held = new Set();
@@ -343,6 +357,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
                    answered: an answer to one given up on is still hands. */
                 if (m.id === asked)
                     tracking = false;
+                unanswered = 0;
                 if (!open || m.generation !== generation)
                     return;
 
@@ -409,11 +424,14 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
             return;
 
         tracking = true;
+
+        const taken = generation;
+
         createImageBitmap(video).then((bitmap) =>
         {
             if (open)
                 tracker.postMessage({ type: 'frame', bitmap, seconds: now / 1000,
-                                      generation, id: ++asked }, [bitmap]);
+                                      generation: taken, id: ++asked }, [bitmap]);
             else
                 bitmap.close();
         }, () => { tracking = false; });
@@ -450,7 +468,13 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
         }
 
         /* And a frame the tracker hasn't answered is given up on, each time,
-           or none would be sent again. */
+           or none would be sent again; but not for ever, each one waiting
+           in a tracker that is never coming back. */
+        if (tracking && ++unanswered >= TRACKER_UNANSWERED)
+        {
+            fail('the hand tracker stopped answering');
+            return;
+        }
         tracking = false;
     }, stallMs / 2);
 
