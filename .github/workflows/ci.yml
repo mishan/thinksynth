@@ -889,6 +889,12 @@ jobs:
       - name: A camera's notes, through the module
         run: node wasm/web/camcheck.mjs
 
+      # Two hands as a theremin, through the module (twhands.cpp): a left
+      # pinch plays, the right hand bends it to a scale's step or freely,
+      # the left hushes it, a hand or a camera gone lets it go.
+      - name: Two hands as a theremin, through the module
+        run: node wasm/web/handscheck.mjs
+
       # A Valve Index controller's values and bends on the module's synth
       # (thinkweb.cpp, tw_hid), and a patch's controller block asked of it
       # (tw_controller): each heard by rendering the same note twice.

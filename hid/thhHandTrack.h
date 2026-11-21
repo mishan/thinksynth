@@ -67,9 +67,12 @@ enum thhHandsAxis
 const thhControls &thhHandsControls ();
 
 /* A theremin: the left hand's pinch plays, the right hand's height bends the
-   note along a scale, the left hand's height is its aux0, which a patch
-   reading it (dsp/theremin.dsp) plays as how loud. */
+   note along a scale, and how far the left hand is below the top is its
+   aux3, which dsp/theremin.dsp hushes it by. A hush, so that a key's note,
+   whose aux3 is 0, plays out; and aux3, which no other patch reads, so the
+   left hand changes nothing it wasn't meant to (docs/DSP_FORMAT.md). */
 extern const char *const THH_HANDS_PROFILE;
+extern const char *const THH_HANDS_FREE_PROFILE;
 
 /* One hand as the tracker gave it. `side' is its word for which hand,
    "Left" or "Right", for a mirrored picture, and `sure' how sure, 0 to 1. */
