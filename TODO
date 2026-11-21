@@ -228,17 +228,6 @@ Controllers
   per-hand ignore should outlast an either-hand binding, or the pane should
   warn, is undecided. (docs/HID.md, "Your own profile")
 
-- The profile reader (src/thcHidBlock) in the language layer, not the
-  composer host. A profile is read standalone, from a .dsp's `controller'
-  block, and later from a .gen's `input hid', yet it reaches the shared
-  lexer through the .gen loader's header (thcGenLoader::tokenize), so
-  hid/ can't build without the composer host and its checks link the
-  scheduler for nothing. Move thcGenToken and tokenize beside
-  libthink/thLexer.h as the words-numbers-and-knobs view of that lexer,
-  and the reader with them; .gen, .dsp and hid/ then all stand on it.
-  The parsers stay apart (docs/UNIFICATION.md: the language, not the
-  semantics). After the theremin, whose slices all touch the reader.
-
 - A video theremin: a hand tracker on the camera, one hand's height the
   pitch and the other's distance the level, a pinch to gate the note.
   The browser's trackers (MediaPipe Hands) are a model of several MB,

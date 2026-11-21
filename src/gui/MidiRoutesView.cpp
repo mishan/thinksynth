@@ -45,7 +45,7 @@ void showsNotes (Gtk::SpinButton *spin)
 
         if (!text.empty() && *end == '\0')
             value = (double)n;
-        else if (thcGenLoader::parseNoteList(text, notes, bad) &&
+        else if (thParseNoteList(text, notes, bad) &&
                  notes.size() == 1)
             value = notes[0];
         else

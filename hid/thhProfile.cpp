@@ -28,7 +28,7 @@
 /* A block's lines made negative: the device's own, so an error in what is
    left of it can say so, and the pane can tell it from the player's. */
 static void
-owned (thcHidBlock &b)
+owned (thHidBlock &b)
 {
     for (size_t i = 0; i < b.bindings.size(); i++)
         b.bindings[i].line = -std::abs(b.bindings[i].line);
@@ -49,21 +49,21 @@ owned (thcHidBlock &b)
 /* A patch's block's bindings, marked so the pane can say whose they are,
    on the patch's lines of their own. */
 static void
-fromPatch (thcHidBlock &b)
+fromPatch (thHidBlock &b)
 {
     b.line += THH_PATCH_LINES;
     for (auto &i : b.ignore)
         i.second += THH_PATCH_LINES;
-    for (thcHidBinding &x : b.bindings)
+    for (thHidBinding &x : b.bindings)
     {
         x.patch = true;
         x.line += THH_PATCH_LINES;
     }
-    for (thcHidLayer &l : b.layers)
+    for (thHidLayer &l : b.layers)
     {
         l.line += THH_PATCH_LINES;
         l.whenLine += THH_PATCH_LINES;
-        for (thcHidBinding &x : l.bindings)
+        for (thHidBinding &x : l.bindings)
         {
             x.patch = true;
             x.line += THH_PATCH_LINES;
@@ -73,7 +73,7 @@ fromPatch (thcHidBlock &b)
 
 /* What plays, on the patch's lines as the patch numbers them. */
 static void
-patchLines (thcHidBlock &b)
+patchLines (thHidBlock &b)
 {
     const auto back = [](int &line) {
         if (line >= THH_PATCH_LINES)
@@ -81,13 +81,13 @@ patchLines (thcHidBlock &b)
     };
 
     back(b.line);
-    for (thcHidBinding &x : b.bindings)
+    for (thHidBinding &x : b.bindings)
         back(x.line);
-    for (thcHidLayer &l : b.layers)
+    for (thHidLayer &l : b.layers)
     {
         back(l.line);
         back(l.whenLine);
-        for (thcHidBinding &x : l.bindings)
+        for (thHidBinding &x : l.bindings)
             back(x.line);
     }
 }
@@ -99,7 +99,7 @@ patchLines (thcHidBlock &b)
    already, so only what one controller alone plays, which has every
    control the player's file could name, says so. */
 static bool
-overlay (thcHidBlock &into, const thcHidBlock &over, bool strict,
+overlay (thHidBlock &into, const thHidBlock &over, bool strict,
          const std::function<bool (const std::string &)> &known,
          std::string &err, int &line)
 {
@@ -155,16 +155,16 @@ overlay (thcHidBlock &into, const thcHidBlock &over, bool strict,
 
 /* The blocks of a profile for one hand, either hand's first. */
 static bool
-forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
+forHand (const std::vector<thHidBlock> &blocks, const std::string &hand,
          bool own, bool patch, bool strict,
          const std::function<bool (const std::string &)> &known,
-         thcHidBlock &into, std::string &err, int &line)
+         thHidBlock &into, std::string &err, int &line)
 {
     for (int pass = 0; pass < (hand.empty() ? 1 : 2); pass++)
         for (size_t i = 0; i < blocks.size(); i++)
             if (blocks[i].hand == (pass ? hand : std::string()))
             {
-                thcHidBlock b = blocks[i];
+                thHidBlock b = blocks[i];
 
                 if (own)
                     owned(b);
@@ -181,7 +181,7 @@ forHand (const std::vector<thcHidBlock> &blocks, const std::string &hand,
 bool
 thhLoadProfile (const std::string &path, const thhControls &controls,
                 const char *fallback, const std::string &hand,
-                thcHidBlock &out, std::string &err, const std::string &patch,
+                thHidBlock &out, std::string &err, const std::string &patch,
                 const std::string &patchName, std::string *patchErr)
 {
     std::string text, unread;
@@ -228,16 +228,16 @@ thhReadProfile (const std::string &path, std::string &text, std::string &err)
 bool
 thhLoadProfileText (const std::string &text, const std::string &name,
                     const thhControls &controls, const char *fallback,
-                    const std::string &hand, thcHidBlock &out,
+                    const std::string &hand, thHidBlock &out,
                     std::string &err, const std::string &patch,
                     const std::string &patchName, std::string *patchErr)
 {
     std::string ignored, why;
-    std::vector<thcHidBlock> ownBlocks, mine, theirs;
+    std::vector<thHidBlock> ownBlocks, mine, theirs;
     int line = 0, at = 0;
 
     err.clear();
-    thcHidParseProfiles(fallback, ownBlocks, ignored, line);
+    thHidParseProfiles(fallback, ownBlocks, ignored, line);
 
     /* What an ignore may name, in a hand that has dropped it already: a
        control the device has, or a layer any of the profiles declares. */
@@ -245,8 +245,8 @@ thhLoadProfileText (const std::string &text, const std::string &name,
         if (controls.button(name) >= 0 || controls.axis(name) >= 0)
             return true;
         for (const auto *blocks : { &ownBlocks, &mine, &theirs })
-            for (const thcHidBlock &b : *blocks)
-                for (const thcHidLayer &l : b.layers)
+            for (const thHidBlock &b : *blocks)
+                for (const thHidLayer &l : b.layers)
                     if (l.name == name)
                         return true;
         return false;
@@ -256,8 +256,8 @@ thhLoadProfileText (const std::string &text, const std::string &name,
        file could name, so only it says an ignore of nothing is wrong; and
        a patch may drop what the file already has. */
     const auto forOne = [&](const std::string &h, bool player, bool patched,
-                            thcHidBlock &into) {
-        thcHidBlock own;
+                            thHidBlock &into) {
+        thHidBlock own;
 
         forHand(ownBlocks, h, true, false, h.empty(), known, own, ignored, line);
         into = own;
@@ -266,7 +266,7 @@ thhLoadProfileText (const std::string &text, const std::string &name,
     };
     /* Every hand, whichever is asked for now: an error in a hand's block
        is said with one controller too. */
-    thcHidBlock both;
+    thHidBlock both;
     const auto fits = [&](bool player, bool patched) {
         thhMapper check;
         std::vector<thhAction> none;
@@ -286,7 +286,7 @@ thhLoadProfileText (const std::string &text, const std::string &name,
 
     if (!text.empty())
     {
-        if (!thcHidParseProfiles(text, mine, why, at) || !fits(true, false))
+        if (!thHidParseProfiles(text, mine, why, at) || !fits(true, false))
             err = where(name);
         else
             player = true;
@@ -299,7 +299,7 @@ thhLoadProfileText (const std::string &text, const std::string &name,
 
     if (!patch.empty())
     {
-        const bool parsed = thcHidParseProfiles(patch, theirs, why, at);
+        const bool parsed = thHidParseProfiles(patch, theirs, why, at);
 
         patched = parsed && fits(player, true);
         if (!patched && parsed && at > 0 && at < THH_PATCH_LINES)

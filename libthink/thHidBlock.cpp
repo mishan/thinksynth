@@ -22,9 +22,9 @@
 #include <cmath>
 
 #include "think.h"
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 
-typedef thcGenToken Tok;
+typedef thWordToken Tok;
 
 namespace {
 
@@ -35,9 +35,9 @@ public:
             int &errLine)
         : t_(t), i_(i), err_(err), errLine_(errLine) {}
 
-    bool block (thcHidBlock &out);
-    bool profile (thcHidBlock &out);
-    bool profiles (std::vector<thcHidBlock> &out);
+    bool block (thHidBlock &out);
+    bool profile (thHidBlock &out);
+    bool profiles (std::vector<thHidBlock> &out);
 
 private:
     const std::vector<Tok> &t_;
@@ -101,12 +101,12 @@ private:
     bool number (double &out, const std::string &what);
     bool integer (int &out, int lo, int hi, const std::string &what);
     bool baseNote (int &out);
-    bool statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
+    bool statement (thHidBlock &blk, std::vector<thHidBinding> &bindings,
                     int &channel, int &base, bool inLayer);
-    bool layer (thcHidBlock &blk);
-    bool when (thcHidLayer &l);
-    bool binding (thcHidBinding &out, bool inLayer);
-    bool options (thcHidBinding &b);
+    bool layer (thHidBlock &blk);
+    bool when (thHidLayer &l);
+    bool binding (thHidBinding &out, bool inLayer);
+    bool options (thHidBinding &b);
 };
 
 bool
@@ -177,7 +177,7 @@ Parser::baseNote (int &out)
     std::vector<int> notes;
     std::string bad;
 
-    if (!thcGenLoader::parseNoteList(at.text, notes, bad))
+    if (!thParseNoteList(at.text, notes, bad))
         return fail(at, "'" + bad + "' is not a note");
     if (notes.size() != 1 || notes[0] < 0)
         return fail(at, "the base is one note");
@@ -212,15 +212,15 @@ chanargName (const std::string &name)
 /* `{ key = value; ... }' after an action. Which keys an action takes is
    decided here, so a key it doesn't take is refused by name. */
 bool
-Parser::options (thcHidBinding &b)
+Parser::options (thHidBinding &b)
 {
-    const bool value = b.kind == thcHidBinding::VALUE;
-    const bool strike = b.kind == thcHidBinding::STRIKE;
-    const bool vel = b.kind == thcHidBinding::VELOCITY || strike;
-    const bool pitch = b.kind == thcHidBinding::PITCH;
-    const bool bend = b.kind == thcHidBinding::BEND;
-    const bool aux = b.kind == thcHidBinding::AUX;
-    const bool loop = b.kind == thcHidBinding::LOOP;
+    const bool value = b.kind == thHidBinding::VALUE;
+    const bool strike = b.kind == thHidBinding::STRIKE;
+    const bool vel = b.kind == thHidBinding::VELOCITY || strike;
+    const bool pitch = b.kind == thHidBinding::PITCH;
+    const bool bend = b.kind == thHidBinding::BEND;
+    const bool aux = b.kind == thHidBinding::AUX;
+    const bool loop = b.kind == thHidBinding::LOOP;
 
     if (!isPunct(peek(), '{'))
         return true;
@@ -236,7 +236,7 @@ Parser::options (thcHidBinding &b)
         i_++;
 
         /* The one setting that is a word alone. */
-        if (k == "latch" && b.kind != thcHidBinding::NOTE)
+        if (k == "latch" && b.kind != thHidBinding::NOTE)
             return fail(key, "'latch' is a note's setting");
         if (k == "latch")
         {
@@ -250,7 +250,7 @@ Parser::options (thcHidBinding &b)
             return false;
 
         if (k == "channel" &&
-            (b.kind == thcHidBinding::NOTE || value || strike || loop))
+            (b.kind == thHidBinding::NOTE || value || strike || loop))
         {
             if (!integer(b.channel, 1, TH_ENGINE_CHANNELS, "channel"))
                 return false;
@@ -302,9 +302,9 @@ Parser::options (thcHidBinding &b)
             const Tok &v = peek();
 
             if (isWord(v, "linear"))
-                b.shape = thcHidBinding::LINEAR;
+                b.shape = thHidBinding::LINEAR;
             else if (isWord(v, "exp"))
-                b.shape = thcHidBinding::EXP;
+                b.shape = thHidBinding::EXP;
             else
                 return fail(v, "'" + v.text + "' is not a shape; write "
                             "linear or exp");
@@ -362,7 +362,7 @@ Parser::options (thcHidBinding &b)
 
     if (vel && b.hasMin && b.hasMax && b.min > b.max)
         return fail(b.line, "the velocity's min is above its max");
-    if (b.shape == thcHidBinding::EXP &&
+    if (b.shape == thHidBinding::EXP &&
         ((b.hasMin && b.min <= 0) || (b.hasMax && b.max <= 0)))
         return fail(b.line, "an exp shape needs a range above 0");
     if (b.octaves && !b.scale.empty())
@@ -375,7 +375,7 @@ Parser::options (thcHidBinding &b)
 }
 
 bool
-Parser::binding (thcHidBinding &b, bool inLayer)
+Parser::binding (thHidBinding &b, bool inLayer)
 {
     b.control = peek().text;
     b.line = peek().line;
@@ -389,20 +389,20 @@ Parser::binding (thcHidBinding &b, bool inLayer)
     {
         if (!chanargName(act.text))
             return fail(act, "'" + act.text + "' is not a chanarg name");
-        b.kind = thcHidBinding::VALUE;
+        b.kind = thHidBinding::VALUE;
         b.arg = act.text;
         i_++;
     }
     else if (isWord(act, "note"))
     {
-        b.kind = thcHidBinding::NOTE;
+        b.kind = thHidBinding::NOTE;
         i_++;
         if (!integer(b.semis, -127, 127, "note"))
             return false;
     }
     else if (isWord(act, "octave"))
     {
-        b.kind = thcHidBinding::OCTAVE;
+        b.kind = thHidBinding::OCTAVE;
         i_++;
         if (!integer(b.semis, -10, 10, "octave"))
             return false;
@@ -413,41 +413,41 @@ Parser::binding (thcHidBinding &b, bool inLayer)
     {
         if (inLayer)
             return fail(act, "a modifier can't sit inside a layer");
-        b.kind = act.text == "hold" ? thcHidBinding::HOLD
-                                    : thcHidBinding::TOGGLE;
+        b.kind = act.text == "hold" ? thHidBinding::HOLD
+                                    : thHidBinding::TOGGLE;
         i_++;
         if (!word(b.layer, act.text))
             return false;
     }
     else if (isWord(act, "pitch"))
     {
-        b.kind = thcHidBinding::PITCH;
+        b.kind = thHidBinding::PITCH;
         i_++;
         if (!isPunct(peek(), '{'))
             return fail(peek(), "a pitch axis needs a range");
     }
     else if (isWord(act, "velocity"))
     {
-        b.kind = thcHidBinding::VELOCITY;
+        b.kind = thHidBinding::VELOCITY;
         i_++;
     }
     else if (isWord(act, "bend"))
     {
-        b.kind = thcHidBinding::BEND;
+        b.kind = thHidBinding::BEND;
         i_++;
         if (!isPunct(peek(), '{'))
             return fail(peek(), "a bend needs a range");
     }
     else if (isWord(act, "aux"))
     {
-        b.kind = thcHidBinding::AUX;
+        b.kind = thHidBinding::AUX;
         i_++;
         if (!integer(b.semis, 0, TH_NOTE_AUX - 1, "aux"))
             return false;
     }
     else if (isWord(act, "strike"))
     {
-        b.kind = thcHidBinding::STRIKE;
+        b.kind = thHidBinding::STRIKE;
         b.off = -1;     /* until it is given, or follows at */
         i_++;
         if (!integer(b.semis, -127, 127, "strike"))
@@ -455,7 +455,7 @@ Parser::binding (thcHidBinding &b, bool inLayer)
     }
     else if (isWord(act, "loop"))
     {
-        b.kind = thcHidBinding::LOOP;
+        b.kind = thHidBinding::LOOP;
         b.off = -1;
         i_++;
         if (!isWord(peek(), "record") && !isWord(peek(), "undo") &&
@@ -472,10 +472,10 @@ Parser::binding (thcHidBinding &b, bool inLayer)
     if (!options(b))
         return false;
 
-    if (b.kind == thcHidBinding::STRIKE || b.kind == thcHidBinding::LOOP)
+    if (b.kind == thHidBinding::STRIKE || b.kind == thHidBinding::LOOP)
     {
-        const std::string what = b.kind == thcHidBinding::STRIKE ? "a strike"
-                                                                 : "a loop";
+        const std::string what = b.kind == thHidBinding::STRIKE ? "a strike"
+                                                                : "a loop";
 
         if (b.at <= 0)
             return fail(b.line, what + "'s at is above 0, where it rests");
@@ -491,7 +491,7 @@ Parser::binding (thcHidBinding &b, bool inLayer)
 /* One statement of a device's body or a layer's: a setting, a layer (in a
    device only) or a binding. */
 bool
-Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
+Parser::statement (thHidBlock &blk, std::vector<thHidBinding> &bindings,
                    int &channel, int &base, bool inLayer)
 {
     const Tok &tok = peek();
@@ -532,16 +532,16 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
         return expect(';');
     }
 
-    thcHidBinding b;
+    thHidBinding b;
 
     if (!binding(b, inLayer))
         return false;
 
     /* An axis may ride several knobs and pitch axes at once; anything else
        is one binding to a control. */
-    const auto repeats = [](const thcHidBinding &x) {
-        return x.kind == thcHidBinding::VALUE || x.kind == thcHidBinding::PITCH ||
-               x.kind == thcHidBinding::BEND || x.kind == thcHidBinding::AUX;
+    const auto repeats = [](const thHidBinding &x) {
+        return x.kind == thHidBinding::VALUE || x.kind == thHidBinding::PITCH ||
+               x.kind == thHidBinding::BEND || x.kind == thHidBinding::AUX;
     };
 
     for (size_t i = 0; i < bindings.size(); i++)
@@ -556,7 +556,7 @@ Parser::statement (thcHidBlock &blk, std::vector<thcHidBinding> &bindings,
 
 /* `when { axis = at-least; ... };' */
 bool
-Parser::when (thcHidLayer &l)
+Parser::when (thHidLayer &l)
 {
     if (l.whenLine)
         return fail(peek(), "a layer has one when; put every axis in it");
@@ -581,9 +581,9 @@ Parser::when (thcHidLayer &l)
 }
 
 bool
-Parser::layer (thcHidBlock &blk)
+Parser::layer (thHidBlock &blk)
 {
-    thcHidLayer l;
+    thHidLayer l;
 
     l.line = peek().line;
     i_++;
@@ -610,7 +610,7 @@ Parser::layer (thcHidBlock &blk)
 }
 
 bool
-Parser::block (thcHidBlock &out)
+Parser::block (thHidBlock &out)
 {
     if (!expect('{'))
         return false;
@@ -624,10 +624,10 @@ Parser::block (thcHidBlock &out)
        the whole block is read. */
     for (size_t i = 0; ownLayers_ && i < out.bindings.size(); i++)
     {
-        const thcHidBinding &b = out.bindings[i];
+        const thHidBinding &b = out.bindings[i];
         bool found = false;
 
-        if (b.kind != thcHidBinding::HOLD && b.kind != thcHidBinding::TOGGLE)
+        if (b.kind != thHidBinding::HOLD && b.kind != thHidBinding::TOGGLE)
             continue;
 
         for (size_t j = 0; j < out.layers.size(); j++)
@@ -641,7 +641,7 @@ Parser::block (thcHidBlock &out)
 }
 
 bool
-Parser::profile (thcHidBlock &out)
+Parser::profile (thHidBlock &out)
 {
     if (!isWord(peek(), "device"))
         return fail(peek(), "a profile starts with 'device'");
@@ -656,13 +656,13 @@ Parser::profile (thcHidBlock &out)
 
 /* `device NAME [left|right] { ... };', again for each hand. */
 bool
-Parser::profiles (std::vector<thcHidBlock> &out)
+Parser::profiles (std::vector<thHidBlock> &out)
 {
     out.clear();
     ownLayers_ = false;
     while (peek().kind != Tok::END)
     {
-        thcHidBlock b;
+        thHidBlock b;
 
         if (!isWord(peek(), "device"))
             return fail(peek(), "a profile is 'device' blocks");
@@ -698,36 +698,36 @@ Parser::profiles (std::vector<thcHidBlock> &out)
 } /* namespace */
 
 bool
-thcHidParseBlock (const std::vector<Tok> &toks, size_t &pos, thcHidBlock &out,
-                  std::string &err, int &errLine)
+thHidParseBlock (const std::vector<Tok> &toks, size_t &pos, thHidBlock &out,
+                 std::string &err, int &errLine)
 {
     err.clear();
     return Parser(toks, pos, err, errLine).block(out);
 }
 
 bool
-thcHidParseProfile (const std::string &text, thcHidBlock &out,
-                    std::string &err, int &errLine)
+thHidParseProfile (const std::string &text, thHidBlock &out,
+                   std::string &err, int &errLine)
 {
     std::vector<Tok> toks;
     size_t pos = 0;
 
-    out = thcHidBlock();
-    if (!thcGenLoader::tokenize(text, toks, err, errLine))
+    out = thHidBlock();
+    if (!thWordTokenize(text, toks, err, errLine))
         return false;
 
     return Parser(toks, pos, err, errLine).profile(out);
 }
 
 bool
-thcHidParseProfiles (const std::string &text, std::vector<thcHidBlock> &out,
-                     std::string &err, int &errLine)
+thHidParseProfiles (const std::string &text, std::vector<thHidBlock> &out,
+                    std::string &err, int &errLine)
 {
     std::vector<Tok> toks;
     size_t pos = 0;
 
     out.clear();
-    if (!thcGenLoader::tokenize(text, toks, err, errLine))
+    if (!thWordTokenize(text, toks, err, errLine))
         return false;
 
     return Parser(toks, pos, err, errLine).profiles(out);

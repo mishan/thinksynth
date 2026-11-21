@@ -36,7 +36,7 @@
 #include <sstream>
 #include <string>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhCamera.h"
 #include "thhMapper.h"
 
@@ -173,12 +173,12 @@ states (void)
 static void
 playing (void)
 {
-    thcHidBlock profile;
+    thHidBlock profile;
     thhMapper mapper;
     std::vector<thhAction> acts;
     string err;
     int line = 0;
-    const bool parsed = thcHidParseProfile(THH_CAMERA_PROFILE, profile, err, line);
+    const bool parsed = thHidParseProfile(THH_CAMERA_PROFILE, profile, err, line);
     const bool bound = parsed && mapper.configure(profile, thhCameraControls(), acts, err, line);
 
     report("the camera's own profile binds", bound ? "" : err, "");

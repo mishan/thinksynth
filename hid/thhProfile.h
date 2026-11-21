@@ -21,7 +21,7 @@
 
 #include <string>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhControls.h"
 
 /* What a hand ("left" or "right") plays: the device's own profile
@@ -36,7 +36,7 @@
    it plays. */
 bool thhLoadProfile (const std::string &path, const thhControls &controls,
                      const char *fallback, const std::string &hand,
-                     thcHidBlock &out, std::string &err,
+                     thHidBlock &out, std::string &err,
                      const std::string &patch = "",
                      const std::string &patchName = "",
                      std::string *patchErr = NULL);
@@ -50,7 +50,7 @@ bool thhReadProfile (const std::string &path, std::string &text,
    where it is wrong: for a host that keeps it elsewhere than a file. */
 bool thhLoadProfileText (const std::string &text, const std::string &name,
                          const thhControls &controls, const char *fallback,
-                         const std::string &hand, thcHidBlock &out,
+                         const std::string &hand, thHidBlock &out,
                          std::string &err, const std::string &patch = "",
                          const std::string &patchName = "",
                          std::string *patchErr = NULL);

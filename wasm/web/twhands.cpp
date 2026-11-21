@@ -30,7 +30,7 @@
 
 #include <emscripten.h>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhHandTrack.h"
 #include "thhMapper.h"
 
@@ -118,15 +118,15 @@ extern "C" {
    fault. */
 EMSCRIPTEN_KEEPALIVE const char *hd_start (int snap)
 {
-    thcHidBlock profile;
+    thHidBlock profile;
     std::vector<thhAction> none;
     int line = 0;
 
     said_.clear();
     track_ = thhHandTrack();
     mapper_ = thhMapper();
-    if (thcHidParseProfile(snap ? THH_HANDS_PROFILE : THH_HANDS_FREE_PROFILE,
-                           profile, said_, line))
+    if (thHidParseProfile(snap ? THH_HANDS_PROFILE : THH_HANDS_FREE_PROFILE,
+                          profile, said_, line))
         mapper_.configure(profile, thhHandsControls(), none, said_, line);
 
     return said_.c_str();

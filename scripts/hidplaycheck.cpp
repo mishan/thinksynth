@@ -60,18 +60,18 @@ report (const string &name, const string &why)
 
 /* A profile, short: each binding control:what, each layer [name: ...]. */
 static string
-describe (const thcHidBlock &p)
+describe (const thHidBlock &p)
 {
     std::ostringstream o;
 
     o << "base" << p.base;
     for (size_t i = 0; i < p.bindings.size(); i++)
     {
-        const thcHidBinding &b = p.bindings[i];
+        const thHidBinding &b = p.bindings[i];
 
-        o << " " << b.control << ":" << (b.kind == thcHidBinding::VALUE ? b.arg
-            : b.kind == thcHidBinding::HOLD ? "hold " + b.layer
-            : b.kind == thcHidBinding::TOGGLE ? "toggle " + b.layer
+        o << " " << b.control << ":" << (b.kind == thHidBinding::VALUE ? b.arg
+            : b.kind == thHidBinding::HOLD ? "hold " + b.layer
+            : b.kind == thHidBinding::TOGGLE ? "toggle " + b.layer
             : std::to_string(b.semis)) << (b.patch ? "^" : "");
     }
     for (size_t l = 0; l < p.layers.size(); l++)
@@ -156,7 +156,7 @@ checkProfiles (const string &scratch)
     {
         const Row &r = rows[i];
         const string path = scratch + "/mine";
-        thcHidBlock blk;
+        thHidBlock blk;
         string err;
 
         fs::remove(path);
@@ -210,7 +210,7 @@ checkProfiles (const string &scratch)
         {
             const H &h = HANDS[i];
             const string path = scratch + "/hands";
-            thcHidBlock blk;
+            thHidBlock blk;
             string err;
 
             fs::remove(path);
@@ -279,7 +279,7 @@ checkProfiles (const string &scratch)
         for (const P &r : PATCHES)
         {
             const string path = scratch + "/hands";
-            thcHidBlock blk;
+            thHidBlock blk;
             string err;
 
             fs::remove(path);
@@ -297,7 +297,7 @@ checkProfiles (const string &scratch)
         }
     }
 
-    thcHidBlock blk;
+    thHidBlock blk;
     thhMapper m;
     std::vector<thhAction> none;
     string err;

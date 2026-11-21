@@ -62,7 +62,7 @@ thhSession::handOf (int i) const
     return pair_ ? slots_[i].hand : "";
 }
 
-const thcHidBlock &
+const thHidBlock &
 thhSession::profileOf (int i) const
 {
     return pair_ ? profiles_[1 + side(slots_[i].hand)] : profiles_[0];
@@ -80,7 +80,7 @@ thhSession::load (const std::string &player, const std::string &name,
 
     /* The channel the profile plays, without the patch's block: the block
        is the one of the patch on that channel. */
-    thcHidBlock base;
+    thHidBlock base;
     std::string ignored;
 
     thhLoadProfileText(player, name, thhIndexControls(), THH_INDEX_PROFILE, "",

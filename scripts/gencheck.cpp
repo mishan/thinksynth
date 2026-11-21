@@ -133,9 +133,9 @@ checkNote (const char *text, int expect)
     std::vector<int> out;
     std::string bad;
 
-    if (!thcGenLoader::parseNoteList(text, out, bad) || out.size() != 1)
+    if (!thParseNoteList(text, out, bad) || out.size() != 1)
     {
-        fail(std::string("parseNoteList refused '") + text + "'");
+        fail(std::string("thParseNoteList refused '") + text + "'");
         return;
     }
 
@@ -165,29 +165,29 @@ checkNotes (void)
     std::vector<int> out;
     std::string bad;
 
-    if (!thcGenLoader::parseNoteList("F3 Ab3 C4", out, bad) ||
+    if (!thParseNoteList("F3 Ab3 C4", out, bad) ||
         out.size() != 3 || out[0] != 53 || out[1] != 56 || out[2] != 60)
         fail("space-separated list did not resolve to 53,56,60");
 
-    if (!thcGenLoader::parseNoteList("F3,Ab3,C4", out, bad) ||
+    if (!thParseNoteList("F3,Ab3,C4", out, bad) ||
         out.size() != 3)
         fail("comma-separated list did not resolve");
 
-    if (thcGenLoader::parseNoteList("H3", out, bad))
+    if (thParseNoteList("H3", out, bad))
         fail("'H3' was accepted; H is not a note");
 
-    if (thcGenLoader::parseNoteList("C1000000000", out, bad))
+    if (thParseNoteList("C1000000000", out, bad))
         fail("'C1000000000' was accepted");
 
-    if (thcGenLoader::parseNoteList("C", out, bad))
+    if (thParseNoteList("C", out, bad))
         fail("'C' with no octave was accepted");
 
-    if (thcGenLoader::parseNoteList("", out, bad))
+    if (thParseNoteList("", out, bad))
         fail("an empty note list was accepted");
 
     /* A rest is an entry, resolved as -1, that takes its turn in a pool
        and is not a pitch anywhere else. */
-    if (!thcGenLoader::parseNoteList("C4 . E4", out, bad) ||
+    if (!thParseNoteList("C4 . E4", out, bad) ||
         out.size() != 3 || out[0] != 60 || out[1] != -1 || out[2] != 64)
         fail("'C4 . E4' did not resolve to 60,-1,64");
 }

@@ -54,7 +54,7 @@ static const size_t UNITCOUNT = sizeof UNITS / sizeof UNITS[0];
  * bare word, and `0.5 * 2' began with a digit and came back as the number
  * 0.5 with a unit of `*'. Both are values this panel must show and refuse to
  * splice, and neither is distinguishable from a preset name or a duration by
- * looking at the first character. thcGenLoader::tokenize is what the loader
+ * looking at the first character. thWordTokenize is what the loader
  * reads the line with and what thcGenEdit decides the same question with, so
  * it is what this reads it with too. */
 struct Authored
@@ -84,11 +84,11 @@ static Authored shapeOf (const string &valueText)
 {
     Authored v;
 
-    std::vector<thcGenToken> t;
+    std::vector<thWordToken> t;
     string err;
     int line = 0;
 
-    if (!thcGenLoader::tokenize(valueText, t, err, line) || t.empty())
+    if (!thWordTokenize(valueText, t, err, line) || t.empty())
         return v;
 
     const size_t n = t.size() - 1;      /* the END token is not a value */
@@ -97,22 +97,22 @@ static Authored shapeOf (const string &valueText)
     {
         switch (t[0].kind)
         {
-            case thcGenToken::NUMBER:
+            case thWordToken::NUMBER:
                 v.kind = Authored::NUMBER;
                 v.num = t[0].num;
                 return v;
 
-            case thcGenToken::KNOB:
+            case thWordToken::KNOB:
                 v.kind = Authored::KNOB;
                 v.text = t[0].text;
                 return v;
 
-            case thcGenToken::STRING:
+            case thWordToken::STRING:
                 v.kind = Authored::QUOTED;
                 v.text = t[0].text;
                 return v;
 
-            case thcGenToken::WORD:
+            case thWordToken::WORD:
                 v.kind = Authored::WORD;
                 v.text = t[0].text;
                 return v;
@@ -122,8 +122,8 @@ static Authored shapeOf (const string &valueText)
         }
     }
 
-    if (n == 2 && t[0].kind == thcGenToken::NUMBER &&
-        t[1].kind == thcGenToken::WORD)
+    if (n == 2 && t[0].kind == thWordToken::NUMBER &&
+        t[1].kind == thWordToken::WORD)
     {
         for (size_t u = 0; u < UNITCOUNT; u++)
             if (t[1].text == UNITS[u] ||
@@ -690,7 +690,7 @@ thPanelResult StagePanel::propose (const string &row, const string &valueText,
                     std::vector<int> notes;
                     string bad;
 
-                    if (!thcGenLoader::parseNoteList(valueText, notes, bad))
+                    if (!thParseNoteList(valueText, notes, bad))
                         return thPanelResult::refuse(
                             "'" + bad + "' is not a note name");
 
@@ -703,7 +703,7 @@ thPanelResult StagePanel::propose (const string &row, const string &valueText,
                 std::vector<int> notes;
                 string bad;
 
-                if (!thcGenLoader::parseNoteList(valueText, notes, bad) ||
+                if (!thParseNoteList(valueText, notes, bad) ||
                     notes.size() != 1)
                     return thPanelResult::refuse("one note name, like C4");
 
@@ -942,7 +942,7 @@ bool StagePanel::deliver (const thPanelEdit &edit) const
             std::vector<int> notes;
             string bad;
 
-            if (!thcGenLoader::parseNoteList(v.text, notes, bad))
+            if (!thParseNoteList(v.text, notes, bad))
                 return false;
 
             if (pi->type == THC_PARAM_NOTE)
@@ -1021,8 +1021,7 @@ bool StagePanel::deliver (const thPanelEdit &edit) const
                 std::vector<int> notes;
                 string bad;
 
-                if (!thcGenLoader::parseNoteList(doc_->scales[i].notes,
-                                                 notes, bad))
+                if (!thParseNoteList(doc_->scales[i].notes, notes, bad))
                     return false;
 
                 std::ostringstream ints;

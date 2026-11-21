@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "think.h"
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhControls.h"
 
 /* The engine channels a mapper keeps notes for. A board short of RAM
@@ -66,7 +66,7 @@ public:
        plays on as it was. Otherwise the notes the old profile held end, in
        out, and buttons still down don't sound until pressed again; layers
        still toggled, or held by a button still down, stay on. */
-    bool configure (const thcHidBlock &profile, const thhControls &controls,
+    bool configure (const thHidBlock &profile, const thhControls &controls,
                     std::vector<thhAction> &out, std::string &err,
                     int &errLine);
 
@@ -95,7 +95,7 @@ public:
 private:
     struct Bound
     {
-        thcHidBinding b;
+        thHidBinding b;
         int           index;        /* the device's button or axis */
         bool          bipolar;
         int           layer;        /* HOLD, TOGGLE: into layers_ */
@@ -152,14 +152,14 @@ private:
     };
     Sent        sent_[THH_MAX_AXES];
 
-    static bool bindLayer (const std::vector<thcHidBinding> &bindings,
-                           const thcHidBlock &profile,
+    static bool bindLayer (const std::vector<thHidBinding> &bindings,
+                           const thHidBlock &profile,
                            const thhControls &controls, Layer &l,
                            std::string &err, int &errLine);
     const Bound *find (bool axis, int index) const;
     const Layer *axisLayer (int axis) const;
     const Bound *velocitySource () const;
-    int channelOf (const thcHidBinding &b, int curChannel) const;
+    int channelOf (const thHidBinding &b, int curChannel) const;
     int base () const;
     /* Strikes, by axis: the note each holds, and whether the axis has been
        under its off since, and when it last was. */
@@ -194,10 +194,10 @@ private:
     void lift (int button, std::vector<thhAction> &out);
     void strike (int axis, const thhState &s, int curChannel,
                  std::vector<thhAction> &out);
-    void loop (const thcHidBinding &b, int curChannel,
+    void loop (const thHidBinding &b, int curChannel,
                std::vector<thhAction> &out) const;
     /* vel < 0 plays at the velocity source's, or the profile's. */
-    void sound (const thcHidBinding &b, Held &h, const thhState &s,
+    void sound (const thHidBinding &b, Held &h, const thhState &s,
                 int curChannel, int vel, std::vector<thhAction> &out);
     void unsound (Held &h, std::vector<thhAction> &out);
     double along (const Bound &ax, const thhState &s) const;

@@ -22,18 +22,19 @@
 #include <string>
 #include <vector>
 
-#include "thcGenFile.h"
+#include "thExport.h"
+#include "thWords.h"
 
 /* What a HID controller's mapping says, as plain data.
  *
  * The same block is a device profile on its own (`device index { ... };')
- * and, later, the body of a chain's `input hid'. It lives beside the .gen
- * loader so both can read it with the .gen tokenizer, and it names controls
- * only as words: which words a device has is the HID library's business,
- * which depends on this and not the other way round. Every binding keeps its
- * line so that library can still say where a bad control name is. */
+ * and, later, the body of a chain's `input hid'. It is read with the .gen
+ * tokenizer (thWords.h), below both, and it names controls only as words:
+ * which words a device has is the HID library's business, which depends on
+ * this and not the other way round. Every binding keeps its line so that
+ * library can still say where a bad control name is. */
 
-struct thcHidBinding
+struct thHidBinding
 {
     enum Kind { NOTE, HOLD, TOGGLE, OCTAVE, VALUE, PITCH, VELOCITY, STRIKE,
                 BEND, AUX, LOOP };
@@ -66,14 +67,14 @@ struct thcHidBinding
                                semitones above the base within an octave, if
                                any */
 
-    thcHidBinding ()
+    thHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
           hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
           smooth(0), latch(false), both(false), shape(LINEAR), patch(false),
           octaves(false), range(0) {}
 };
 
-struct thcHidLayer
+struct thHidLayer
 {
     std::string name;
     int         line;
@@ -84,12 +85,12 @@ struct thcHidLayer
     std::vector<std::pair<std::string, double> > when;
     int         whenLine;
 
-    std::vector<thcHidBinding> bindings;
+    std::vector<thHidBinding> bindings;
 
-    thcHidLayer () : line(0), channel(0), base(-1), whenLine(0) {}
+    thHidLayer () : line(0), channel(0), base(-1), whenLine(0) {}
 };
 
-struct thcHidBlock
+struct thHidBlock
 {
     std::string device;
     std::string hand;       /* "left", "right", or empty for either */
@@ -98,33 +99,34 @@ struct thcHidBlock
     int         base;       /* MIDI note */
     int         velocity;   /* what buttons play at with no velocity source */
 
-    std::vector<thcHidBinding> bindings;
-    std::vector<thcHidLayer>   layers;
+    std::vector<thHidBinding> bindings;
+    std::vector<thHidLayer>   layers;
 
     /* What a profile of changes says it sets, and drops from what it
        changes: `ignore NAME;', a control or a layer. */
     bool                       hasChannel, hasBase, hasVelocity;
     std::vector<std::pair<std::string, int> > ignore;   /* name, line */
 
-    thcHidBlock () : line(0), channel(0), base(60), velocity(100), hasChannel(false),
-                     hasBase(false), hasVelocity(false) {}
+    thHidBlock () : line(0), channel(0), base(60), velocity(100), hasChannel(false),
+                    hasBase(false), hasVelocity(false) {}
 };
 
 /* The body of a block, from the `{' at toks[pos] through its closing `}'.
  * On success pos is one past the `}'. On failure err and errLine say what
  * and where. */
-bool thcHidParseBlock (const std::vector<thcGenToken> &toks, size_t &pos,
-                       thcHidBlock &out, std::string &err, int &errLine);
+THINK_API bool thHidParseBlock (const std::vector<thWordToken> &toks,
+                                size_t &pos, thHidBlock &out,
+                                std::string &err, int &errLine);
 
 /* A whole profile file: `device NAME { ... };' and nothing else. */
-bool thcHidParseProfile (const std::string &text, thcHidBlock &out,
-                         std::string &err, int &errLine);
+THINK_API bool thHidParseProfile (const std::string &text, thHidBlock &out,
+                                  std::string &err, int &errLine);
 
 /* A profile of a device a hand holds: `device NAME { ... };' for either
    hand, and `device NAME left { ... };' and `device NAME right { ... };'
    for one, each at most once, in any order. */
-bool thcHidParseProfiles (const std::string &text,
-                          std::vector<thcHidBlock> &out, std::string &err,
-                          int &errLine);
+THINK_API bool thHidParseProfiles (const std::string &text,
+                                   std::vector<thHidBlock> &out,
+                                   std::string &err, int &errLine);
 
 #endif /* TH_HID_BLOCK_H */

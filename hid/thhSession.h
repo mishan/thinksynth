@@ -24,7 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "thcHidBlock.h"
+#include "thHidBlock.h"
 #include "thhControls.h"
 #include "thhLooper.h"
 #include "thhMapper.h"
@@ -95,7 +95,7 @@ public:
 
     int controllers () const { return (int)slots_.size(); }
     std::string handOf (int i) const;
-    const thcHidBlock &profileOf (int i) const;
+    const thHidBlock &profileOf (int i) const;
     thhState stateOf (int i) const { return slots_[i].latest; }
     unsigned generation () const { return generation_; }
     bool canSwapHands () const;
@@ -119,7 +119,7 @@ private:
 
     /* What either hand plays alone, and each in a pair; and a mapper for
        each hand. */
-    thcHidBlock profiles_[3];
+    thHidBlock profiles_[3];
     thhMapper   mappers_[2];
 
     std::map<std::string, std::string> remembered_;

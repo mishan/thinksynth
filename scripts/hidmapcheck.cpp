@@ -502,12 +502,12 @@ checkRows (void)
     for (size_t i = 0; i < sizeof(ROWS) / sizeof(ROWS[0]); i++)
     {
         const Row &r = ROWS[i];
-        thcHidBlock blk;
+        thHidBlock blk;
         thhMapper m;
         string err, why;
         int errLine = -1;
 
-        if (!thcHidParseProfile(r.profile, blk, err, errLine))
+        if (!thHidParseProfile(r.profile, blk, err, errLine))
         {
             report(r.name, "the profile doesn't parse: " + err);
             continue;
@@ -582,7 +582,7 @@ checkReconfigure (void)
     for (size_t i = 0; i < sizeof(ROWS2) / sizeof(ROWS2[0]); i++)
     {
         const R &r = ROWS2[i];
-        thcHidBlock blk, next;
+        thHidBlock blk, next;
         thhMapper m;
         thhState s;
         std::vector<thhAction> acts;
@@ -590,8 +590,8 @@ checkReconfigure (void)
         int errLine, ch = 0;
 
         s.connected = true;
-        thcHidParseProfile(r.first, blk, err, errLine);
-        thcHidParseProfile(r.next, next, err, errLine);
+        thHidParseProfile(r.first, blk, err, errLine);
+        thHidParseProfile(r.next, next, err, errLine);
         m.configure(blk, c, acts, err, errLine);
 
         string got = play(m, c, r.before, s, ch);
@@ -611,17 +611,17 @@ static void
 checkBoth (void)
 {
     const thhControls &c = thhIndexControls();
-    thcHidBlock rightP, leftP;
+    thHidBlock rightP, leftP;
     thhMapper right, left;
     std::vector<thhAction> acts;
     string err;
     int line;
 
-    thcHidParseProfile("device index { a = note 0; b = note 4; };", rightP,
-                       err, line);
-    thcHidParseProfile("device index { a = note -12; "
-                       "turn = bend { range = 2; of = both; }; };", leftP,
-                       err, line);
+    thHidParseProfile("device index { a = note 0; b = note 4; };", rightP,
+                      err, line);
+    thHidParseProfile("device index { a = note -12; "
+                      "turn = bend { range = 2; of = both; }; };", leftP,
+                      err, line);
     right.configure(rightP, c, acts, err, line);
     left.configure(leftP, c, acts, err, line);
     left.shareWith(&right);
@@ -673,7 +673,7 @@ static void
 checkSmoothedEnd (void)
 {
     const thhControls &c = thhIndexControls();
-    thcHidBlock p;
+    thHidBlock p;
     thhMapper m;
     std::vector<thhAction> acts;
     thhState s;
@@ -681,8 +681,8 @@ checkSmoothedEnd (void)
     int line;
     double last = -1;
 
-    thcHidParseProfile("device index { trigger = \"cutoff\" { smooth = 0.03; }; };",
-                       p, err, line);
+    thHidParseProfile("device index { trigger = \"cutoff\" { smooth = 0.03; }; };",
+                      p, err, line);
     m.configure(p, c, acts, err, line);
     s.connected = true;
     m.update(s, 0, acts);                   /* at rest first, then held */

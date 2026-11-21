@@ -129,7 +129,7 @@ class thgLifePlayer
 {
 public:
     /* The notes the old profile held end, in out. */
-    bool configure (const thcHidBlock &profile, std::vector<thhAction> &out,
+    bool configure (const thHidBlock &profile, std::vector<thhAction> &out,
                     std::string &err, int &errLine);
 
     /* The cells of the column a step reached, at time seconds. */

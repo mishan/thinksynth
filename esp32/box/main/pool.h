@@ -58,9 +58,9 @@ struct Patch
     float ampBlock[BLOCK];
 
     virtual ~Patch () {}
-    virtual thcHidBlock profile () const = 0;
-    virtual thcHidBlock marbles () const = 0;
-    virtual thcHidBlock life () const = 0;
+    virtual thHidBlock profile () const = 0;
+    virtual thHidBlock marbles () const = 0;
+    virtual thHidBlock life () const = 0;
     /* owner: whose the note is, a finger's, a ball's or Life's, so a
        NOTE_OFF or a bend reaches only the voice its own NOTE_ON started.
        room: a free voice may be taken, the blocks not near their time.
@@ -130,9 +130,9 @@ struct PatchOf : Patch
 
     PatchOf (const char *n, float g) { name = n; gain = g; }
 
-    thcHidBlock profile () const override { return V::profile_box(); }
-    thcHidBlock marbles () const override { return V::profile_marbles(); }
-    thcHidBlock life () const override { return V::profile_life(); }
+    thHidBlock profile () const override { return V::profile_box(); }
+    thHidBlock marbles () const override { return V::profile_marbles(); }
+    thHidBlock life () const override { return V::profile_life(); }
 
     /* Released before held, the oldest first. */
     int64_t rank (int i) const

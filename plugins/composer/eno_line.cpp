@@ -79,8 +79,8 @@ struct State {
 };
 
 /* A NOTESET arrives resolved: "53,56,60". The host parsed the note
- * names at the file boundary (thcGenLoader::parseNoteList, the one
- * shared pitch parser); no plugin ever sees pitch text. */
+ * names at the file boundary (thParseNoteList, the one shared pitch
+ * parser); no plugin ever sees pitch text. */
 void
 State::reparseNotes (void)
 {

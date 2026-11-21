@@ -38,7 +38,7 @@
  *    now an ERROR token in the stream rather than something flex's
  *    default rule echoes to stdout and forgets.
  *
- * 3. That .gen's view is the same scan. thcGenLoader::tokenize is an
+ * 3. That .gen's view is the same scan. thWordTokenize is an
  *    adapter -- it fuses `-' onto a number and `@' onto a name, because
  *    .gen has no arithmetic and no `@' operator -- and the risk of an
  *    adapter is that it quietly becomes a second scanner. So the fused
@@ -54,7 +54,7 @@
 
 #include "thLexer.h"
 
-#include "thcGenFile.h"
+#include "thWords.h"
 
 static int failures = 0;
 
@@ -282,7 +282,7 @@ checkRefusals (void)
 
 /* ---- 3. .gen reads the same scan --------------------------------------- */
 
-/* thcGenLoader::tokenize fuses two token pairs the shared lexer keeps
+/* thWordTokenize fuses two token pairs the shared lexer keeps
  * apart. The fusion is only honest if the result still spans exactly what
  * the scanner saw -- so the .gen token's span is checked against the two
  * spans it was made of. */
@@ -292,27 +292,27 @@ checkGenAdapter (void)
     const std::string text = "shift = -3; prob = @density;";
 
     std::vector<thLexToken>  raw;
-    std::vector<thcGenToken> gen;
+    std::vector<thWordToken> gen;
     std::string              err;
     int                      line = 0;
 
     thLexString(text, raw);
 
-    check(thcGenLoader::tokenize(text, gen, err, line),
+    check(thWordTokenize(text, gen, err, line),
           "gen: the shared scan tokenizes", err);
 
     bool foundNum = false, foundKnob = false;
 
     for (size_t i = 0; i < gen.size(); i++)
     {
-        if (gen[i].kind == thcGenToken::NUMBER && gen[i].num == -3)
+        if (gen[i].kind == thWordToken::NUMBER && gen[i].num == -3)
         {
             foundNum = true;
             check(text.substr(gen[i].off, gen[i].end - gen[i].off) == "-3",
                   "gen: a folded sign is inside the number's span");
         }
 
-        if (gen[i].kind == thcGenToken::KNOB)
+        if (gen[i].kind == thWordToken::KNOB)
         {
             foundKnob = true;
             check(gen[i].text == "density" &&
@@ -343,10 +343,10 @@ checkGenAdapter (void)
 
     /* Arithmetic is .gen's too now (docs/GEN_FORMAT.md 5a), so `+' is an
        operator to both languages and the adapter passes it through. */
-    check(thcGenLoader::tokenize("a = 1 + 2;", gen, err, line),
+    check(thWordTokenize("a = 1 + 2;", gen, err, line),
           "gen: arithmetic lexes", err);
 
-    check(!thcGenLoader::tokenize("prob = @;", gen, err, line) &&
+    check(!thWordTokenize("prob = @;", gen, err, line) &&
           err.find("no knob name") != std::string::npos,
           "gen: a bare @ names nothing", err);
 
@@ -356,11 +356,11 @@ checkGenAdapter (void)
     {
         bool fused = false, subtracted = true;
 
-        check(thcGenLoader::tokenize("shift = -5;", gen, err, line),
+        check(thWordTokenize("shift = -5;", gen, err, line),
               "gen: a sign after `=' lexes", err);
 
         for (size_t i = 0; i < gen.size(); i++)
-            if (gen[i].kind == thcGenToken::NUMBER && gen[i].num == -5)
+            if (gen[i].kind == thWordToken::NUMBER && gen[i].num == -5)
                 fused = true;
 
         check(fused, "gen: `= -5' is one negative number");
@@ -371,15 +371,15 @@ checkGenAdapter (void)
 
             bool minus = false, five = false;
 
-            check(thcGenLoader::tokenize(src, gen, err, line),
+            check(thWordTokenize(src, gen, err, line),
                   "gen: a subtraction lexes", err);
 
             for (size_t i = 0; i < gen.size(); i++)
             {
-                if (gen[i].kind == thcGenToken::PUNCT && gen[i].text == "-")
+                if (gen[i].kind == thWordToken::PUNCT && gen[i].text == "-")
                     minus = true;
 
-                if (gen[i].kind == thcGenToken::NUMBER && gen[i].num == 5)
+                if (gen[i].kind == thWordToken::NUMBER && gen[i].num == 5)
                     five = true;
             }
 
@@ -392,7 +392,7 @@ checkGenAdapter (void)
     }
 
     /* And what is still stray is still stray. */
-    check(!thcGenLoader::tokenize("a = 1 $ 2;", gen, err, line) &&
+    check(!thWordTokenize("a = 1 $ 2;", gen, err, line) &&
           err.find("stray character '$'") != std::string::npos,
           "gen: a character neither language spells is refused", err);
 }

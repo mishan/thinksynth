@@ -1,8 +1,8 @@
 # HID controllers as instruments: what a device's controls are, and what a
 # profile does with them.
 #
-# Built on the composer host's profile reader (src/thcHidBlock.h), never the
-# other way round, so the composer can carry a mapping without this library.
+# Built on libthink's profile reader (libthink/thHidBlock.h), never the other
+# way round, so a .gen or a .dsp can carry a mapping without this library.
 add_library(think_hid OBJECT
     thhBox.cpp
     thhCamera.cpp
