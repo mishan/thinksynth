@@ -31,7 +31,7 @@
 import { actionPlayer } from './actions.js';
 import { Mesh } from './mesh.js';
 import { Pair, pairUrl } from './pair.js';
-import qrcode from './qrcode.mjs';
+import qrcode from './qrcode.js';
 
 /* The player's changes to the phone's own profile, as hid.js keeps the
    Index's. */
@@ -44,11 +44,14 @@ const TICK_MS = 100;
 
 const AXES = 12;
 
-function kept (key, store = localStorage)
+/* `session' for the tab's storage, else the browser's. Looked up inside
+   the try: a browser that refuses storage refuses it by throwing from the
+   lookup itself, and the phone plays on without it. */
+function kept (key, session = false)
 {
     try
     {
-        return store.getItem(key) ?? '';
+        return (session ? sessionStorage : localStorage).getItem(key) ?? '';
     }
     catch
     {
@@ -56,10 +59,12 @@ function kept (key, store = localStorage)
     }
 }
 
-function keep (key, value, store = localStorage)
+function keep (key, value, session = false)
 {
     try
     {
+        const store = session ? sessionStorage : localStorage;
+
         if (value === null)
             store.removeItem(key);
         else
@@ -129,7 +134,7 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
         current = null;
         clearInterval(run.tick);
         run.mesh?.close();
-        keep(PAIRING_KEY, null, sessionStorage);
+        keep(PAIRING_KEY, null, true);
         if (M !== null)
         {
             M.ccall('th_phone_release', null, [], []);
@@ -194,8 +199,7 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
             say(`your phone profile: ${problem}`);
 
         const remember = () => keep(PAIRING_KEY, JSON.stringify(
-            { code: run.code, token: run.pair.token, joined: run.joined }),
-            sessionStorage);
+            { code: run.code, token: run.pair.token, joined: run.joined }), true);
         const pair = new Pair(url, back === null
             ? { make: true }
             : { code: back.code, token: back.token, host: true });
@@ -272,7 +276,7 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
 
             try
             {
-                back = JSON.parse(kept(PAIRING_KEY, sessionStorage) || 'null');
+                back = JSON.parse(kept(PAIRING_KEY, true) || 'null');
             }
             catch
             {

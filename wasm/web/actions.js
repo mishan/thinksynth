@@ -33,15 +33,28 @@ export const KIND = { on: 0, off: 1, value: 2, bend: 3, aux: 4 };
 export function actionPlayer ({ onNoteOn, onNoteOff, play, bendChannel })
 {
     const values = new Map();       /* "channel arg" -> latest value */
-    let flushing = 0;
+    let flushing = 0, framed = false;
 
     const flush = () =>
     {
         flushing = 0;
+        framed = false;
         for (const a of values.values())
             play(a);
         values.clear();
     };
+
+    /* A frame asked for, then the page hidden: a hidden page draws none,
+       so the values go by a timer instead of waiting till it's seen. */
+    document.addEventListener('visibilitychange', () =>
+    {
+        if (document.hidden && framed)
+        {
+            cancelAnimationFrame(flushing);
+            framed = false;
+            flushing = setTimeout(flush, 15);
+        }
+    });
 
     const player = (actions) =>
     {
@@ -56,8 +69,12 @@ export function actionPlayer ({ onNoteOn, onNoteOff, play, bendChannel })
                 values.set(`${a.channel} ${a.arg}`, { ...a, kind: KIND.value });
                 /* A hidden tab draws no frames, and a controller still plays
                    in one. */
-                flushing ||= document.hidden ? setTimeout(flush, 15)
-                                             : requestAnimationFrame(flush);
+                if (flushing === 0)
+                {
+                    framed = !document.hidden;
+                    flushing = framed ? requestAnimationFrame(flush)
+                                      : setTimeout(flush, 15);
+                }
             }
             else if (KIND[a.kind] !== undefined)
             {

@@ -441,7 +441,8 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/replay.js"
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/replay.js")
 
 # The phone's QR code (phonepane.js): qrcode-generator's own module, its
-# license in its header.
+# license in its header, as .js: a server that knows no .mjs serves it as
+# octet-stream, which no browser runs, and the page imports it.
 set(QRCODE "${THINK_TOP}/node_modules/qrcode-generator/dist/qrcode.mjs")
 
 if(NOT EXISTS "${QRCODE}")
@@ -449,11 +450,11 @@ if(NOT EXISTS "${QRCODE}")
       "qrcode-generator is not installed: run `npm ci` at the top first.")
 endif()
 
-add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/qrcode.mjs"
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/qrcode.js"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${QRCODE}" "${PROJECT_BINARY_DIR}/qrcode.mjs"
+            "${QRCODE}" "${PROJECT_BINARY_DIR}/qrcode.js"
     DEPENDS "${QRCODE}")
-list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/qrcode.mjs")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/qrcode.js")
 
 # And the tiler, which is mullion's, under the names it has there.
 foreach(name panes.js panes.css popover.js)
@@ -797,7 +798,7 @@ list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/panes.js"
     "${PROJECT_BINARY_DIR}/panes.css"
     "${PROJECT_BINARY_DIR}/popover.js"
-    "${PROJECT_BINARY_DIR}/qrcode.mjs"
+    "${PROJECT_BINARY_DIR}/qrcode.js"
     ${BUNDLE_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "${PROJECT_BINARY_DIR}/sw.js"

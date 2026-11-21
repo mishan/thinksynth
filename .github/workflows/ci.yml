@@ -938,6 +938,11 @@ jobs:
       - name: The phone's pad
         run: node wasm/web/phonepadcheck.mjs
 
+      # A controller's actions played on the page (actions.js), its values
+      # flushed by a timer once the page is hidden.
+      - name: A controller's actions on the page
+        run: node wasm/web/actionscheck.mjs
+
       # A Valve Index controller's values and bends on the module's synth
       # (thinkweb.cpp, tw_hid), and a patch's controller block asked of it
       # (tw_controller): each heard by rendering the same note twice.

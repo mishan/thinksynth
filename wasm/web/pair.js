@@ -63,8 +63,9 @@ const REPLACED = 4001;
 
 /* The site's relay's /pair: the build's config.json, as the room page
    finds its relay (jam.js), or the page's own host on the relay's usual
-   port. A phone uses its own site's, never one a link names, so a link
-   can't send its player's touches elsewhere. */
+   port, over TLS for a page that is: an https page can't open ws:. A
+   phone uses its own site's, never one a link names, so a link can't send
+   its player's touches elsewhere. */
 export async function pairUrl ()
 {
     let relay = null;
@@ -76,7 +77,9 @@ export async function pairUrl ()
     catch
     {
     }
-    return `${(relay || `ws://${location.hostname}:8787`).replace(/\/+$/, '')}/pair`;
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+
+    return `${(relay || `${scheme}://${location.hostname}:8787`).replace(/\/+$/, '')}/pair`;
 }
 
 export class Pair
