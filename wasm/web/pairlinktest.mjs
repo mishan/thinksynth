@@ -186,31 +186,84 @@ try
           'a phone lost before its token is told to scan again',
           p3.event('refused')?.[1]);
 
-    /* Signals by the connection they're for, fed straight in: one left
-       over from a connection gone is dropped, one from a connection the
-       other side began unannounced makes this side begin one too. */
+    /* Two sides wired straight to each other: the page begins a
+       connection the phone wasn't told of. The phone begins afresh on it,
+       once; the two then settle on it, neither making the other begin
+       again; and a signal left over from the connection gone is dropped. */
     {
-        const p = new Pair('ws://127.0.0.1:1/pair', { code: 'c', token: 't' });
-        const seen = [];
-        let links = 0;
+        const page = new Pair('ws://127.0.0.1:1/pair', { code: 'c', token: 't', host: true });
+        const phone = new Pair('ws://127.0.0.1:1/pair', { code: 'c', token: 'u' });
+        const links = { host: 0, phone: 0 };
+        const heard = [];
+        let stale = null;
 
-        p.over = true;                  /* no socket to come back with */
-        p.on('signal', (from, d) => seen.push(d));
-        p.on('joined', () => links++);
-        p.heard({ type: 'peer', here: true, what: '' });
-        p.heard({ type: 'signal', data: { session: 'A', data: 1 } });
-        p.heard({ type: 'peer', here: true, what: '' });
-        p.heard({ type: 'signal', data: { session: 'A', data: 2 } });
-        p.heard({ type: 'signal', data: { session: 'B', data: 3 } });
+        for (const [p, to] of [[page, phone], [phone, page]])
+        {
+            p.over = true;              /* no socket to come back with */
+            p.send = (m) => to.heard(JSON.parse(JSON.stringify(m)));
+            p.on('joined', () => links[p.peer]++);
+        }
+        page.on('signal', (from, d) => heard.push(`page:${d}`));
+        phone.on('signal', (from, d) =>
+        {
+            heard.push(`phone:${d}`);
+            if (d === 'offer')
+                phone.signal('host', 'answer');
+        });
+        page.heard({ type: 'peer', here: true, what: '' });
+        phone.heard({ type: 'peer', here: true, what: '' });
+        page.signal('phone', 'offer');
+        stale = { type: 'signal', data: { epoch: page.epoch, data: 'late' } };
 
-        const before = links;
+        const before = { ...links };
 
-        p.heard({ type: 'signal', data: { session: 'C', data: 4 } });
-        p.heard({ type: 'signal', data: { session: 'B', data: 5 } });
-        check(seen.join() === '1,3,4' && before === 2 && links === 3,
-              'a signal left over from a connection gone is dropped, and one ' +
-              'from a connection begun unannounced begins one here',
-              `${seen.join()}; ${before} then ${links} links`);
+        page.relink();                  /* unannounced: the phone isn't told */
+        page.signal('phone', 'offer');
+        phone.heard(stale);
+        page.signal('phone', 'more');
+        check(links.host - before.host === 1 && links.phone - before.phone === 1 &&
+              heard.join() === 'phone:offer,page:answer,phone:offer,page:answer,phone:more',
+              'a connection the page begins unannounced is begun afresh on the ' +
+              'phone once, neither side begins again, and a leftover is dropped',
+              `${heard.join()}; ${JSON.stringify(before)} then ${JSON.stringify(links)}`);
+
+        /* And nothing the phone does makes the page begin again: the
+           connection is the page's to name, so the two can't keep
+           restarting each other. */
+        const hostLinks = links.host;
+
+        phone.relink();
+        phone.signal('host', 'stray');
+        page.signal('phone', 'offer');
+        page.signal('phone', 'more');
+        check(links.host === hostLinks && heard.at(-1) === 'phone:more' &&
+              !heard.includes('page:stray'),
+              'the phone beginning afresh never makes the page begin again',
+              `${links.host - hostLinks} page relinks; ${heard.slice(-4).join()}`);
+    }
+
+    /* The phone's page open twice: the later takes the pairing, and the
+       earlier ends there rather than taking it back. */
+    {
+        const h4 = side(url, { make: true });
+
+        await until(() => h4.event('paired'));
+
+        const p4 = side(url, { code: h4.event('paired')[1] });
+
+        await until(() => p4.event('token'));
+
+        const twin = side(url, { code: h4.event('paired')[1],
+                                 token: p4.event('token')[1] });
+
+        await until(() => p4.event('ended'));
+        h4.events.length = 0;
+        await new Promise((r) => setTimeout(r, 2000));
+        check(p4.event('ended')?.[1] === 'opened elsewhere' &&
+              !twin.event('ended') &&
+              h4.events.filter((e) => e[0] === 'peer').length === 0,
+              'a phone opened twice: the earlier ends, and the two don\'t take ' +
+              'turns', JSON.stringify(p4.event('ended')));
     }
 
     const stranger = side(url, { code: 'x'.repeat(22) });

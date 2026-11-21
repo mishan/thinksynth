@@ -97,12 +97,16 @@ side of every return, and whenever the two find each other again the mesh
 is told the other left and joined, and both start a connection afresh:
 neither can know whether the other's page still holds the one it had, and
 a page reloaded is direct again at once instead of after the old
-connection is given up on. Each side's signals carry the id of the
-connection they are for, so one left over from a connection gone is
-dropped, and one from a connection the other side began without this
-side being told makes this side begin one too. A blip in the relay's
-socket costs a working connection about a second, while the new one
-opens. The page hears 'paired', 'token', 'peer', 'ended' and 'refused';
+connection is given up on. Which connection a signal is for is the
+page's to say, since it offers: it names each it begins, and every signal
+carries that name. The page drops one for any other; the phone takes a
+new one as the page beginning afresh and begins afresh too, and drops one
+for a connection it has left. The phone never names one, so the two can't
+keep making each other begin again. A socket the relay replaced, its side
+come back in another tab, is closed as such (4001) and doesn't come back,
+or the two tabs would take the pairing from each other for good. A blip
+in the relay's socket costs a working connection about a second, while
+the new one opens. The page hears 'paired', 'token', 'peer', 'ended' and 'refused';
 'joined', 'left', 'signal' and 'relayed' are the mesh's.
 
 ## What the phone sends

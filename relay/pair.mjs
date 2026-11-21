@@ -76,6 +76,10 @@ export const PAIR = {
              null],
 };
 
+/* The close for a socket its side came back on elsewhere: the page it
+   belongs to knows not to come back, or the two would take turns. */
+const REPLACED = 4001;
+
 /* What a phone may say it is, shown on the page it pairs with. */
 const WHAT_MAX = 64;
 
@@ -348,7 +352,7 @@ export class Pairs
 
         own.ws = ws;
         own.goneAt = null;
-        was?.close();
+        was?.close(REPLACED, 'replaced');
 
         /* The other side is told on every return, a socket replaced too:
            this side may have lost what the old one had, and the two start

@@ -40,16 +40,26 @@
  * socket comes back by itself with its token. And whenever the two find
  * each other again, the mesh is told the other left and joined: neither
  * can know whether the other's page still holds the connection it had, so
- * both start one afresh. Each side's signals carry the id of the
- * connection they are for, so a signal from a connection the other side
- * has just begun tells this side to begin one too, and one left over from
- * a connection gone is dropped rather than taken for the new one's.
+ * both start one afresh. Which connection a signal is for is the page's
+ * to say, since it offers: it names each it begins (its epoch), and every
+ * signal either side sends carries the page's epoch. The page drops one
+ * for any other; the phone takes a new one as the page beginning afresh,
+ * begins afresh too, and drops one for an epoch it has left. The phone
+ * never begins one of its own, so the two can't go on making each other
+ * begin again.
+ *
+ * A socket the relay closed because the same side came back elsewhere, in
+ * another tab, say, is that side's no longer, and doesn't come back: the
+ * two would take the pairing from each other for good.
  */
 
 const BACK_FIRST_MS = 500;
 const BACK_MAX_MS = 10000;
 
-const newSession = () => Math.random().toString(36).slice(2);
+const newEpoch = () => Math.random().toString(36).slice(2);
+
+/* relay/pair.mjs's close for a socket its side has replaced. */
+const REPLACED = 4001;
 
 export class Pair
 {
@@ -67,9 +77,10 @@ export class Pair
         this.over = false;
         this.tries = 0;
         this.ws = null;
-        this.session = newSession();    /* this side's connection */
-        this.theirs = null;             /* the other side's */
-        this.retired = new Set();       /* theirs, gone */
+        /* The connection the two are on: the page's own; the phone's the
+           page's, once it has heard one. */
+        this.epoch = host ? newEpoch() : null;
+        this.left = new Set();          /* epochs the phone has left */
         this.connect(make);
     }
 
@@ -111,10 +122,15 @@ export class Pair
             if (ws === this.ws)
                 this.heard(m);
         });
-        ws.addEventListener('close', () =>
+        ws.addEventListener('close', (e) =>
         {
             if (ws !== this.ws || this.over)
                 return;
+            if (e.code === REPLACED)
+            {
+                this.finish('ended', 'opened elsewhere');
+                return;
+            }
             /* A socket that never got as far as a token has nothing to
                come back with: a phone whose first socket went with the
                relay's answer to it has a code that is spent. */
@@ -144,12 +160,14 @@ export class Pair
     {
         if (this.peers.has(this.other))
             this.emit('left', this.other);
-        /* What the other side sends from here is for a connection it has
-           begun, or is left over from one gone. */
-        if (this.theirs !== null)
-            this.retired.add(this.theirs);
-        this.theirs = null;
-        this.session = newSession();
+        if (this.peer === 'host')
+            this.epoch = newEpoch();
+        else
+        {
+            if (this.epoch !== null)
+                this.left.add(this.epoch);
+            this.epoch = null;
+        }
         this.peers.set(this.other, {});
         this.emit('joined', this.other);
     }
@@ -175,17 +193,20 @@ export class Pair
                 this.relink();
             this.emit('peer', m.here, m.what);
         }
-        else if (m.type === 'signal' && typeof m.data?.session === 'string')
+        else if (m.type === 'signal' && typeof m.data?.epoch === 'string')
         {
-            const from = m.data.session;
+            const epoch = m.data.epoch;
 
-            if (this.retired.has(from))
+            if (this.peer === 'host' ? epoch !== this.epoch : this.left.has(epoch))
                 return;
-            /* A connection the other side has begun, which this side
-               wasn't told of: begin one here too. */
-            if (this.theirs !== null && from !== this.theirs)
-                this.relink();
-            this.theirs = from;
+            /* The page has begun a connection this side wasn't told of:
+               begin afresh here too, on its epoch. */
+            if (this.peer === 'phone' && epoch !== this.epoch)
+            {
+                if (this.epoch !== null)
+                    this.relink();
+                this.epoch = epoch;
+            }
             this.emit('signal', this.other, m.data.data);
         }
         else if (m.type === 'relayed')
@@ -224,7 +245,7 @@ export class Pair
 
     signal (to, data)
     {
-        this.send({ type: 'signal', data: { session: this.session, data } });
+        this.send({ type: 'signal', data: { epoch: this.epoch, data } });
     }
 
     /* `lossy': a frame the next makes good, so not one to queue behind
