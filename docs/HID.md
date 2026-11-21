@@ -187,7 +187,9 @@ A profile is settings and bindings, in the `.gen` file's syntax:
 A note, or a knob, can name its own `{ channel = 3; }`. A note can
 `{ latch; }`: one press starts it and the next ends it, for a drone. A knob
 can be `{ smooth = 0.1; }`, following its axis over that many seconds
-rather than stepping with it.
+rather than stepping with it. So can a bend or an aux, but only between
+the notes it is already holding: a note started from silence starts where
+its axis is, and a note let go of is sent nothing more.
 
 An axis can ride several knobs and pitch axes at once: bind it again, once
 for each. Every pitch axis adds its steps, so the trackpad can pick a

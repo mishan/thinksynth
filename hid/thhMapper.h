@@ -183,9 +183,15 @@ private:
     /* The notes sounding_ and reached_ hold, as lists, so an update visits
        a handful rather than every place a note could be. */
     std::vector<std::pair<int, int> > soundingList_, reachedList_;
+    /* Notes started in this update, sent their bend and aux by
+       expression() once the update's values, and layers, are settled. */
+    std::vector<std::pair<int, int> > fresh_;
     std::map<int, std::pair<double, double> > smoothing_;  /* value, time */
 
-    void expression (const thhState &s, std::vector<thhAction> &out);
+    /* `silent': nothing was sounding before this update, so the bend and
+       aux start afresh where they are rather than gliding in. */
+    void expression (const thhState &s, bool silent,
+                     std::vector<thhAction> &out);
     void express (thhAction::Kind kind, int aux, double value, int channel,
                   int note, std::vector<thhAction> &out) const;
     double smoothed (int key, double raw, double k, const thhState &s);

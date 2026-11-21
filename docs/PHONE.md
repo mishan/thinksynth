@@ -111,9 +111,14 @@ a controller unplugged. The phone doesn't wait for that when it can say
 so: hidden or closing (`visibilitychange`, `pagehide`), it sends a frame
 with nothing down, on both channels.
 
-## The device
+## The device (built)
 
-`hid/thhPhone`: `thhPhoneControls()` and the state from a frame.
+`hid/thhPhone`: `thhPhoneControls()`, and the state from a frame. The
+phone's page turns its tilt and keeps its fingers' slots, below, since
+only it has the raw events; the host takes a frame that is numbers and
+names no finger the phone hasn't, holds each value to its range (a shaken
+phone's gravity is more than gravity), and lets everything go a second
+after the last frame.
 
 - Axes: `tilt_x` and `tilt_y`, bipolar, -1 to 1, the gravity vector
   (`accelerationIncludingGravity`, whose sign is checked on iOS and on
@@ -146,6 +151,12 @@ for `theremin.dsp` as the hands' is (docs/CAMERA.md):
 
 Across is the scale, up is loud (aux 3 is the hush), a second finger a
 step up an octave and a third one down, and tilting right brightens.
+
+A finger landing plays at its own pitch and loudness from its first
+moment: the mapper sends a note started in an update the values of that
+update, layers switched in it included, and starts the bend and aux
+smoothing afresh when nothing was sounding, rather than gliding in from
+where the last note was left.
 
 ## The configurator
 
