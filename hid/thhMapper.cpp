@@ -492,12 +492,9 @@ thhMapper::sound (const thHidBinding &b, Held &h, const thhState &s,
         a.vel = std::max(1, std::min(127, vel));
         out.push_back(a);
 
-        /* A note starts where the hand's expression is, not at rest. */
-        if (bend_)
-            express(thhAction::NOTE_BEND, 0, bend_, channel, note, out);
-        for (int n = 0; n < 4; n++)
-            if (aux_[n])
-                express(thhAction::NOTE_AUX, n, aux_[n], channel, note, out);
+        /* A note starts where the hand's expression is, not at rest: as
+           it is this update, which expression() is the last of. */
+        fresh_.push_back(std::make_pair(channel, note));
     }
 }
 
@@ -535,7 +532,8 @@ thhMapper::smoothed (int key, double raw, double k, const thhState &s)
 /* Changes in the bend and the aux values, sent to every note this mapper is
    holding: each once, however many buttons hold it. */
 void
-thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
+thhMapper::expression (const thhState &s, bool silent,
+                       std::vector<thhAction> &out)
 {
     double bend = 0, aux[4], sharedBend = 0, sharedAux[4];
     bool shares[4] = { false, false, false, false };
@@ -553,6 +551,11 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
                the axis is another binding. */
             const int key = ((int)(l - &layers_[0]) * THH_MAX_AXES + ax) * 64 +
                             (int)i;
+
+            /* Afresh, unless it is a share the other hand's notes are
+               still hearing glide. */
+            if (silent && !(bd.b.both && other_ && !other_->soundingList_.empty()))
+                smoothing_.erase(key);
 
             if (bd.b.kind == thHidBinding::BEND)
             {
@@ -595,14 +598,18 @@ thhMapper::expression (const thhState &s, std::vector<thhAction> &out)
 
     for (const auto &held : soundingList_)
     {
-        if (bent)
+        const bool fresh = std::find(fresh_.begin(), fresh_.end(), held) !=
+                           fresh_.end();
+
+        if (fresh ? bend_ != 0 : bent)
             express(thhAction::NOTE_BEND, 0, bend_, held.first, held.second,
                     out);
         for (int n = 0; n < 4; n++)
-            if (moved[n])
+            if (fresh ? aux_[n] != 0 : moved[n])
                 express(thhAction::NOTE_AUX, n, aux_[n], held.first,
                         held.second, out);
     }
+    fresh_.clear();
 
     /* The other hand's notes hear only this hand's shares: when a share
        moves, and, a note the other hand has just started, at once. */
@@ -750,6 +757,12 @@ thhMapper::update (const thhState &s, int curChannel,
         return;
     }
 
+    /* A glide is from one place a note has been to the next: a note
+       started from silence starts where its controls are now, not where
+       the last one's were left. Silence as it was before this update, so
+       one note handed to the next in the same moment still glides. */
+    const bool silent = soundingList_.empty();
+
     postures(s);
 
     /* Coming back, every button that is down is a press. */
@@ -768,7 +781,7 @@ thhMapper::update (const thhState &s, int curChannel,
     for (int ax = 0; ax < axes_; ax++)
         strike(ax, s, curChannel, out);
 
-    expression(s, out);
+    expression(s, silent, out);
 
     for (int ax = 0; ax < axes_; ax++)
     {
