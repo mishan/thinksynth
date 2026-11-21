@@ -22,8 +22,8 @@
 #include "thExport.h"
 
 /* The thMidiController class has an array of 16 * 128 pointers to midi
-   controller event handlers.  A thMidiControllerConnection has a pointer to
-   the thArg to modify, and some information like min/max value, exponential/
+   controller event handlers.  A thMidiControllerConnection names the chanarg
+   to modify, and some information like min/max value, exponential/
    linear, etc.  Optionally, the thMidiControllerConnection can have
    instructions to the synth to handle a global operation such as portamento,
    foot pedal and RPN/NRPN parameter handling.  The thMidiControllerConnection
@@ -36,9 +36,6 @@ public:
     ~thMidiController (void);
 
     typedef map<unsigned int, thMidiControllerConnection *> ConnectionMap;
-
-    void handleMidi (unsigned char channel, unsigned int param,
-                     unsigned int value);
 
     void newConnection (unsigned char channel, unsigned int param,
                         thMidiControllerConnection *connection);

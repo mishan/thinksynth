@@ -2107,6 +2107,43 @@ static void checkFraction (thSynth &synth)
     }
 }
 
+/* A MIDI Map binding moves its control as a knob does, through
+ * setChanArgFraction: onto a value the panel could show. */
+static void checkMidiMap (thSynth &synth)
+{
+    const struct
+    {
+        const char *what, *name;
+        float lo, hi;
+        int scale;
+        unsigned value;
+        double want;
+    } cases[] = {
+        { "a binding at the top of its travel is at the top of its range",
+          "cutoff", 0, 1, thMidiControllerConnection::LINEAR, 127, 1 },
+        { "an exponential one is the knob's curve, geometric", "cutoff", 1,
+          100, thMidiControllerConnection::EXPONENTIAL, 64, 10.18 },
+        { "a menu lands on its nearest named entry", "wave", 0, 3,
+          thMidiControllerConnection::LINEAR, 51, 2 },
+        { "a whole-number control rounds", "quant", 0, 10,
+          thMidiControllerConnection::LINEAR, 70, 6 },
+    };
+
+    for (const auto &c : cases)
+    {
+        thMidiControllerConnection link(c.lo, c.hi, c.scale, 0, 20, 0,
+                                        c.name);
+
+        synth.newMidiControllerConnection(0, 20, &link);
+        synth.handleMidiController(0, 20, c.value);
+        synth.newMidiControllerConnection(0, 20, NULL);
+
+        const double got = (*synth.getChanArg(0, c.name))[0];
+
+        check(fabs(got - c.want) < 0.01, c.what, std::to_string(got));
+    }
+}
+
 /* Rows appearing or vanishing is a rebuild; a value moving is not.
  *
  * This is what lets a panel follow a MIDI controller without being torn down
@@ -2570,6 +2607,7 @@ int main (int argc, char **argv)
         checkEdits(argPanel, synth);
         checkEffect(synth, effect);
         checkFraction(synth);
+        checkMidiMap(synth);
     }
 
     checkNodes(pluginPath, graph);

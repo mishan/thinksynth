@@ -481,10 +481,16 @@ void MidiMap::populateConnections (void)
         chanStr << connection->destChan() + 1 << ": ";
         instrument = chanStr.str() + instrument;
 
+        /* Bound by name; shown by label, while the patch has it. */
+        thArg *arg = synth_->getChanArg(connection->destChan(),
+                                        connection->argName());
+
         connectModel_->append(MidiMapRow::create(connection->chan(),
                                                 connection->controller(),
                                                 instrument,
-                                                connection->argName()));
+                                                arg && !arg->label().empty()
+                                                    ? arg->label()
+                                                    : connection->argName()));
     }
 
     connectEmpty_.set_visible(connectModel_->get_n_items() == 0);
@@ -596,11 +602,16 @@ void MidiMap::onConnectionMoved (void)
             /* The list and the controller map can disagree: a connection is
                looked up by channel and controller, and thMidiController now
                refuses an out-of-range pair rather than indexing past its
-               array. Every field below reads through this pointer. */
-            if (selectedConnection == NULL)
+               array; and the patch on the channel may since have lost the
+               arg it names. Every field below reads through these. */
+            selectedArg_ = selectedConnection
+                ? synth_->getChanArg(selectedConnection->destChan(),
+                                     selectedConnection->argName())
+                : NULL;
+            set_sensitive(selectedArg_ != NULL);
+            if (selectedArg_ == NULL)
                 return;
 
-            selectedArg_ = selectedConnection->arg();
             selectedDestChan_ = selectedConnection->destChan();
             selectedExp_ = selectedConnection->scale();
             setDestChanCombo();
@@ -616,6 +627,9 @@ void MidiMap::onAddButton (void)
 {
     thMidiControllerConnection *connection;
 
+    if (selectedArg_ == NULL)
+        return;
+
     connection = synth_->getMidiControllerConnection(
         (unsigned char)selectedChan_,
         (unsigned int)selectedController_);
@@ -626,12 +640,11 @@ void MidiMap::onAddButton (void)
     synth_->newMidiControllerConnection((unsigned char)selectedChan_,
                                         (unsigned int)selectedController_,
                                         new thMidiControllerConnection(
-                                            selectedArg_, 
                                             selectedMin_, selectedMax_, 
                                             selectedExp_, selectedChan_, 
                                             selectedController_, 
                                             selectedDestChan_, 
-                                            selectedArg_->label()));
+                                            selectedArg_->name()));
     populateConnections();
 }
 

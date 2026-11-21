@@ -18,19 +18,16 @@
 
 #include "config.h"
 
-#include <math.h>
 #include <stdio.h>
 
 #include "think.h"
 
-thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
-                                                        float max, int scale,
-                                                        int chan,
+thMidiControllerConnection::thMidiControllerConnection (float min, float max,
+                                                        int scale, int chan,
                                                         int controller,
                                                         int dchan,
                                                         string argName)
 {
-    arg_ = arg;
     min_ = min;
     max_ = max;
     chan_ = chan;
@@ -42,16 +39,4 @@ thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
 
 thMidiControllerConnection::~thMidiControllerConnection (void)
 {
-}
-
-void thMidiControllerConnection::setParam (unsigned int value)
-{
-    float realvalue;
-
-    realvalue = (float)value/MIDIVALMAX;
-
-    if (scale_ == EXPONENTIAL) /* give it a nice curve */
-        realvalue = 1 - logf(M_E - (realvalue * (M_E - 1)));
-
-    arg_->setValue(realvalue * (max_ - min_) + min_);
 }
