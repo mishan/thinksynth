@@ -31,6 +31,13 @@
 #include "thhIndexWireless.h"
 #include "thhSession.h"
 
+/* Actions as the page plays them, JSON: an array of objects whose kind is
+   on, off, value, bend, aux or loop, with channel, note, velocity, arg, t
+   (0..1 along the control; semitones; the aux's value), aux, and the
+   profile's min and max where it gave them. Every controller the page
+   plays speaks this, the Index through thhHost::take and the phone too. */
+std::string thhActionsJson (const std::vector<thhAction> &actions);
+
 /* A session fed a controller's raw reports, for a host that reads the
    devices itself and wants what to play back as text: the browser's page
    (wasm/web/thinkhid.cpp), and the native tool that holds it to the same
@@ -87,10 +94,7 @@ public:
     bool tick (double now);
     void release (double now);
 
-    /* What to play since last asked, as JSON: an array of objects whose
-       kind is on, off, value, bend or aux, with channel, note, velocity,
-       arg, t (0..1 along the control; semitones; the aux's value), aux,
-       and the profile's min and max where it gave them. */
+    /* What to play since last asked, as thhActionsJson. */
     std::string take ();
 
 private:

@@ -928,6 +928,16 @@ jobs:
       - name: Two hands as a theremin, through the module
         run: node wasm/web/handscheck.mjs
 
+      # A phone through the page's controller module (th_phone_*): a
+      # finger's note, bend and loudness, the phone gone quiet let go of.
+      - name: A phone through the module
+        run: node wasm/web/phoneplaycheck.mjs
+
+      # What the phone's page makes of its sensors and fingers, and when it
+      # sends (phonepad.js).
+      - name: The phone's pad
+        run: node wasm/web/phonepadcheck.mjs
+
       # A Valve Index controller's values and bends on the module's synth
       # (thinkweb.cpp, tw_hid), and a patch's controller block asked of it
       # (tw_controller): each heard by rendering the same note twice.

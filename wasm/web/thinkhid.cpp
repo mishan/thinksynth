@@ -32,8 +32,23 @@
 #include <emscripten.h>
 
 #include "thhHost.h"
+#include "thhMapper.h"
+#include "thhPhone.h"
+#include "thhProfile.h"
 
 static thhHost host;
+
+/* A phone (hid/thhPhone.h, docs/PHONE.md): its frames as its page sent
+   them over the link, the mapper its profile plays through, and what that
+   has played since the page last asked. On the keyboard's channel, as the
+   Index plays. */
+static thhPhone phone;
+static thhMapper phoneMapper;
+static std::vector<thhAction> phonePlayed;
+static int phoneChannel = 0;
+/* Between a pairing's start, th_phone_profile, and its end: a frame still
+   on its way after the end plays nothing. */
+static bool phoneOn = false;
 
 /* What the last call that returns text said, kept until the next. */
 static std::string said;
@@ -74,6 +89,74 @@ EMSCRIPTEN_KEEPALIVE void th_drop (int id, double now)
 EMSCRIPTEN_KEEPALIVE void th_channel (int channel)
 {
     host.channel(channel);
+    phoneChannel = channel;
+}
+
+/* A pairing started, or the player's profile changed: the phone's own
+   profile with the player's `text' over it. What is wrong with the
+   player's, or nothing; what fits plays either way. */
+EMSCRIPTEN_KEEPALIVE const char *th_phone_profile (const char *text)
+{
+    thHidBlock profile;
+    std::string err, configureErr;
+    int line = 0;
+
+    if (!phoneOn)
+        phone = thhPhone();
+    phoneOn = true;
+    thhLoadProfileText(text, "your profile", thhPhoneControls(),
+                       THH_PHONE_PROFILE, "", profile, err);
+    if (!phoneMapper.configure(profile, thhPhoneControls(), phonePlayed,
+                               configureErr, line))
+        err += (err.empty() ? "" : "; ") + configureErr;
+    said = err;
+    return said.c_str();
+}
+
+/* A frame from the phone's page: its page load's id, its count, its 12
+   axes and the fingers down. Whether it was taken. */
+EMSCRIPTEN_KEEPALIVE int th_phone_frame (uint32_t id, uint32_t seq,
+                                         const float *axes, uint32_t down,
+                                         double now)
+{
+    thhPhoneFrame f = { id, seq, {}, down };
+
+    if (!phoneOn)
+        return 0;
+    for (int a = 0; a < THH_PHONE_AXES; a++)
+        f.axes[a] = axes[a];
+
+    const bool taken = phone.take(f, now);
+
+    phoneMapper.update(phone.state(now), phoneChannel, phonePlayed);
+    return taken;
+}
+
+/* The phone between frames, which lets everything go once it has been
+   silent too long: whether it is there. */
+EMSCRIPTEN_KEEPALIVE int th_phone_tick (double now)
+{
+    const thhState s = phone.state(now);
+
+    phoneMapper.update(s, phoneChannel, phonePlayed);
+    return s.connected;
+}
+
+/* Everything the phone holds let go: the pairing over. The mapper is told
+   it has gone, so the next pairing starts with nothing held. */
+EMSCRIPTEN_KEEPALIVE void th_phone_release (void)
+{
+    phoneMapper.release(phonePlayed);
+    phoneMapper.update(thhState(), phoneChannel, phonePlayed);
+    phoneOn = false;
+}
+
+/* What the phone has played since last asked, as thhActionsJson. */
+EMSCRIPTEN_KEEPALIVE const char *th_phone_take (void)
+{
+    said = thhActionsJson(phonePlayed);
+    phonePlayed.clear();
+    return said.c_str();
 }
 
 EMSCRIPTEN_KEEPALIVE const char *th_profile (const char *text)

@@ -207,12 +207,21 @@ thhHost::pane () const
 std::string
 thhHost::take ()
 {
+    const std::string out = thhActionsJson(taken_);
+
+    taken_.clear();
+    return out;
+}
+
+std::string
+thhActionsJson (const std::vector<thhAction> &actions)
+{
     static const char *const KIND[] = { "on", "off", "value", "bend", "aux",
                                         "loop" };
     std::string out = "[";
     char num[160];
 
-    for (const thhAction &a : taken_)
+    for (const thhAction &a : actions)
     {
         snprintf(num, sizeof(num),
                  "{\"kind\":\"%s\",\"channel\":%d,\"note\":%d,"
@@ -233,6 +242,5 @@ thhHost::take ()
         }
         out += "}";
     }
-    taken_.clear();
     return out + "]";
 }
