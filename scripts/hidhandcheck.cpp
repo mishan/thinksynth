@@ -243,11 +243,11 @@ main (void)
     report("the hands' own profile binds", bound ? "" : err, "");
 
     {
-        thcHidBlock free;
+        thHidBlock free;
         thhMapper m;
 
         report("and so does its unsnapped one",
-               thcHidParseProfile(THH_HANDS_FREE_PROFILE, free, err, line) &&
+               thHidParseProfile(THH_HANDS_FREE_PROFILE, free, err, line) &&
                m.configure(free, thhHandsControls(), acts, err, line) ? "" : err, "");
     }
 
