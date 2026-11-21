@@ -102,15 +102,29 @@ check(tick(0.5) === 1 && !take().some((a) => a.kind === 'off'),
 check(tick(1.2) === 0 && take().some((a) => a.kind === 'off'),
       'a second is the phone gone, and its note let go');
 
+/* A gap with no tick in it, then a frame: the quiet second is still the
+   phone gone, the held note let go before the frame plays afresh. */
+frame(1.5, true, 0.5, 0.5);
+take();
+frame(2.8, true, 0.5, 0.5);
+
+const gap = take().map((a) => a.kind).join();
+
+check(gap.startsWith('off') && gap.includes('on'),
+      'a frame after a quiet second with no tick lets the held note go first',
+      gap);
+
 /* A pairing ended: everything let go at once, not a second later, and a
    frame still on its way after it plays nothing. */
-frame(2, true, 0.5, 0.5);
+frame(3, true, 0.5, 0.5);
 take();
 M.ccall('th_phone_release', null, [], []);
 check(take().some((a) => a.kind === 'off'),
       'a pairing ended lets the phone\'s notes go at once');
-frame(2.005, false, 0.6, 0.5);
-frame(2.01, true, 0.6, 0.5);
+check(tick(3.002) === 0 && !take().some((a) => a.kind === 'on'),
+      'and a tick after the end plays nothing');
+frame(3.005, false, 0.6, 0.5);
+frame(3.01, true, 0.6, 0.5);
 check(!take().some((a) => a.kind === 'on'),
       'and frames still on their way after the end, a finger lifting and ' +
       'landing again, play nothing');
@@ -118,11 +132,11 @@ check(!take().some((a) => a.kind === 'on'),
 /* A new pairing, and a player's profile: what it binds is what plays. */
 profile('device phone {\n    touch_1 = note 2;\n};\n');
 take();
-frame(2.5, true, 0.2, 0.5);
+frame(3.5, true, 0.2, 0.5);
 check(take().some((a) => a.kind === 'on' && a.note === 50),
       'a pairing started plays from nothing held, by the player\'s profile ' +
       'over the phone\'s own');
-frame(2.52, false, 0.2, 0.5);
+frame(3.52, false, 0.2, 0.5);
 take();
 profile('');
 take();

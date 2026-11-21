@@ -126,6 +126,10 @@ EMSCRIPTEN_KEEPALIVE int th_phone_frame (uint32_t id, uint32_t seq,
     for (int a = 0; a < THH_PHONE_AXES; a++)
         f.axes[a] = axes[a];
 
+    /* The phone as it is up to now first: a quiet second with no tick in
+       it is still the phone gone, its notes let go before this one plays. */
+    phoneMapper.update(phone.state(now), phoneChannel, phonePlayed);
+
     const bool taken = phone.take(f, now);
 
     phoneMapper.update(phone.state(now), phoneChannel, phonePlayed);
@@ -136,6 +140,10 @@ EMSCRIPTEN_KEEPALIVE int th_phone_frame (uint32_t id, uint32_t seq,
    silent too long: whether it is there. */
 EMSCRIPTEN_KEEPALIVE int th_phone_tick (double now)
 {
+    /* Between pairings, the last frame of the one that ended is nobody's. */
+    if (!phoneOn)
+        return 0;
+
     const thhState s = phone.state(now);
 
     phoneMapper.update(s, phoneChannel, phonePlayed);
