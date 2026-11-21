@@ -346,7 +346,8 @@ export class Mesh
         }
         catch (e)
         {
-            if (l.pc === pc)
+            /* A link since made afresh is the new one's business. */
+            if (l.pc === pc && this.links.get(from) === l)
                 this.fallBack(from, `signalling: ${e.message}`);
         }
     }
@@ -487,8 +488,10 @@ export class Mesh
         return rtts.length === 0 ? NaN : Math.max(...rtts);
     }
 
-    /* A command to every other peer, by whichever path each has. */
-    broadcast (cmd)
+    /* A command to every other peer, by whichever path each has: on both
+       channels if `both', and otherwise only on the one that drops what
+       comes late, as a knob is. */
+    broadcast (cmd, both = cmd.type !== 'knob')
     {
         const text = JSON.stringify(cmd);
         const through = [];         /* whose channel is not carrying it */
@@ -499,7 +502,7 @@ export class Mesh
             {
                 l.channel.send(text);
 
-                if (cmd.type !== 'knob' && l.keys !== null)
+                if (both && l.keys !== null)
                     l.keys.send(text);
             }
             else
@@ -507,9 +510,10 @@ export class Mesh
         }
 
         /* One message naming all of them, rather than one each: the
-           relay serialises it once and sends it on. */
+           relay serialises it once and sends it on. One that may drop may
+           drop there too. */
         if (through.length > 0)
-            this.room.relayed(cmd, through);
+            this.room.relayed(cmd, through, !both);
     }
 
     close ()

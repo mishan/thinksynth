@@ -350,10 +350,12 @@ export class Pairs
         own.goneAt = null;
         was?.close();
 
+        /* The other side is told on every return, a socket replaced too:
+           this side may have lost what the old one had, and the two start
+           their connection afresh on hearing it. */
         this.send(ws, { type: 'joined', token: own.token });
         this.send(ws, { type: 'peer', here: them.ws !== null, what: them.what });
-        if (was === null)
-            this.send(them.ws, { type: 'peer', here: true, what: own.what });
+        this.send(them.ws, { type: 'peer', here: true, what: own.what });
         return [pairing, side];
     }
 

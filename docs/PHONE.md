@@ -78,17 +78,32 @@ pairing wants, and a pairing holds exactly two.
 
 Nothing is kept: pairings are in memory, as rooms are.
 
-## The connection
+## The connection (built)
 
-`mesh.js`'s peer connection through an adapter with a room's shape over
-the pair socket (`peer`, `peers`, `on`, `signal`, `relayed(data, to)`,
-`joined`, `left`), so ICE restart, the open deadline and the fall back to
-`relayed` are the room's own, tested code. The mesh gains a send on one
-channel: a frame that changes which fingers are down goes on both
-channels, as every room command does, and the rest on the unordered one
-only, since a late reading is worse than none. Through the relay, a
-frame is skipped while the socket's `bufferedAmount` is above 0, so a
-slow path plays the newest frame rather than a queue of old ones.
+`mesh.js`'s peer connection through `pair.js`, an adapter with a room's
+shape over the pair socket (`peer`, `peers`, `on`, `signal`,
+`relayed(data, to)`, `joined`, `left`), so ICE restart, the open deadline
+and the fall back to `relayed` are the room's own, tested code. The page
+is `host` and the phone `phone`, so the page offers. `broadcast` takes
+which channels: a frame that changes which fingers are down goes on both,
+as every room command does, and the rest on the unordered one only, since
+a late reading is worse than none. Through the relay, such a frame is
+skipped while the socket's `bufferedAmount` is above 0, so a slow path
+plays the newest frame rather than a queue of old ones.
+
+A socket that drops comes back by itself with its token, and a page
+coming back says it is the page (`host: true`). The relay tells the other
+side of every return, and whenever the two find each other again the mesh
+is told the other left and joined, and both start a connection afresh:
+neither can know whether the other's page still holds the one it had, and
+a page reloaded is direct again at once instead of after the old
+connection is given up on. Each side's signals carry the id of the
+connection they are for, so one left over from a connection gone is
+dropped, and one from a connection the other side began without this
+side being told makes this side begin one too. A blip in the relay's
+socket costs a working connection about a second, while the new one
+opens. The page hears 'paired', 'token', 'peer', 'ended' and 'refused';
+'joined', 'left', 'signal' and 'relayed' are the mesh's.
 
 ## What the phone sends
 
