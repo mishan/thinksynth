@@ -229,17 +229,20 @@ try
 
         /* And nothing the phone does makes the page begin again: the
            connection is the page's to name, so the two can't keep
-           restarting each other. */
+           restarting each other. Begun afresh by itself, the phone takes
+           what the page sends next, the page not having begun afresh. */
         const hostLinks = links.host;
+        const heardBefore = heard.length;
 
         phone.relink();
         phone.signal('host', 'stray');
         page.signal('phone', 'offer');
         page.signal('phone', 'more');
-        check(links.host === hostLinks && heard.at(-1) === 'phone:more' &&
-              !heard.includes('page:stray'),
-              'the phone beginning afresh never makes the page begin again',
-              `${links.host - hostLinks} page relinks; ${heard.slice(-4).join()}`);
+        check(links.host === hostLinks &&
+              heard.slice(heardBefore).join() === 'phone:offer,page:answer,phone:more',
+              'the phone beginning afresh never makes the page begin again, ' +
+              'and hears the page on its connection still',
+              `${links.host - hostLinks} page relinks; ${heard.slice(heardBefore).join()}`);
     }
 
     /* The phone's page open twice: the later takes the pairing, and the
@@ -256,7 +259,11 @@ try
         const twin = side(url, { code: h4.event('paired')[1],
                                  token: p4.event('token')[1] });
 
-        await until(() => p4.event('ended'));
+        /* The page's notice of the replacement comes on its own socket:
+           taken before watching for more. */
+        await until(() => p4.event('ended') &&
+                          h4.events.filter((e) => e[0] === 'peer').length >= 2);
+        await new Promise((r) => setTimeout(r, 200));
         h4.events.length = 0;
         await new Promise((r) => setTimeout(r, 2000));
         check(p4.event('ended')?.[1] === 'opened elsewhere' &&

@@ -80,6 +80,7 @@ export class Pair
         /* The connection the two are on: the page's own; the phone's the
            page's, once it has heard one. */
         this.epoch = host ? newEpoch() : null;
+        this.last = null;               /* the phone's before it began afresh */
         this.left = new Set();          /* epochs the phone has left */
         this.connect(make);
     }
@@ -164,8 +165,9 @@ export class Pair
             this.epoch = newEpoch();
         else
         {
-            if (this.epoch !== null)
-                this.left.add(this.epoch);
+            /* Whatever the page sends next, on this epoch or a new one:
+               the page may not have begun afresh too. */
+            this.last = this.epoch ?? this.last;
             this.epoch = null;
         }
         this.peers.set(this.other, {});
@@ -205,6 +207,10 @@ export class Pair
             {
                 if (this.epoch !== null)
                     this.relink();
+                /* Left only once the page is on another. */
+                if (this.last !== null && this.last !== epoch)
+                    this.left.add(this.last);
+                this.last = null;
                 this.epoch = epoch;
             }
             this.emit('signal', this.other, m.data.data);

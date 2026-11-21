@@ -101,7 +101,8 @@ connection is given up on. Which connection a signal is for is the
 page's to say, since it offers: it names each it begins, and every signal
 carries that name. The page drops one for any other; the phone takes a
 new one as the page beginning afresh and begins afresh too, and drops one
-for a connection it has left. The phone never names one, so the two can't
+for a connection it has left, which it has once the page is on another:
+begun afresh by itself, it takes whatever the page sends next. The phone never names one, so the two can't
 keep making each other begin again. A socket the relay replaced, its side
 come back in another tab, is closed as such (4001) and doesn't come back,
 or the two tabs would take the pairing from each other for good. A blip
