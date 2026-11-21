@@ -19,10 +19,14 @@
 /*
  * pair.mjs -- a phone and the page it plays, introduced (docs/PHONE.md).
  *
- *   WS /pair         the page: answered { type: 'paired', code, token }
- *   WS /pair/<code>  either side, whose first line is { type: 'hello' },
- *                    with its token unless it is the phone's first time:
- *                    answered { type: 'joined', token }
+ *   WS /pair, whose first line is
+ *     { type: 'make' }                  the page's: answered
+ *                                       { type: 'paired', code, token }
+ *     { type: 'hello', code, token?, what? }
+ *                                       either side's, with its token
+ *                                       unless it is the phone's first
+ *                                       time: answered { type: 'joined',
+ *                                       token }
  *
  * Then what either sends, { type: 'signal' | 'relayed', data }, reaches
  * the other unread; { type: 'end' } from either ends the pairing for
@@ -33,8 +37,8 @@
  * Not a room: a pairing has no document, seats or listing, and holds
  * exactly two. The code is spent once the phone has joined, so a link
  * seen afterwards plays nothing; a side that drops comes back with the
- * token it was given, in its first line and never in the URL, which
- * proxies log. Nothing is kept on disk.
+ * token it was given. The code and the tokens are in first lines, never
+ * in a URL, which proxies log. Nothing is kept on disk.
  */
 
 import crypto from 'node:crypto';
@@ -50,10 +54,12 @@ export const PAIR = {
        good. */
     goneMs: 10 * 60 * 1000,
     lifeMs: 24 * 60 * 60 * 1000,
-    /* The first line, which a socket that never sends is closed for, and
-       how many one client may hold waiting for it. */
+    /* The first line, which a socket that never sends is closed for; how
+       many sockets one client may hold, from the upgrade until they have
+       gone, refused ones too; and how long a refused one has to go. */
     helloMs: 5000,
-    waitingPerClient: 16,
+    socketsPerClient: 32,
+    refusedMs: 1000,
     /* A phone's frame is a few hundred bytes; signalling a few KiB. */
     frameMax: 4096,
     /* About 60 frames a second, twice over for both channels' copies,
@@ -98,7 +104,7 @@ export class Pairs
         this.o = { ...PAIR, ...given };
         this.pairs = new Map();             /* code -> pairing */
         this.live = new Map();              /* client -> pairings made */
-        this.waiting = new Map();           /* client -> sockets before hello */
+        this.held = new Map();              /* client -> sockets open */
         this.sockets = new Set();
         this.limit = new TieredLimit(this.o.limits, now, () => {});
     }
@@ -108,10 +114,10 @@ export class Pairs
         return this.pairs.size;
     }
 
-    /* Whether `client' may open another socket on /pair/<code>. */
-    mayWait (client)
+    /* Whether `client' may open another socket on /pair. */
+    mayOpen (client)
     {
-        return (this.waiting.get(client) ?? 0) < this.o.waitingPerClient;
+        return (this.held.get(client) ?? 0) < this.o.socketsPerClient;
     }
 
     send (ws, m)
@@ -120,57 +126,48 @@ export class Pairs
             ws.send(JSON.stringify(m));
     }
 
+    /* Told why, and given a moment to go: a client that never answers
+       the close is cut rather than holding its place. */
     refuse (ws, why)
     {
         this.send(ws, { type: 'refused', why });
         ws.close();
+        setTimeout(() => ws.terminate(), this.o.refusedMs).unref();
     }
 
-    /* A socket on /pair (`code' null) or /pair/<code>, from `client'. */
-    open (ws, code, client)
+    /* A socket on /pair, from `client'. */
+    open (ws, client)
     {
-        let pairing = null, side = null, helloed = code === null;
-        let hello = null;
+        let pairing = null, side = null, helloed = false;
+        const hello = setTimeout(() => ws.terminate(), this.o.helloMs);
 
-        const unwait = () =>
-        {
-            if (hello === null)
-                return;
-            clearTimeout(hello);
-            hello = null;
-
-            const n = this.waiting.get(client) - 1;
-
-            if (n > 0)
-                this.waiting.set(client, n);
-            else
-                this.waiting.delete(client);
-        };
-
+        hello.unref();
         this.sockets.add(ws);
+        this.held.set(client, (this.held.get(client) ?? 0) + 1);
 
         /* A frame past the cap, or a reset, is an error on the socket;
            unheard, it would take the whole relay down. */
         ws.on('error', () => ws.terminate());
         ws.on('close', () =>
         {
+            const n = this.held.get(client) - 1;
+
+            if (n > 0)
+                this.held.set(client, n);
+            else
+                this.held.delete(client);
+            clearTimeout(hello);
             this.sockets.delete(ws);
-            unwait();
             if (side !== null && pairing[side].ws === ws)
                 this.leave(pairing, side);
         });
-
-        if (code === null)
+        /* ws answers a ping by itself, past any queue's cap: a client that
+           pings and never reads is cut instead. */
+        ws.on('ping', () =>
         {
-            pairing = this.make(ws, client);
-            side = pairing === null ? null : 'host';
-        }
-        else
-        {
-            this.waiting.set(client, (this.waiting.get(client) ?? 0) + 1);
-            hello = setTimeout(() => ws.terminate(), this.o.helloMs);
-            hello.unref();
-        }
+            if (ws.bufferedAmount >= this.o.queuedMax * 4)
+                ws.terminate();
+        });
 
         ws.on('message', (data) =>
         {
@@ -190,15 +187,20 @@ export class Pairs
 
                 if (side === null)
                 {
-                    /* One hello a socket: a refused one says no more. */
+                    /* One first line a socket: a refused one says no more. */
                     if (helloed)
                         return;
                     helloed = true;
-                    unwait();
-                    if (m?.type !== 'hello')
-                        ws.close();
+                    clearTimeout(hello);
+                    if (m?.type === 'make')
+                    {
+                        pairing = this.make(ws, client);
+                        side = pairing === null ? null : 'host';
+                    }
+                    else if (m?.type === 'hello')
+                        [pairing, side] = this.join(ws, m) ?? [null, null];
                     else
-                        [pairing, side] = this.join(ws, code, m) ?? [null, null];
+                        ws.close();
                     return;
                 }
 
@@ -222,10 +224,30 @@ export class Pairs
     pass (pairing, side, m)
     {
         const to = pairing[other(side)].ws;
+        const why = this.due(pairing);
 
-        if (pairing[side].bucket.take() &&
-            (to?.bufferedAmount ?? 0) <= this.o.queuedMax)
+        if (why !== null)
+            this.end(pairing, why);
+        else if (pairing[side].bucket.take() &&
+                 (to?.bufferedAmount ?? 0) < this.o.queuedMax)
             this.send(to, m);
+    }
+
+    /* Why a pairing is over by now, or null: its code unjoined too long,
+       a side gone too long, or a day old. One test for a join, a frame
+       and the sweep, so none of them can bring back one that is over. */
+    due (p)
+    {
+        const t = this.now();
+
+        if (!p.joined && t - p.made > this.o.codeMs)
+            return 'expired';
+        if (t - p.made > this.o.lifeMs)
+            return 'old';
+        if ([p.host, p.phone].some((s) => s.ws === null && s.goneAt !== null &&
+                                    t - s.goneAt > this.o.goneMs))
+            return 'gone';
+        return null;
     }
 
     make (ws, client)
@@ -266,22 +288,23 @@ export class Pairs
         return pairing;
     }
 
-    /* A hello on /pair/<code>: the phone's first, or either side back.
-       [pairing, side], or nothing once refused. */
-    join (ws, code, m)
+    /* A hello: the phone's first, or either side back. [pairing, side],
+       or nothing once refused. */
+    join (ws, m)
     {
-        const pairing = this.pairs.get(code);
+        const pairing = typeof m.code === 'string'
+            ? this.pairs.get(m.code) : undefined;
+        const due = pairing === undefined ? null : this.due(pairing);
         const why = (() =>
         {
             if (pairing === undefined)
                 return 'unknown';
             if (m.token !== undefined && typeof m.token !== 'string')
                 return 'malformed';
+            if (due !== null)
+                return due;
             if (m.token === undefined && pairing.joined)
                 return 'spent';
-            if (m.token === undefined &&
-                this.now() - pairing.made > this.o.codeMs)
-                return 'expired';
             if (m.token !== undefined &&
                 !sameSecret(m.token, pairing.host.token) &&
                 !(pairing.joined && sameSecret(m.token, pairing.phone.token)))
@@ -289,8 +312,8 @@ export class Pairs
             return null;
         })();
 
-        if (why === 'expired')
-            this.end(pairing, 'expired');
+        if (due !== null)
+            this.end(pairing, due);
         if (why !== null)
         {
             this.refuse(ws, why);
@@ -370,18 +393,12 @@ export class Pairs
        any a day old. */
     sweep ()
     {
-        const t = this.now();
-
         for (const p of [...this.pairs.values()])
         {
-            if (!p.joined && t - p.made > this.o.codeMs)
-                this.end(p, 'expired');
-            else if (t - p.made > this.o.lifeMs)
-                this.end(p, 'old');
-            else if ([p.host, p.phone].some((s) => s.ws === null &&
-                                            s.goneAt !== null &&
-                                            t - s.goneAt > this.o.goneMs))
-                this.end(p, 'gone');
+            const why = this.due(p);
+
+            if (why !== null)
+                this.end(p, why);
         }
     }
 

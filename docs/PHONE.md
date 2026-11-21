@@ -34,24 +34,30 @@ A WebSocket path beside `/doc/` and `/room/`, not a room: a room carries
 a document, seats and a place in the public list, none of which a
 pairing wants, and a pairing holds exactly two.
 
-- The computer opens `/pair`. The relay makes the code, 128 random bits
-  in base64url, so no page chooses a guessable one, and answers
-  `{type:'paired', code, token}`.
+- Every socket is `/pair`, and says what it is in its first line, within
+  5 seconds: the code and the tokens are in first lines, never in a URL,
+  where proxies and their access logs would keep them.
+- The computer sends `{type:'make'}`. The relay makes the code, 128
+  random bits in base64url, so no page chooses a guessable one, and
+  answers `{type:'paired', code, token}`; the page keeps both in
+  sessionStorage.
 - The link is `phone.html#pair=CODE`, a page of its own beside
   `index.html` and `jam.html`, shown as a QR code drawn by
   `qrcode-generator` (MIT, from npm, bundled as the page's other
   dependencies are). The code is in the fragment, so the site's server
   never sees it. The phone uses its own site's relay (config.json), never
   one a link names, so a link can't send a player's touches elsewhere.
-- The phone opens `/pair/CODE` and gets its own token, which it keeps in
-  sessionStorage. The code is then spent: another socket on it is
+- The phone sends `{type:'hello', code, what}`, with no token, and is
+  answered `{type:'joined', token}`, its own, which it keeps in
+  sessionStorage. The code is then spent: another first hello on it is
   refused. The host hides the QR code and says "phone joined" with what
   the phone said it is, and Disconnect.
-- A side that drops reopens `/pair/CODE` and sends its token as its
-  first message, never in the URL, where proxies log it. A socket
-  without its side's token is refused, so a link seen after the phone
-  joined plays nothing, and a phone tab iOS reloaded rejoins with the
-  token it kept.
+- A side that drops, or whose page reloads, sends
+  `{type:'hello', code, token}` with the token it kept. A socket without
+  its side's token is refused, so a link seen after the phone joined
+  plays nothing, and a phone tab iOS reloaded rejoins.
+- Each side is told `{type:'peer', here}` the moment the other goes or
+  comes back, and `{type:'ended', why}` only once the pairing is over.
 - An unjoined code dies after 2 minutes, so a QR code on a stream or a
   projector is short-lived; New code makes another. A pairing ends when
   either side has been gone 10 minutes, after a day in any case, or at
@@ -60,12 +66,15 @@ pairing wants, and a pairing holds exactly two.
 - What either sends, `{type:'signal'|'relayed', data}`, reaches the
   other unread, under a frame cap of 4 KiB and a rate bucket for each
   side that its reconnects draw on too, and is dropped past it, or while
-  the other side has 64 KiB it hasn't read: a late frame is worth
-  nothing.
+  the other side has 64 KiB or more it hasn't read: a late frame is
+  worth nothing.
 - Its own limits, not a room's (`PAIR` in `relay/pair.mjs`): live
   pairings on the relay and per client, new ones from their own bucket,
-  and sockets waiting for their hello per client; and where `CORS_ORIGIN`
-  is set, the Origin must be it, so a socket with none is refused too.
+  and sockets per client from the upgrade until they have gone, a
+  refused one cut if it hasn't gone a second later; pair sockets count
+  in the relay's send budget, and one that pings without reading is cut;
+  and where `CORS_ORIGIN` is set, the Origin must be it, so a socket
+  with none is refused too.
 
 Nothing is kept: pairings are in memory, as rooms are.
 
@@ -180,7 +189,10 @@ the pane, so the desktop's Controller pane can have the same form later.
   more before anything is let go.
 - A frame malformed, the wrong length or not finite: dropped, counted,
   not played.
-- The host page reloaded: the pairing is gone with it; the phone says so.
+- The host page reloaded: the phone is told at once that it has gone
+  (`peer`, `here` false) and lets its notes go; the page comes back with
+  the token it kept, and the pairing goes on. Only an End, or ten
+  minutes gone, is `ended`.
 
 ## Tests
 

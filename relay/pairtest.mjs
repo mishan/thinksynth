@@ -111,14 +111,20 @@ class Side
 
         return new Promise((resolve) =>
         {
-            const timer = setTimeout(() => resolve(null), ms);
-
-            this.waiting.push({ type, resolve: (m) =>
+            const w = { type, resolve: (m) =>
             {
                 clearTimeout(timer);
                 this.got.splice(this.got.indexOf(m), 1);
                 resolve(m);
-            } });
+            } };
+            /* Given up on, it takes nothing that comes later. */
+            const timer = setTimeout(() =>
+            {
+                this.waiting.splice(this.waiting.indexOf(w), 1);
+                resolve(null);
+            }, ms);
+
+            this.waiting.push(w);
         });
     }
 
@@ -147,16 +153,17 @@ async function start (options = {})
         const h = new Side(at, headers);
 
         await h.open();
+        h.send({ type: 'make' });
         h.paired = await Promise.race([h.next('paired'), h.next('refused')]);
         return h;
     };
     const phone = async (code, hello = { type: 'hello', what: 'a phone' },
                          headers = {}) =>
     {
-        const p = new Side(`${at}/${code}`, headers);
+        const p = new Side(at, headers);
 
         await p.open();
-        p.send(hello);
+        p.send({ ...hello, code });
         p.joined = await Promise.race([p.next('joined'), p.next('refused')]);
         return p;
     };
@@ -276,10 +283,10 @@ async function cameBack ()
         await h.close();
 
         const hGone = await back.next('peer');
-        const h2 = new Side(`${at}/${h.paired.code}`);
+        const h2 = new Side(at);
 
         await h2.open();
-        h2.send({ type: 'hello', token: h.paired.token });
+        h2.send({ type: 'hello', code: h.paired.code, token: h.paired.token });
 
         const h2joined = await h2.next('joined');
         const hBack = await back.next('peer');
@@ -314,14 +321,14 @@ async function firstLines ()
     try
     {
         const h = await host();
-        const garbled = new Side(`${at}/${h.paired.code}`);
+        const garbled = new Side(at);
 
         await garbled.open();
         garbled.send('not json');
         check((await within(garbled.closed)) !== 'not in time',
-              'a first line that is not a hello closes the socket');
+              'a first line that is neither make nor hello closes the socket');
 
-        const silent = new Side(`${at}/${h.paired.code}`);
+        const silent = new Side(at);
 
         await silent.open();
 
@@ -333,24 +340,25 @@ async function firstLines ()
 
         /* A refused hello is the socket's last word: a second, with no
            token, doesn't take the code. */
-        const twice = new Side(`${at}/${h.paired.code}`);
+        const twice = new Side(at);
+        const code = h.paired.code;
 
         await twice.open();
-        twice.send({ type: 'hello', token: 'x'.repeat(22) });
-        twice.send({ type: 'hello', what: 'sneaky' });
+        twice.send({ type: 'hello', code, token: 'x'.repeat(22) });
+        twice.send({ type: 'hello', code, what: 'sneaky' });
         await within(twice.closed);
 
-        const after = new Side(`${at}/${h.paired.code}`);
+        const after = new Side(at);
 
         await after.open();
-        after.send({ type: 'hello', what: 'mine' });
+        after.send({ type: 'hello', code, what: 'mine' });
         check((await after.next('joined')) !== null,
               'a socket refused says no more, and the code is still there');
 
-        const malformed = new Side(`${at}/short`);
+        const elsewhere = new Side(`${at}/${code}`);
 
-        check(await malformed.open().then(() => false, () => true),
-              'a path that is not a code is not upgraded');
+        check(await elsewhere.open().then(() => false, () => true),
+              'a path under /pair is not upgraded: a code is never in a URL');
     }
     finally
     {
@@ -367,19 +375,21 @@ async function oddLines ()
     try
     {
         const h = await host();
-        const odd = [{ type: 'hello', token: { toString: 1 } },
-                     { type: 'hello', token: { toString: null } },
-                     { type: 'hello', token: ['a'] },
-                     { type: 'hello', token: null },
-                     { type: 'hello', token: 5 },
-                     { type: 'hello', what: { length: 1e9 } },
+        const code = h.paired.code;
+        const odd = [{ type: 'hello', code, token: { toString: 1 } },
+                     { type: 'hello', code, token: { toString: null } },
+                     { type: 'hello', code, token: ['a'] },
+                     { type: 'hello', code, token: null },
+                     { type: 'hello', code, token: 5 },
+                     { type: 'hello', code: { toString: 1 } },
+                     { type: 'hello', code, what: { length: 1e9 } },
                      { type: 'signal', data: 1 },
                      [], 7, null];
         const whys = [];
 
         for (const m of odd)
         {
-            const s = new Side(`${at}/${h.paired.code}`);
+            const s = new Side(at);
 
             await s.open();
             s.send(JSON.stringify(m));
@@ -445,6 +455,38 @@ async function expired ()
         q.pairs.sweep();
         check((await h4.next('ended'))?.why === 'old',
               'and any pairing ends after a day');
+
+        /* Each deadline holds before the sweep has come round. */
+        const h5 = await host();
+        const p5 = await phone(h5.paired.code);
+
+        await p5.close();
+        t += 10 * 60 * 1000 + 1;
+
+        const late5 = await phone(h5.paired.code,
+                                  { type: 'hello', token: p5.joined.token });
+
+        check(late5.joined.why === 'gone',
+              'a phone back after ten minutes is too late, sweep or no sweep');
+
+        const h6 = await host();
+
+        t += 2 * 60 * 1000 + 1;
+
+        const late6 = await phone(h6.paired.code,
+                                  { type: 'hello', token: h6.paired.token });
+
+        check(late6.joined.why === 'expired',
+              'nor does the page\'s token reopen a code nobody joined in time');
+
+        const h7 = await host();
+        const p7 = await phone(h7.paired.code);
+
+        t += 24 * 60 * 60 * 1000 + 1;
+        p7.send({ type: 'relayed', data: 1 });
+        check((await h7.next('ended'))?.why === 'old' &&
+              (await h7.count('relayed')) === 0,
+              'and a frame past a day ends the pairing rather than passing');
     }
     finally
     {
@@ -544,37 +586,106 @@ async function backedUp ()
     }
 }
 
-/* Sockets waiting for their hello: only so many from one client. */
-async function waited ()
+/* Clients that won't read: one refused that never answers the close, and
+   one that pings and never takes the pongs. Each is cut, not kept. */
+async function unread ()
 {
-    const { q, host, at } = await start({ pairs: { waitingPerClient: 4 } });
+    const { q, at } = await start({ pairs: { refusedMs: 200, queuedMax: 1000 } });
+
+    try
+    {
+        const deaf = new Side(at);
+
+        await deaf.open();
+        deaf.send({ type: 'hello', code: 'x'.repeat(22) });
+        deaf.ws._socket.pause();
+        await new Promise((r) => setTimeout(r, 600));
+        check(q.pairs.sockets.size === 0,
+              'a refused socket that never answers the close is cut');
+
+        const pinger = new Side(at);
+
+        await pinger.open();
+        pinger.send({ type: 'make' });
+        pinger.ws._socket.pause();
+
+        const payload = Buffer.alloc(125);
+
+        for (let i = 0; i < 200000 && q.pairs.sockets.size > 0; i++)
+        {
+            pinger.ws.ping(payload);
+            if (i % 1000 === 0)
+                await new Promise((r) => setImmediate(r));
+        }
+        await new Promise((r) => setTimeout(r, 300));
+        check(q.pairs.sockets.size === 0,
+              'and so is one that pings and never reads the pongs');
+    }
+    finally
+    {
+        q.shutdown();
+    }
+}
+
+/* The drop at the cap, exactly: under it a frame passes, at it not. */
+async function threshold ()
+{
+    const { Pairs } = await import('./pair.mjs');
+    const pairs = new Pairs({ now: () => 0, queuedMax: 1000 });
+    const fake = () => ({ readyState: 1, bufferedAmount: 0, sent: [],
+                          send (d) { this.sent.push(d); },
+                          on () {}, close () {}, terminate () {} });
+    const host = fake();
+    const phone = fake();
+
+    pairs.open(host, 'a');
+    pairs.open(phone, 'b');
+
+    const p = pairs.make(host, 'a');
+
+    p.joined = true;
+    p.phone.ws = phone;
+    phone.bufferedAmount = 999;
+    pairs.pass(p, 'host', { type: 'relayed', data: 1 });
+    phone.bufferedAmount = 1000;
+    pairs.pass(p, 'host', { type: 'relayed', data: 2 });
+    check(phone.sent.length === 1 && JSON.parse(phone.sent[0]).data === 1,
+          'a frame passes with the other side under its cap, and not at it');
+}
+
+/* Sockets: only so many from one client, from the upgrade until each
+   has gone, whatever it said. */
+async function held ()
+{
+    const { q, host, at } = await start({ pairs: { socketsPerClient: 4 } });
 
     try
     {
         const h = await host();
         const quiet = [];
 
-        for (let i = 0; i < 4; i++)
+        for (let i = 0; i < 3; i++)
         {
-            const s = new Side(`${at}/${h.paired.code}`);
+            const s = new Side(at);
 
             await s.open();
             quiet.push(s);
         }
 
-        const more = new Side(`${at}/${h.paired.code}`);
+        const more = new Side(at);
 
         await more.open().catch(() => {});
         check(more.status === 429,
-              'one client holds only so many sockets before their hello');
+              'one client holds only so many sockets on /pair');
 
-        quiet[0].send({ type: 'hello', what: 'a phone' });
+        quiet[0].send({ type: 'hello', code: h.paired.code, what: 'a phone' });
         await quiet[0].next('joined');
+        await quiet[1].close();
 
-        const now = new Side(`${at}/${h.paired.code}`);
+        const now = new Side(at);
 
         check(await now.open().then(() => true, () => false),
-              'and one helloed makes room for another');
+              'and one gone makes room for another');
 
         /* The phone may end it too. */
         quiet[0].send({ type: 'end' });
@@ -605,15 +716,10 @@ async function sited ()
 
         check(own.paired.type === 'paired', 'and one from the site is made');
 
-        const phoneElsewhere = new Side(
-            `ws://127.0.0.1:${q.address().port}/pair/${own.paired.code}`,
-            { Origin: 'https://evil.example' });
         const none = new Side(`ws://127.0.0.1:${q.address().port}/pair`);
 
-        await phoneElsewhere.open().catch(() => {});
         await none.open().catch(() => {});
-        check(phoneElsewhere.status === 403 && none.status === 403,
-              'and a phone from another site, or from none, is refused too');
+        check(none.status === 403, 'and one from no site at all is refused');
     }
     finally
     {
@@ -660,7 +766,9 @@ try
     await expired();
     await limited();
     await backedUp();
-    await waited();
+    await held();
+    await threshold();
+    await unread();
     await sited();
     await cut();
 }

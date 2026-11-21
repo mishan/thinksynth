@@ -43,7 +43,7 @@
  *                        piece
  *   WS   /doc/<room>     the Yjs document, y-websocket's protocol
  *   WS   /room/<room>    JSON: presence, seats, clock, signalling, chat
- *   WS   /pair[/<code>]  a phone and the page it plays, introduced
+ *   WS   /pair          a phone and the page it plays, introduced
  *                        (pair.mjs)
  *   /api/account/...     accounts: handles, keys, sessions (accounts.mjs),
  *                        and passkeys (passkeys.mjs)
@@ -3394,7 +3394,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     const pairing = new Pairs({ now: relayNow, ...pairs });
     const pairWss = new WebSocketServer({
         noServer: true, maxPayload: pairing.o.frameMax });
-    const queues = new Queues(() => [roomWss.clients, docWss.clients],
+    const queues = new Queues(() => [roomWss.clients, docWss.clients,
+                                     pairWss.clients],
                               { socketMax: queuedMaxBytes,
                                 totalMax: queuedTotalMaxBytes });
     v8.setFlagsFromString('--expose-gc');
@@ -3544,22 +3545,22 @@ export function relay ({ port = 8787, host = '0.0.0.0',
     const upgrade = (req, socket, head) =>
     {
         const url = new URL(req.url, 'http://localhost');
-        const pair = /^\/pair(?:\/([A-Za-z0-9_-]{22}))?$/.exec(url.pathname);
+        const pair = url.pathname === '/pair';
 
         /* A pairing plays someone's page, so only that page's own site
            may make one, where the relay is told which that is. */
-        if (pair !== null && corsOrigin !== null &&
+        if (pair && corsOrigin !== null &&
             req.headers.origin !== corsOrigin)
         {
             socket.end('HTTP/1.1 403 Forbidden\r\n' +
                        'Connection: close\r\n\r\n');
             return;
         }
-        if (pair !== null)
+        if (pair)
         {
             const client = keyOf(req);
 
-            if (pair[1] !== undefined && !pairing.mayWait(client))
+            if (!pairing.mayOpen(client))
             {
                 socket.end('HTTP/1.1 429 Too Many Requests\r\n' +
                            'Connection: close\r\n\r\n');
@@ -3570,7 +3571,7 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             {
                 ws.alive = true;
                 ws.on('pong', () => { ws.alive = true; });
-                pairing.open(ws, pair[1] ?? null, client);
+                pairing.open(ws, client);
             });
             return;
         }
@@ -3752,7 +3753,8 @@ export function relay ({ port = 8787, host = '0.0.0.0',
             rooms: rooms.size, roomBytes: costs.bytes, peers,
             roomSockets: roomWss.clients.size,
             docSockets: docWss.clients.size, awarenessClients,
-            bufferedMaxBytes: [...roomWss.clients, ...docWss.clients]
+            bufferedMaxBytes: [...roomWss.clients, ...docWss.clients,
+                               ...pairWss.clients]
                 .reduce((max, ws) => Math.max(max, ws.bufferedAmount), 0),
             room: Object.fromEntries(traffic.room),
             doc: traffic.doc,
