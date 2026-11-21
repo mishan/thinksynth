@@ -319,6 +319,27 @@ Some things are the page's own:
 - A room plays no controller yet: what a room hears is stamped and kept
   in step on every peer, and a controller's knobs and bends aren't.
 
+## A phone
+
+The solo page plays a phone too, as the device `phone`. Press Start, then
+Phone, under the keys: the page shows a link and a QR code of it, for the
+phone to open. On the phone, tap Start, which is where iOS asks whether
+the page may read motion, and play: the whole screen is the pad.
+
+The phone's own profile is a theremin under one finger, for
+`theremin.dsp`: across the screen is a pentatonic scale, up is louder, a
+second finger is an octave up and a third an octave down, and tilting the
+phone right brightens the note. Its controls are `tilt_x` and `tilt_y`
+(-1 to 1), `touch_1` to `touch_5` (a finger down), and `touch_1_x` to
+`touch_5_y` (0 to 1, across and up), for a profile of your own.
+
+The two pages meet through the site's relay and then talk directly when
+they share a network, through the relay when not. A code lasts two
+minutes unopened. A phone that sleeps, or whose page is hidden, lets its
+notes go; either page reloaded comes back by itself. Disconnect, on the
+page, ends it. A `loop` binding plays nothing on a phone yet. How it
+works is docs/PHONE.md.
+
 ## Life
 
 `game/thgLife` is Conway's Life as a step sequencer, for the BOX: a 16 by

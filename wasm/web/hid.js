@@ -38,14 +38,13 @@
  * gone.
  */
 
+import { actionPlayer } from './actions.js';
+
 const VALVE = 0x28de;
 const WIRED = 0x2300;
 const DONGLES = [0x2101, 0x2102];
 const FILTERS = [WIRED, ...DONGLES].map((productId) =>
     ({ vendorId: VALVE, productId }));
-
-/* hid/thhMapper.h's thhAction::Kind, by the names th_take writes. */
-const KIND = { on: 0, off: 1, value: 2, bend: 3, aux: 4 };
 
 /* thhHost::From. */
 const FROM_INPUT = 0, FROM_IMU = 1, FROM_RADIO = 2;
@@ -124,9 +123,9 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
                              channel, bendChannel, controller, pane })
 {
     let M = null, loading = null;
-    let block = null, chan = null, ticking = 0, flushing = 0;
+    let block = null, chan = null, ticking = 0;
     const open = new Map();         /* HIDDevice -> its record             */
-    const values = new Map();       /* "channel arg" -> latest value       */
+    const played = actionPlayer({ onNoteOn, onNoteOff, play, bendChannel });
     let wired = null;               /* the wired controller's slot id      */
     let pairUntil = 0;              /* when the dongle stops listening     */
     let pairing = null;             /* and which one it is                 */
@@ -171,42 +170,9 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
             : '');
     };
 
-    /* The values, the latest of each, once a frame: a controller's axes
-       move every few milliseconds, and the synth needs only what is new. */
-    const flush = () =>
-    {
-        flushing = 0;
-        for (const a of values.values())
-            play(a);
-        values.clear();
-    };
-
     const take = () =>
     {
-        for (const a of JSON.parse(M.ccall('th_take', 'string', [], [])))
-        {
-            if (a.kind === 'on')
-                onNoteOn(a.note, a.velocity);
-            else if (a.kind === 'off')
-                onNoteOff(a.note);
-            else if (a.kind === 'value')
-            {
-                values.set(`${a.channel} ${a.arg}`,
-                           { ...a, kind: KIND.value });
-                /* A hidden tab draws no frames, and a controller still plays
-                   in one. */
-                flushing ||= document.hidden ? setTimeout(flush, 15)
-                                             : requestAnimationFrame(flush);
-            }
-            else
-            {
-                const on = bendChannel(a.note);
-
-                if (on !== null)
-                    play({ ...a, kind: KIND[a.kind], channel: on,
-                           frame: -1 });
-            }
-        }
+        played(JSON.parse(M.ccall('th_take', 'string', [], [])));
 
         /* The loops, played every few milliseconds while there are any. */
         if (!ticking && M.ccall('th_tick', 'number', ['number'], [now()]))
@@ -654,7 +620,7 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
                 return;
             M.ccall('th_release', null, ['number'], [now()]);
             M.ccall('th_take', 'string', [], []);
-            values.clear();
+            played.forget();
         },
     };
 }

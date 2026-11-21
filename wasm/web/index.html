@@ -453,6 +453,19 @@
       <p id="hidproblem" class="hint" aria-live="polite"></p>
     </details>
 
+    <!-- A phone onto the same keys (phonepane.js, docs/PHONE.md): paired
+         through the relay by a link and its QR code, its tilt and fingers
+         played as the device `phone'. -->
+    <button id="phone" disabled>Phone</button>
+    <span id="phonestatus" class="hint" aria-live="polite"></span>
+    <details id="phonepane" hidden>
+      <summary>Phone</summary>
+      <div id="phoneqr" hidden></div>
+      <a id="phonelink" hidden target="_blank" rel="noopener"></a>
+      <button id="phoneagain" hidden>New code</button>
+      <button id="phoneend" hidden>Disconnect</button>
+    </details>
+
     <!-- A webcam onto the same keys (camera.js): a hand struck through one
          of nine zones of the picture plays a note, and the zones light as
          the camera sees them move, laid out as the player sees them; or,

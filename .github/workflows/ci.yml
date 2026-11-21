@@ -1265,6 +1265,14 @@ jobs:
         working-directory: wasm/web
         run: node linktest.mjs
 
+      # A phone played on the page end to end (phone.html, phonepane.js): the
+      # link and its QR code, a touch and a tilt played, hidden, reloaded,
+      # disconnected.
+      - name: A phone played on the page
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node phonetest.mjs ../../build-web
+
       # The chat box against a relay the script plays: a slow echo, a
       # refusal, no connection.
       - name: The chat box
