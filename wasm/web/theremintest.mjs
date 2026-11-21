@@ -168,6 +168,25 @@ const until = (page, f, arg, ms = 5000) => page.waitForFunction(f, arg, { timeou
     .then(() => true, () => false);
 const posted = (page, text) => until(page, (t) => window.posted.includes(t), text);
 const stub = (page, m) => page.evaluate((m) => new BroadcastChannel('stub').postMessage(m), m);
+/* What the stub has seen, or a failure if no stub answers: a tracker the
+   page has let go of can't. Asked again until it does, since one still
+   starting has no channel yet to hear the first. */
+const stats = (page) => page.evaluate(() => new Promise((done, failed) =>
+{
+    const said = new BroadcastChannel('stub');
+    const ask = setInterval(() => said.postMessage({ ask: true }), 200);
+    const end = () => { clearInterval(ask); clearTimeout(late); said.close(); };
+    const late = setTimeout(() => { end(); failed(new Error('no tracker answered')); }, 5000);
+
+    said.onmessage = (e) =>
+    {
+        if (e.data.frames === undefined)
+            return;
+        end();
+        done(e.data);
+    };
+    said.postMessage({ ask: true });
+}));
 
 /* A page started on a patch, with the stub in handworker.js's place unless
    `real'. */
@@ -217,13 +236,7 @@ try
 
         await page.waitForTimeout(1000);
 
-        const seen = await page.evaluate(() => new Promise((done) =>
-        {
-            const said = new BroadcastChannel('stub');
-
-            said.onmessage = (e) => e.data.frames !== undefined && done(e.data);
-            said.postMessage({ ask: true });
-        }));
+        const seen = await stats(page);
 
         check(seen.frames > 5 && seen.overlapped === 0,
               'one frame at a time reaches the tracker', JSON.stringify(seen));
@@ -233,13 +246,7 @@ try
         await stub(page, { slow: 1500 });
         await page.waitForTimeout(5000);
 
-        const later = await page.evaluate(() => new Promise((done) =>
-        {
-            const said = new BroadcastChannel('stub');
-
-            said.onmessage = (e) => e.data.frames !== undefined && done(e.data);
-            said.postMessage({ ask: true });
-        }));
+        const later = await stats(page);
 
         check(later.frames - seen.frames > 40 && later.overlapped - seen.overlapped <= 10,
               'an answer slower than the page waits leaves a frame extra a while, not for good',
@@ -276,6 +283,39 @@ try
               'switched to the air harp, it lets the note go and opens as the harp',
               await status(page));
         check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
+        await page.close();
+    }
+
+    {
+        const { page } = await open();
+
+        /* In the click's own task, so before the camera has opened. */
+        await page.evaluate(() =>
+        {
+            const mode = document.getElementById('cameramode');
+
+            document.getElementById('camera').click();
+            mode.value = 'harp';
+            mode.dispatchEvent(new Event('change'));
+        });
+        check(await until(page, () => /strike the zones/.test(
+            document.getElementById('camerastatus').textContent)),
+              'a mode picked while the camera opens is the one it opens as', await status(page));
+        await page.close();
+    }
+
+    {
+        const { page } = await open();
+
+        await page.click('#camera');
+        await until(page, () => /pinch your left hand/.test(
+            document.getElementById('camerastatus').textContent));
+        await stats(page);      /* there to hear what follows */
+        await stub(page, { quiet: true });
+        check(await until(page, () => /stopped answering/.test(
+            document.getElementById('camerastatus').textContent), null, 20000),
+              'a tracker silent for good is let go of, not sent frames for ever',
+              await status(page));
         await page.close();
     }
 
