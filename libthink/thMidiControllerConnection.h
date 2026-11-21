@@ -21,15 +21,15 @@
 
 #include "thExport.h"
 
-/* This is the class that holds the actual data needed to set parameter values
-   via midi controllers.  This includes minimum and maximum setting values,
-   exponential/linear curve mapping and a pointer to the thArg being set. */
+/* What a MIDI Map binding sets, as data: the chanarg by name on its
+   destination channel, the range it moves over and whether exponentially.
+   thSynth::handleMidiController moves it with setChanArgFraction, as a
+   knob on the web page or a HID profile moves one. */
 
 class THINK_API thMidiControllerConnection {
 public:
-    thMidiControllerConnection (thArg *arg, float min, float max, int scale,
-                                int chan, int controller, int dchan,
-                                string argName);
+    thMidiControllerConnection (float min, float max, int scale, int chan,
+                                int controller, int dchan, string argName);
     ~thMidiControllerConnection (void);
 
 
@@ -47,12 +47,7 @@ public:
     int controller (void) { return controller_; }
     int destChan (void) { return destchan_; }
     string argName (void) { return argName_; }
-    thArg *arg (void) { return arg_; }
-    /* XXX: put linear/exponential here too */
-
-    void setParam (unsigned int value);
 private:
-    thArg *arg_;
     int chan_, controller_;
     int destchan_;
     string argName_;

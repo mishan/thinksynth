@@ -1828,7 +1828,20 @@ void thSynth::handleMidiController (unsigned char channel, unsigned int param,
         return;
     }
 
-    controllerHandler_->handleMidi(mapChannel, param, value);
+    thMidiControllerConnection *link =
+        controllerHandler_->getConnection(mapChannel, param);
+
+    if (link)
+    {
+        const double lo = link->min(), hi = link->max();
+        const bool exp =
+            link->scale() == thMidiControllerConnection::EXPONENTIAL;
+
+        setChanArgFraction(link->destChan(), link->argName(),
+                           (value > MIDIVALMAX ? MIDIVALMAX : value) /
+                               (double)MIDIVALMAX,
+                           &lo, &hi, exp);
+    }
 }
 
 void thSynth::newMidiControllerConnection (unsigned char channel,

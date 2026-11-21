@@ -1488,9 +1488,8 @@ int main (int argc, char **argv)
     if (writeFile(file, graph("", "freq->out", "", "10 ms")))
     {
         Session s(pluginPath);
-        thArg bound(string("bound"), 0);
         thMidiControllerConnection *link =
-            new thMidiControllerConnection(&bound, 0, 1,
+            new thMidiControllerConnection(0, 1,
                                            thMidiControllerConnection::LINEAR,
                                            0, TH_MIDI_CC_SUSTAIN, 0, "bound");
 
@@ -1498,6 +1497,7 @@ int main (int argc, char **argv)
             fail("the voicecheck graph loads", "");
         else
         {
+            s.synth.setChanArg(0, new thArg(string("bound"), 0));
             s.synth.newMidiControllerConnection(0, TH_MIDI_CC_SUSTAIN, link);
 
             s.synth.addNote(0, 60, 40);
@@ -1508,11 +1508,12 @@ int main (int argc, char **argv)
             vector<float> after = s.settled(8);
 
             const float pedal = (*s.synth.getChanArg(0, "SusPedal"))[0];
+            const float bound = (*s.synth.getChanArg(0, "bound"))[0];
 
-            okOrFail(bound[0] == 1 && pedal == 0 &&
+            okOrFail(bound == 1 && pedal == 0 &&
                      rms(after) < rms(first) * 0.01,
                      "a MIDI Map binding on CC 64 takes it from the pedal",
-                     "bound arg " + num(bound[0]) + ", SusPedal " +
+                     "bound arg " + num(bound) + ", SusPedal " +
                      num(pedal) + ", " + num(rms(after)) + " after the key");
 
             s.synth.newMidiControllerConnection(0, TH_MIDI_CC_SUSTAIN, NULL);

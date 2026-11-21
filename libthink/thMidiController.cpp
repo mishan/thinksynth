@@ -35,21 +35,6 @@ thMidiController::~thMidiController (void)
     /* XXX: later on, check for connection classes and nuke them */
 }
 
-void thMidiController::handleMidi (unsigned char channel, unsigned int param,
-                                   unsigned int value)
-{
-    if (!validAddress(channel, param))
-        return;
-
-    thMidiControllerConnection *connectionptr = connections_[channel][param];
-
-    if (connectionptr)
-    {
-        connectionptr->setParam(value);
-
-    }
-}
-
 void thMidiController::newConnection (unsigned char channel,
                                       unsigned int param,
                                       thMidiControllerConnection *connection)
