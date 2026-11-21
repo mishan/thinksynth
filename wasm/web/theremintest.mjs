@@ -169,18 +169,20 @@ const until = (page, f, arg, ms = 5000) => page.waitForFunction(f, arg, { timeou
 const posted = (page, text) => until(page, (t) => window.posted.includes(t), text);
 const stub = (page, m) => page.evaluate((m) => new BroadcastChannel('stub').postMessage(m), m);
 /* What the stub has seen, or a failure if no stub answers: a tracker the
-   page has let go of can't. */
+   page has let go of can't. Asked again until it does, since one still
+   starting has no channel yet to hear the first. */
 const stats = (page) => page.evaluate(() => new Promise((done, failed) =>
 {
     const said = new BroadcastChannel('stub');
-    const late = setTimeout(() => { said.close(); failed(new Error('no tracker answered')); }, 5000);
+    const ask = setInterval(() => said.postMessage({ ask: true }), 200);
+    const end = () => { clearInterval(ask); clearTimeout(late); said.close(); };
+    const late = setTimeout(() => { end(); failed(new Error('no tracker answered')); }, 5000);
 
     said.onmessage = (e) =>
     {
         if (e.data.frames === undefined)
             return;
-        clearTimeout(late);
-        said.close();
+        end();
         done(e.data);
     };
     said.postMessage({ ask: true });
