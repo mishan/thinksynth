@@ -55,6 +55,11 @@ runs:
           chmod +x "build/scripts/$b"
         done
 
+        # Built in the CI image, whose checkout is /__w/..., they look for
+        # libthink there; this runner's is somewhere else.
+        echo "LD_LIBRARY_PATH=$PWD/build/libthink" >> "$GITHUB_ENV"
+        export LD_LIBRARY_PATH="$PWD/build/libthink"
+
         # Said here rather than found out by a gate. A binary that cannot
         # load exits 127, and compare.mjs reads that as every piece
         # differing -- twenty-two failures that say nothing about the one
