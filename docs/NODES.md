@@ -435,6 +435,22 @@ Spectral gate: each frequency passed by its level against the loudest
 | `play` | out | 1 while there is sound still to come out, for the io node's play |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
 
+### fft::morph
+
+Spectral morph: the carrier's spectrum wearing the side's shape
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The carrier: what is heard, its pitch and its detail |  | -1 to 1 | full scale |  |
+| `side` | in | The modulator, whose shape the carrier takes on; unwired, the carrier passes through |  | -1 to 1 | full scale |  |
+| `size` | in | The frame, read when the node starts, and its latency | 2048 | 256 to 4096 | samples |  |
+| `morph` | in | 0 the carrier, 1 the carrier at the side's levels; a blend in dB | 1 | 0 to 1 |  |  |
+| `width` | in | The band the levels are taken over: 0 the side's own spectrum, wider its envelope on the carrier's partials | 400 | 0 to 4000 | Hz |  |
+| `mix` | in | 0 the carrier a frame late, 1 the morphed | 1 | 0 to 1 |  |  |
+| `out` | out | The blend, a frame late |  | -1 to 1 | full scale |  |
+| `play` | out | 1 while there is sound still to come out, for the io node's play |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### fft::shift
 
 Spectral shift: every partial moved by a ratio and an offset
