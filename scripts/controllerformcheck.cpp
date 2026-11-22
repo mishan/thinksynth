@@ -73,7 +73,7 @@ pump (void)
 static Gtk::Widget *
 find (Gtk::Widget &w, const std::string &name)
 {
-    if (w.get_name() == name)
+    if (w.get_name().raw() == name)
         return &w;
     for (Gtk::Widget *c = w.get_first_child(); c; c = c->get_next_sibling())
         if (Gtk::Widget *found = find(*c, name))

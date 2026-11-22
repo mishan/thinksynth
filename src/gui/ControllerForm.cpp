@@ -112,7 +112,7 @@ whatItDoes (const thhFormControl &c)
 Gtk::Widget *
 find (Gtk::Widget &w, const std::string &name)
 {
-    if (w.get_name() == name)
+    if (w.get_name().raw() == name)
         return &w;
     for (Gtk::Widget *c = w.get_first_child(); c; c = c->get_next_sibling())
         if (Gtk::Widget *found = find(*c, name))
@@ -474,7 +474,7 @@ ControllerForm::draw (const std::string &why)
     Gtk::Root *root = get_root();
     Gtk::Widget *had = root ? root->get_focus() : NULL;
 
-    while (had && had != this && (had->get_name().empty() || !find(*this, had->get_name()) ||
+    while (had && had != this && (had->get_name().empty() || !find(*this, had->get_name().raw()) ||
                                   had->get_name().raw().compare(0, 3, "Gtk") == 0 ||
                                   had->get_name().raw().compare(0, 7, "gtkmm__") == 0))
         had = had->get_parent();
