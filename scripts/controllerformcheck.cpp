@@ -280,14 +280,15 @@ run (void)
           "read again, it takes edits; a profile that is a link stays one, its file written",
           read(real));
 
-    /* A profile there that can't be read is not one to write over. */
-    fs::permissions(real, fs::perms::none);
+    /* A profile there that can't be opened, root or not, is not one to
+       write over: a link to itself. */
+    fs::remove(path);
+    fs::create_symlink(path.filename(), path);
     type(form, "a 1 semis", "7");
-    fs::permissions(real, fs::perms::owner_read | fs::perms::owner_write);
-    check(read(real) == "device index {\n    a = note 6;\n};\n" &&
+    check(fs::is_symlink(path) && fs::read_symlink(path) == path.filename() &&
           problem->get_text().find("can't read") != Glib::ustring::npos,
-          "a profile that can't be read is refused, not written over",
-          read(real) + problem->get_text().raw());
+          "a profile that can't be opened is refused, not written over",
+          problem->get_text().raw());
 
     /* And one that opens and then fails to read: a file that is memory. */
     fs::remove(path);
