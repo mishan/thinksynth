@@ -25,8 +25,9 @@
  * the ones Casio's CZ synths named; the maps are drawn here.
  *
  * EVERY BENT MAP IS A WHOLE NUMBER OF TURNS A CYCLE, so the wave is
- * continuous at the wrap, and its knees but the double's sit at a crest
- * or a trough, where the cosine is flat: no corner there either. The saw
+ * continuous at the wrap, and its knees but the double's and the
+ * sawpulse's first sit at a crest or a trough, where the cosine is flat:
+ * no corner there either. The saw
  * turns half a turn fast and half slowly; the square half a turn, a hold,
  * half a turn, a hold; the pulse a whole turn and a hold; the double the
  * saw's bend on each half, the second mirrored in time so the halves
@@ -41,13 +42,16 @@
  * falls to nothing by the end of the cycle -- a saw, a triangle or a
  * trapezoid -- as w (1 - cos), which is 0 at both ends, so the restart is
  * continuous for a ratio that is not whole. `amount' sweeps r from 1 to
- * `reso'; the sweep is the resonance. The level moves with r, by about
- * 5 dB, and that is left: it is what a resonance does.
+ * `reso'; the sweep is the resonance. The level moves with r, by up to
+ * about 4 dB, and that is left: it is what a resonance does. They sit
+ * some 8 dB under the bent waves.
  *
  * ALIASING. A short stretch of cosine spreads to about twice its own
  * frequency, so the sharpest knee a pitch allows keeps the steep stretch
- * under 0.225 of the rate, and r f under 0.2: a high note's sweep stops
- * short of the extreme rather than folding over. 1 / knee is what
+ * under 0.225 of the rate, and r f under 0.2: up to about 4 kHz a high
+ * note's sweep stops short of the extreme rather than folding over. Above
+ * that the corners fold too, and the resonant waves' windows have corners
+ * at any amount. 1 / knee is what
  * `amount' moves, as the harmonics go as 1 / knee: an even sweep.
  *
  * HARD SYNC is osc::blep's: `reset' is a master's `edge', and the step a
@@ -75,7 +79,7 @@ enum { IN_FREQ, IN_WAVEFORM, IN_AMOUNT, IN_RESO, IN_PHASE, IN_RESET,
 std::atomic<int> args[INOUT_LAST + 1];
 
 static const char desc[] = "Phase distortion: a cosine read through a bent "
-                           "phase, a sine at amount 0";
+                           "phase";
 thPlugin::State mystate = thPlugin::ACTIVE;
 
 static const char *const pdWaveforms[] = { "saw", "square", "pulse", "double",

@@ -1342,7 +1342,7 @@ PADsynth (partials with a bandwidth each)
 
 ### osc::pd
 
-Phase distortion: a cosine read through a bent phase, a sine at amount 0
+Phase distortion: a cosine read through a bent phase
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|

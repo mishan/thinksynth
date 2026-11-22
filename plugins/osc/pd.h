@@ -84,11 +84,13 @@ struct thkPd
             c.mean = 1 - c.d;
             break;
         case DOUBLE:
+            /* Its knees are corners, at a quarter turn, which fold as well:
+               held twice as long as its steep stretch alone would need. */
             c.d = knee(0.5f, 1, a, c.dt);
             c.mean = 2 * (2 * c.d - 1) / pi;
             break;
         case SAWPULSE:
-            c.d = knee(0.5f, 1, a, c.dt);
+            c.d = knee(0.5f, 1, a, c.dt);       /* as the double's */
             c.d2 = knee(1, 1, a, c.dt);
             c.mean = (2 * c.d - 1) / pi + 0.5f * (1 - c.d2);
             break;

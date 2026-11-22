@@ -98,7 +98,6 @@ refSimple (int waveform, double r, double hi)
     }
 }
 
-
 /* osc::pd's waves in double, from the maps as pd.cpp draws them: the
    knees from the amount and the pitch, then the bent phase. */
 struct RefPd
@@ -121,37 +120,24 @@ struct RefPd
         if (w == 0 || w == 1)
             d = knee(0.5, 0.5, a, dt);
         else if (w == 2)
-        {
             d = knee(1, 1, a, dt);
-            mean = 1 - d;
-        }
         else if (w == 3)
-        {
             d = knee(0.5, 1, a, dt);
-            mean = 2 * (2 * d - 1) / M_PI;
-        }
         else if (w == 4)
         {
             d = knee(0.5, 1, a, dt);
             d2 = knee(1, 1, a, dt);
-            mean = (2 * d - 1) / M_PI + 0.5 * (1 - d2);
         }
         else
-        {
             r = std::max(1.0, std::min(1 + a * (reso - 1), 0.2 / dt));
-            /* The window's mean less its mean against the cosine, here by
-               a sum where the kernel has the closed form. */
-            const int n = 1 << 16;
-            double sum = 0;
 
-            for (int i = 0; i < n; i++)
-            {
-                const double p = (i + 0.5) / n;
+        /* The DC, by a sum where the kernel has a closed form. */
+        const int n = 1 << 16;
+        double sum = 0;
 
-                sum += window(p) * (1 - std::cos(2 * M_PI * r * p));
-            }
-            m = sum / n;
-        }
+        for (int i = 0; i < n; i++)
+            sum += raw((i + 0.5) / n);
+        (w >= 5 ? m : mean) = sum / n;
     }
 
     double window (double p) const
@@ -165,12 +151,13 @@ struct RefPd
         return x < k ? 0.5 * x / k : 0.5 + 0.5 * (x - k) / (1 - k);
     }
 
-    double at (double p) const
+    /* The wave before its DC is taken off. */
+    double raw (double p) const
     {
         double g;
 
         if (wave >= 5)
-            return 0.5 * (window(p) * (1 - std::cos(2 * M_PI * r * p)) - m);
+            return window(p) * (1 - std::cos(2 * M_PI * r * p));
         if (wave == 0)
             g = bend(p, d);
         else if (wave == 1)
@@ -181,7 +168,12 @@ struct RefPd
             g = p < 0.5 ? 0.5 * bend(2 * p, d) : 1 - 0.5 * bend(2 - 2 * p, d);
         else
             g = p < 0.5 ? 0.5 * bend(2 * p, d) : 2 * p - 1 < d2 ? 0.5 + 0.5 * (2 * p - 1) / d2 : 1;
-        return (std::cos(2 * M_PI * g) - mean) / (1 + std::fabs(mean));
+        return std::cos(2 * M_PI * g);
+    }
+
+    double at (double p) const
+    {
+        return wave >= 5 ? 0.5 * (raw(p) - m) : (raw(p) - mean) / (1 + std::fabs(mean));
     }
 };
 
@@ -377,7 +369,7 @@ checkPd ()
             snprintf(what, sizeof(what),
                      "osc::pd's %s folds under %g dB at 440, 2000 and 4000 Hz",
                      NAMES[w], limit);
-            report(what, worst - limit > 0 ? worst - limit : 0, 0);
+            report(what, worst, limit);
         }
     }
 
