@@ -52,50 +52,6 @@ function choice (label, options, value)
     return s;
 }
 
-/* A device's cards: [name, pattern] each, a control on the first whose
-   pattern its name starts with, and named on it by the rest, or by `press'
-   (a button) or `pull' (an axis) when nothing is left; what its own
-   bindings are called; and the actions it can't play, if any. */
-export const PHONE_LAYOUT = {
-    cards: [1, 2, 3, 4, 5].map((n) => [`Finger ${n}`, new RegExp(`^touch_${n}(?=_|$)`)])
-        .concat([['Tilt', /^tilt/]]),
-    press: 'tap', own: "the phone's own",
-    /* A phone come back has every finger up; an Index held has its touch
-       sensors down, so Learn starts from what it reads first. */
-    backUp: true,
-};
-/* The camera's: no knobs, loops, bends or aux, which camera.js doesn't
-   play for it (twcamera.cpp). */
-export const CAMERA_LAYOUT = {
-    cards: [['Zones', /^hit_/], ['Zone levels', /^zone_/],
-            ['Motion', /^(?=motion|moving|x$|y$|spread|bright|strike)/]],
-    press: 'press', own: "the camera's own", cannot: ['value', 'loop', 'bend', 'aux'],
-};
-/* The theremin's hands: no knobs or loops (twhands.cpp). A hand in view
-   is seen, so Learn starts from what it reads first. */
-export const HANDS_LAYOUT = {
-    cards: [['Left hand', /^left_/], ['Right hand', /^right_/]],
-    press: 'press', own: "the theremin's own", cannot: ['value', 'loop'],
-};
-export const INDEX_LAYOUT = {
-    cards: [['A button', /^a(?=_|$)/], ['B button', /^b(?=_|$)/], ['System', /^system/],
-            ['Trigger', /^trigger/], ['Thumbstick', /^(thumbstick|stick)/],
-            ['Trackpad', /^(trackpad|pad)/], ['Grip', /^grip/],
-            ['Motion', /^(?=tilt|roll|twist|turn)/]],
-    press: 'press', own: "the controller's own",
-};
-
-function cardOf (layout, control)
-{
-    return layout.cards.find(([, re]) => re.test(control)) ?? ['Other', /^/];
-}
-
-function roleOf (layout, c)
-{
-    return c.control.replace(cardOf(layout, c.control)[1], '').replace(/^_/, '') ||
-           (c.axis ? 'pull' : layout.press);
-}
-
 /* A binding in a few words: its action and what it is of. */
 function said (b, f)
 {
@@ -116,12 +72,10 @@ function whatItDoes (c, f)
 
 /* `form(text)' and `edit(text, op, control, which, fields)' are the
    module's, the latter {err} where it won't; `args()' the patch's knob
-   names; `text()' the profile now; `layout' the device's, as PHONE_LAYOUT,
-   or a function giving the one now. */
+   names; `text()' the profile now. */
 export function profileForm ({ rows, problem, learn, form, edit, args, text,
-                               changed, layout: given })
+                               changed })
 {
-    const layout = () => (typeof given === 'function' ? given() : given);
 
     /* Each control's { control, now, axis, card }, in the module's order,
        which its values come in. */
@@ -136,7 +90,7 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
 
     /* The actions `c' takes that the device plays. */
     const playable = (f, c) => f.kinds.filter((k) => (c.axis ? k.axis : k.button) &&
-                                                     !layout().cannot?.includes(k.name));
+                                                     !f.cannot.includes(k.name));
 
     const made = (op, control, which, fields = '') =>
     {
@@ -244,9 +198,9 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         now.setAttribute('aria-live', 'off');
         const whose = make('span', { className: 'hint',
             textContent: (c.patched ? "the patch's plays over " : '') +
-                (c.off ? 'off' : c.yours ? 'yours' : c.bindings.length ? layout().own : 'nothing') });
+                (c.off ? 'off' : c.yours ? 'yours' : c.bindings.length ? f.own : 'nothing') });
         const div = make('div', { className: 'formcontrol' },
-                         make('strong', { textContent: roleOf(layout(), c) }), ' ', now, ' ', whose,
+                         make('strong', { textContent: c.role }), ' ', now, ' ', whose,
                          make('ul', {}, ...c.bindings.map((b, i) => binding(f, c, b, i, knobs))));
         const button = (label, op) =>
         {
@@ -276,6 +230,8 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
     /* Drawn again from the module's form. `why' an edit was refused, shown
        until the next. Focus stays on what had it. */
     let drawing = 0, focused;
+    /* Whether the device drawn has its buttons up when it comes back. */
+    let backUp = false;
 
     const draw = async (why = '') =>
     {
@@ -305,10 +261,11 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         const groups = new Map();
 
         say(f.problem || why);
+        backUp = f.backUp;
         drawn = new Array(f.controls.length);
         for (const c of f.controls)
         {
-            const g = cardOf(layout(), c.control)[0];
+            const g = c.card;
 
             if (!groups.has(g))
                 groups.set(g, []);
@@ -319,7 +276,7 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
             const doing = cs.filter((c) => c.patched || c.off || c.bindings.length ||
                                            c.elsewhere.length);
             const line = make('span', { className: 'hint', textContent: doing.length
-                ? doing.map((c) => `${roleOf(layout(), c)}: ${whatItDoes(c, f)}`).join('   ')
+                ? doing.map((c) => `${c.role}: ${whatItDoes(c, f)}`).join('   ')
                 : 'nothing' });
             const card = kept(make('details', { className: 'formgroup' },
                 make('summary', {}, make('strong', { textContent: g }), ' ', line)), g);
@@ -329,7 +286,8 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
                 const { div, now } = control(f, c, knobs);
 
                 card.append(div);
-                drawn[f.controls.indexOf(c)] = { control: c.control, now, axis: c.axis, card };
+                drawn[f.controls.indexOf(c)] = { control: c.control, now, axis: c.axis,
+                                                 card: c.card, details: card };
             }
             return card;
         }));
@@ -361,7 +319,7 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
             return;
         }
         if (learning.length === 0)
-            learning = v.map((x, i) => (drawn[i].axis || !layout().backUp ? x : 0));
+            learning = v.map((x, i) => (drawn[i].axis || !backUp ? x : 0));
 
         const moved = v.findIndex((x, i) =>
             Math.abs(x - learning[i]) > (drawn[i].axis ? LEARN_MOVE : 0.5));
@@ -375,8 +333,8 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
 
         const d = drawn[moved];
 
-        d.card.open = true;
-        open.add(cardOf(layout(), d.control)[0]);
+        d.details.open = true;
+        open.add(d.card);
         d.now.parentElement.classList.add('learned');
         d.now.parentElement.scrollIntoView({ block: 'nearest' });
         d.now.parentElement.querySelector('select, button')?.focus();

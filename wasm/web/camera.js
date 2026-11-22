@@ -36,7 +36,7 @@
  */
 
 import { wasmBytes } from './host.js';
-import { CAMERA_LAYOUT, HANDS_LAYOUT, MAX_PROFILE, profileForm } from './profileform.js';
+import { MAX_PROFILE, profileForm } from './profileform.js';
 
 /* The width frames are drawn at, as the desktop's reader decodes them
    (camera/thiCamera.h): enough for thMotion's zones, and little to post. */
@@ -129,7 +129,6 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
     const formDevice = () => (theremin() && !(snap?.checked ?? true) ? 'hands:free' : device());
     const form = pane && profileForm({
         rows: pane.rows, problem: pane.problem, learn: pane.learn,
-        layout: () => (theremin() ? HANDS_LAYOUT : CAMERA_LAYOUT),
         form: (text) => JSON.parse(M.ccall('th_form', 'string', ['string', 'string'],
                                            [formDevice(), text])),
         edit: (text, op, control, which, fields) => pane.profile.value !== text

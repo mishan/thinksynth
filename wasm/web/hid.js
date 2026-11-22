@@ -39,7 +39,7 @@
  */
 
 import { actionPlayer } from './actions.js';
-import { INDEX_LAYOUT, MAX_PROFILE, profileForm } from './profileform.js';
+import { MAX_PROFILE, profileForm } from './profileform.js';
 
 const VALVE = 0x28de;
 const WIRED = 0x2300;
@@ -570,7 +570,6 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
 
     const form = profileForm({
         rows: pane.formRows, problem: pane.formProblem, learn: pane.learn,
-        layout: INDEX_LAYOUT,
         form: (text) => JSON.parse(M.ccall('th_form', 'string', ['string', 'string'],
                                            ['index', text])),
         edit: (text, op, control, which, fields) => pane.profile.value !== text
