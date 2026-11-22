@@ -66,8 +66,9 @@ function frame (at)
 }
 
 /* The zones struck, each with how hard, as the frames fed since this was
-   last emptied said them. */
+   last emptied said them, and what the controls read at the last. */
 const struck = [], downs = [];
+let values = [];
 
 /* Feeds frames 1/120 s apart from `t'; the notes they played, in order. */
 function feed (frames, t = 0)
@@ -86,6 +87,7 @@ function feed (frames, t = 0)
         notes.push(...said.notes);
         struck.push(...(said.hits ?? []));
         downs.push(said.down);
+        values = said.values;
     });
 
     return notes;
@@ -94,7 +96,7 @@ function feed (frames, t = 0)
 const gone = () => JSON.parse(M.UTF8ToString(M._tc_gone())).notes;
 
 check('the camera\'s own profile binds',
-      M.ccall('tc_start', 'string', [], []) === '');
+      M.ccall('tc_start', 'string', ['string'], ['']) === '');
 
 /* The player's bottom left is the camera's bottom right: zone 7, the
    profile's lowest note. Struck, then held still. */
@@ -124,5 +126,31 @@ notes = feed([...Array(10).fill(frame(null)), ...still], 2);
 check('after a camera gone, the next frames start afresh',
       notes.length === 2 && notes[0][0] === 60 && notes[1][1] === 0,
       JSON.stringify(notes));
+check('and says what each of its 10 buttons and 15 axes reads',
+      values.length === 25 && values.every((v) => typeof v === 'number'), JSON.stringify(values));
+
+/* The player's profile over its own. */
+check('the player\'s profile binds over its own',
+      M.ccall('tc_start', 'string', ['string'], ['device camera { hit_7 = note 5; };']) === '');
+notes = feed([...Array(10).fill(frame(null)), ...still], 3);
+check('and zone 7 plays the player\'s F4', notes[0]?.[0] === 65, JSON.stringify(notes));
+
+const changed = JSON.parse(M.ccall('tc_profile', 'string', ['string'],
+                                   ['device camera { hit_7 = note 7; };']));
+
+notes = feed([...Array(10).fill(frame(null)), ...still], 4);
+check('changed as it plays, zone 7 plays G4, and nothing is said wrong',
+      changed.problem === '' && notes[0]?.[0] === 67, JSON.stringify([changed, notes]));
+
+const wrong = M.ccall('tc_start', 'string', ['string'], ['device camera { nonsense = note 0; };']);
+
+notes = feed([...Array(10).fill(frame(null)), ...still], 5);
+check('one that doesn\'t fit is said, and its own plays',
+      /nonsense/.test(wrong) && notes[0]?.[0] === 60, JSON.stringify([wrong, notes]));
+
+/* A bend on the camera is the theremin's to play, not a note. */
+M.ccall('tc_start', 'string', ['string'], ['device camera { x = bend { range = 2; }; };']);
+notes = feed([...Array(10).fill(frame(null)), ...still.map((f, i) => frame([5 / 6 - i / 200, 5 / 6]))], 6);
+check('a bend it plays is no note', notes.length === 2, JSON.stringify(notes));
 
 process.exit(failures);

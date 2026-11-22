@@ -33,7 +33,9 @@
 
 #include <emscripten.h>
 
+#include "thhCamera.h"
 #include "thhForm.h"
+#include "thhHandTrack.h"
 #include "thhHost.h"
 #include "thhMapper.h"
 #include "thhPhone.h"
@@ -216,17 +218,32 @@ EMSCRIPTEN_KEEPALIVE void th_phone_release (void)
 }
 
 /* A device the configurator's form is for, by its name: its controls and
-   its own profile. False for one it isn't. */
+   its own profile, the hands' unsnapped as "hands:free". False for one it
+   isn't. */
 static bool
 formDevice (const char *name, const thhControls *&controls, const char *&own)
 {
-    const bool phone = strcmp(name, "phone") == 0;
+    static const struct
+    {
+        const char *name;
+        const thhControls &(*controls) ();
+        const char *const *own;
+    } DEVICES[] = {
+        { "phone", thhPhoneControls, &THH_PHONE_PROFILE },
+        { "index", thhIndexControls, &THH_INDEX_PROFILE },
+        { "camera", thhCameraControls, &THH_CAMERA_PROFILE },
+        { "hands", thhHandsControls, &THH_HANDS_PROFILE },
+        { "hands:free", thhHandsControls, &THH_HANDS_FREE_PROFILE },
+    };
 
-    if (!phone && strcmp(name, "index") != 0)
-        return false;
-    controls = phone ? &thhPhoneControls() : &thhIndexControls();
-    own = phone ? THH_PHONE_PROFILE : THH_INDEX_PROFILE;
-    return true;
+    for (const auto &d : DEVICES)
+        if (strcmp(name, d.name) == 0)
+        {
+            controls = &d.controls();
+            own = *d.own;
+            return true;
+        }
+    return false;
 }
 
 /* The configurator's form for `device' (phone or index) with the player's

@@ -1945,7 +1945,7 @@ body.tiled #cameracanvas { flex: 1 1 0; min-height: 90px; max-height: none; }
 #keysstate { order: 1; flex-basis: 100%; }
 
 /* An open controller pane on a line of its own, not beside the buttons. */
-#hidpane[open], #phonepane[open] { flex-basis: 100%; }
+#hidpane[open], #phonepane[open], #camerapane[open] { flex-basis: 100%; }
 
 /* The phone's form (phoneform.js): a card per finger, what it does in a
    line until opened; the control Learn found, marked. */
@@ -1955,4 +1955,5 @@ body.tiled #cameracanvas { flex: 1 1 0; min-height: 90px; max-height: none; }
 .formrows ul { margin: 0.2em 0; padding-left: 0.6em; list-style: none; }
 .formrows input[type=number] { width: 5em; }
 .formrows .learned { outline: 2px solid var(--held); }
-#phonetext label, #phonetext textarea { display: block; }
+#phonetext label, #phonetext textarea,
+#cameratext label, #cameratext textarea { display: block; }

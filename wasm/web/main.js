@@ -4813,6 +4813,10 @@ async function init ()
         },
         hint: () => playsPatch() ? ''
             : '; in a piece it plays plain notes, which only a patch bends',
+        pane: {
+            root: $('camerapane'), rows: $('camerarows'), problem: $('cameraformproblem'),
+            learn: $('cameralearn'), profile: $('cameraprofile'), apply: $('cameraapply'),
+        },
         view: createCameraView({
             canvas: $('cameracanvas'),
             shown: () => panes.visible('cameraview'),

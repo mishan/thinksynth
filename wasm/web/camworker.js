@@ -20,7 +20,9 @@
  * camera (twcamera.cpp) reads it and says which notes to press and release
  * and how much each zone moved. Or, started as a theremin, it posts the
  * hands its tracker found, and the module's hands (twhands.cpp) say the
- * notes, their bends and aux values, and where each hand is. Its own
+ * notes, their bends and aux values, and where each hand is. Either plays
+ * its own profile with the player's over it, and says each frame what its
+ * controls read, for the configurator's form (profileform.js). Its own
  * realm, and its own instance of the module, because the worklet's budget
  * is the audio's and the mirror's fast-forwards would hold frames up for
  * seconds.
@@ -28,12 +30,13 @@
 
 import createThinkWeb from './thinkweb.js';
 
-let M = null, theremin = false;
+let M = null, theremin = false, snapped = true;
 const early = [];
 
-async function start ({ bytes, mode, snap })
+async function start ({ bytes, mode, snap, profile })
 {
     theremin = mode === 'theremin';
+    snapped = snap;
     try
     {
         M = await createThinkWeb({
@@ -56,14 +59,11 @@ async function start ({ bytes, mode, snap })
         return;
     }
 
-    const err = theremin ? M.ccall('hd_start', 'string', ['number'], [snap ? 1 : 0])
-                         : M.ccall('tc_start', 'string', [], []);
-
-    if (err !== '')
-    {
-        postMessage({ type: 'failed', text: `the camera's profile: ${err}` });
-        return;
-    }
+    /* What doesn't fit of the player's is said, and what does plays. */
+    postMessage({ type: 'problem',
+                  text: theremin ? M.ccall('hd_start', 'string', ['number', 'string'],
+                                           [snap ? 1 : 0, profile])
+                                 : M.ccall('tc_start', 'string', ['string'], [profile]) });
 
     for (const m of early.splice(0))
         receive(m);
@@ -81,7 +81,7 @@ function receive (m)
        would strike notes long gone. */
     if (M === null)
     {
-        if (m.type === 'frame' || m.type === 'hands')
+        if (m.type === 'frame' || m.type === 'hands' || m.type === 'profile')
             early.splice(0, early.length, ...early.filter((e) => e.type !== m.type));
         early.push(m);
         return;
@@ -108,6 +108,10 @@ function receive (m)
     }
     else if (m.type === 'gone')
         said = theremin ? M._hd_gone() : M._tc_gone();
+    else if (m.type === 'profile')
+        said = theremin
+            ? M.ccall('hd_profile', 'number', ['number', 'string'], [snapped ? 1 : 0, m.text])
+            : M.ccall('tc_profile', 'number', ['string'], [m.text]);
     else
         return;
 

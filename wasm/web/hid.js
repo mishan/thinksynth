@@ -69,7 +69,25 @@ const PAIR_S = 30;
    be refused -- a private window, storage cleared -- and then lasts only
    as long as the page. */
 const PROFILE_KEY = 'thinksynth:hid:index';
-const HANDS_KEY = 'thinksynth:hid:hands';
+const HANDS_KEY = 'thinksynth:hid:index:hands';
+
+/* Once, as the page loads: the hands were kept as thinksynth:hid:hands,
+   which is now the theremin's profile (camera.js). Only what reads as
+   hands, serial=hand lines, is moved. */
+try
+{
+    const old = localStorage.getItem('thinksynth:hid:hands');
+
+    if (localStorage.getItem(HANDS_KEY) === null && old !== null &&
+        /^([^=\n]+=[^\n]*\n)+$/.test(old))
+    {
+        localStorage.setItem(HANDS_KEY, old);
+        localStorage.removeItem('thinksynth:hid:hands');
+    }
+}
+catch
+{
+}
 
 const kept = (key) =>
 {

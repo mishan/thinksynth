@@ -29,9 +29,14 @@
  * no frame to say so, and a zone struck when it stopped would hold its note
  * for good. After STALL_MS with no frame the worker is told the camera is
  * gone, which lets every note go; the next frame starts afresh.
+ *
+ * The player's profile of each, the air harp's (`camera') and the
+ * theremin's (`hands'), plays over its own, edited on the camera's pane by
+ * the configurator's form (profileform.js) or as text.
  */
 
 import { wasmBytes } from './host.js';
+import { CAMERA_LAYOUT, HANDS_LAYOUT, MAX_PROFILE, profileForm } from './profileform.js';
 
 /* The width frames are drawn at, as the desktop's reader decodes them
    (camera/thiCamera.h): enough for thMotion's zones, and little to post. */
@@ -48,6 +53,35 @@ const TRACKER_UNANSWERED = 20;
 
 /* thMotion's MAX_GAP_SECONDS. */
 const STALL_MS = 250;
+
+/* The player's profiles, as the other devices' are kept: the air harp's
+   and the theremin's. */
+const profileKey = (device) => `thinksynth:hid:${device}`;
+
+/* Looked up inside the try: a browser that refuses storage refuses it by
+   throwing from the lookup itself, and the camera plays on without it. */
+function kept (key)
+{
+    try
+    {
+        return localStorage.getItem(key) ?? '';
+    }
+    catch
+    {
+        return '';
+    }
+}
+
+function keep (key, value)
+{
+    try
+    {
+        localStorage.setItem(key, value);
+    }
+    catch
+    {
+    }
+}
 
 /* True where the page can ask for a camera and hear of each frame. */
 export function cameraAvailable ()
@@ -66,22 +100,89 @@ export function cameraAvailable ()
  * a <select> of harp and theremin and a checkbox, which the camera plays
  * by (openCamera, which takes `onBend' and `onAux'), opened afresh when
  * either changes while it is on; `hint()' adds to what the theremin's
- * status line says.
+ * status line says. `pane', if given, is the form's: { root, rows,
+ * problem, learn, profile, apply } (the pane's <details>, its rows,
+ * its line, Learn, and the text box with its button), editing the
+ * profile of what `mode' plays.
  *
  * Returns { forget }, which is openCamera's forget on whatever is open.
  */
 export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
                                 view = null, mode = null, snap = null,
-                                onBend, onAux, hint = () => '' })
+                                onBend, onAux, hint = () => '', pane = null })
 {
     const label = button.textContent;
     const cells = [...zones.children];
     let open = null;
 
+    const theremin = () => mode?.value === 'theremin';
+    const device = () => (theremin() ? 'hands' : 'camera');
+    /* Kept here too, for a browser that won't keep them. */
+    const mine = { camera: kept(profileKey('camera')), hands: kept(profileKey('hands')) };
+    let M = null, loading = null;
+    const load = () => loading ??= import('./thinkhid.js')
+        .then(({ default: createThinkHid }) => createThinkHid())
+        .then((m) => { M = m; })
+        .catch((e) => { loading = null; throw e; });
+    /* The theremin's own profile is the unsnapped one when it plays
+       unsnapped. */
+    const formDevice = () => (theremin() && !(snap?.checked ?? true) ? 'hands:free' : device());
+    const form = pane && profileForm({
+        rows: pane.rows, problem: pane.problem, learn: pane.learn,
+        layout: () => (theremin() ? HANDS_LAYOUT : CAMERA_LAYOUT),
+        form: (text) => JSON.parse(M.ccall('th_form', 'string', ['string', 'string'],
+                                           [formDevice(), text])),
+        edit: (text, op, control, which, fields) => pane.profile.value !== text
+            ? { err: 'Your profile\'s text has changes; Apply them first.' }
+            : JSON.parse(M.ccall('th_form_edit', 'string',
+                ['string', 'string', 'string', 'string', 'number', 'string'],
+                [formDevice(), text, op, control, which, fields])),
+        args: async () => [],
+        text: () => mine[device()],
+        changed: (text) => setProfile(text),
+    });
+    const redraw = (why = '') => (pane?.root.open
+        ? load().then(() => form.draw(why),
+                      (e) => { pane.problem.textContent = `The form didn't load: ${e.message}`; })
+        : Promise.resolve());
+    const shown = () =>
+    {
+        if (pane === null)
+            return;
+        pane.profile.value = mine[device()];
+        pane.profile.placeholder = `device ${device()} {\n};`;
+        redraw();
+    };
+
+    /* The player's profile of what plays now made `text': kept, in the
+       box, and played by a camera that is open. */
+    const setProfile = (text) =>
+    {
+        if (text.length > MAX_PROFILE)
+        {
+            redraw(`Your profile is too long: ${MAX_PROFILE} characters at most.`);
+            return;
+        }
+        mine[device()] = text;
+        keep(profileKey(device()), text);
+        pane.profile.value = text;
+        open?.profile(text);
+        redraw();
+    };
+
+    if (pane !== null)
+    {
+        pane.root.hidden = false;
+        pane.apply.addEventListener('click', () => setProfile(pane.profile.value));
+        pane.root.addEventListener('toggle', () => redraw());
+        shown();
+    }
+
     const shut = (why = '') =>
     {
         open?.close();
         open = null;
+        form?.values([]);
         button.textContent = label;
         status.textContent = why;
         zones.hidden = true;
@@ -105,12 +206,16 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
         let failed = null;
         const playing = mode?.value ?? 'harp';
         const snapped = snap?.checked ?? true;
+        const startedWith = mine[playing === 'theremin' ? 'hands' : 'camera'];
 
         try
         {
             open = await openCamera({
                 onNoteOn, onNoteOff, onBend, onAux,
                 mode: playing, snap: snapped,
+                profile: startedWith,
+                onValues: (values) => form?.values(values),
+                onProblem: (why) => redraw(why && `your profile: ${why}`),
                 onHands: (left, right, video, points) =>
                     view?.hands(video, left, right, points, snapped),
                 onZones: (levels, hits, down, video) =>
@@ -154,6 +259,8 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
             button.click();
             return;
         }
+        if (mine[device()] !== startedWith)
+            open.profile(mine[device()]);
 
         button.textContent = `${label}: on`;
         if (playing === 'theremin')
@@ -180,6 +287,7 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
         control?.addEventListener('change', () =>
         {
             offer();
+            shown();
             if (open !== null)
             {
                 shut();
@@ -204,16 +312,24 @@ export function cameraToggle ({ button, status, zones, onNoteOn, onNoteOff,
  * [x, y, close, pinched] as the player sees it or null, and `points' the
  * tracker's own, as handworker.js packs them.
  *
- * Resolves to { forget, close }. `forget' drops the notes held without
- * calling onNoteOff, for a page that has just released everything itself.
- * `close' lets go of everything held and lets the camera go.
+ * `profile' is the player's (thinksynth:hid:camera, or :hands for the
+ * theremin), over the camera's own: `onProblem(why)' says what of it
+ * doesn't fit, or '', at the start and as it changes, and
+ * `onValues(values)' each frame what the controls read, for the
+ * configurator's form (profileform.js).
+ *
+ * Resolves to { forget, close, profile }. `forget' drops the notes held
+ * without calling onNoteOff, for a page that has just released everything
+ * itself. `close' lets go of everything held and lets the camera go.
+ * `profile(text)' plays the player's profile as it is now.
  *
  * Rejects with a message fit to put on the page.
  */
 export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
                                     onFailed = () => {}, mode = 'harp', snap = true,
                                     onBend = () => {}, onAux = () => {},
-                                    onHands = () => {} })
+                                    onHands = () => {}, profile = '',
+                                    onProblem = () => {}, onValues = () => {} })
 {
     let stream;
 
@@ -314,8 +430,17 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
             fail(m.text);
             return;
         }
+        if (m.type === 'problem')
+        {
+            onProblem(m.text);
+            return;
+        }
         if (!open || m.generation !== generation)
             return;
+
+        onValues(m.values);
+        if ('problem' in m)
+            onProblem(m.problem);
 
         for (const [note, velocity] of m.notes)
             if (velocity > 0 && !held.has(note))
@@ -339,7 +464,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
     };
     worker.onerror = (e) => fail(`the camera's worker: ${e.message ?? 'failed'}`);
 
-    worker.postMessage({ type: 'start', bytes, mode, snap }, [bytes]);
+    worker.postMessage({ type: 'start', bytes, mode, snap, profile }, [bytes]);
 
     if (tracker !== null)
     {
@@ -504,5 +629,7 @@ export async function openCamera ({ onNoteOn, onNoteOff, onZones = () => {},
         },
 
         close,
+
+        profile: (text) => worker.postMessage({ type: 'profile', text, generation }),
     };
 }
