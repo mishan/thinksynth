@@ -58,13 +58,13 @@ category "Synths";
     @breath.max = 1;
     @breath.label = "Breath";
 
-    @ring = 4;
+    @ring = 2;
     @ring.widget = 1;
     @ring.min = 0;
     @ring.max = 12;
     @ring.label = "Ring (dB)";
 
-    @sibilance = -8;
+    @sibilance = -12;
     @sibilance.widget = 1;
     @sibilance.min = -30;
     @sibilance.max = 0;
