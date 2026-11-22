@@ -289,6 +289,16 @@ run (void)
           "a profile that can't be read is refused, not written over",
           read(real) + problem->get_text().raw());
 
+    /* And one that opens and then fails to read: a file that is memory. */
+    fs::remove(path);
+    fs::create_symlink("/proc/self/mem", path);
+    form.reloaded();
+    pump();
+    type(form, "a 1 semis", "8");
+    check(fs::is_symlink(path) && fs::read_symlink(path) == "/proc/self/mem" &&
+          problem->get_text().find("can't read") != Glib::ustring::npos,
+          "and one that opens and fails as it is read", problem->get_text().raw());
+
     fs::remove_all(dir);
     return failures;
 }

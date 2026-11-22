@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -176,7 +177,10 @@ ControllerForm::setPath (const std::string &path)
 void
 ControllerForm::reloaded ()
 {
-    read(loaded_);
+    std::string text;
+
+    if (read(text))
+        loaded_ = text;
     draw();
 }
 
@@ -199,16 +203,22 @@ ControllerForm::read (std::string &out) const
     if (!fs::exists(path_, ec) && !ec)
         return true;
 
-    std::ifstream in(path_, std::ios::binary);
-    std::stringstream s;
+    /* stdio's, as a stream's read error can pass for its end. */
+    FILE *f = fopen(path_.c_str(), "rb");
+    char buf[4096];
+    size_t n;
 
-    if (!in)
+    if (f == NULL)
         return false;
-    s << in.rdbuf();
-    if (in.bad())
-        return false;
-    out = s.str();
-    return true;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        out.append(buf, n);
+
+    const bool ok = !ferror(f);
+
+    fclose(f);
+    if (!ok)
+        out.clear();
+    return ok;
 }
 
 /* Made to the file, which is then read again; drawn afresh once the
