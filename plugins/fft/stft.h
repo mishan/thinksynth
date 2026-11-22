@@ -124,6 +124,19 @@ static inline float thkAtan2Turns (float y, float x)
     return y < 0 ? -r : r;
 }
 
+/* The frame of a ring n long whose oldest sample is at pos, windowed and
+   transformed into re and im, n/2 + 1 bins: what thkStft::tick hands its
+   process, and what a node reading a second ring in step reads it by. */
+static inline void thkStftFrame (const float *ring, int pos, int n, float *re, float *im)
+{
+    const thkFftTable &t = thkFftTwiddles();
+    float x[THK_FFT_MAX];
+
+    for (int j = 0; j < n; j++)
+        x[j] = thkStftHann(t, j, n) * ring[(pos + j) & (n - 1)];
+    thkFftReal(x, re, im, n);
+}
+
 struct thkStft
 {
     float *ring, *acc;          /* n each */
@@ -148,9 +161,7 @@ struct thkStft
             const thkFftTable &t = thkFftTwiddles();
             float x[THK_FFT_MAX], re[THK_FFT_MAX / 2 + 1], im[THK_FFT_MAX / 2 + 1];
 
-            for (int j = 0; j < n; j++)
-                x[j] = thkStftHann(t, j, n) * ring[(pos + j) & (n - 1)];
-            thkFftReal(x, re, im, n);
+            thkStftFrame(ring, pos, n, re, im);
             process(re, im, n);
             thkFftRealInverse(re, im, x, n);
 
