@@ -56,6 +56,7 @@ c4ed38ef5cd6d115  fx/freeze.dsp
 e1edbd2bb5f8a5c9  fx/granular.dsp
 769bcb88b3f9649d  fx/hall.dsp
 c4ed38ef5cd6d115  fx/limiter.dsp
+7a34c307b12385d5  fx/morph.dsp
 834c1b25c4e19025  fx/phaser.dsp
 6f2c08fe4c078a55  fx/plate.dsp
 d733bc1dfbc1bc9d  fx/resynth.dsp
