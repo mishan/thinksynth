@@ -52,7 +52,8 @@ struct thHidBinding
     bool        hasMin, hasMax;
     double      min, max;   /* VALUE, VELOCITY, STRIKE's velocity */
     double      at, off;    /* STRIKE, LOOP on an axis: on rising past at,
-                               off below off */
+                               off below off; off is at - 0.2 unless given,
+                               to the bit */
     double      center;     /* VALUE, PITCH: where the axis counts from */
     double      smooth;     /* VALUE: seconds it takes to follow the axis */
     bool        latch;      /* NOTE: a press starts it, the next ends it */
@@ -66,12 +67,14 @@ struct thHidBinding
     std::vector<int> scale; /* PITCH, BEND: its steps are these degrees,
                                semitones above the base within an octave, if
                                any */
+    size_t      from, to;   /* its statement's bytes in the text it was read
+                               from, for an editor to splice (thhProfileEdit) */
 
     thHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
-          hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
+          hasMax(false), min(0), max(0), at(0.6), off(0.6 - 0.2), center(0),
           smooth(0), latch(false), both(false), shape(LINEAR), patch(false),
-          octaves(false), range(0) {}
+          octaves(false), range(0), from(0), to(0) {}
 };
 
 struct thHidLayer
@@ -107,8 +110,13 @@ struct thHidBlock
     bool                       hasChannel, hasBase, hasVelocity;
     std::vector<std::pair<std::string, int> > ignore;   /* name, line */
 
+    /* Where it is in the text it was read from, for an editor to splice
+       (thhProfileEdit): each ignore's statement, and the body's `}'. */
+    std::vector<std::pair<size_t, size_t> > ignoreAt;
+    size_t                     close;
+
     thHidBlock () : line(0), channel(0), base(60), velocity(100), hasChannel(false),
-                    hasBase(false), hasVelocity(false) {}
+                    hasBase(false), hasVelocity(false), close(0) {}
 };
 
 /* The body of a block, from the `{' at toks[pos] through its closing `}'.
@@ -117,6 +125,9 @@ struct thHidBlock
 THINK_API bool thHidParseBlock (const std::vector<thWordToken> &toks,
                                 size_t &pos, thHidBlock &out,
                                 std::string &err, int &errLine);
+
+/* The name a scale's steps are written by, or NULL for none of them. */
+THINK_API const char *thHidScaleName (const std::vector<int> &steps);
 
 /* A whole profile file: `device NAME { ... };' and nothing else. */
 THINK_API bool thHidParseProfile (const std::string &text, thHidBlock &out,

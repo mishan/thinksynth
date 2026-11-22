@@ -34,6 +34,7 @@ set(THINK_SOURCES
     thVideoFile.cpp
     thVideoSynth.cpp
     thSynth.cpp
+    thTextEdit.cpp
     thUtil.cpp
     thWords.cpp
     ${FLEX_ThinkLexer_OUTPUTS})

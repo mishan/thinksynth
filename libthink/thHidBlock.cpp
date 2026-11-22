@@ -26,6 +26,25 @@
 
 typedef thWordToken Tok;
 
+/* The scales a pitch axis or a bend can step by, by name. */
+static const struct { const char *name; std::vector<int> steps; } SCALES[] = {
+    { "major", { 0, 2, 4, 5, 7, 9, 11 } },
+    { "minor", { 0, 2, 3, 5, 7, 8, 10 } },
+    { "dorian", { 0, 2, 3, 5, 7, 9, 10 } },
+    { "pentatonic", { 0, 2, 4, 7, 9 } },
+    { "minor_pentatonic", { 0, 3, 5, 7, 10 } },
+    { "blues", { 0, 3, 5, 6, 7, 10 } },
+};
+
+const char *
+thHidScaleName (const std::vector<int> &steps)
+{
+    for (const auto &sc : SCALES)
+        if (sc.steps == steps)
+            return sc.name;
+    return NULL;
+}
+
 namespace {
 
 class Parser
@@ -325,19 +344,10 @@ Parser::options (thHidBinding &b)
         }
         else if (k == "scale" && (pitch || bend))
         {
-            static const struct { const char *name; std::vector<int> steps; }
-                scales[] = {
-                    { "major", { 0, 2, 4, 5, 7, 9, 11 } },
-                    { "minor", { 0, 2, 3, 5, 7, 8, 10 } },
-                    { "dorian", { 0, 2, 3, 5, 7, 9, 10 } },
-                    { "pentatonic", { 0, 2, 4, 7, 9 } },
-                    { "minor_pentatonic", { 0, 3, 5, 7, 10 } },
-                    { "blues", { 0, 3, 5, 6, 7, 10 } },
-                };
             const Tok &v = peek();
 
             b.scale.clear();
-            for (const auto &sc : scales)
+            for (const auto &sc : SCALES)
                 if (isWord(v, sc.name))
                     b.scale = sc.steps;
             if (b.scale.empty())
@@ -510,7 +520,10 @@ Parser::statement (thHidBlock &blk, std::vector<thHidBinding> &bindings,
         if (!word(name, "ignore"))
             return false;
         blk.ignore.push_back(std::make_pair(name, tok.line));
-        return expect(';');
+        if (!expect(';'))
+            return false;
+        blk.ignoreAt.push_back(std::make_pair(tok.off, t_[i_ - 1].end));
+        return true;
     }
     if (k == "when")
         return fail(tok, "a posture's when belongs in a layer");
@@ -533,9 +546,12 @@ Parser::statement (thHidBlock &blk, std::vector<thHidBinding> &bindings,
     }
 
     thHidBinding b;
+    const size_t from = tok.off;
 
     if (!binding(b, inLayer))
         return false;
+    b.from = from;
+    b.to = t_[i_ - 1].end;
 
     /* An axis may ride several knobs and pitch axes at once; anything else
        is one binding to a control. */
@@ -619,6 +635,7 @@ Parser::block (thHidBlock &out)
             return false;
     if (!err_.empty())
         return false;
+    out.close = t_[i_ - 1].off;
 
     /* Layers may be named before they are declared, so this waits until
        the whole block is read. */
