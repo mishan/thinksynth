@@ -23,7 +23,9 @@
  */
 
 #include <stdint.h>
+#include <string.h>
 
+#include <cmath>
 #include <map>
 #include <set>
 #include <sstream>
@@ -213,15 +215,38 @@ EMSCRIPTEN_KEEPALIVE void th_phone_release (void)
     phoneOn = false;
 }
 
-/* The configurator's form for the phone with the player's `text' over its
-   own (thhForm.h), as JSON: what each kind of action takes, the scales,
-   the player's layers, and a row per control. */
-EMSCRIPTEN_KEEPALIVE const char *th_phone_form (const char *text)
+/* A device the configurator's form is for, by its name: its controls and
+   its own profile. False for one it isn't. */
+static bool
+formDevice (const char *name, const thhControls *&controls, const char *&own)
+{
+    const bool phone = strcmp(name, "phone") == 0;
+
+    if (!phone && strcmp(name, "index") != 0)
+        return false;
+    controls = phone ? &thhPhoneControls() : &thhIndexControls();
+    own = phone ? THH_PHONE_PROFILE : THH_INDEX_PROFILE;
+    return true;
+}
+
+/* The configurator's form for `device' (phone or index) with the player's
+   `text' over its own (thhForm.h), and the Index's patch's block over
+   that, as JSON: what each kind of action takes, the scales, the player's
+   layers, and a row per control. */
+EMSCRIPTEN_KEEPALIVE const char *th_form (const char *device, const char *text)
 {
     static const std::vector<std::string> OPTIONS = {
         "channel", "min", "max", "at", "off", "step", "scale", "range",
         "center", "smooth", "shape", "both", "latch" };
-    const thhForm f = thhFormOf(thhPhoneControls(), THH_PHONE_PROFILE, text);
+    const thhControls *controls;
+    const char *own;
+
+    if (!formDevice(device, controls, own))
+        return "";
+
+    const thhForm f = thhFormOf(*controls, own, text,
+                                controls == &thhIndexControls() &&
+                                host.session().patchPlays() ? host.session().patchText() : "");
 
     said = "{\"problem\":" + str(f.problem) +
         ",\"layers\":" + jsonList(f.layers, str) +
@@ -243,38 +268,61 @@ EMSCRIPTEN_KEEPALIVE const char *th_phone_form (const char *text)
                    ",\"axis\":" + (c.axis ? "true" : "false") +
                    ",\"yours\":" + (c.yours ? "true" : "false") +
                    ",\"off\":" + (c.off ? "true" : "false") +
-                   ",\"layered\":" + jsonList(c.layered, str) +
+                   ",\"patched\":" + (c.patched ? "true" : "false") +
+                   ",\"elsewhere\":" + jsonList(c.elsewhere, str) +
                    ",\"bindings\":" + jsonList(c.bindings, bindingJson) + "}";
         }) + "}";
     return said.c_str();
 }
 
-/* An edit of the form (thhFormEdit) made to `text': {"text"} as it is
-   now, or {"err"} saying why it wasn't made. */
-EMSCRIPTEN_KEEPALIVE const char *th_phone_edit (const char *text, const char *op,
-                                                const char *control, int which,
-                                                const char *fields)
+/* An edit of `device''s form (thhFormEdit) made to `text': {"text"} as it
+   is now, or {"err"} saying why it wasn't made. */
+EMSCRIPTEN_KEEPALIVE const char *th_form_edit (const char *device, const char *text,
+                                               const char *op, const char *control,
+                                               int which, const char *fields)
 {
-    std::string t = text, err;
+    const thhControls *controls;
+    const char *own;
+    std::string t = text, err = "there is no form for '" + std::string(device) + "'";
 
-    said = thhFormEdit(t, thhPhoneControls(), THH_PHONE_PROFILE, op, control,
-                       which, fields, err)
+    said = formDevice(device, controls, own) &&
+           thhFormEdit(t, *controls, own, op, control, which, fields, err)
         ? "{\"text\":" + str(t) + "}" : "{\"err\":" + str(err) + "}";
     return said.c_str();
 }
 
-/* Each control's value now, in the form's order, 0 or 1 for a finger; or
-   none while no phone is there. */
-EMSCRIPTEN_KEEPALIVE const char *th_phone_values (double now)
+/* Each of `device''s controls' value now, in the form's order, 0 or 1 for
+   a button; or none while none is there. Of a pair of Index controllers,
+   whichever is further from rest. */
+EMSCRIPTEN_KEEPALIVE const char *th_form_values (const char *device, double now)
 {
-    const thhControls &c = thhPhoneControls();
-    const thhState s = phone.state(now);
+    const thhControls *controls;
+    const char *own;
+    std::vector<thhState> states;
     std::vector<double> v;
 
-    for (size_t i = 0; phoneOn && s.connected && i < c.buttons.size(); i++)
-        v.push_back((s.buttons >> i) & 1);
-    for (size_t i = 0; phoneOn && s.connected && i < c.axes.size(); i++)
-        v.push_back(s.axis[i]);
+    if (!formDevice(device, controls, own))
+        return "[]";
+    if (controls == &thhPhoneControls() && phoneOn)
+        states.push_back(phone.state(now));
+    for (int i = 0; controls == &thhIndexControls() && i < host.session().controllers(); i++)
+        states.push_back(host.session().stateOf(i));
+    for (const thhState &s : states)
+    {
+        if (!s.connected)
+            continue;
+        if (v.empty())
+            v.assign(controls->buttons.size() + controls->axes.size(), 0);
+        for (size_t i = 0; i < v.size(); i++)
+        {
+            const size_t a = i - controls->buttons.size();
+            const double x = i < controls->buttons.size() ? (s.buttons >> i) & 1
+                                                          : s.axis[a];
+
+            if (std::fabs(x) > std::fabs(v[i]))
+                v[i] = x;
+        }
+    }
     said = jsonList(v, num);
     return said.c_str();
 }

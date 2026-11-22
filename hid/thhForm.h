@@ -50,9 +50,14 @@ struct thhFormControl
     bool        yours;      /* the bindings are the player's, over its own */
     bool        off;        /* the player ignores its own, and has none */
     bool        own;        /* the device binds it itself */
-    std::vector<thHidBinding> bindings;     /* what it does outside layers */
-    std::vector<std::string>  layered;      /* `layer: statement' for each
-                                               layer's binding of it */
+    bool        patched;    /* the patch's controller block binds or
+                               ignores it, over these */
+    std::vector<thHidBinding> bindings;     /* what it does outside layers,
+                                               for either hand */
+    std::vector<std::string>  elsewhere;    /* in a layer or for one hand,
+                                               the patch's too: `layer up:
+                                               statement', `right hand:
+                                               statement' */
 };
 
 struct thhForm
@@ -64,9 +69,9 @@ struct thhForm
 };
 
 /* The form for the device's own profile, `fallback', with the player's
-   `text' over it. */
+   `text' over it, and the patch's controller block, `patch', over that. */
 thhForm thhFormOf (const thhControls &controls, const char *fallback,
-                   const std::string &text);
+                   const std::string &text, const std::string &patch = "");
 
 /* An edit of `control' in `text': `op' is set (its `which'th binding as
    the form shows them), add, remove (the `which'th), reset or off. A set

@@ -4844,6 +4844,8 @@ async function init ()
             pair: $('hidpair'), swap: $('hidswap'), clear: $('hidclear'),
             profile: $('hidprofile'), reload: $('hidreload'),
             file: $('hidfile'), problem: $('hidproblem'),
+            form: $('hidform'), formRows: $('hidformrows'),
+            formProblem: $('hidformproblem'), learn: $('hidlearn'),
         },
     });
     /* A phone plays as the Index does: the same keys, the same channels. */

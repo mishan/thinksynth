@@ -17,15 +17,19 @@
  */
 
 /*
- * phoneform.js -- the configurator's form over the player's profile
- * (docs/PHONE.md, "The configurator"): a card for each finger, and one
- * for tilt, saying in a line what its tap and its x and y do, and opened
+ * profileform.js -- the configurator's form over the player's profile of a
+ * device (docs/PHONE.md, "The configurator"): a card for each part of it,
+ * a finger or a trigger, saying in a line what its controls do, and opened
  * to change them. What it shows and every edit are the module's
- * (thinkhid.cpp's th_phone_form and th_phone_edit, hid/thhForm.h); this
- * draws them, and hands the text each edit makes to `changed'.
+ * (thinkhid.cpp's th_form and th_form_edit, hid/thhForm.h); this draws
+ * them, and hands the text each edit makes to `changed'.
  */
 
 const LOOPS = ['record', 'undo', 'clear'];
+
+/* The longest profile handed the module, whose strings go on its stack:
+   at most three bytes a character, well inside it. */
+export const MAX_PROFILE = 16384;
 
 /* How far an axis moves for Learn to take it as the one meant: past a
    hand's shake, short of a deliberate move. */
@@ -48,12 +52,36 @@ function choice (label, options, value)
     return s;
 }
 
-/* A control's card, by its name less any _x or _y: a finger's tap, x and
-   y on one. */
-const groupOf = (control) => control.replace(/_[xy]$/, '');
-const groupName = (g) => g.replace(/^touch_(\d+)$/, 'Finger $1').replace(/^tilt$/, 'Tilt');
-const roleOf = (c) => c.control === groupOf(c.control) ? (c.axis ? 'value' : 'tap')
-                                                       : c.control.slice(-1);
+/* A device's cards: [name, pattern] each, a control on the first whose
+   pattern its name starts with, and named on it by the rest, or by `press'
+   (a button) or `pull' (an axis) when nothing is left; and what its own
+   bindings are called. */
+export const PHONE_LAYOUT = {
+    cards: [1, 2, 3, 4, 5].map((n) => [`Finger ${n}`, new RegExp(`^touch_${n}(?=_|$)`)])
+        .concat([['Tilt', /^tilt/]]),
+    press: 'tap', own: "the phone's own",
+    /* A phone come back has every finger up; an Index held has its touch
+       sensors down, so Learn starts from what it reads first. */
+    backUp: true,
+};
+export const INDEX_LAYOUT = {
+    cards: [['A button', /^a(?=_|$)/], ['B button', /^b(?=_|$)/], ['System', /^system/],
+            ['Trigger', /^trigger/], ['Thumbstick', /^(thumbstick|stick)/],
+            ['Trackpad', /^(trackpad|pad)/], ['Grip', /^grip/],
+            ['Motion', /^(?=tilt|roll|twist|turn)/]],
+    press: 'press', own: "the controller's own",
+};
+
+function cardOf (layout, control)
+{
+    return layout.cards.find(([, re]) => re.test(control)) ?? ['Other', /^/];
+}
+
+function roleOf (layout, c)
+{
+    return c.control.replace(cardOf(layout, c.control)[1], '').replace(/^_/, '') ||
+           (c.axis ? 'pull' : layout.press);
+}
 
 /* A binding in a few words: its action and what it is of. */
 function said (b, f)
@@ -64,23 +92,26 @@ function said (b, f)
         : `${b.kind}${param ? ` ${b[param]}` : ''}${b.scale ? `, ${b.scale}` : ''}`;
 }
 
+/* What a control does in a few words: for a control bound only in a layer
+   or for one hand, where. */
 function whatItDoes (c, f)
 {
-    return c.off ? 'off' : c.bindings.length === 0 ? 'nothing'
-        : c.bindings.map((b) => said(b, f)).join(' + ');
+    return c.patched ? "the patch's" : c.off ? 'off'
+        : c.bindings.length ? c.bindings.map((b) => said(b, f)).join(' + ')
+        : `in ${[...new Set(c.elsewhere.map((e) => e.split(':')[0]))].join(', ')}`;
 }
 
 /* `form(text)' and `edit(text, op, control, which, fields)' are the
    module's, the latter {err} where it won't; `args()' the patch's knob
-   names; `text()' the profile now. */
+   names; `text()' the profile now; `layout' the device's, as PHONE_LAYOUT. */
 export function profileForm ({ rows, problem, learn, form, edit, args, text,
-                               changed })
+                               changed, layout })
 {
     /* Each control's { control, now, axis, card }, in the module's order,
        which its values come in. */
     let drawn = [];
     const open = new Set(); /* the cards and option lists opened */
-    /* The values Learn started from, [] until the phone is there, or null
+    /* The values Learn started from, [] until the device is there, or null
        when it isn't learning. */
     let learning = null;
     let last = [];
@@ -187,10 +218,10 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         /* Its value changes ten times a second: not one to be read out. */
         now.setAttribute('aria-live', 'off');
         const whose = make('span', { className: 'hint',
-            textContent: c.off ? 'off' : c.yours ? 'yours'
-                : c.bindings.length ? "the phone's own" : 'nothing' });
+            textContent: (c.patched ? "the patch's plays over " : '') +
+                (c.off ? 'off' : c.yours ? 'yours' : c.bindings.length ? layout.own : 'nothing') });
         const div = make('div', { className: 'formcontrol' },
-                         make('strong', { textContent: roleOf(c) }), ' ', now, ' ', whose,
+                         make('strong', { textContent: roleOf(layout, c) }), ' ', now, ' ', whose,
                          make('ul', {}, ...c.bindings.map((b, i) => binding(f, c, b, i, knobs))));
         const button = (label, op) =>
         {
@@ -200,8 +231,8 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
             div.append(b, ' ');
         };
 
-        for (const l of c.layered)
-            div.append(make('p', { className: 'hint', textContent: `in layer ${l}` }));
+        for (const l of c.elsewhere)
+            div.append(make('p', { className: 'hint', textContent: l }));
         /* A button does one thing. */
         if (c.axis || c.bindings.length === 0)
             button('Add', () => made('add', c.control, -1,
@@ -216,10 +247,14 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
 
     /* Drawn again from the module's form. `why' an edit was refused, shown
        until the next. Focus stays on what had it. */
+    let drawing = 0, focused;
+
     const draw = async (why = '') =>
     {
-        const focused = document.activeElement?.ariaLabel;
-
+        /* Taken before the first of draws at once makes the rows inert,
+           which takes the focus. */
+        if (drawing++ === 0)
+            focused = document.activeElement?.ariaLabel;
         rows.inert = true;
         try
         {
@@ -227,9 +262,10 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         }
         finally
         {
-            rows.inert = false;
+            if (--drawing === 0)
+                rows.inert = false;
         }
-        if (focused)
+        if (drawing === 0 && focused)
             [...rows.querySelectorAll('[aria-label]')]
                 .find((e) => e.ariaLabel === focused)?.focus();
     };
@@ -244,7 +280,7 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         drawn = new Array(f.controls.length);
         for (const c of f.controls)
         {
-            const g = groupOf(c.control);
+            const g = cardOf(layout, c.control)[0];
 
             if (!groups.has(g))
                 groups.set(g, []);
@@ -252,10 +288,13 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         }
         rows.replaceChildren(...[...groups].map(([g, cs]) =>
         {
-            const line = make('span', { className: 'hint', textContent:
-                cs.map((c) => `${roleOf(c)}: ${whatItDoes(c, f)}`).join('   ') });
+            const doing = cs.filter((c) => c.patched || c.off || c.bindings.length ||
+                                           c.elsewhere.length);
+            const line = make('span', { className: 'hint', textContent: doing.length
+                ? doing.map((c) => `${roleOf(layout, c)}: ${whatItDoes(c, f)}`).join('   ')
+                : 'nothing' });
             const card = kept(make('details', { className: 'formgroup' },
-                make('summary', {}, make('strong', { textContent: groupName(g) }), ' ', line)), g);
+                make('summary', {}, make('strong', { textContent: g }), ' ', line)), g);
 
             for (const c of cs)
             {
@@ -274,7 +313,7 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         learn.setAttribute('aria-pressed', 'false');
     };
 
-    /* `v', each control's value in the form's order; none with no phone. */
+    /* `v', each control's value in the form's order; none with no device there. */
     const values = (v) =>
     {
         drawn.forEach((d, i) =>
@@ -285,14 +324,14 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         last = v;
         if (learning === null)
             return;
-        /* A phone gone and come back is a new start, with every finger up. */
+        /* A device gone and come back is a new start, with every button up. */
         if (v.length !== drawn.length)
         {
             learning = [];
             return;
         }
         if (learning.length === 0)
-            learning = v.map((x, i) => (drawn[i].axis ? x : 0));
+            learning = v.map((x, i) => (drawn[i].axis || !layout.backUp ? x : 0));
 
         const moved = v.findIndex((x, i) =>
             Math.abs(x - learning[i]) > (drawn[i].axis ? LEARN_MOVE : 0.5));
@@ -307,7 +346,7 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         const d = drawn[moved];
 
         d.card.open = true;
-        open.add(groupOf(d.control));
+        open.add(cardOf(layout, d.control)[0]);
         d.now.parentElement.classList.add('learned');
         d.now.parentElement.scrollIntoView({ block: 'nearest' });
         d.now.parentElement.querySelector('select, button')?.focus();

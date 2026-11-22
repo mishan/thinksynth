@@ -404,7 +404,7 @@ set(SITE_SOURCES index.html jam.html phone.html style.css main.js keyboard.js
                 engine.js mic.js midi.js midimap.js midiroutesui.js midiout.js
                 midioutui.js clock.js
                 camera.js cameraview.js camworker.js handworker.js hid.js videoview.js videoworker.js videopart.js videoscale.js mirror.js
-                actions.js phone.js phonepad.js phonepane.js phoneform.js pair.js mesh.js
+                actions.js phone.js phonepad.js phonepane.js profileform.js pair.js mesh.js
                 ear.js evolve.js evolveui.js
                 growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js

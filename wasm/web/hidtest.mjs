@@ -493,6 +493,73 @@ try
     }
 
     {
+        /* The form: a card for each part of the controller, Learn finding
+           the button pressed, and an edit that plays at once. */
+        const { page, errors } = await open(
+            { granted: [{ productId: 0x2102, serial: 'D-1', on: true }] });
+
+        await statusIs(page, 'A Valve Index controller is playing');
+        await page.evaluate(() =>
+        {
+            document.getElementById('hidpane').open = true;
+            document.getElementById('hidform').open = true;
+        });
+        await page.waitForFunction(() => document.querySelectorAll('#hidformrows .formgroup')
+            .length === 8, null, { timeout: 10000 }).catch(() => {});
+
+        const cards = await page.evaluate(() =>
+            [...document.querySelectorAll('#hidformrows .formgroup > summary')]
+                .map((s) => s.textContent.replace(/\s+/g, ' ')));
+
+        check(cards[0] === 'A button press: note 0' && cards[3] === 'Trigger pull: strike 0' &&
+              cards[7].startsWith('Motion tilt: pitch'),
+              `the form has a card for each part of the controller: ${JSON.stringify(cards)}`);
+        check(await page.evaluate(() => [...document.querySelector('[aria-label="trigger now"]')
+                  .parentElement.querySelectorAll('p.hint')]
+                  .some((p) => p.textContent === 'left hand: trigger = strike -12 { at = 0.5; };')),
+              'and shows a hand\'s own binding beside');
+
+        /* Learn starts from what the controller reads: once it is read. */
+        await page.waitForFunction(() =>
+            document.querySelector('[aria-label="a now"]')?.textContent === 'up');
+        await page.click('#hidlearn');
+        await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
+        check(await page.waitForFunction(() =>
+                  document.querySelector('.formcontrol.learned output')?.ariaLabel === 'a now' &&
+                  document.querySelector('#hidformrows .formgroup').open,
+                  null, { timeout: 5000 }).then(() => true, () => false),
+              'Learn opens the card of the button pressed');
+        await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x00]));
+
+        await page.evaluate(() =>
+        {
+            const e = document.querySelector('[aria-label="a 1 semis"]');
+
+            e.value = '5';
+            e.dispatchEvent(new Event('change'));
+        });
+        check(await page.waitForFunction(() => document.getElementById('hidprofile').value ===
+                  'device index {\n    a = note 5;\n};\n', null, { timeout: 5000 })
+                  .then(() => true, () => false),
+              'an edit writes the player\'s profile, in its text box');
+        await page.evaluate(() => { window.posted.length = 0; });
+        await page.evaluate(() => window.dongles[0].send([0x20, 0xf1, 0x10]));
+
+        const plays = await postedHas(page, 'midion 65');
+
+        check(plays, 'and plays at once' + (plays ? '' : await seen(page, errors)));
+
+        await page.fill('#hidprofile', 'device index left {\n    system = note 1;\n};\n');
+        await reload(page);
+        check(await page.waitForFunction(() => [...document.querySelectorAll(
+                  '#hidformrows .formgroup > summary')].some((s) =>
+                  s.textContent.replace(/\s+/g, ' ') === 'System press: in left hand'),
+                  null, { timeout: 5000 }).then(() => true, () => false),
+              'a control bound only for one hand says so on its card');
+        await page.context().close();
+    }
+
+    {
         const { page } = await open({ granted: [{ productId: 0x2102, serial: 'D-1', on: false }] });
 
         await page.click('#hidpane summary');

@@ -73,6 +73,7 @@ public:
        was. */
     const std::string &patchText () const { return patchText_; }
     const std::string &patchName () const { return patchName_; }
+    bool patchPlays () const { return !patchText_.empty() && patchError_.empty(); }
     void rename (const std::string &patchName);
 
     /* The channel the player's profile sets, 0-based, or -1 for the

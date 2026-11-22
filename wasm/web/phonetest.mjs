@@ -245,8 +245,7 @@ try
 
     check(cards.length === 6 &&
           cards[0] === 'Finger 1 tap: note 0 x: bend, pentatonic y: aux 3' &&
-          cards[4] === 'Finger 5 tap: nothing x: nothing y: nothing' &&
-          cards[5] === 'Tilt x: aux 1 y: nothing',
+          cards[4] === 'Finger 5 nothing' && cards[5] === 'Tilt x: aux 1',
           'the form has a card for each finger and tilt, saying in a line what each does',
           JSON.stringify(cards));
     check((await row('touch_1'))?.whose === "the phone's own" &&
