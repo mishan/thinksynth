@@ -33,7 +33,7 @@
 import { actionPlayer } from './actions.js';
 import { Mesh } from './mesh.js';
 import { Pair, pairUrl } from './pair.js';
-import { MAX_PROFILE, PHONE_LAYOUT, profileForm } from './profileform.js';
+import { MAX_PROFILE, profileForm } from './profileform.js';
 import qrcode from './qrcode.js';
 
 /* The player's changes to the phone's own profile, as hid.js keeps the
@@ -118,7 +118,7 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
         .catch((e) => { loading = null; throw e; });
 
     const form = profileForm({
-        rows: pane.rows, problem: pane.problem, learn: pane.learn, layout: PHONE_LAYOUT,
+        rows: pane.rows, problem: pane.problem, learn: pane.learn,
         form: (text) => JSON.parse(M.ccall('th_form', 'string', ['string', 'string'],
                                            ['phone', text])),
         edit: (text, op, control, which, fields) => pane.profile.value !== text

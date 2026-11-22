@@ -46,6 +46,8 @@ const char *thhFormKindName (thHidBinding::Kind kind);
 struct thhFormControl
 {
     std::string control;
+    std::string card;       /* the part of the device it is on, "Finger 1" */
+    std::string role;       /* and what it is there, "tap", "x" */
     bool        axis;
     bool        yours;      /* the bindings are the player's, over its own */
     bool        off;        /* the player ignores its own, and has none */
@@ -66,6 +68,11 @@ struct thhForm
     std::vector<std::string>    layers;     /* the player's, to hold or toggle */
     std::string                 problem;    /* why the player's text doesn't
                                                read, or nothing */
+    std::string                 own;        /* what the device's own bindings
+                                               are called: "the phone's own" */
+    std::vector<std::string>    cannot;     /* the actions it doesn't play */
+    bool                        backUp;     /* a device come back has its
+                                               buttons up, for Learn */
 };
 
 /* The form for the device's own profile, `fallback', with the player's

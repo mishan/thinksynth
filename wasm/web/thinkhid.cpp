@@ -249,7 +249,8 @@ formDevice (const char *name, const thhControls *&controls, const char *&own)
 /* The configurator's form for `device' (phone or index) with the player's
    `text' over its own (thhForm.h), and the Index's patch's block over
    that, as JSON: what each kind of action takes, the scales, the player's
-   layers, and a row per control. */
+   layers, how the device's form is laid out, and a row per control, with
+   the card it is on and what it is there. */
 EMSCRIPTEN_KEEPALIVE const char *th_form (const char *device, const char *text)
 {
     static const std::vector<std::string> OPTIONS = {
@@ -280,8 +281,12 @@ EMSCRIPTEN_KEEPALIVE const char *th_form (const char *device, const char *text)
                    ",\"param\":" + str(k.param) +
                    ",\"takes\":" + jsonList(takes, str) + "}";
         }) +
+        ",\"own\":" + str(f.own) +
+        ",\"cannot\":" + jsonList(f.cannot, str) +
+        ",\"backUp\":" + (f.backUp ? "true" : "false") +
         ",\"controls\":" + jsonList(f.controls, [](const thhFormControl &c) {
             return "{\"control\":" + str(c.control) +
+                   ",\"card\":" + str(c.card) + ",\"role\":" + str(c.role) +
                    ",\"axis\":" + (c.axis ? "true" : "false") +
                    ",\"yours\":" + (c.yours ? "true" : "false") +
                    ",\"off\":" + (c.off ? "true" : "false") +

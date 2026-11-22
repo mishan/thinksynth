@@ -18,8 +18,10 @@
 
 #include <algorithm>
 #include <climits>
+#include <map>
 #include <cmath>
 #include <cstdlib>
+#include <regex>
 #include <sstream>
 
 #include "thhForm.h"
@@ -201,6 +203,71 @@ fields (thHidBinding &b, const std::string &lines,
     return true;
 }
 
+/* How a device's form is laid out: its cards, a control on the first whose
+   pattern its name starts with, and called on it by the rest of its name,
+   or by `press' (a button) or "pull" (an axis) when nothing is left; what
+   its own bindings are called; the actions it doesn't play; and whether a
+   device come back has its buttons up, as a phone's fingers are and an
+   Index's touch sensors, held, are not. */
+struct Layout
+{
+    std::vector<std::pair<std::string, std::string>> cards;
+    const char *press, *own;
+    std::vector<std::string> cannot;
+    bool backUp;
+};
+
+const Layout &
+layoutOf (const std::string &device)
+{
+    static const std::map<std::string, Layout> LAYOUTS = {
+        { "phone", { { { "Finger 1", "touch_1(?=_|$)" }, { "Finger 2", "touch_2(?=_|$)" },
+                       { "Finger 3", "touch_3(?=_|$)" }, { "Finger 4", "touch_4(?=_|$)" },
+                       { "Finger 5", "touch_5(?=_|$)" }, { "Tilt", "tilt" } },
+                     "tap", "the phone's own", {}, true } },
+        { "index", { { { "A button", "a(?=_|$)" }, { "B button", "b(?=_|$)" },
+                       { "System", "system" }, { "Trigger", "trigger" },
+                       { "Thumbstick", "(thumbstick|stick)" },
+                       { "Trackpad", "(trackpad|pad)" }, { "Grip", "grip" },
+                       { "Motion", "(?=tilt|roll|twist|turn)" } },
+                     "press", "the controller's own", {}, false } },
+        /* The page plays the camera's notes alone (twcamera.cpp), and the
+           theremin's notes, bends and aux (twhands.cpp): no knobs, which
+           need a patch the camera's worker hasn't, and no loops. */
+        { "camera", { { { "Zones", "hit_" }, { "Zone levels", "zone_" },
+                        { "Motion", "(?=motion|moving|x$|y$|spread|bright|strike)" } },
+                      "press", "the camera's own", { "value", "loop", "bend", "aux" },
+                      false } },
+        { "hands", { { { "Left hand", "left_" }, { "Right hand", "right_" } },
+                     "press", "the theremin's own", { "value", "loop" }, false } },
+    };
+    static const Layout none = { {}, "press", "its own", {}, false };
+    const auto l = LAYOUTS.find(device);
+
+    return l == LAYOUTS.end() ? none : l->second;
+}
+
+/* `c''s card and role, as `layout' places it. */
+void
+place (const Layout &layout, thhFormControl &c)
+{
+    std::smatch m;
+
+    c.card = "Other";
+    c.role = c.control;
+    for (const auto &[name, pattern] : layout.cards)
+        if (std::regex_search(c.control, m, std::regex("^" + pattern)))
+        {
+            c.card = name;
+            c.role = c.control.substr(m.length(0));
+            if (!c.role.empty() && c.role[0] == '_')
+                c.role.erase(0, 1);
+            if (c.role.empty())
+                c.role = c.axis ? "pull" : layout.press;
+            return;
+        }
+}
+
 }
 
 const std::vector<thhFormKind> &
@@ -252,6 +319,12 @@ thhFormOf (const thhControls &controls, const char *fallback,
     for (const thHidLayer &l : mine.layers)
         form.layers.push_back(l.name);
 
+    const Layout &layout = layoutOf(controls.device);
+
+    form.own = layout.own;
+    form.cannot = layout.cannot;
+    form.backUp = layout.backUp;
+
     std::vector<std::pair<std::string, bool>> all;
 
     for (const std::string &b : controls.buttons)
@@ -264,6 +337,7 @@ thhFormOf (const thhControls &controls, const char *fallback,
 
         c.control = name;
         c.axis = axis;
+        place(layout, c);
         c.bindings = boundTo(mine.bindings, name);
         c.yours = !c.bindings.empty();
         c.off = !c.yours && ignores(mine, name);

@@ -33,7 +33,9 @@
 #include <string>
 #include <vector>
 
+#include "thhCamera.h"
 #include "thhForm.h"
+#include "thhHandTrack.h"
 #include "thhIndex.h"
 #include "thhPhone.h"
 #include "thhProfileEdit.h"
@@ -235,10 +237,46 @@ checkEdits ()
     }
 }
 
+/* Each device's controls on the cards a player knows them by. */
+static void
+checkLayout ()
+{
+    const thhForm phone = thhFormOf(thhPhoneControls(), THH_PHONE_PROFILE, "");
+    const thhForm index = thhFormOf(thhIndexControls(), THH_INDEX_PROFILE, "");
+    const thhForm camera = thhFormOf(thhCameraControls(), THH_CAMERA_PROFILE, "");
+    const thhForm hands = thhFormOf(thhHandsControls(), THH_HANDS_PROFILE, "");
+    const struct { const thhForm &form; const char *control, *card, *role; } rows[] = {
+        { phone, "touch_1", "Finger 1", "tap" },
+        { phone, "touch_1_x", "Finger 1", "x" },
+        { phone, "tilt_y", "Tilt", "y" },
+        { index, "a_touch", "A button", "touch" },
+        { index, "trigger", "Trigger", "pull" },
+        { index, "thumbstick", "Thumbstick", "press" },
+        { index, "stick_x", "Thumbstick", "x" },
+        { index, "pad_force", "Trackpad", "force" },
+        { index, "turn", "Motion", "turn" },
+        { camera, "hit_7", "Zones", "7" },
+        { camera, "zone_3", "Zone levels", "3" },
+        { camera, "moving", "Motion", "moving" },
+        { hands, "left_pinch", "Left hand", "pinch" },
+    };
+    string wrong;
+
+    for (const auto &r : rows)
+        if (of(r.form, r.control).card != r.card || of(r.form, r.control).role != r.role)
+            wrong += string(r.control) + " is " + of(r.form, r.control).card + "/" +
+                     of(r.form, r.control).role + "; ";
+    check(wrong.empty(), "each control on its card, by its name there", wrong);
+    check(phone.own == "the phone's own" && phone.backUp && !index.backUp &&
+          camera.cannot.size() == 4 && hands.cannot.size() == 2 && index.cannot.empty(),
+          "what each device's own are called, what it doesn't play, and how Learn starts");
+}
+
 int
 main (void)
 {
     checkForm();
+    checkLayout();
     checkEdits();
 
     printf("\n%d failure%s\n", failed, failed == 1 ? "" : "s");
