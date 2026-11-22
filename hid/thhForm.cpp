@@ -272,10 +272,11 @@ thhFormOf (const thhControls &controls, const char *fallback,
             c.bindings = boundTo(own.bindings, name);
         for (const thHidBlock &blk : patches)
             c.patched |= !boundTo(blk.bindings, name).empty() || ignores(blk, name);
-        for (const auto *blocks : { &mines, &owns })
+        for (const auto *blocks : { &mines, &owns, &patches })
             for (const thHidBlock &blk : *blocks)
             {
-                const std::string hand = blk.hand.empty() ? "" : blk.hand + " hand";
+                const std::string whose = blocks == &patches ? "the patch's " : "";
+                const std::string hand = blk.hand.empty() ? "" : whose + blk.hand + " hand";
 
                 /* The player's binding for either hand replaces a hand's own
                    too. */
@@ -289,7 +290,7 @@ thhFormOf (const thhControls &controls, const char *fallback,
                     c.elsewhere.push_back(hand + ": ignore " + name + ";" + under);
                 for (const thHidLayer &l : blk.layers)
                     for (const thHidBinding &b : boundTo(l.bindings, name))
-                        c.elsewhere.push_back((hand.empty() ? "" : hand + ", ") +
+                        c.elsewhere.push_back((hand.empty() ? whose : hand + ", ") +
                                               "layer " + l.name + ": " +
                                               thhBindingText(b));
             }

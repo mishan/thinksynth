@@ -548,6 +548,14 @@ try
         const plays = await postedHas(page, 'midion 65');
 
         check(plays, 'and plays at once' + (plays ? '' : await seen(page, errors)));
+
+        await page.fill('#hidprofile', 'device index left {\n    system = note 1;\n};\n');
+        await reload(page);
+        check(await page.waitForFunction(() => [...document.querySelectorAll(
+                  '#hidformrows .formgroup > summary')].some((s) =>
+                  s.textContent.replace(/\s+/g, ' ') === 'System press: in left hand'),
+                  null, { timeout: 5000 }).then(() => true, () => false),
+              'a control bound only for one hand says so on its card');
         await page.context().close();
     }
 

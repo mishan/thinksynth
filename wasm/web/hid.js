@@ -609,6 +609,9 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
                 pane.formProblem.textContent = `The controller module didn't load: ${e.message}`;
                 return;
             }
+            /* The patch's block, which only a controller playing asks for
+               otherwise. */
+            await follow().catch(() => {});
             await form.draw();
             /* Closed, or opened again, while it drew. */
             if (run !== opened)

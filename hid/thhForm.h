@@ -54,9 +54,10 @@ struct thhFormControl
                                ignores it, over these */
     std::vector<thHidBinding> bindings;     /* what it does outside layers,
                                                for either hand */
-    std::vector<std::string>  elsewhere;    /* in a layer or for one hand:
-                                               `layer up: statement',
-                                               `right hand: statement' */
+    std::vector<std::string>  elsewhere;    /* in a layer or for one hand,
+                                               the patch's too: `layer up:
+                                               statement', `right hand:
+                                               statement' */
 };
 
 struct thhForm

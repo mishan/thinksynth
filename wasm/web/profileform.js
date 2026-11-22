@@ -92,10 +92,13 @@ function said (b, f)
         : `${b.kind}${param ? ` ${b[param]}` : ''}${b.scale ? `, ${b.scale}` : ''}`;
 }
 
+/* What a control does in a few words: for a control bound only in a layer
+   or for one hand, where. */
 function whatItDoes (c, f)
 {
     return c.patched ? "the patch's" : c.off ? 'off'
-        : c.bindings.map((b) => said(b, f)).join(' + ');
+        : c.bindings.length ? c.bindings.map((b) => said(b, f)).join(' + ')
+        : `in ${[...new Set(c.elsewhere.map((e) => e.split(':')[0]))].join(', ')}`;
 }
 
 /* `form(text)' and `edit(text, op, control, which, fields)' are the
@@ -285,7 +288,8 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
         }
         rows.replaceChildren(...[...groups].map(([g, cs]) =>
         {
-            const doing = cs.filter((c) => c.patched || c.off || c.bindings.length);
+            const doing = cs.filter((c) => c.patched || c.off || c.bindings.length ||
+                                           c.elsewhere.length);
             const line = make('span', { className: 'hint', textContent: doing.length
                 ? doing.map((c) => `${roleOf(layout, c)}: ${whatItDoes(c, f)}`).join('   ')
                 : 'nothing' });

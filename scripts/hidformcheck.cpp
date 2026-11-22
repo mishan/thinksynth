@@ -121,7 +121,7 @@ checkForm ()
           "touch_1 = note 0; its own", "and another device's", other.problem);
 
     const thhForm index = thhFormOf(thhIndexControls(), THH_INDEX_PROFILE, "",
-                                    "device index { a = note 3; };");
+                                    "device index { a = note 3; layer up { b = note 4; }; };");
 
     check(texts(of(index, "trigger")) == "trigger = strike 0 { at = 0.5; }; "
           "[left hand: trigger = strike -12 { at = 0.5; };] its own" &&
@@ -132,8 +132,10 @@ checkForm ()
           "a hand's block, and its layers, beside",
           texts(of(index, "trigger")) + "\n" + texts(of(index, "turn")) + "\n" +
           texts(of(index, "grip_mid")));
-    check(of(index, "a").patched && !of(index, "b").patched,
-          "what the patch's block binds, as the patch's");
+    check(of(index, "a").patched && !of(index, "b").patched &&
+          texts(of(index, "b")).find("[the patch's layer up: b = note 4;]") != string::npos,
+          "what the patch's block binds, as the patch's, and its layers beside",
+          texts(of(index, "b")));
 
     const thhForm rebound = thhFormOf(thhIndexControls(), THH_INDEX_PROFILE,
                                       "device index { trigger = strike 2; };");
