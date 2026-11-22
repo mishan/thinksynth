@@ -274,13 +274,14 @@ render1 (const string &pluginPath, const vector<NodeSpec> &spec,
    buf[len - 1], differs here and nowhere else. */
 static void
 windowsAgree (const string &pluginPath, const vector<NodeSpec> &spec,
-              const char *node, const char *arg, const string &what)
+              const char *node, const char *arg, const string &what,
+              unsigned samples = 2000)
 {
     vector<float> one, many;
     string why;
 
-    if (!render1(pluginPath, spec, node, arg, 1, 2000, one, why) ||
-        !render1(pluginPath, spec, node, arg, 500, 2000, many, why))
+    if (!render1(pluginPath, spec, node, arg, 1, samples, one, why) ||
+        !render1(pluginPath, spec, node, arg, 500, samples, many, why))
     {
         fail(what, why);
         return;
@@ -7992,7 +7993,7 @@ static void checkMorph (const string &pluginPath)
         run.moving = true;
         windowsAgree(pluginPath, moGraph(run), "mo", "out",
                      "fft::morph: the same moving morph and width at one sample a window and at five "
-                     "hundred");
+                     "hundred", 5 * 2048);
     }
 
     /* ---- a bad number is its default ---- */
