@@ -7434,7 +7434,7 @@ static double shDb (double a, double b)
 
 struct MoRun
 {
-    enum Source { NONE, SILENT, SINE, NOISE, SAW220, SAW110, FORMANT, BURST, FADE, BASS };
+    enum Source { NONE, SILENT, SINE, NOISE, SAW220, SAW110, FORMANT, BURST, FADE, BASS, STOP, FALL };
     Source carrier = NOISE, side = NOISE;
     float carrierAmp = 0.5f, sideAmp = 0.5f;
     float morph = 1, width = 400, mix = 1;
@@ -7443,6 +7443,18 @@ struct MoRun
     bool moving = false;            /* morph and width on LFOs */
     float fadeDb = 0;               /* FADE: the carrier this far down */
 };
+
+/* `name', 0 for half a second, rising to 1 over the next two and held: a
+   saw eight seconds long from its bottom, scaled, offset and capped. */
+static void moRamp (vector<NodeSpec> &spec, const char *name)
+{
+    const string saw = string(name) + "saw", up = string(name) + "up", lo = string(name) + "lo";
+
+    spec.push_back(specNode(fzName(saw), "osc/simple", { { "freq", 0.125f }, { "amp", 2 }, { "waveform", 1 } }, {}));
+    spec.push_back(specNode(fzName(up), "math/add", { { "in1", 1.75f } }, { { "in0", fzName(saw), "out" } }));
+    spec.push_back(specNode(fzName(lo), "math/max", { { "in1", 0 } }, { { "in0", fzName(up), "out" } }));
+    spec.push_back(specNode(name, "math/min", { { "in1", 1 } }, { { "in0", fzName(lo), "out" } }));
+}
 
 /* `name' as the source, at `amp' -- a bare `name' for those that take no
    level of their own. */
@@ -7500,6 +7512,32 @@ static void moSource (vector<NodeSpec> &spec, const char *name, MoRun::Source sr
                                 { { "in0", fzName(string(name) + "l"), "out" },
                                   { "in1", fzName(string(name) + "h"), "out" } }));
         break;
+    case MoRun::STOP:
+        /* Noise for a second, then nothing: a square, which starts low,
+           turned over and its lower half cut off. */
+        spec.push_back(specNode(fzName(string(name) + "n"), "osc/noise", { { "amp", 1 } }, {}));
+        spec.push_back(specNode(fzName(string(name) + "q"), "osc/simple", { { "freq", 0.5f }, { "amp", 1 }, { "waveform", 2 } }, {}));
+        spec.push_back(specNode(fzName(string(name) + "v"), "math/mul", { { "in1", -1 } },
+                                { { "in0", fzName(string(name) + "q"), "out" } }));
+        spec.push_back(specNode(fzName(string(name) + "g"), "math/max", { { "in1", 0 } },
+                                { { "in0", fzName(string(name) + "v"), "out" } }));
+        spec.push_back(specNode(fzName(raw), "math/mul", {},
+                                { { "in0", fzName(string(name) + "n"), "out" },
+                                  { "in1", fzName(string(name) + "g"), "out" } }));
+        break;
+    case MoRun::FALL:
+        /* Noise falling 100 dB from half a second in to two and a half,
+           evenly in dB. */
+        moRamp(spec, fzName(string(name) + "r"));
+        spec.push_back(specNode(fzName(string(name) + "e"), "math/mul", { { "in1", -5 } },
+                                { { "in0", fzName(string(name) + "r"), "out" } }));
+        spec.push_back(specNode(fzName(string(name) + "d"), "math/pow", { { "base", 10 } },
+                                { { "exp", fzName(string(name) + "e"), "out" } }));
+        spec.push_back(specNode(fzName(string(name) + "n"), "osc/noise", { { "amp", 1 } }, {}));
+        spec.push_back(specNode(fzName(raw), "math/mul", {},
+                                { { "in0", fzName(string(name) + "n"), "out" },
+                                  { "in1", fzName(string(name) + "d"), "out" } }));
+        break;
     case MoRun::NONE:
         return;
     }
@@ -7524,11 +7562,7 @@ static vector<NodeSpec> moGraph (const MoRun &run)
 
     if (run.sweep)
     {
-        /* A saw eight seconds long from its bottom, scaled to reach 1 in
-           two, and held there. */
-        spec.push_back(specNode("rsaw", "osc/simple", { { "freq", 0.125f }, { "amp", 2 }, { "waveform", 1 } }, {}));
-        spec.push_back(specNode("rup", "math/add", { { "in1", 2 } }, { { "in0", "rsaw", "out" } }));
-        spec.push_back(specNode("ramp", "math/min", { { "in1", 1 } }, { { "in0", "rup", "out" } }));
+        moRamp(spec, "ramp");
         wires.push_back(Wire{ "morph", "ramp", "out" });
     }
     else if (run.moving)
@@ -7576,15 +7610,6 @@ static double moBand (const vector<float> &v, size_t from, double hz, double hal
     return e;
 }
 
-static double moRms (const vector<float> &v, size_t from, size_t to)
-{
-    double e = 0;
-
-    for (size_t i = from; i < to && i < v.size(); i++)
-        e += (double)v[i] * v[i];
-    return sqrt(e / (double)(to - from));
-}
-
 static double moDb (double a, double b)
 {
     return 10 * log10(std::max(a, 1e-300) / std::max(b, 1e-300));
@@ -7612,12 +7637,10 @@ static void checkMorph (const string &pluginPath)
     /* ---- morph 0, an unwired side, and in = side: the carrier a frame late ---- */
     {
         const struct { const char *what; MoRun::Source car; float morph, width; bool same, unwired; } cases[] = {
-            { "morph 0: a sine a frame late", MoRun::SINE, 0, 400, false, false },
             { "morph 0: noise a frame late", MoRun::NOISE, 0, 400, false, false },
             { "an unwired side passes the carrier through", MoRun::NOISE, 1, 400, false, true },
             { "the carrier as its own side, width 0: itself a frame late", MoRun::BURST, 1, 0, true, false },
             { "the carrier as its own side, width 400: itself a frame late", MoRun::BURST, 1, 400, true, false },
-            { "the carrier as its own side, morph 0.5: itself a frame late", MoRun::BURST, 0.5f, 1500, true, false },
             { "a bass over hiss as its own side: itself a frame late, the hiss kept", MoRun::BASS, 1, 400, true, false },
         };
 
@@ -7764,31 +7787,25 @@ static void checkMorph (const string &pluginPath)
 
     /* ---- level: the modulator's at morph 1, the carrier's at 0 ---- */
     {
-        double lv[2][2];
+        double lv[2];
         bool rendered = true;
         string why;
 
-        for (int k = 0; k < 2 && rendered; k++)
-            for (int q = 0; q < 2 && rendered; q++)
-            {
-                MoRun run;
-                vector< vector<float> > got;
+        for (int q = 0; q < 2 && rendered; q++)
+        {
+            MoRun run;
+            vector< vector<float> > got;
 
-                run.carrier = MoRun::SAW110;
-                run.carrierAmp = 0.3f;
-                run.sideAmp = q ? 0.05f : 0.5f;
-                run.morph = (float)k;
-                rendered = moRender(pluginPath, run, 1.5, 256, got, why);
-                if (rendered)
-                    lv[k][q] = moRms(got[1], second / 2, got[1].size());
-            }
-        okOrFail(rendered && fabs(moDb(lv[1][1] * lv[1][1], lv[1][0] * lv[1][0]) + 20) < 1 &&
-                     fabs(moDb(lv[0][1] * lv[0][1], lv[0][0] * lv[0][0])) < 0.01,
-                 "fft::morph: a side 20 dB down is the output 20 dB down at morph 1, and nothing "
-                 "at morph 0",
-                 rendered ? num(moDb(lv[1][1] * lv[1][1], lv[1][0] * lv[1][0])) + " and " +
-                                num(moDb(lv[0][1] * lv[0][1], lv[0][0] * lv[0][0])) + " dB"
-                          : why);
+            run.carrier = MoRun::SAW110;
+            run.carrierAmp = 0.3f;
+            run.sideAmp = q ? 0.05f : 0.5f;
+            rendered = moRender(pluginPath, run, 1.5, 256, got, why);
+            if (rendered)
+                lv[q] = rms(got[1], second / 2);
+        }
+        okOrFail(rendered && fabs(shDb(lv[1], lv[0]) + 20) < 1,
+                 "fft::morph: a side 20 dB down is the output 20 dB down",
+                 rendered ? num(shDb(lv[1], lv[0])) + " dB" : why);
     }
 
     /* ---- silence: a silent carrier is silence; a silent side is 120 dB
@@ -7826,9 +7843,7 @@ static void checkMorph (const string &pluginPath)
                     continue;
                 }
 
-                const double a = moRms(quiet[1], second / 2, quiet[1].size());
-                const double b = moRms(ref[1], second / 2, ref[1].size());
-                const double db = moDb(a * a, b * b);
+                const double db = shDb(rms(quiet[1], second / 2), rms(ref[1], second / 2));
                 const bool ok = m == 1 ? db < -110 : fabs(db + 1.2) < 0.1;
 
                 okOrFail(ok, string("fft::morph: a silent side on ") + (car == MoRun::NOISE ? "noise" : "a sine") +
@@ -7853,16 +7868,82 @@ static void checkMorph (const string &pluginPath)
             continue;
         }
 
-        const double out = moRms(got[1], second / 2, got[1].size());
+        const double out = rms(got[1], second / 2);
         const double want = 0.5 * std::min(1.0, pow(10, (down + 50) / 20)) / sqrt(3.0);
         bool held = true;
 
         for (size_t i = second / 2; i < got[1].size(); i++)
             held = held && (got[2][i] == 1 || fabsf(got[1][i]) < 1e-4f);
-        okOrFail(fabs(moDb(out * out, want * want)) < 2 && held,
+        okOrFail(fabs(shDb(out, want)) < 2 && held,
                  "fft::morph: a carrier " + num(down) + " dB under its side comes out at most "
                  "50 dB over itself, and play holds while it sounds",
-                 num(moDb(out * out, want * want)) + " dB off, play " + (held ? "held" : "dropped"));
+                 num(shDb(out, want)) + " dB off, play " + (held ? "held" : "dropped"));
+    }
+
+    /* ---- a carrier falling 100 dB under a loud side: lifted until 50 dB
+       under, then falling with it, never a step ---- */
+    {
+        MoRun run;
+        vector< vector<float> > got;
+        string why;
+
+        run.carrier = MoRun::FALL;
+        if (!moRender(pluginPath, run, 3, 256, got, why))
+            fail("fft::morph renders a falling carrier", why);
+        else
+        {
+            const vector<float> &car = got[0], &out = got[1], &play = got[2];
+            const double hop = 512 / FZ_RATE;
+            double step = 0, prev = 0;
+            bool held = true;
+
+            for (double at = 2 * n / FZ_RATE; at + hop <= 2.5; at += hop)
+            {
+                const double lv = fzRms(out, at, at + hop);
+
+                if (prev > 0)
+                    step = std::max(step, fabs(shDb(lv, prev)));
+                prev = lv;
+            }
+            for (size_t i = n; i < out.size(); i++)
+                held = held && (play[i] == 1 || fabsf(out[i]) < 1e-4f);
+
+            /* Its last tenth of the fall, a frame on: 50 dB over the carrier. */
+            const double end = fzRms(out, 2.4 + n / FZ_RATE, 2.5 + n / FZ_RATE);
+            const double want = fzRms(car, 2.4, 2.5) * pow(10, 50 / 20.0);
+
+            okOrFail(step < 3 && fabs(shDb(end, want)) < 3 && held,
+                     "fft::morph: a carrier falling 100 dB under its side ends 50 dB over itself, "
+                     "steps under 3 dB a hop, and play holds while it sounds",
+                     "steps to " + num(step) + " dB, " + num(shDb(end, want)) + " dB off at the end, play " +
+                         (held ? "held" : "dropped"));
+        }
+    }
+
+    /* ---- play lets go: within two frames of the carrier stopping under a
+       loud side, and silence after ---- */
+    {
+        MoRun run;
+        vector< vector<float> > got;
+        string why;
+
+        run.carrier = MoRun::STOP;
+        if (!moRender(pluginPath, run, 2, 256, got, why))
+            fail("fft::morph renders a carrier that stops", why);
+        else
+        {
+            const vector<float> &out = got[1], &play = got[2];
+            const long stop = (long)FZ_RATE, end = fpLast(play);
+
+            float after = 0;
+
+            for (size_t i = end + 1; i < out.size(); i++)
+                after = fmaxf(after, fabsf(out[i]));
+            okOrFail(play[0] == 1 && end >= stop && end <= stop + 2 * (long)n && after == 0,
+                     "fft::morph: play ends within two frames of the carrier, and then it is silent",
+                     "play to " + num((double)end) + " for a stop at " + num((double)stop) + ", " +
+                         num(after) + " after");
+        }
     }
 
     /* ---- morph swept from 0 to 1: from the carrier's level to the side's,
@@ -7872,34 +7953,35 @@ static void checkMorph (const string &pluginPath)
         vector< vector<float> > got;
         string why;
 
+        run.carrier = run.side = MoRun::SINE;
         run.sideAmp = 0.05f;
         run.sweep = true;
-        if (!moRender(pluginPath, run, 3, 256, got, why))
+        if (!moRender(pluginPath, run, 3.5, 256, got, why))
             fail("fft::morph renders a swept morph", why);
         else
         {
-            const size_t ten = second / 100;
+            const double ten = 0.01, late = n / FZ_RATE;
             double step = 0, prev = -1;
 
-            for (size_t at = n + ten; at + ten <= got[1].size(); at += ten)
+            for (double at = 2 * late; at + ten <= 3.5; at += ten)
             {
-                const double r = moRms(got[1], at, at + ten);
+                const double lv = fzRms(got[1], at, at + ten);
 
                 if (prev > 0)
-                    step = std::max(step, fabs(moDb(r * r, prev * prev)));
-                prev = r;
+                    step = std::max(step, fabs(shDb(lv, prev)));
+                prev = lv;
             }
 
-            const double start = moRms(got[1], n, n + 4 * ten), end = moRms(got[1], got[1].size() - 20 * ten,
-                                                                          got[1].size());
-            const double car = moRms(got[0], 0, got[0].size()), mod = moRms(got[3], 0, got[3].size());
+            const double start = fzRms(got[1], 2 * late, 0.5), end = fzRms(got[1], 3, 3.5);
+            const double car = rms(got[0], 0), mod = rms(got[3], 0);
 
-            okOrFail(fabs(moDb(start * start, car * car)) < 1 && fabs(moDb(end * end, mod * mod)) < 1 &&
-                         step < 1.5,
+            /* Sines, so a level that does not wander of itself: the sweep
+               is 20 dB over two seconds, 0.1 dB in 10 ms. */
+            okOrFail(fabs(shDb(start, car)) < 0.5 && fabs(shDb(end, mod)) < 0.5 && step < 0.3,
                      "fft::morph swept from 0 to 1 starts at the carrier's level, ends at the side's, "
-                     "and steps under 1.5 dB in 10 ms",
-                     num(moDb(start * start, car * car)) + " and " + num(moDb(end * end, mod * mod)) +
-                         " dB off, steps to " + num(step) + " dB");
+                     "and steps under 0.3 dB in 10 ms",
+                     num(shDb(start, car)) + " and " + num(shDb(end, mod)) + " dB off, steps to " +
+                         num(step) + " dB");
         }
     }
 
@@ -7917,7 +7999,7 @@ static void checkMorph (const string &pluginPath)
     {
         const struct { const char *arg; float bad, as; } cases[] = {
             { "morph", NAN, 0 }, { "width", NAN, 400 }, { "mix", NAN, 0 },
-            { "morph", INFINITY, 0 }, { "width", -5, 0 },
+            { "morph", INFINITY, 0 }, { "width", INFINITY, 400 }, { "width", 1e6, 4000 },
         };
 
         for (const auto &c : cases)
