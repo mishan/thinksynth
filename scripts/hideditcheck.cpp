@@ -267,7 +267,7 @@ checkSplices ()
               t == text && !err.empty(), what, err);
     }
 
-    thHidBinding scaled, quoted;
+    thHidBinding scaled, quoted, injected, fraction;
 
     scaled.kind = thHidBinding::BEND;
     scaled.control = "touch_1_x";
@@ -275,11 +275,19 @@ checkSplices ()
     quoted.kind = thHidBinding::VALUE;
     quoted.control = "touch_1_y";
     quoted.arg = "cut\"off";
+    injected = quoted;
+    injected.arg = "cutoff\"; touch_2 = note 12; #";
+    fraction.kind = thHidBinding::VELOCITY;
+    fraction.control = "touch_1_y";
+    fraction.hasMin = true;
+    fraction.min = 1.5;
     for (const auto &[what, b] : std::vector<std::pair<string, thHidBinding>>{
              { "a second note of a button is refused, the text untouched",
                note("touch_1", 3) },
              { "and a scale the language has no name for", scaled },
-             { "and an arg the language can't quote", quoted } })
+             { "and an arg the language can't quote", quoted },
+             { "and one that would end its string and say more", injected },
+             { "and a velocity bound that isn't whole", fraction } })
     {
         string t = mine;
 
@@ -491,10 +499,7 @@ checkPlain ()
     check(thhBindingText(minned) == "a = note 7;",
           "an option the kind doesn't take isn't written", thhBindingText(minned));
 
-    thHidBinding far;
-    thHidBlock back;
-    string err;
-    int line = 0;
+    thHidBinding far, near;
 
     far.kind = thHidBinding::VALUE;
     far.control = "c";
@@ -502,12 +507,24 @@ checkPlain ()
     far.hasMin = far.hasMax = true;
     far.min = 1e300;
     far.max = 4.9e-324;
-    const string text = "device d { " + thhBindingText(far) + " };\n";
-    const bool reads = thHidParseProfile(text, back, err, line);
+    near.kind = thHidBinding::LOOP;
+    near.control = "c";
+    near.arg = "record";
+    near.at = 0.7;
+    near.off = 0.5;     /* a hair over what at - 0.2 makes */
+    for (const auto &[what, b] : std::vector<std::pair<string, thHidBinding>>{
+             { "the largest and smallest numbers read back as themselves", far },
+             { "and an off a hair from what the parser would make", near } })
+    {
+        const string text = "device d { " + thhBindingText(b) + " };\n";
+        thHidBlock back;
+        string err;
+        int line = 0;
+        const bool reads = thHidParseProfile(text, back, err, line);
 
-    check(reads && back.bindings.size() == 1 && differ(far, back.bindings[0]).empty(),
-          "the largest and smallest numbers read back as themselves",
-          reads ? text : err);
+        check(reads && back.bindings.size() == 1 && differ(b, back.bindings[0]).empty(),
+              what, reads ? text : err);
+    }
 }
 
 int

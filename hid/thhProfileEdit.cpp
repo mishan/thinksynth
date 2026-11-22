@@ -18,7 +18,6 @@
 
 #include <algorithm>
 #include <charconv>
-#include <cmath>
 #include <vector>
 
 #include "thTextEdit.h"
@@ -37,6 +36,19 @@ number (double v)
                                  std::chars_format::fixed);
 
     return r.ec == std::errc() ? std::string(buf, r.ptr) : std::string();
+}
+
+/* `text' read by the lexer as one token of `kind' that is `s', so a name
+   can't carry a statement of its own into the profile. */
+bool
+reads (const std::string &text, thWordToken::Kind kind, const std::string &s)
+{
+    std::vector<thWordToken> toks;
+    std::string err;
+    int line;
+
+    return thWordTokenize(text, toks, err, line) && toks.size() == 2 &&
+           toks[0].kind == kind && toks[0].text == s;
 }
 
 /* The player's block for either hand of `device', from `text': false if the
@@ -176,7 +188,7 @@ thhBindingText (const thHidBinding &b)
         action = "octave " + std::to_string(b.semis);
         break;
     case thHidBinding::VALUE:
-        action = "\"" + b.arg + "\"";    /* a chanarg's name, quote-free */
+        action = "\"" + b.arg + "\"";
         break;
     case thHidBinding::PITCH:
         action = "pitch";
@@ -198,12 +210,13 @@ thhBindingText (const thHidBinding &b)
         break;
     }
 
-    const bool ints = b.kind == thHidBinding::VELOCITY ||
-                      b.kind == thHidBinding::STRIKE;
-    const auto bound = [&](double v)
-    {
-        return ints ? std::to_string((int)v) : number(v);
-    };
+    const std::string &word = b.kind == thHidBinding::LOOP ? b.arg : b.layer;
+
+    if (!reads(b.control, thWordToken::WORD, b.control) ||
+        (b.kind == thHidBinding::VALUE &&
+         !reads(action, thWordToken::STRING, b.arg)) ||
+        (!word.empty() && !reads(word, thWordToken::WORD, word)))
+        return "";
 
     /* Each option for the kinds the parser takes it for (Parser::options),
        so one a binding kept from another kind isn't written. */
@@ -218,17 +231,16 @@ thhBindingText (const thHidBinding &b)
     if (is({ K::VALUE, K::VELOCITY, K::STRIKE, K::AUX }))
     {
         if (b.hasMin)
-            opt("min", bound(b.min));
+            opt("min", number(b.min));
         if (b.hasMax)
-            opt("max", bound(b.max));
+            opt("max", number(b.max));
     }
     if (is({ K::STRIKE, K::LOOP }))
     {
-        /* As the parser has them where they aren't given: 0.6, and 0.2
-           under it, which in floating point is a hair under 0.4. */
+        /* As the parser has them where they aren't given. */
         if (b.at != 0.6)
             opt("at", number(b.at));
-        if (std::fabs(b.off - std::max(0.0, b.at - 0.2)) > 1e-9)
+        if (b.off != std::max(0.0, b.at - 0.2))
             opt("off", number(b.off));
     }
     if (b.octaves && is({ K::PITCH }))

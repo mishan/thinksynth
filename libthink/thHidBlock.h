@@ -52,7 +52,8 @@ struct thHidBinding
     bool        hasMin, hasMax;
     double      min, max;   /* VALUE, VELOCITY, STRIKE's velocity */
     double      at, off;    /* STRIKE, LOOP on an axis: on rising past at,
-                               off below off */
+                               off below off; off is at - 0.2 unless given,
+                               to the bit */
     double      center;     /* VALUE, PITCH: where the axis counts from */
     double      smooth;     /* VALUE: seconds it takes to follow the axis */
     bool        latch;      /* NOTE: a press starts it, the next ends it */
@@ -71,7 +72,7 @@ struct thHidBinding
 
     thHidBinding ()
         : kind(NOTE), line(0), semis(0), channel(0), hasMin(false),
-          hasMax(false), min(0), max(0), at(0.6), off(0.4), center(0),
+          hasMax(false), min(0), max(0), at(0.6), off(0.6 - 0.2), center(0),
           smooth(0), latch(false), both(false), shape(LINEAR), patch(false),
           octaves(false), range(0), from(0), to(0) {}
 };
