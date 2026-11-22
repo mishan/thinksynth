@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>thinksynth: how a phone plays its camera</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { margin: 0; padding: 1em; max-width: 40em; }
+  #preview { width: 8em; border-radius: 0.3em; }
+  #results { white-space: pre-wrap; word-break: break-all; font-size: 0.8em; }
+</style>
+</head>
+<body>
+<!-- A phone's camera instruments measured where they will run, on the
+     phone (phonebench.js): its camera, the air harp's motion, and the
+     hand tracker, then the results to copy and send back. -->
+<h1>How this phone plays its camera</h1>
+<p>Point the front camera at your hands, keep the phone on charge or not
+  as you'd play it, and press Start. It takes a couple of minutes, or ten
+  more with the heat run.</p>
+<label><input type="checkbox" id="soak"> Heat run: the tracker for ten minutes</label>
+<p><button id="start">Start</button></p>
+<p id="status" role="status" aria-live="polite"></p>
+<video id="preview" playsinline muted hidden></video>
+<p><button id="copy" hidden>Copy the results</button></p>
+<pre id="results"></pre>
+<script type="module" src="phonebench.js"></script>
+</body>
+</html>

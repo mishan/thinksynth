@@ -236,9 +236,9 @@ while (queue.length)
 /* The walk starts at whatever .html is here, so a dist that lost a page
    loses its subtree from the walk rather than failing it -- the remaining
    pages still resolve, and the count quietly drops. The entry points are
-   therefore named: three of them, which is a short enough list to keep by
+   therefore named: four of them, which is a short enough list to keep by
    hand where the module graph was not. */
-const PAGES = ['index.html', 'jam.html', 'phone.html'];
+const PAGES = ['index.html', 'jam.html', 'phone.html', 'phonebench.html'];
 const missingPages = PAGES.filter((n) => !present(n));
 
 if (missingPages.length)

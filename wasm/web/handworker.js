@@ -48,7 +48,8 @@ function software ()
         gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
 }
 
-async function start ()
+/* `delegate' GPU or CPU, or neither for the faster this browser has. */
+async function start (delegate)
 {
     const model = `${MEDIAPIPE}hand_landmarker.task`;
 
@@ -71,14 +72,19 @@ async function start ()
             minHandDetectionConfidence: SURE, minHandPresenceConfidence: SURE,
         });
 
-        tracker = await (software() ? make('CPU') : make('GPU').catch(() => make('CPU')));
+        if (delegate !== undefined)
+            tracker = await make(delegate);
+        else if (software())
+            tracker = await make(delegate = 'CPU');
+        else
+            tracker = await make(delegate = 'GPU').catch(() => make(delegate = 'CPU'));
     }
     catch (e)
     {
         postMessage({ type: 'failed', text: `the hand tracker: ${e.message ?? e}` });
         return;
     }
-    postMessage({ type: 'ready' });
+    postMessage({ type: 'ready', delegate });
 }
 
 function frame ({ bitmap, seconds, generation, id })
@@ -120,7 +126,7 @@ function frame ({ bitmap, seconds, generation, id })
 onmessage = (e) =>
 {
     if (e.data.type === 'start')
-        start();
+        start(e.data.delegate);
     else if (e.data.type === 'frame' && tracker !== null)
         frame(e.data);
     else

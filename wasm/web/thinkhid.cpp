@@ -27,12 +27,14 @@
 
 #include <cmath>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
 
 #include <emscripten.h>
 
+#include "thMotion.h"
 #include "thhCamera.h"
 #include "thhForm.h"
 #include "thhHandTrack.h"
@@ -346,6 +348,34 @@ EMSCRIPTEN_KEEPALIVE const char *th_form_values (const char *device, double now)
         }
     }
     said = jsonList(v, num);
+    return said.c_str();
+}
+
+/* A camera's frames read as the air harp reads them (thMotion), for a
+   phone that plays it and sends what it reads: where to write a width x
+   height frame's luma, a byte a pixel, and then its axes, as JSON. */
+static std::unique_ptr<thMotion> motion;
+static std::vector<uint8_t> luma;
+
+EMSCRIPTEN_KEEPALIVE uint8_t *th_motion_luma (int width, int height)
+{
+    luma.resize((size_t)width * height);
+    return luma.data();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *th_motion_feed (int width, int height, double seconds)
+{
+    std::vector<double> axes;
+
+    if (width >= 3 && height >= 3 && luma.size() == (size_t)width * height)
+    {
+        if (!motion || motion->width() != width || motion->height() != height)
+            motion.reset(new thMotion(width, height));
+        motion->feed(luma.data(), width, seconds);
+        for (int a = 0; a < thMotion::AXES; a++)
+            axes.push_back(motion->axis((thMotion::Axis)a));
+    }
+    said = jsonList(axes, num);
     return said.c_str();
 }
 
