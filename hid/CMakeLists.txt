@@ -18,6 +18,7 @@ add_library(think_hid OBJECT
     thhPane.cpp
     thhPlay.cpp
     thhProfile.cpp
+    thhProfileEdit.cpp
     thhSession.cpp)
 
 target_include_directories(think_hid PUBLIC

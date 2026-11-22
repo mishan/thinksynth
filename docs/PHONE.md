@@ -202,14 +202,17 @@ stays beside it. Each device keeps its own (`thinksynth:hid:DEVICE`).
 - It edits the block for either hand; `left` and `right` blocks, and
   layers, are shown and left to the text for now.
 
-Edits are splices, as `thcGenEdit`'s are: the parser records the byte
-span of each binding, `ignore` and setting (layers later), a change
-replaces exactly that span, and a new statement goes before the block's
-closing brace, so the player's comments and layout survive.
+Edits are splices, as `thcGenEdit`'s are (built: `hid/thhProfileEdit`):
+the parser records the byte span of each binding and `ignore` (layers
+later), a change replaces exactly that span, and a new statement goes
+before the block's closing brace, so the player's comments and layout
+survive. `thhBindingText` writes a binding with only the options the
+parser wouldn't assume, and any binding it writes reads back as itself.
+An edit whose result wouldn't read, or a binding the language can't
+write, is refused and the text left as it was.
 `hid/thhProfileEdit` holds this without a toolkit, as `thhPane` holds
 the pane, so the desktop's Controller pane can have the same form later.
-`thcGenEdit`'s span helpers (`Edit`, `applyEdits`, `endOfBlock`,
-`eraseStmt`, `gapBefore`) move to libthink for both.
+`thcGenEdit`'s span helpers moved to libthink (`thTextEdit`) for both.
 
 ## Failure
 

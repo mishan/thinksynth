@@ -31,6 +31,7 @@
 
 #include "thcGenFile.h"
 #include "thcGenEdit.h"
+#include "thTextEdit.h"
 
 const char *
 thcGenEdit::resultText (Result r)
@@ -117,118 +118,8 @@ writeFile (const std::string &filename, const std::string &text)
 
 /* ---- span edits ------------------------------------------------------- */
 
-struct Edit
-{
-    size_t a, b;         /* replace [a, b)                              */
-    std::string repl;
-};
-
-/* Applied back to front, so earlier offsets stay true while later text
- * moves. Edits are built against one index over one read, so they can
- * never overlap unless an operation is buggy -- and a buggy operation
- * must not half-happen: overlaps are detected before the first byte
- * moves, and false means the text was not touched at all. A partially
- * applied edit set is a file nobody wrote.
- *
- * stable_sort ascending, then applied in reverse. The stability and
- * the direction together make same-offset inserts land in push order:
- * the later-pushed insert is applied first and the earlier one then
- * lands above it, so what setKnobMeta pushes as min, max, label reads
- * back as min, max, label -- on every platform, every run. Plain sort
- * left equal offsets to the implementation's mood. */
-static bool
-applyEdits (std::string &text, std::vector<Edit> &edits)
-{
-    std::stable_sort(edits.begin(), edits.end(),
-                     [](const Edit &x, const Edit &y)
-                     { return x.a < y.a; });
-
-    for (size_t i = 0; i + 1 < edits.size(); i++)
-        if (edits[i].b > edits[i + 1].a)
-            return false;
-
-    for (size_t i = edits.size(); i-- > 0; )
-        text.replace(edits[i].a, edits[i].b - edits[i].a, edits[i].repl);
-
-    return true;
-}
-
-static size_t
-lineStartOf (const std::string &text, size_t pos)
-{
-    size_t nl = text.rfind('\n', pos ? pos - 1 : 0);
-
-    return nl == std::string::npos ? 0 : nl + 1;
-}
-
-/* Where a statement appended to a block goes, and whether it gets a line
- * of its own.
- *
- * `bodyClose' is the block's `}'. When everything before it on its line is
- * blank the block is written across several lines and the statement goes
- * above the brace, indented. When something shares that line the block is
- * a one-liner -- `chain c { stage s gen::eno_line { }; };' -- and the
- * start of the line is *before* the statement the block belongs to.
- * Inserting there puts the new statement above its own block at top
- * level, where the loader reads it as a statement it does not know and
- * the file no longer loads. So a one-liner stays a one-liner and the text
- * goes just inside the brace instead.
- *
- * addPresetValue has drawn this distinction all along, over a preset
- * written the same way round. These are the other two blocks this writer
- * appends a statement to.
- */
-static size_t
-endOfBlock (const std::string &text, size_t bodyClose, bool &ownLine)
-{
-    const size_t ls = lineStartOf(text, bodyClose);
-
-    ownLine = text.find_first_not_of(" \t", ls) >= bodyClose;
-
-    return ownLine ? ls : bodyClose;
-}
-
-/* A space of our own only where there is not one already, so `{ a = 1; }'
-   and `{ a = 1;}' both come out readable. */
-static std::string
-gapBefore (const std::string &text, size_t at)
-{
-    return (at > 0 && (text[at - 1] == ' ' || text[at - 1] == '\t'))
-        ? "" : " ";
-}
-
-/* Remove a statement and, when it sat on a line of its own, the line --
- * indentation and newline included. When something else shares the line
- * (another statement, or a trailing comment worth keeping), only the
- * statement's own bytes and the blanks before it go. */
-static Edit
-eraseStmt (const std::string &text, size_t a, size_t b)
-{
-    size_t ls = lineStartOf(text, a);
-    bool lineBefore = text.find_first_not_of(" \t", ls) >= a;
-
-    size_t e = b;
-
-    while (e < text.size() && (text[e] == ' ' || text[e] == '\t'))
-        e++;
-
-    bool lineAfter = e >= text.size() || text[e] == '\n';
-
-    Edit ed;
-
-    if (lineBefore && lineAfter)
-    {
-        ed.a = ls;
-        ed.b = e < text.size() ? e + 1 : e;   /* the newline too         */
-    }
-    else
-    {
-        ed.a = lineBefore ? ls : a;
-        ed.b = e;
-    }
-
-    return ed;
-}
+/* libthink's (thTextEdit.h), shared with the HID profile's editor. */
+typedef thTextEdit Edit;
 
 /* ---- the structural index --------------------------------------------- */
 /* A lenient scan: the files this operates on have already been through
@@ -514,7 +405,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
         return false;
     }
 
-    ix.topInsert = lineStartOf(text, t[0].off);
+    ix.topInsert = thLineStart(text, t[0].off);
     ix.headerEnd = ix.topInsert;
     ix.firstScaleOff = std::string::npos;
     ix.firstPresetOff = std::string::npos;
@@ -1661,7 +1552,7 @@ finish (const std::string &filename, std::string &text,
     if (edits.empty())
         return thcGenEdit::OK;           /* nothing to change, no write  */
 
-    if (!applyEdits(text, edits))
+    if (!thApplyEdits(text, edits))
     {
         why = "internal: overlapping edits; nothing was written";
         return thcGenEdit::REFUSED;
@@ -1871,7 +1762,7 @@ thcGenEdit::setInfo (const std::string &filename, const std::string &key,
     bool present = ix.infos.count(key) != 0;
 
     if (present && text_.empty())
-        edits.push_back(eraseStmt(text, ix.infos[key].stmtA,
+        edits.push_back(thEraseStmt(text, ix.infos[key].stmtA,
                                   ix.infos[key].stmtB));
     else if (present)
     {
@@ -1883,7 +1774,7 @@ thcGenEdit::setInfo (const std::string &filename, const std::string &key,
     {
         Edit e;
 
-        e.a = e.b = lineStartOf(text, ix.headerEnd == ix.topInsert
+        e.a = e.b = thLineStart(text, ix.headerEnd == ix.topInsert
                                 ? ix.topInsert
                                 : std::min(ix.headerEnd + 1, text.size()));
 
@@ -1973,7 +1864,7 @@ clearHeaderNumber (const std::string &filename, const char *key,
     std::vector<Edit> edits;
 
     if (m.present)
-        edits.push_back(eraseStmt(text, m.stmtA, m.stmtB));
+        edits.push_back(thEraseStmt(text, m.stmtA, m.stmtB));
 
     return finish(filename, text, edits, why);
 }
@@ -2107,7 +1998,7 @@ thcGenEdit::setKnobMeta (const std::string &filename, const std::string &name,
             if (isLabel)
             {
                 if (label.empty())
-                    edits.push_back(eraseStmt(text, m.stmtA, m.stmtB));
+                    edits.push_back(thEraseStmt(text, m.stmtA, m.stmtB));
                 else if (m.str != label)
                     edits.push_back({ m.valA, m.valB,
                                       "\"" + label + "\"" });
@@ -2196,7 +2087,7 @@ thcGenEdit::addKnob (const std::string &filename, const std::string &name,
         at = text.size();
     }
     else
-        at = lineStartOf(text, at);
+        at = thLineStart(text, at);
 
     std::vector<Edit> edits;
 
@@ -2256,11 +2147,11 @@ thcGenEdit::removeKnob (const std::string &filename, const std::string &name,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, k->stmtA, k->stmtB));
+    edits.push_back(thEraseStmt(text, k->stmtA, k->stmtB));
 
     for (std::map<std::string, MetaIdx>::iterator m = k->meta.begin();
          m != k->meta.end(); ++m)
-        edits.push_back(eraseStmt(text, m->second.stmtA, m->second.stmtB));
+        edits.push_back(thEraseStmt(text, m->second.stmtA, m->second.stmtB));
 
     /* Every `@name' becomes the value those params were hearing -- the whole
        value where the value was just the knob, and the reference alone where
@@ -2360,7 +2251,7 @@ thcGenEdit::addScale (const std::string &filename, const std::string &name,
         at = text.size();
     }
     else
-        at = lineStartOf(text, at);
+        at = thLineStart(text, at);
 
     std::vector<Edit> edits;
 
@@ -2433,7 +2324,7 @@ thcGenEdit::removeScale (const std::string &filename, const std::string &name,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, found->stmtA, found->stmtB));
+    edits.push_back(thEraseStmt(text, found->stmtA, found->stmtB));
 
     /* References inlined as the literal, so the chains keep playing the
        same notes the scale gave them. */
@@ -2506,7 +2397,7 @@ swapGraph (const std::string &filename, const std::string &name,
                     if (c != std::string::npos && text[c] == '#')
                         b = std::min(text.find('\n', c), text.size());
 
-                    edits.push_back(eraseStmt(text, v.stmtA, b));
+                    edits.push_back(thEraseStmt(text, v.stmtA, b));
                 }
 
             return finish(filename, text, edits, why);
@@ -2634,7 +2525,7 @@ thcGenEdit::setMasterEffect (const std::string &filename,
 
     if (!ix.masterEffect.empty())
         edits.push_back(dsp.empty()
-                        ? eraseStmt(text, ix.masterA, ix.masterB)
+                        ? thEraseStmt(text, ix.masterA, ix.masterB)
                         : Edit{ ix.masterA, ix.masterB, stmt });
     else if (!dsp.empty())
     {
@@ -2648,7 +2539,7 @@ thcGenEdit::setMasterEffect (const std::string &filename,
             at = text.size();
         }
         else
-            at = lineStartOf(text, at);
+            at = thLineStart(text, at);
 
         edits.push_back({ at, at, stmt + "\n\n" });
     }
@@ -2881,7 +2772,7 @@ presetIndent (const std::string &text, const PresetIdx &pr)
     if (pr.comps.empty())
         return "    ";
 
-    const size_t ls = lineStartOf(text, pr.comps[0].stmtA);
+    const size_t ls = thLineStart(text, pr.comps[0].stmtA);
 
     if (ls < pr.comps[0].stmtA &&
         text.find_first_not_of(" \t", ls) >= pr.comps[0].stmtA)
@@ -3018,7 +2909,7 @@ thcGenEdit::addPreset (const std::string &filename, const std::string &name,
     }
     else if (ix.firstChainOff != std::string::npos)
     {
-        const size_t at = lineStartOf(text, ix.firstChainOff);
+        const size_t at = thLineStart(text, ix.firstChainOff);
 
         edits.push_back({ at, at, block + "\n" });
     }
@@ -3128,7 +3019,7 @@ thcGenEdit::addPresetValue (const std::string &filename,
        asked for -- the same rule the .dsp writer follows. */
     std::vector<Edit> edits;
 
-    const size_t ls = lineStartOf(text, pr->bodyClose);
+    const size_t ls = thLineStart(text, pr->bodyClose);
 
     /* Whether the closing brace has a line to itself decides how the new
        component is written, and getting this wrong is not cosmetic. A
@@ -3194,7 +3085,7 @@ thcGenEdit::removePresetValue (const std::string &filename,
 
             std::vector<Edit> edits;
 
-            edits.push_back(eraseStmt(text, pr->comps[i].stmtA,
+            edits.push_back(thEraseStmt(text, pr->comps[i].stmtA,
                                       pr->comps[i].stmtB));
 
             return finish(filename, text, edits, why);
@@ -3246,7 +3137,7 @@ thcGenEdit::removePreset (const std::string &filename,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, pr->stmtA, pr->stmtB));
+    edits.push_back(thEraseStmt(text, pr->stmtA, pr->stmtB));
 
     return finish(filename, text, edits, why);
 }
@@ -3429,7 +3320,7 @@ thcGenEdit::addInstrument (const std::string &filename,
             at = text.size();
         }
         else
-            at = lineStartOf(text, at);
+            at = thLineStart(text, at);
 
         edits.push_back({ at, at, stmt + "\n\n" });
     }
@@ -3518,7 +3409,7 @@ thcGenEdit::removeInstrument (const std::string &filename,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, found->stmtA, found->stmtB));
+    edits.push_back(thEraseStmt(text, found->stmtA, found->stmtB));
 
     return finish(filename, text, edits, why);
 }
@@ -3558,7 +3449,7 @@ thcGenEdit::removeChain (const std::string &filename, const std::string &name,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, c->stmtA, c->stmtB));
+    edits.push_back(thEraseStmt(text, c->stmtA, c->stmtB));
 
     return finish(filename, text, edits, why);
 }
@@ -3775,7 +3666,7 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
     else if (ix.sectionEndA != std::string::npos)
     {
         /* Above the end, on a line of its own unless the end shares one. */
-        at = lineStartOf(text, ix.sectionEndA);
+        at = thLineStart(text, ix.sectionEndA);
 
         const bool shared =
             text.find_first_not_of(" \t", at) < ix.sectionEndA;
@@ -3795,7 +3686,7 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
         at = behind(ix.meterB);
     else if (ix.firstChainOff != std::string::npos)
     {
-        at = lineStartOf(text, ix.firstChainOff);
+        at = thLineStart(text, ix.firstChainOff);
         stmt += "\n\n";
     }
     else
@@ -3847,10 +3738,10 @@ thcGenEdit::removeSection (const std::string &filename,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, se->stmtA, se->stmtB));
+    edits.push_back(thEraseStmt(text, se->stmtA, se->stmtB));
 
     if (ix.sections.size() == 1 && ix.sectionEndA != std::string::npos)
-        edits.push_back(eraseStmt(text, ix.sectionEndA, ix.sectionEndB));
+        edits.push_back(thEraseStmt(text, ix.sectionEndA, ix.sectionEndB));
 
     return finish(filename, text, edits, why);
 }
@@ -3984,7 +3875,7 @@ thcGenEdit::setSectionLoop (const std::string &filename,
 
     if (!ix.loopTo.empty())
         edits.push_back(name.empty()
-            ? eraseStmt(text, ix.sectionEndA, ix.sectionEndB)
+            ? thEraseStmt(text, ix.sectionEndA, ix.sectionEndB)
             : Edit{ ix.loopToA, ix.loopToB, name });
     else if (name.empty())
         return OK;
@@ -4234,7 +4125,7 @@ thcGenEdit::setChainInput (const std::string &filename,
     if (midi && !c->inputMidi)
         edits.push_back(insertInBody(text, *c, "input midi;"));
     else if (!midi && c->inputMidi)
-        edits.push_back(eraseStmt(text, c->inputA, c->inputB));
+        edits.push_back(thEraseStmt(text, c->inputA, c->inputB));
 
     return finish(filename, text, edits, why);
 }
@@ -4265,7 +4156,7 @@ thcGenEdit::setChainSeed (const std::string &filename,
     if (!pin)
     {
         if (c->hasSeed)
-            edits.push_back(eraseStmt(text, c->seedA, c->seedB));
+            edits.push_back(thEraseStmt(text, c->seedA, c->seedB));
     }
     else if (c->hasSeed)
         edits.push_back({ c->seedA, c->seedB, stmt });
@@ -4361,7 +4252,7 @@ thcGenEdit::setChainStart (const std::string &filename,
     if (trimmed.empty())
     {
         if (!c->startText.empty())
-            edits.push_back(eraseStmt(text, c->startA, c->startB));
+            edits.push_back(thEraseStmt(text, c->startA, c->startB));
     }
     else if (!c->startText.empty())
         edits.push_back({ c->startA, c->startB, "start = " + trimmed + ";" });
@@ -4413,7 +4304,7 @@ thcGenEdit::addStage (const std::string &filename, const std::string &chain,
        in), before the closing brace. */
     size_t at = c->sinks.empty() ? c->bodyClose : c->sinks[0].stmtA;
 
-    at = lineStartOf(text, at);
+    at = thLineStart(text, at);
 
     std::vector<Edit> edits;
 
@@ -4451,7 +4342,7 @@ thcGenEdit::removeStage (const std::string &filename,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, c->stages[stageIndex].stmtA,
+    edits.push_back(thEraseStmt(text, c->stages[stageIndex].stmtA,
                               c->stages[stageIndex].stmtB));
 
     return finish(filename, text, edits, why);
@@ -4489,7 +4380,7 @@ thcGenEdit::moveStage (const std::string &filename, const std::string &chain,
 
     /* The whole block moves as text -- one cut, one paste -- so any
        comment inside the stage travels with it. */
-    Edit cut = eraseStmt(text, c->stages[from].stmtA, c->stages[from].stmtB);
+    Edit cut = thEraseStmt(text, c->stages[from].stmtA, c->stages[from].stmtB);
     std::string block = text.substr(cut.a, cut.b - cut.a);
 
     if (block.empty() || block[block.size() - 1] != '\n')
@@ -4498,11 +4389,11 @@ thcGenEdit::moveStage (const std::string &filename, const std::string &chain,
     size_t at;
 
     if (to < from)
-        at = lineStartOf(text, c->stages[to].stmtA);
+        at = thLineStart(text, c->stages[to].stmtA);
     else if (to + 1 < n)
-        at = lineStartOf(text, c->stages[to + 1].stmtA);
+        at = thLineStart(text, c->stages[to + 1].stmtA);
     else
-        at = lineStartOf(text, c->sinks.empty() ? c->bodyClose
+        at = thLineStart(text, c->sinks.empty() ? c->bodyClose
                                                 : c->sinks[0].stmtA);
 
     text.erase(cut.a, cut.b - cut.a);
@@ -4597,7 +4488,7 @@ thcGenEdit::setParam (const std::string &filename, const std::string &chain,
 
     if (!s.params.empty())
     {
-        size_t ls = lineStartOf(text, s.params[0].stmtA);
+        size_t ls = thLineStart(text, s.params[0].stmtA);
         size_t sp = text.find_first_not_of(" \t", ls);
 
         if (sp != std::string::npos && sp >= s.params[0].stmtA - 0 &&
@@ -4607,12 +4498,12 @@ thcGenEdit::setParam (const std::string &filename, const std::string &chain,
     }
 
     bool ownLine = true;
-    const size_t at = endOfBlock(text, s.bodyClose, ownLine);
+    const size_t at = thEndOfBlock(text, s.bodyClose, ownLine);
 
     edits.push_back({ at, at,
                       ownLine
                           ? indent + param + " = " + valueText + ";\n"
-                          : gapBefore(text, at) + param + " = " +
+                          : thGapBefore(text, at) + param + " = " +
                             valueText + "; " });
 
     return finish(filename, text, edits, why);
@@ -4646,12 +4537,12 @@ thcGenEdit::addSink (const std::string &filename, const std::string &chain,
         return r;
 
     bool ownLine = true;
-    const size_t at = endOfBlock(text, c->bodyClose, ownLine);
+    const size_t at = thEndOfBlock(text, c->bodyClose, ownLine);
 
     std::vector<Edit> edits;
 
     edits.push_back({ at, at,
-                      (ownLine ? "" : gapBefore(text, at)) +
+                      (ownLine ? "" : thGapBefore(text, at)) +
                       sinkText(channel, instrument, chanarg, ownLine) });
 
     return finish(filename, text, edits, why);
@@ -4690,7 +4581,7 @@ thcGenEdit::removeSink (const std::string &filename, const std::string &chain,
 
     std::vector<Edit> edits;
 
-    edits.push_back(eraseStmt(text, c->sinks[sinkIndex].stmtA,
+    edits.push_back(thEraseStmt(text, c->sinks[sinkIndex].stmtA,
                               c->sinks[sinkIndex].stmtB));
 
     return finish(filename, text, edits, why);
