@@ -1340,6 +1340,23 @@ PADsynth (partials with a bandwidth each)
 | `out2` | out | The same pad from half the table away, decorrelated |  | -1 to 1 | full scale |  |
 | `state` | state |  |  |  |  |  |
 
+### osc::pd
+
+Phase distortion: a cosine read through a bent phase, a sine at amount 0
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `freq` | in | Frequency |  |  | Hz |  |
+| `waveform` | in | The wave `amount' bends toward |  |  |  | 0 = saw, 1 = square, 2 = pulse, 3 = double, 4 = sawpulse, 5 = resosaw, 6 = resotri, 7 = resotrap |
+| `amount` | in | How far the phase is bent: 0 a sine, 1 the wave; the resonant waves' ratio, 1 to `reso' |  | 0 to 1 |  |  |
+| `reso` | in | The resonant waves' ratio at amount 1, to the pitch | 8 | 1 to 16 |  |  |
+| `phase` | in | Where the cycle starts, read on the voice's first sample |  | 0 to 1 |  |  |
+| `reset` | in | Hard sync: above 0, the cycle restarts that far past this sample. Wire a master's `edge' here |  | 0 to 1 | samples |  |
+| `out` | out | The wave |  | -1 to 1 | full scale |  |
+| `sync` | out | 1 on the sample the cycle wraps, 0 otherwise |  | 0 to 1 |  |  |
+| `edge` | out | On the sample the cycle wraps, how far past it the wrap falls, 0 to 1; 0 elsewhere. A slave's `reset' |  | 0 to 1 | samples |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::sample
 
 Sample Player (a wav at a voice's pitch)

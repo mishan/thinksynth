@@ -5246,6 +5246,165 @@ static void checkBlep (const string &pluginPath)
                  "at five hundred");
 }
 
+/* ---- osc::pd ------------------------------------------------------------ */
+
+static vector<NodeSpec> pdGraph (float freq, float wave, float amount,
+                                 float reso, float phase)
+{
+    NodeSpec n;
+
+    n.name = "osc";
+    n.spelling = "osc/pd";
+    n.values.push_back(Value{ "freq", freq });
+    n.values.push_back(Value{ "waveform", wave });
+    n.values.push_back(Value{ "amount", amount });
+    n.values.push_back(Value{ "reso", reso });
+    n.values.push_back(Value{ "phase", phase });
+
+    return vector<NodeSpec>(1, n);
+}
+
+/* A pd slave reset by a 1 kHz blep's `from', `edge' or `sync'. */
+static vector<NodeSpec> pdSyncGraph (const char *from, float freq, float wave,
+                                     float amount, float reso)
+{
+    vector<NodeSpec> spec = blepGraph(1000, 0, 0.5f, 0);
+    vector<NodeSpec> slave = pdGraph(freq, wave, amount, reso, 0);
+
+    spec[0].name = "master";
+    slave[0].wires.push_back(Wire{ "reset", "master", from });
+    spec.push_back(slave[0]);
+
+    return spec;
+}
+
+static void checkPd (const string &pluginPath)
+{
+    /* Every wave, unbent to bent, within full scale and centered: the
+       holds' DC is taken off in the plugin as in the kernel. */
+    for (int w = 0; w < 8; w++)
+        for (float a : { 0.0f, 0.5f, 1.0f })
+        {
+            vector<float> got;
+            string why;
+            const bool rendered = render1(pluginPath, pdGraph(440, (float)w, a, 8, 0),
+                                          "osc", "out", 256, TH_DEFAULT_SAMPLES, got,
+                                          why);
+            const double mean = rendered ? meanOf(got, 0) : 0;
+
+            okOrFail(rendered && allFinite(got) && peak(got, 0) <= 1 &&
+                     fabs(mean) < 0.01,
+                     "osc::pd: waveform " + num(w) + " at amount " + num(a) +
+                     " stays within full scale, centered",
+                     rendered ? "peak " + num(peak(got, 0)) + ", mean " + num(mean)
+                              : why);
+        }
+
+    /* `phase' is where the cycle starts: unbent, half a cycle in is the
+       cosine's trough. */
+    {
+        vector<float> got;
+        string why;
+        const bool rendered = render1(pluginPath, pdGraph(100, 0, 0, 8, 0.5f), "osc",
+                                      "out", 256, 256, got, why);
+
+        okOrFail(rendered && fabs(got[0] + 1) < 0.01,
+                 "osc::pd: `phase' sets where the cycle starts",
+                 rendered ? "first sample " + num(got[0]) : why);
+    }
+
+    /* `sync' once a cycle: 440 in a second. */
+    {
+        vector<float> got;
+        string why;
+        int wraps = 0;
+
+        if (render1(pluginPath, pdGraph(440, 5, 0.6f, 8, 0), "osc", "sync", 256,
+                    TH_DEFAULT_SAMPLES, got, why))
+            for (float v : got)
+                wraps += v > 0;
+
+        okOrFail(abs(wraps - 440) <= 1, "osc::pd: `sync' fires once a cycle",
+                 why.empty() ? num(wraps) + " in a second at 440 Hz" : why);
+    }
+
+    /* An amount arriving a sample at a time -- a sine times 0, plus 0.6 --
+       makes the control every sample; held, it is the same number, so the
+       same wave to the bit. */
+    {
+        vector<NodeSpec> wired = pdGraph(440, 6, 0, 5.3f, 0);
+        NodeSpec lfo, zero, held;
+        vector<float> once, every;
+        string why;
+
+        lfo.name = "lfo";
+        lfo.spelling = "osc/simple";
+        lfo.values.push_back(Value{ "freq", 3 });
+        zero.name = "zero";
+        zero.spelling = "mixer/mul";
+        zero.wires.push_back(Wire{ "in0", "lfo", "out" });
+        zero.values.push_back(Value{ "in1", 0 });
+        held.name = "held";
+        held.spelling = "math/add";
+        held.wires.push_back(Wire{ "in0", "zero", "out" });
+        held.values.push_back(Value{ "in1", 0.6f });
+        wired[0].values.erase(wired[0].values.begin() + 2);
+        wired[0].wires.push_back(Wire{ "amount", "held", "out" });
+        wired.insert(wired.begin(), { lfo, zero, held });
+
+        const bool same =
+            render1(pluginPath, pdGraph(440, 6, 0.6f, 5.3f, 0), "osc", "out", 256,
+                    4096, once, why) &&
+            render1(pluginPath, wired, "osc", "out", 256, 4096, every, why) &&
+            once.size() == every.size() &&
+            memcmp(once.data(), every.data(), once.size() * sizeof(float)) == 0;
+
+        okOrFail(same, "osc::pd: an amount wired in renders as the same number "
+                 "written in", why);
+    }
+
+    windowsAgree(pluginPath, pdGraph(440, 6, 0.6f, 5.3f, 0.1f), "osc", "out",
+                 "osc::pd: the same resonant wave at one sample a window and at "
+                 "five hundred");
+    windowsAgree(pluginPath, pdSyncGraph("edge", 2700, 0, 0.5f, 8), "osc", "out",
+                 "osc::pd: the same synced saw at one sample a window and at "
+                 "five hundred");
+
+    /* Hard sync from a 1 kHz master: what folds onto the 100s of Hz that
+       are not the master's harmonics is the aliasing. `edge' places each
+       restart between two samples, where the 0/1 `sync' puts it on one;
+       the step's correction is kernelcheck's. */
+    {
+        const char *const from[] = { "edge", "sync" };
+        double db[2] = { 0, 0 };
+
+        for (int k = 0; k < 2; k++)
+        {
+            vector<float> got;
+            string why;
+
+            if (!render1(pluginPath, pdSyncGraph(from[k], 2700, 0, 0.5f, 8), "osc",
+                         "out", 256, TH_DEFAULT_SAMPLES, got, why))
+            {
+                fail(string("osc::pd renders synced by ") + from[k], why);
+                return;
+            }
+
+            double worst = 0;
+
+            for (int hz = 100; hz < 5000; hz += 100)
+                if (hz % 1000 != 0)
+                    worst = fmax(worst, bin(got, 0, TH_DEFAULT_SAMPLES, hz));
+            db[k] = 20 * log10(worst / bin(got, 0, TH_DEFAULT_SAMPLES, 1000));
+        }
+
+        okOrFail(db[0] < db[1] - 20,
+                 "osc::pd: synced by `edge', placed between samples, the "
+                 "aliasing under 5 kHz is 20 dB under a 0/1 reset's",
+                 num(db[0]) + " dB by edge, " + num(db[1]) + " dB by sync");
+    }
+}
+
 /* ---- env::adsr, gated ----------------------------------------------------
  *
  * A wired trigger: a square at 2 Hz, low for its first quarter second and
@@ -12533,6 +12692,7 @@ int main (int argc, char **argv)
     checkBuffers(pluginPath);
     checkLoop(pluginPath);
     checkBlep(pluginPath);
+    checkPd(pluginPath);
     checkUnison(pluginPath);
     checkEq(pluginPath);
     checkFreeze(pluginPath);

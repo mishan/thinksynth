@@ -6,7 +6,7 @@ plain floats to a float. The plugin runs the kernel over its window; a
 patch compiled to a program inlines it. What plays live and what a
 compiled patch plays are then the same arithmetic.
 
-`osc::fmop`, `osc::simple`, `osc::blep`, `osc::noise`, `env::ad`,
+`osc::fmop`, `osc::simple`, `osc::blep`, `osc::pd`, `osc::noise`, `env::ad`,
 `env::adsr`, `filt::svf`, `filt::eq`, `dist::saturate`, `mixer::pan`,
 `math::sin`, `misc::midi2freq`, `misc::latch`, `delay::allpass` and
 `delay::echo` have kernels, and the pattern is theirs:

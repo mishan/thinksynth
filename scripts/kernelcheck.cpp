@@ -47,6 +47,7 @@
 #include "../plugins/filt/svf.h"
 #include "../plugins/osc/blep.h"
 #include "../plugins/osc/noise.h"
+#include "../plugins/osc/pd.h"
 #include "../plugins/osc/fmop.h"
 #include "../plugins/osc/simple.h"
 
@@ -94,6 +95,367 @@ refSimple (int waveform, double r, double hi)
     case 4: return r < 0.5 ? hi * std::sqrt(1 - a * a) : -hi * std::sqrt(1 - b * b);
     case 5: return r < 0.5 ? hi * (1 - a * a) : hi * (b * b - 1);
     default: return hi * std::sin(2 * M_PI * r);
+    }
+}
+
+
+/* osc::pd's waves in double, from the maps as pd.cpp draws them: the
+   knees from the amount and the pitch, then the bent phase. */
+struct RefPd
+{
+    int wave;
+    double d, d2, mean, r, m;
+
+    static double knee (double d0, double c, double a, double dt)
+    {
+        const double least = std::min(d0, std::max(0.01, dt * c / 0.225));
+
+        return 1 / (1 / d0 + a * (1 / least - 1 / d0));
+    }
+
+    RefPd (int w, double a, double reso, double freq, double rate)
+        : wave(w), d(0.5), d2(0.5), mean(0), r(1), m(0)
+    {
+        const double dt = std::min(freq, rate / 2) / rate;
+
+        if (w == 0 || w == 1)
+            d = knee(0.5, 0.5, a, dt);
+        else if (w == 2)
+        {
+            d = knee(1, 1, a, dt);
+            mean = 1 - d;
+        }
+        else if (w == 3)
+        {
+            d = knee(0.5, 1, a, dt);
+            mean = 2 * (2 * d - 1) / M_PI;
+        }
+        else if (w == 4)
+        {
+            d = knee(0.5, 1, a, dt);
+            d2 = knee(1, 1, a, dt);
+            mean = (2 * d - 1) / M_PI + 0.5 * (1 - d2);
+        }
+        else
+        {
+            r = std::max(1.0, std::min(1 + a * (reso - 1), 0.2 / dt));
+            /* The window's mean less its mean against the cosine, here by
+               a sum where the kernel has the closed form. */
+            const int n = 1 << 16;
+            double sum = 0;
+
+            for (int i = 0; i < n; i++)
+            {
+                const double p = (i + 0.5) / n;
+
+                sum += window(p) * (1 - std::cos(2 * M_PI * r * p));
+            }
+            m = sum / n;
+        }
+    }
+
+    double window (double p) const
+    {
+        return wave == 5 ? 1 - p : wave == 6 ? (p < 0.5 ? 2 * p : 2 - 2 * p)
+                         : (p < 0.5 ? 1 : 2 - 2 * p);
+    }
+
+    static double bend (double x, double k)
+    {
+        return x < k ? 0.5 * x / k : 0.5 + 0.5 * (x - k) / (1 - k);
+    }
+
+    double at (double p) const
+    {
+        double g;
+
+        if (wave >= 5)
+            return 0.5 * (window(p) * (1 - std::cos(2 * M_PI * r * p)) - m);
+        if (wave == 0)
+            g = bend(p, d);
+        else if (wave == 1)
+            g = p < d ? 0.5 * p / d : p < 0.5 ? 0.5 : p < 0.5 + d ? 0.5 + 0.5 * (p - 0.5) / d : 1;
+        else if (wave == 2)
+            g = p < d ? p / d : 1;
+        else if (wave == 3)
+            g = p < 0.5 ? 0.5 * bend(2 * p, d) : 1 - 0.5 * bend(2 - 2 * p, d);
+        else
+            g = p < 0.5 ? 0.5 * bend(2 * p, d) : 2 * p - 1 < d2 ? 0.5 + 0.5 * (2 * p - 1) / d2 : 1;
+        return (std::cos(2 * M_PI * g) - mean) / (1 + std::fabs(mean));
+    }
+};
+
+/* The magnitude of harmonic h of a cycle sampled n times. */
+static double
+harmonic (const std::vector<double> &y, int h)
+{
+    double re = 0, im = 0;
+    const size_t n = y.size();
+
+    for (size_t i = 0; i < n; i++)
+    {
+        re += y[i] * std::cos(2 * M_PI * h * (double)i / n);
+        im += y[i] * std::sin(2 * M_PI * h * (double)i / n);
+    }
+    return 2 * std::sqrt(re * re + im * im) / n;
+}
+
+static std::vector<double>
+pdCycle (const thkPd::Ctl &c, int n)
+{
+    std::vector<double> y(n);
+
+    for (int i = 0; i < n; i++)
+        y[i] = thkPd::shape((float)i / n, c);
+    return y;
+}
+
+static void
+checkPd ()
+{
+    static const char *const NAMES[] = { "saw", "square", "pulse", "double",
+                                         "sawpulse", "resosaw", "resotri",
+                                         "resotrap" };
+    const float amounts[] = { 0, 0.3f, 0.7f, 1 };
+    const float resos[] = { 1, 3.7f, 16 };
+    const float freqs[] = { 55, 440, 4000, 15000, 22050 };
+
+    /* The kernel against the reference, every wave, amount, ratio and
+       pitch, at phases that miss the knees by more than a float's step. */
+    {
+        double worst = 0;
+
+        for (int w = 0; w < thkPd::WAVES; w++)
+            for (float a : amounts)
+                for (float reso : resos)
+                    for (float f : freqs)
+                    {
+                        const thkPd::Ctl c = thkPd::ctl(f, (float)w, a, reso, 44100);
+                        const RefPd ref(w, a, reso, f, 44100);
+
+                        for (int i = 0; i < 997; i++)
+                        {
+                            const float p = (i + 0.37f) / 997;
+
+                            worst = std::max(worst,
+                                             std::fabs(thkPd::shape(p, c) - ref.at(p)));
+                        }
+                    }
+        report("osc::pd's waves against their maps in double", worst, 2e-4);
+    }
+
+    /* Unbent, each bent wave is a cosine: off it by under -100 dB. */
+    {
+        double worst = 0;
+
+        for (int w = 0; w < thkPd::RESOSAW; w++)
+        {
+            const thkPd::Ctl c = thkPd::ctl(441, (float)w, 0, 8, 44100);
+            thkPd osc;
+            float sync, edge;
+
+            /* Against the phase the kernel stands at, so that what is
+               measured is the wave and not a float's step drifting. */
+            for (int n = 0; n < 10000; n++)
+            {
+                const double at = osc.phase;
+
+                worst = std::max(worst, std::fabs(osc.tick(c, 0, 0, sync, edge) -
+                                                  std::cos(2 * M_PI * at)));
+            }
+        }
+        report("osc::pd's bent waves are a cosine at amount 0", worst, 1e-5);
+    }
+
+    /* A whole number of turns a cycle, at any amount, ratio and pitch, up
+       to Nyquist: no step where the cycle wraps. */
+    {
+        double worst = 0;
+
+        for (int w = 0; w < thkPd::WAVES; w++)
+            for (float a : { 0.0f, 0.5f, 1.0f })
+                for (float reso : resos)
+                    for (float f : { 110.0f, 9000.0f, 13000.0f, 18000.0f, 22050.0f })
+                    {
+                        const thkPd::Ctl c = thkPd::ctl(f, (float)w, a, reso, 44100);
+
+                        worst = std::max(worst, (double)std::fabs(thkPd::shape(1 - 1e-6f, c) -
+                                                          thkPd::shape(0, c)));
+                    }
+        report("osc::pd's waves meet themselves at the wrap", worst, 1e-3);
+    }
+
+    /* No DC at any amount or ratio, the holds' included. */
+    {
+        double worst = 0;
+
+        for (int w = 0; w < thkPd::WAVES; w++)
+            for (float a : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
+                for (float reso : { 1.0f, 2.5f, 7.3f, 16.0f })
+                    for (float f : { 110.0f, 2000.0f, 9000.0f })
+                    {
+                        const std::vector<double> y =
+                            pdCycle(thkPd::ctl(f, (float)w, a, reso, 44100), 4096);
+                        double sum = 0;
+
+                        for (double v : y)
+                            sum += v;
+                        worst = std::max(worst, std::fabs(sum / 4096));
+                    }
+        report("osc::pd's waves have no DC", worst, 1e-4);
+    }
+
+    /* What each wave is, bent all the way at 110 Hz. */
+    {
+        const std::vector<double> saw = pdCycle(thkPd::ctl(110, 0, 1, 8, 44100), 4096);
+        double sawWorst = 0;
+
+        for (int h = 2; h <= 8; h++)
+            sawWorst = std::max(sawWorst, std::fabs(20 * std::log10(
+                harmonic(saw, h) / harmonic(saw, 1) * h)));
+        report("osc::pd's saw: its first eight harmonics within 6 dB of 1 / n",
+               sawWorst, 6);
+
+        const std::vector<double> sq = pdCycle(thkPd::ctl(110, 1, 1, 8, 44100), 4096);
+        double evens = 0;
+
+        for (int h = 2; h <= 16; h += 2)
+            evens = std::max(evens, harmonic(sq, h) / harmonic(sq, 1));
+        report("osc::pd's square has no even harmonics (-90 dB)", evens, 3.2e-5);
+
+        const std::vector<double> dbl = pdCycle(thkPd::ctl(110, 3, 1, 8, 44100), 4096);
+
+        report("osc::pd's double keeps its second harmonic (within 20 dB)",
+               harmonic(dbl, 1) / harmonic(dbl, 2), 10);
+
+        int off = 0;
+
+        for (int w = thkPd::RESOSAW; w < thkPd::WAVES; w++)
+        {
+            const std::vector<double> y = pdCycle(thkPd::ctl(110, (float)w, 1, 8, 44100),
+                                                  4096);
+            int loudest = 1;
+
+            for (int h = 2; h <= 32; h++)
+                if (harmonic(y, h) > harmonic(y, loudest))
+                    loudest = h;
+            off = std::max(off, std::abs(loudest - 8));
+        }
+        report("osc::pd's resonant waves peak within a harmonic of reso", off, 1);
+    }
+
+    /* Folding. Sampled, every harmonic past Nyquist lands back in the
+       band; their energy, by Parseval from a fine cycle, against the
+       band's. */
+    {
+        for (int w = 0; w < thkPd::WAVES; w++)
+        {
+            double worst = -1000;
+
+            for (double f : { 440.0, 2000.0, 4000.0 })
+            {
+                const std::vector<double> y =
+                    pdCycle(thkPd::ctl((float)f, (float)w, 1, 16, 44100), 1 << 16);
+                const int top = (int)(22050 / f);
+                double total = 0, mean = 0, band = 0;
+
+                for (double v : y)
+                {
+                    total += v * v;
+                    mean += v;
+                }
+                mean /= (double)y.size();
+                total = total / (double)y.size() - mean * mean;
+                for (int h = 1; h <= top; h++)
+                    band += harmonic(y, h) * harmonic(y, h) / 2;
+                worst = std::max(worst, 10 * std::log10(std::max(total - band, 1e-30) / band));
+            }
+
+            const double limit = w == thkPd::PULSE ? -30 : -33;
+            char what[96];
+
+            snprintf(what, sizeof(what),
+                     "osc::pd's %s folds under %g dB at 440, 2000 and 4000 Hz",
+                     NAMES[w], limit);
+            report(what, worst - limit > 0 ? worst - limit : 0, 0);
+        }
+    }
+
+    /* A restart a quarter into the sample after 37, and one that falls
+       just past a natural wrap: each the step from where the cycle was cut
+       to its start, corrected on either side. */
+    {
+        double worst = 0;
+        const struct { int wave; float amount, reso, start; int before; float r; } cases[] = {
+            { 0, 0.7f, 8, 0, 37, 0.25f },
+            { 6, 0.6f, 5.3f, 0, 37, 0.25f },
+            { 0, 0.7f, 8, 0.995f, 0, 0.75f },
+            { 7, 0.9f, 3.1f, 0.995f, 0, 0.75f },
+        };
+
+        for (const auto &k : cases)
+        {
+            const thkPd::Ctl c = thkPd::ctl(441, (float)k.wave, k.amount, k.reso, 44100);
+            const RefPd ref(k.wave, k.amount, k.reso, 441, 44100);
+            const double step = (double)c.dt, d = 1 - k.r;
+            thkPd osc;
+            float sync, edge;
+            double phase = k.start;
+
+            for (int n = 0; n < k.before; n++)
+            {
+                osc.tick(c, k.start, 0, sync, edge);
+                phase += c.dt;
+            }
+
+            double at = phase + k.r * step;
+
+            at -= std::floor(at);
+
+            const double h = ref.at(0) - ref.at(at);
+            const double want[3] = {
+                ref.at(phase) + refStepBefore(h, d),
+                ref.at(d * step) + refStepAfter(h, d),
+                ref.at((d + 1) * step),
+            };
+
+            for (int n = 0; n < 3; n++)
+                worst = std::max(worst, std::fabs(osc.tick(c, k.start, n ? 0 : k.r,
+                                                           sync, edge) - want[n]));
+        }
+        report("osc::pd restarts partway into a sample, and past a wrap", worst, 1e-4);
+    }
+
+    /* A bad number in plays as its default; nothing comes out non-finite. */
+    {
+        const float bad[] = { NAN, INFINITY, -INFINITY };
+        int wrong = 0;
+
+        for (float b : bad)
+        {
+            const thkPd::Ctl unbent = thkPd::ctl(440, 3, 0, 8, 44100);
+            const thkPd::Ctl unresonant = thkPd::ctl(440, 5, 1, 1, 44100);
+
+            wrong += thkPd::shape(0.3f, thkPd::ctl(440, 3, b, 8, 44100)) !=
+                     thkPd::shape(0.3f, unbent);
+            wrong += thkPd::shape(0.3f, thkPd::ctl(440, 5, 1, b, 44100)) !=
+                     thkPd::shape(0.3f, unresonant);
+
+            for (int w = 0; w < thkPd::WAVES; w++)
+            {
+                const thkPd::Ctl c = thkPd::ctl(b, (float)w, b, b, 44100);
+                thkPd osc;
+                float sync, edge;
+
+                for (int n = 0; n < 1000; n++)
+                    wrong += !std::isfinite(osc.tick(c, b, n % 7 ? 0 : b, sync, edge));
+            }
+        }
+        for (float w : { NAN, INFINITY, -INFINITY, 9.0f, -3.0f })
+            wrong += thkPd::shape(0.3f, thkPd::ctl(440, w, 0.5f, 8, 44100)) !=
+                     thkPd::shape(0.3f, thkPd::ctl(440, 0, 0.5f, 8, 44100));
+        report("osc::pd: a bad number plays its default, and comes out finite",
+               wrong, 0);
     }
 }
 
@@ -1140,6 +1502,8 @@ main ()
             wrong += l.tick((float)n, n == 3 || n == 4 || n == 10 ? 1 : 0) != WANT[n];
         report("misc::latch takes while its latch is up, and holds", wrong, 0);
     }
+
+    checkPd();
 
     printf("%d failure%s\n", failed, failed == 1 ? "" : "s");
     return failed ? 1 : 0;

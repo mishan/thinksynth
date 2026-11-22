@@ -110,6 +110,8 @@ static const Kernel KERNELS[] = {
       { "fm", "fmamt", "reset" }, false, "thkSimple" },
     { "osc/blep", { "freq", "waveform", "pw" }, "thkBlep::ctl", true, { "phase", "reset" },
       false, "thkBlep" },
+    { "osc/pd", { "freq", "waveform", "amount", "reso" }, "thkPd::ctl", true,
+      { "phase", "reset" }, false, "thkPd" },
     { "osc/noise", { "color", "amp" }, "thkNoise::ctl", false, {}, false, "thkNoise" },
     { "filt/svf", { "cutoff", "res" }, "thkSvf::ctl", true, { "in" }, false, "thkSvf" },
     { "filt/eq", { "type", "freq", "gain", "q" }, "thkEq::ctl", true, { "in" }, false, "thkEq" },
@@ -501,7 +503,7 @@ struct Compiler
             s << "        float " << var(n, "sync") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
               << ", " << args(0) << ", " << var(n, "sync") << ");\n";
-        else if (p == "osc/blep")
+        else if (p == "osc/blep" || p == "osc/pd")
             s << "        float " << var(n, "sync") << ", " << var(n, "edge") << ";\n"
               << "        const float " << out << " = " << self << ".tick(" << var(n, "ctl")
               << ", " << args(0) << ", " << var(n, "sync") << ", " << var(n, "edge")
