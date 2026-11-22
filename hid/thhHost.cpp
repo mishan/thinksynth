@@ -145,9 +145,8 @@ thhHost::release (double now)
     session_.release();
 }
 
-/* A string in JSON: an arg's name, a hand, a pane's text. */
-static std::string
-quoted (const std::string &s)
+std::string
+thhJsonString (const std::string &s)
 {
     std::string out = "\"";
 
@@ -183,25 +182,25 @@ thhHost::pane () const
         if (!now.connected)
             continue;
         if (!hand.empty())
-            hands += (hands.empty() ? "" : ",") + quoted(hand);
+            hands += (hands.empty() ? "" : ",") + thhJsonString(hand);
         for (const thhPaneRow &r : thhPaneRows(s.profileOf(i),
                                                thhIndexControls(), now,
                                                channel_, has))
             rows += std::string(rows.empty() ? "" : ",") + "{\"layer\":" +
-                    quoted(hand + (hand.empty() || r.layer.empty() ? "" : " ") +
+                    thhJsonString(hand + (hand.empty() || r.layer.empty() ? "" : " ") +
                            r.layer) +
-                    ",\"control\":" + quoted(r.control) +
-                    ",\"action\":" + quoted(r.action) +
-                    ",\"target\":" + quoted(r.target) +
-                    ",\"value\":" + quoted(r.value) +
-                    ",\"warning\":" + quoted(r.warning) +
+                    ",\"control\":" + thhJsonString(r.control) +
+                    ",\"action\":" + thhJsonString(r.action) +
+                    ",\"target\":" + thhJsonString(r.target) +
+                    ",\"value\":" + thhJsonString(r.value) +
+                    ",\"warning\":" + thhJsonString(r.warning) +
                     ",\"yours\":" + (r.yours ? "true" : "false") +
                     ",\"patch\":" + (r.patch ? "true" : "false") + "}";
     }
     return "{\"hands\":[" + hands + "],\"rows\":[" + rows +
            "],\"canSwap\":" + (s.canSwapHands() ? "true" : "false") +
-           ",\"loops\":" + quoted(s.loops()) +
-           ",\"patch\":" + quoted(s.patch()) + "}";
+           ",\"loops\":" + thhJsonString(s.loops()) +
+           ",\"patch\":" + thhJsonString(s.patch()) + "}";
 }
 
 std::string
@@ -230,7 +229,7 @@ thhActionsJson (const std::vector<thhAction> &actions)
         out += (out.size() > 1 ? "," : "") + std::string(num);
         if (a.kind == thhAction::VALUE)
         {
-            out += ",\"arg\":" + quoted(a.arg);
+            out += ",\"arg\":" + thhJsonString(a.arg);
             if (a.hasMin)
                 out += (snprintf(num, sizeof(num), ",\"min\":%.9g", a.min),
                         std::string(num));

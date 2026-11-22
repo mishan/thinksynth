@@ -31,10 +31,12 @@
 
 #include <emscripten.h>
 
+#include "thhForm.h"
 #include "thhHost.h"
 #include "thhMapper.h"
 #include "thhPhone.h"
 #include "thhProfile.h"
+#include "thhProfileEdit.h"
 
 static thhHost host;
 
@@ -52,6 +54,54 @@ static bool phoneOn = false;
 
 /* What the last call that returns text said, kept until the next. */
 static std::string said;
+
+static std::string
+num (double v)
+{
+    char buf[32];
+
+    snprintf(buf, sizeof(buf), "%.17g", v);
+    return buf;
+}
+
+template <class T, class F>
+static std::string
+jsonList (const std::vector<T> &items, F each)
+{
+    std::string out = "[";
+
+    for (const T &i : items)
+        out += (out.size() > 1 ? "," : "") + each(i);
+    return out + "]";
+}
+
+static std::string
+str (const std::string &s)
+{
+    return thhJsonString(s);
+}
+
+static std::string
+bindingJson (const thHidBinding &b)
+{
+    const char *scale = b.scale.empty() ? "" : thHidScaleName(b.scale);
+
+    return "{\"kind\":" + str(thhFormKindName(b.kind)) +
+           ",\"text\":" + str(thhBindingText(b)) +
+           ",\"semis\":" + std::to_string(b.semis) +
+           ",\"layer\":" + str(b.layer) + ",\"arg\":" + str(b.arg) +
+           ",\"channel\":" + std::to_string(b.channel) +
+           ",\"min\":" + (b.hasMin ? num(b.min) : "null") +
+           ",\"max\":" + (b.hasMax ? num(b.max) : "null") +
+           ",\"at\":" + num(b.at) + ",\"off\":" + num(b.off) +
+           ",\"center\":" + num(b.center) + ",\"smooth\":" + num(b.smooth) +
+           ",\"latch\":" + (b.latch ? "true" : "false") +
+           ",\"both\":" + (b.both ? "true" : "false") +
+           ",\"shape\":" + (b.shape == thHidBinding::EXP ? "\"exp\"" : "\"linear\"") +
+           ",\"step\":" + (b.octaves ? "\"octave\"" : "\"semitone\"") +
+           ",\"range\":" + std::to_string(b.range) +
+           ",\"scale\":" + str(scale ? scale : "") + "}";
+}
 
 extern "C" {
 
@@ -161,6 +211,72 @@ EMSCRIPTEN_KEEPALIVE void th_phone_release (void)
     phoneMapper.release(phonePlayed);
     phoneMapper.update(thhState(), phoneChannel, phonePlayed);
     phoneOn = false;
+}
+
+/* The configurator's form for the phone with the player's `text' over its
+   own (thhForm.h), as JSON: what each kind of action takes, the scales,
+   the player's layers, and a row per control. */
+EMSCRIPTEN_KEEPALIVE const char *th_phone_form (const char *text)
+{
+    static const std::vector<std::string> OPTIONS = {
+        "channel", "min", "max", "at", "off", "step", "scale", "range",
+        "center", "smooth", "shape", "both", "latch" };
+    const thhForm f = thhFormOf(thhPhoneControls(), THH_PHONE_PROFILE, text);
+
+    said = "{\"problem\":" + str(f.problem) +
+        ",\"layers\":" + jsonList(f.layers, str) +
+        ",\"scales\":" + jsonList(thHidScaleNames(), str) +
+        ",\"kinds\":" + jsonList(thhFormKinds(), [](const thhFormKind &k) {
+            std::vector<std::string> takes;
+
+            for (const std::string &o : OPTIONS)
+                if (thhTakes(k.kind, o))
+                    takes.push_back(o);
+            return "{\"name\":" + str(k.name) +
+                   ",\"button\":" + (k.button ? "true" : "false") +
+                   ",\"axis\":" + (k.axis ? "true" : "false") +
+                   ",\"param\":" + str(k.param) +
+                   ",\"takes\":" + jsonList(takes, str) + "}";
+        }) +
+        ",\"controls\":" + jsonList(f.controls, [](const thhFormControl &c) {
+            return "{\"control\":" + str(c.control) +
+                   ",\"axis\":" + (c.axis ? "true" : "false") +
+                   ",\"yours\":" + (c.yours ? "true" : "false") +
+                   ",\"off\":" + (c.off ? "true" : "false") +
+                   ",\"layered\":" + jsonList(c.layered, str) +
+                   ",\"bindings\":" + jsonList(c.bindings, bindingJson) + "}";
+        }) + "}";
+    return said.c_str();
+}
+
+/* An edit of the form (thhFormEdit) made to `text': {"text"} as it is
+   now, or {"err"} saying why it wasn't made. */
+EMSCRIPTEN_KEEPALIVE const char *th_phone_edit (const char *text, const char *op,
+                                                const char *control, int which,
+                                                const char *fields)
+{
+    std::string t = text, err;
+
+    said = thhFormEdit(t, thhPhoneControls(), THH_PHONE_PROFILE, op, control,
+                       which, fields, err)
+        ? "{\"text\":" + str(t) + "}" : "{\"err\":" + str(err) + "}";
+    return said.c_str();
+}
+
+/* Each control's value now, in the form's order, 0 or 1 for a finger; or
+   none while no phone is there. */
+EMSCRIPTEN_KEEPALIVE const char *th_phone_values (double now)
+{
+    const thhControls &c = thhPhoneControls();
+    const thhState s = phone.state(now);
+    std::vector<double> v;
+
+    for (size_t i = 0; phoneOn && s.connected && i < c.buttons.size(); i++)
+        v.push_back((s.buttons >> i) & 1);
+    for (size_t i = 0; phoneOn && s.connected && i < c.axes.size(); i++)
+        v.push_back(s.axis[i]);
+    said = jsonList(v, num);
+    return said.c_str();
 }
 
 /* What the phone has played since last asked, as thhActionsJson. */

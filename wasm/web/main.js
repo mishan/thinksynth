@@ -4858,9 +4858,12 @@ async function init ()
         },
         channel: controlChannel,
         bendChannel,
+        controller: (channel) => synth.controller(channel),
         pane: {
             root: $('phonepane'), qr: $('phoneqr'), link: $('phonelink'),
             end: $('phoneend'), again: $('phoneagain'),
+            form: $('phoneform'), rows: $('phonerows'), problem: $('phoneformproblem'),
+            learn: $('phonelearn'), profile: $('phoneprofile'), apply: $('phoneapply'),
         },
     });
     video = createVideoView({

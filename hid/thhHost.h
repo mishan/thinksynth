@@ -38,6 +38,9 @@
    plays speaks this, the Index through thhHost::take and the phone too. */
 std::string thhActionsJson (const std::vector<thhAction> &actions);
 
+/* A string in JSON: an arg's name, a hand, a pane's text. */
+std::string thhJsonString (const std::string &s);
+
 /* A session fed a controller's raw reports, for a host that reads the
    devices itself and wants what to play back as text: the browser's page
    (wasm/web/thinkhid.cpp), and the native tool that holds it to the same

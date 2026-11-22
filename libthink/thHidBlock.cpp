@@ -45,6 +45,25 @@ thHidScaleName (const std::vector<int> &steps)
     return NULL;
 }
 
+std::vector<std::string>
+thHidScaleNames ()
+{
+    std::vector<std::string> out;
+
+    for (const auto &sc : SCALES)
+        out.push_back(sc.name);
+    return out;
+}
+
+const std::vector<int> *
+thHidScaleSteps (const std::string &name)
+{
+    for (const auto &sc : SCALES)
+        if (name == sc.name)
+            return &sc.steps;
+    return NULL;
+}
+
 namespace {
 
 class Parser
