@@ -378,7 +378,9 @@ add_executable(thinkhid thinkhid.cpp
     "${THINK_TOP}/hid/thhPane.cpp"
     "${THINK_TOP}/hid/thhProfile.cpp"
     "${THINK_TOP}/hid/thhSession.cpp"
-    "${THINK_TOP}/hid/thhPhone.cpp")
+    "${THINK_TOP}/hid/thhPhone.cpp"
+    "${THINK_TOP}/hid/thhForm.cpp"
+    "${THINK_TOP}/hid/thhProfileEdit.cpp")
 target_include_directories(thinkhid PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkhid PRIVATE think_objects sigc)
 set_target_properties(thinkhid PROPERTIES SUFFIX ".js")
@@ -402,7 +404,7 @@ set(SITE_SOURCES index.html jam.html phone.html style.css main.js keyboard.js
                 engine.js mic.js midi.js midimap.js midiroutesui.js midiout.js
                 midioutui.js clock.js
                 camera.js cameraview.js camworker.js handworker.js hid.js videoview.js videoworker.js videopart.js videoscale.js mirror.js
-                actions.js phone.js phonepad.js phonepane.js pair.js mesh.js
+                actions.js phone.js phonepad.js phonepane.js phoneform.js pair.js mesh.js
                 ear.js evolve.js evolveui.js
                 growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js

@@ -27,6 +27,10 @@
  * the link, taps Start and plays: a touch is C3 bent along the scale,
  * tilting brightens what it holds, the phone page hidden lets go at once,
  * its page reloaded comes back to play again, and Disconnect unpairs it.
+ * The pane's form has a card for each finger saying what it does, Learn
+ * opens the one put down, and an edit writes the player's profile and
+ * plays at once; one that wouldn't play is refused, as is one over text
+ * typed and not applied, and the text box's own comments are kept.
  * What the page plays is what it posts the worklet, as theremintest.mjs
  * reads it.
  *
@@ -206,6 +210,106 @@ try
     await touch(phone, 0.2, 0.5);
     check(await posted(host, 'on 48'), 'and plays again');
     await phone.mouse.up();
+
+    /* The form, with the phone playing. */
+    const PROFILE = 'thinksynth:hid:phone';
+    const mine = () => host.evaluate((k) => localStorage.getItem(k), PROFILE);
+    const row = (c) => host.evaluate((c) =>
+    {
+        const f = document.querySelector(`[aria-label="${c} now"]`)?.parentElement;
+
+        return f && { whose: f.querySelector('.hint').textContent,
+                      action: f.querySelector('select')?.value,
+                      learned: f.classList.contains('learned') };
+    }, c);
+    const change = (label, value) => host.evaluate(([label, value]) =>
+    {
+        const e = document.querySelector(`[aria-label="${label}"]`);
+
+        e.value = value;
+        e.dispatchEvent(new Event('change'));
+    }, [label, value]);
+    const press = (label) => host.evaluate((label) =>
+        document.querySelector(`[aria-label="${label}"]`).click(), label);
+
+    await host.evaluate(() =>
+    {
+        document.getElementById('phonepane').open = true;
+        document.getElementById('phoneform').open = true;
+        document.getElementById('phonetext').open = true;
+    });
+    await until(host, () => document.querySelectorAll('#phonerows .formcontrol').length === 17);
+
+    const cards = await host.evaluate(() => [...document.querySelectorAll('#phonerows .formgroup > summary')]
+        .map((s) => s.textContent.replace(/\s+/g, ' ')));
+
+    check(cards.length === 6 &&
+          cards[0] === 'Finger 1 tap: note 0 x: bend, pentatonic y: aux 3' &&
+          cards[4] === 'Finger 5 tap: nothing x: nothing y: nothing' &&
+          cards[5] === 'Tilt x: aux 1 y: nothing',
+          'the form has a card for each finger and tilt, saying in a line what each does',
+          JSON.stringify(cards));
+    check((await row('touch_1'))?.whose === "the phone's own" &&
+          (await row('touch_1')).action === 'note' && (await row('touch_5'))?.action === undefined,
+          'every control is on one, the phone\'s own bindings as its own',
+          JSON.stringify(await row('touch_1')));
+
+    await host.click('#phonelearn');
+    await touch(phone, 0.2, 0.5);
+    check(await until(host, () => document.querySelector('.formcontrol.learned output')
+                                      ?.ariaLabel === 'touch_1 now' &&
+                                  document.querySelector('.formgroup').open),
+          'Learn opens the card of the finger put down, and marks it',
+          `${await text(host, 'phoneformproblem')} ${JSON.stringify(await row('touch_1'))}`);
+    check(await until(host, () =>
+              document.querySelector('[aria-label="touch_1 now"]').textContent === 'down' &&
+              document.querySelector('[aria-label="touch_1_x now"]').textContent === '0.20'),
+          'and its card shows the finger down, and where across',
+          await host.evaluate(() => document.querySelector('[aria-label="touch_1_x now"]').textContent));
+    await phone.mouse.up();
+
+    await change('touch_1 1 semis', '12');
+    check(await until(host, (k) => localStorage.getItem(k) ===
+                                   'device phone {\n    touch_1 = note 12;\n};\n', PROFILE) &&
+          await host.inputValue('#phoneprofile') === await mine() &&
+          await until(host, () => document.querySelector('[aria-label="touch_1 now"]')
+                                      .parentElement.querySelector('.hint').textContent === 'yours'),
+          'an edit writes it as the player\'s, in the text box too', await mine());
+    await host.evaluate(() => { window.posted.length = 0; });
+    await touch(phone, 0.2, 0.5);
+    check(await posted(host, 'on 60'), 'and the phone plays it at once, an octave up');
+    await phone.mouse.up();
+
+    const was = await mine();
+
+    await change('touch_1 1 semis', '200');
+    check(await until(host, () => document.getElementById('phoneformproblem').textContent !== '') &&
+          await mine() === was, 'an edit that wouldn\'t play is refused, and says why',
+          await text(host, 'phoneformproblem'));
+
+    const typed = '# my phone\ndevice phone {\n    touch_1 = note 12;  # up\n};\n';
+
+    await host.fill('#phoneprofile', typed);
+    await press('Off touch_2');
+    check(await until(host, () => /Apply/.test(document.getElementById('phoneformproblem').textContent)) &&
+          await mine() === was && await host.inputValue('#phoneprofile') === typed,
+          'an edit while the text box has changes not applied is refused, the typing kept',
+          await text(host, 'phoneformproblem'));
+
+    await host.click('#phoneapply');
+    await until(host, (k) => localStorage.getItem(k).startsWith('# my phone'), PROFILE);
+    await press('Off touch_2');
+    check(await until(host, (k) => localStorage.getItem(k) ===
+              '# my phone\ndevice phone {\n    touch_1 = note 12;  # up\n    ignore touch_2;\n};\n',
+              PROFILE) && await until(host, () => document.querySelector(
+              '[aria-label="Off touch_2"]') === null),
+          'the text box applied, the form edits it with its comments kept', await mine());
+
+    await press('Reset touch_1');
+    await until(host, () => document.querySelector('[aria-label="Reset touch_1"]') === null);
+    await press('Reset touch_2');
+    check(await until(host, (k) => localStorage.getItem(k) === '# my phone\ndevice phone {\n    # up\n};\n',
+                      PROFILE), 'Reset gives each its own back', await mine());
 
     await host.click('#phoneend');
     check(await until(phone, () => /Unpaired/.test(document.getElementById('status').textContent)) &&

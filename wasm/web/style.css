@@ -1938,3 +1938,21 @@ body.tiled #cameracanvas { flex: 1 1 0; min-height: 90px; max-height: none; }
 
 /* The MIDI routes table: a key is three digits wide. */
 .midiroute input[type="number"] { width: 4em; }
+
+/* The keys' hint last in its row, on a line of its own, just above the
+   keys: it comes and goes as a box loses the focus, mid-click, and must
+   not move what the click is aimed at. */
+#keysstate { order: 1; flex-basis: 100%; }
+
+/* An open controller pane on a line of its own, not beside the buttons. */
+#hidpane[open], #phonepane[open] { flex-basis: 100%; }
+
+/* The phone's form (phoneform.js): a card per finger, what it does in a
+   line until opened; the control Learn found, marked. */
+#phonerows .formgroup { margin: 0.3em 0; }
+#phonerows .formgroup > summary .hint { margin-left: 0.6em; white-space: pre; }
+#phonerows .formcontrol { margin: 0.2em 0 0.4em 1.2em; }
+#phonerows ul { margin: 0.2em 0; padding-left: 0.6em; list-style: none; }
+#phonerows input[type=number] { width: 5em; }
+#phonerows .learned { outline: 2px solid var(--held); }
+#phonetext label, #phonetext textarea { display: block; }

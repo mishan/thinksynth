@@ -26,11 +26,14 @@
  * controller module (thinkhid.cpp's th_phone_*), whose actions are played
  * as the Index's are (actions.js). The pairing's code and this page's
  * token are kept for the tab, so a reload comes back to the same pairing.
+ * The pane's form (phoneform.js) and text box edit the player's profile,
+ * paired or not.
  */
 
 import { actionPlayer } from './actions.js';
 import { Mesh } from './mesh.js';
 import { Pair, pairUrl } from './pair.js';
+import { profileForm } from './phoneform.js';
 import qrcode from './qrcode.js';
 
 /* The player's changes to the phone's own profile, as hid.js keeps the
@@ -43,6 +46,10 @@ const PAIRING_KEY = 'thinksynth:phone:pairing';
 const TICK_MS = 100;
 
 const AXES = 12;
+
+/* The longest profile handed the module, whose strings go on its stack:
+   at most three bytes a character, well inside it. */
+const MAX_PROFILE = 16384;
 
 /* `session' for the tab's storage, else the browser's. Looked up inside
    the try: a browser that refuses storage refuses it by throwing from the
@@ -76,9 +83,12 @@ function keep (key, value, session = false)
 }
 
 /* `pane' is { root, qr, link, end, again }: the details the code and the
-   pairing's state show in. */
+   pairing's state show in; and { form, rows, problem, learn, profile,
+   apply }, the form's details, its rows, its line, Learn, and the text
+   box with its button. `controller(channel)' is the patch's, as hid.js
+   has it, for its knobs' names. */
 export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
-                               channel, bendChannel })
+                               channel, bendChannel, controller })
 {
     const played = actionPlayer({ onNoteOn, onNoteOff, play, bendChannel });
     let M = null, chan = null;
@@ -98,8 +108,60 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
         if (ch !== chan)
             M.ccall('th_channel', null, ['number'], [chan = ch]);
     };
+    /* The player's profile: kept, and here too, for a browser that won't
+       keep it. */
+    let mine = kept(PROFILE_KEY);
     const profile = () =>
-        M.ccall('th_phone_profile', 'string', ['string'], [kept(PROFILE_KEY)]);
+        M.ccall('th_phone_profile', 'string', ['string'], [mine]);
+    const load = async () =>
+    {
+        if (M === null)
+        {
+            const { default: createThinkHid } = await import('./thinkhid.js');
+
+            M ??= await createThinkHid();
+        }
+    };
+
+    const form = profileForm({
+        rows: pane.rows, problem: pane.problem, learn: pane.learn,
+        form: (text) => JSON.parse(M.ccall('th_phone_form', 'string', ['string'], [text])),
+        edit: (text, op, control, which, fields) => pane.profile.value !== text
+            ? { err: 'Your profile\'s text has changes; Apply them first.' }
+            : JSON.parse(M.ccall('th_phone_edit', 'string',
+                ['string', 'string', 'string', 'number', 'string'],
+                [text, op, control, which, fields])),
+        args: async () => (await controller(channel())).args,
+        text: () => mine,
+        changed: (text) => setProfile(text),
+    });
+
+    /* The player's profile made `text': kept, in the box, and played by a
+       phone that is there. */
+    const setProfile = (text) =>
+    {
+        if (text.length > MAX_PROFILE)
+        {
+            redraw(`Your profile is too long: ${MAX_PROFILE} characters at most.`);
+            return;
+        }
+        mine = text;
+        keep(PROFILE_KEY, text);
+        pane.profile.value = text;
+        if (current !== null && M !== null)
+        {
+            const problem = profile();
+
+            take();
+            if (problem)
+            {
+                redraw(`your phone profile: ${problem}`);
+                return;
+            }
+        }
+        redraw();
+    };
+    const redraw = (why) => load().then(() => form.draw(why));
 
     const show = (code) =>
     {
@@ -180,12 +242,7 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
         button.textContent = 'Phone: on';
         pane.end.hidden = false;
         say('Asking the relay...');
-        if (M === null)
-        {
-            const { default: createThinkHid } = await import('./thinkhid.js');
-
-            M ??= await createThinkHid();
-        }
+        await load();
 
         const url = await pairUrl();
 
@@ -267,10 +324,32 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
         fresh();
     });
 
+    let showing = 0, opened = 0;
+
+    pane.profile.value = mine;
+    pane.apply.addEventListener('click', () => setProfile(pane.profile.value));
+    pane.form.addEventListener('toggle', async () =>
+    {
+        const run = ++opened;
+
+        clearInterval(showing);
+        showing = 0;
+        if (!pane.form.open)
+            return;
+        await load();
+        await form.draw();
+        /* Closed, or opened again, while it drew. */
+        if (run !== opened)
+            return;
+        showing = setInterval(() => form.values(JSON.parse(
+            M.ccall('th_phone_values', 'string', ['number'], [now()]))), TICK_MS);
+    });
+
     return {
         start ()
         {
             button.disabled = false;
+            pane.root.hidden = false;
 
             let back = null;
 

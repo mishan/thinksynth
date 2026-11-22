@@ -464,6 +464,21 @@
       <a id="phonelink" hidden target="_blank" rel="noopener"></a>
       <button id="phoneagain" hidden>New code</button>
       <button id="phoneend" hidden>Disconnect</button>
+      <!-- What each of the phone's controls does, as a form over the
+           player's profile (phoneform.js), and the profile as text. -->
+      <details id="phoneform">
+        <summary>What the phone plays</summary>
+        <button id="phonelearn" aria-pressed="false">Learn</button>
+        <p id="phoneformproblem" class="hint" aria-live="polite"></p>
+        <div id="phonerows"></div>
+        <details id="phonetext">
+          <summary>Your profile as text</summary>
+          <label for="phoneprofile">Your profile, over the phone's own</label>
+          <textarea id="phoneprofile" rows="6" spellcheck="false"
+                    placeholder="device phone {&#10;};"></textarea>
+          <button id="phoneapply">Apply</button>
+        </details>
+      </details>
     </details>
 
     <!-- A webcam onto the same keys (camera.js): a hand struck through one

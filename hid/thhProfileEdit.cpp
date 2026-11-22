@@ -164,6 +164,32 @@ apply (std::string &text, std::vector<thTextEdit> &edits, std::string &err)
 
 }
 
+bool
+thhTakes (thHidBinding::Kind kind, const std::string &option)
+{
+    using K = thHidBinding;
+    static const struct { const char *option; std::vector<K::Kind> kinds; } TAKES[] = {
+        { "channel", { K::NOTE, K::VALUE, K::STRIKE, K::LOOP } },
+        { "min", { K::VALUE, K::VELOCITY, K::STRIKE, K::AUX } },
+        { "max", { K::VALUE, K::VELOCITY, K::STRIKE, K::AUX } },
+        { "at", { K::STRIKE, K::LOOP } },
+        { "off", { K::STRIKE, K::LOOP } },
+        { "step", { K::PITCH } },
+        { "scale", { K::PITCH, K::BEND } },
+        { "range", { K::PITCH, K::BEND } },
+        { "center", { K::VALUE, K::PITCH, K::BEND, K::AUX } },
+        { "smooth", { K::VALUE, K::BEND, K::AUX } },
+        { "shape", { K::VALUE } },
+        { "both", { K::BEND, K::AUX } },
+        { "latch", { K::NOTE } },
+    };
+
+    for (const auto &t : TAKES)
+        if (option == t.option)
+            return std::find(t.kinds.begin(), t.kinds.end(), kind) != t.kinds.end();
+    return false;
+}
+
 std::string
 thhBindingText (const thHidBinding &b)
 {
@@ -218,34 +244,23 @@ thhBindingText (const thHidBinding &b)
         (!word.empty() && !reads(word, thWordToken::WORD, word)))
         return "";
 
-    /* Each option for the kinds the parser takes it for (Parser::options),
-       so one a binding kept from another kind isn't written. */
-    const auto is = [&](std::initializer_list<thHidBinding::Kind> kinds)
-    {
-        return std::find(kinds.begin(), kinds.end(), b.kind) != kinds.end();
-    };
-    using K = thHidBinding;
+    /* An option a binding kept from another kind isn't written. */
+    const auto is = [&](const char *option) { return thhTakes(b.kind, option); };
 
-    if (b.channel != 0 && is({ K::NOTE, K::VALUE, K::STRIKE, K::LOOP }))
+    if (b.channel != 0 && is("channel"))
         opt("channel", std::to_string(b.channel));
-    if (is({ K::VALUE, K::VELOCITY, K::STRIKE, K::AUX }))
-    {
-        if (b.hasMin)
-            opt("min", number(b.min));
-        if (b.hasMax)
-            opt("max", number(b.max));
-    }
-    if (is({ K::STRIKE, K::LOOP }))
-    {
-        /* As the parser has them where they aren't given. */
-        if (b.at != 0.6)
-            opt("at", number(b.at));
-        if (b.off != std::max(0.0, b.at - 0.2))
-            opt("off", number(b.off));
-    }
-    if (b.octaves && is({ K::PITCH }))
+    if (b.hasMin && is("min"))
+        opt("min", number(b.min));
+    if (b.hasMax && is("max"))
+        opt("max", number(b.max));
+    /* At and off as the parser has them where they aren't given. */
+    if (b.at != 0.6 && is("at"))
+        opt("at", number(b.at));
+    if (b.off != std::max(0.0, b.at - 0.2) && is("off"))
+        opt("off", number(b.off));
+    if (b.octaves && is("step"))
         opt("step", "octave");
-    if (!b.scale.empty() && is({ K::PITCH, K::BEND }))
+    if (!b.scale.empty() && is("scale"))
     {
         const char *scale = thHidScaleName(b.scale);
 
@@ -253,17 +268,17 @@ thhBindingText (const thHidBinding &b)
             return "";
         opt("scale", scale);
     }
-    if (is({ K::PITCH, K::BEND }))
+    if (is("range"))
         opt("range", std::to_string(b.range));
-    if (b.center != 0 && is({ K::VALUE, K::PITCH, K::BEND, K::AUX }))
+    if (b.center != 0 && is("center"))
         opt("center", number(b.center));
-    if (b.smooth != 0 && is({ K::VALUE, K::BEND, K::AUX }))
+    if (b.smooth != 0 && is("smooth"))
         opt("smooth", number(b.smooth));
-    if (b.shape == K::EXP && is({ K::VALUE }))
+    if (b.shape == thHidBinding::EXP && is("shape"))
         opt("shape", "exp");
-    if (b.both && is({ K::BEND, K::AUX }))
+    if (b.both && is("both"))
         opt("of", "both");
-    if (b.latch && is({ K::NOTE }))
+    if (b.latch && is("latch"))
         opts += " latch;";
 
     return b.control + " = " + action + (opts.empty() ? "" : " {" + opts + " }") +

@@ -34,6 +34,11 @@
    was, when it doesn't read as a profile: no splice is safe in text whose
    statements aren't known. */
 
+/* Whether a binding of `kind' takes `option' (channel, min, max, at, off,
+   step, scale, range, center, smooth, shape, both, latch), as the parser
+   has it (Parser::options). */
+bool thhTakes (thHidBinding::Kind kind, const std::string &option);
+
 /* A binding as the profile language writes it, `control = action
    { options };', with the options it has the parser wouldn't assume. */
 std::string thhBindingText (const thHidBinding &b);

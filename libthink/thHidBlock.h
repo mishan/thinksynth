@@ -129,6 +129,10 @@ THINK_API bool thHidParseBlock (const std::vector<thWordToken> &toks,
 /* The name a scale's steps are written by, or NULL for none of them. */
 THINK_API const char *thHidScaleName (const std::vector<int> &steps);
 
+/* Every scale's name, and a name's steps, or NULL for none of them. */
+THINK_API std::vector<std::string> thHidScaleNames ();
+THINK_API const std::vector<int> *thHidScaleSteps (const std::string &name);
+
 /* A whole profile file: `device NAME { ... };' and nothing else. */
 THINK_API bool thHidParseProfile (const std::string &text, thHidBlock &out,
                                   std::string &err, int &errLine);

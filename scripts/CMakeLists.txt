@@ -498,6 +498,7 @@ think_harness(hidhandcheck HID)
 think_harness(phonecheck HID)
 # A player's profile edited by splicing (hid/thhProfileEdit.h).
 think_harness(hideditcheck HID)
+think_harness(hidformcheck HID)
 
 # A profile found or not, and a controller's actions on a real synth
 # (hid/thhPlay.h).
@@ -1450,6 +1451,7 @@ add_test(NAME hidcamcheck COMMAND hidcamcheck)
 add_test(NAME hidhandcheck COMMAND hidhandcheck)
 add_test(NAME phonecheck COMMAND phonecheck)
 add_test(NAME hideditcheck COMMAND hideditcheck)
+add_test(NAME hidformcheck COMMAND hidformcheck)
 add_test(NAME boxcheck COMMAND boxcheck)
 add_test(NAME hidcheck
          COMMAND hidcheck "${PROJECT_SOURCE_DIR}/scripts/hid/index-input.txt"
