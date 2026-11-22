@@ -22,10 +22,13 @@
   more with the heat run.</p>
 <label><input type="checkbox" id="soak"> Heat run: the tracker for ten minutes</label>
 <p><button id="start">Start</button></p>
-<p id="status" role="status" aria-live="polite"></p>
+<!-- Loading until the script says it is ready, so a script that never
+     runs is seen to. -->
+<p id="status" role="status" aria-live="polite">Loading...</p>
 <video id="preview" playsinline muted hidden></video>
 <p><button id="copy" hidden>Copy the results</button></p>
 <pre id="results"></pre>
-<script type="module" src="phonebench.js"></script>
+<script type="module" src="phonebench.js"
+        onerror="document.getElementById('status').textContent = 'The page\'s script did not load.'"></script>
 </body>
 </html>
