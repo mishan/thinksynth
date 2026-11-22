@@ -77,9 +77,22 @@ function device ()
         memory: navigator.deviceMemory ?? null,
         screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
         gpu: gl ? gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) : null,
-        offscreenWebgl2: typeof OffscreenCanvas !== 'undefined' &&
-                         new OffscreenCanvas(1, 1).getContext('webgl2') !== null,
+        offscreenWebgl2: offscreen(),
     };
+}
+
+/* Whether a worker can draw WebGL 2, as the tracker does: some Safaris
+   have the canvas and throw when asked for it. */
+function offscreen ()
+{
+    try
+    {
+        return new OffscreenCanvas(1, 1).getContext('webgl2') !== null;
+    }
+    catch
+    {
+        return false;
+    }
 }
 
 async function battery ()
@@ -252,11 +265,12 @@ async function run ()
 
     $('start').disabled = true;
     $('copy').hidden = true;
-    results = { version: 1, when: new Date().toISOString(),
-                device: device(), battery: await battery() };
-    show();
+    results = { version: 1, when: new Date().toISOString() };
     try
     {
+        results.device = device();
+        results.battery = await battery();
+        show();
         try
         {
             wake = await navigator.wakeLock?.request('screen');
@@ -328,6 +342,12 @@ async function run ()
 }
 
 $('start').addEventListener('click', () => run());
+
+/* Anything else that goes wrong, said where a phone's player can see it. */
+addEventListener('error', (e) => say(`Something went wrong: ${e.message}`));
+addEventListener('unhandledrejection', (e) =>
+    say(`Something went wrong: ${e.reason?.message ?? e.reason}`));
+say('Ready: press Start.');
 $('copy').addEventListener('click', async () =>
 {
     try

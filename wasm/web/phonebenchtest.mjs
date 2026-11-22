@@ -60,6 +60,10 @@ try
 
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(`http://127.0.0.1:${site.address().port}/phonebench.html?seconds=2&soak=0.05`);
+    check(await page.waitForFunction(() =>
+              /Ready/.test(document.getElementById('status').textContent))
+              .then(() => true, () => false),
+          'the page says it is ready once its script has run', await page.textContent('#status'));
     await page.check('#soak');
     await page.click('#start');
     /* The run's end, not a stage's error, which the run goes on past. */
@@ -124,6 +128,37 @@ try
           'a second run has its own results, with no heat run left from the first',
           JSON.stringify(Object.keys(again)));
     check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
+
+    /* A module the page imports that doesn't load: the page says so,
+       rather than a Start that does nothing. */
+    const unloaded = await browser.newPage();
+
+    await unloaded.route('**/thinkhid.js', (route) => route.fulfill({ status: 404, body: '' }));
+    await unloaded.goto(`http://127.0.0.1:${site.address().port}/phonebench.html`);
+    check(await unloaded.waitForFunction(() => /did not load/.test(
+              document.getElementById('status').textContent), null, { timeout: 10000 })
+              .then(() => true, () => false),
+          'a script that doesn\'t load is said', await unloaded.textContent('#status'));
+    await unloaded.close();
+
+    /* A browser whose offscreen canvas throws when asked for WebGL 2, as
+       some Safaris do: the run goes on and says it has none. */
+    const safari = await browser.newPage();
+
+    await safari.addInitScript(() =>
+    {
+        OffscreenCanvas.prototype.getContext = () => { throw new Error('not supported'); };
+    });
+    await safari.goto(`http://127.0.0.1:${site.address().port}/phonebench.html?seconds=1`);
+    await safari.click('#start');
+    check(await safari.waitForFunction(() =>
+              /"offscreenWebgl2": false/.test(document.getElementById('results').textContent) &&
+              /Asking for the camera|camera,|air harp|tracker|Done/.test(
+                  document.getElementById('status').textContent),
+              null, { timeout: 30000 }).then(() => true, () => false),
+          'a canvas that throws for WebGL 2 is said, and the run goes on',
+          await safari.textContent('#status'));
+    await safari.close();
 
     /* A tracker whose worker fails on its first frame: each delegate says
        so, and the run goes on to its end. */
