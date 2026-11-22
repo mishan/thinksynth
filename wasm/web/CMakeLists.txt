@@ -267,6 +267,7 @@ add_library(thinkweb_parts OBJECT
     "${THINK_TOP}/hid/thhHandTrack.cpp"
     "${THINK_TOP}/hid/thhMapper.cpp"
     "${THINK_TOP}/hid/thhPlay.cpp"
+    "${THINK_TOP}/hid/thhProfile.cpp"
     twcamera.cpp
     twhands.cpp
     # The video worker's synth (videoworker.js).
@@ -380,6 +381,8 @@ add_executable(thinkhid thinkhid.cpp
     "${THINK_TOP}/hid/thhSession.cpp"
     "${THINK_TOP}/hid/thhPhone.cpp"
     "${THINK_TOP}/hid/thhForm.cpp"
+    "${THINK_TOP}/hid/thhCamera.cpp"
+    "${THINK_TOP}/hid/thhHandTrack.cpp"
     "${THINK_TOP}/hid/thhProfileEdit.cpp")
 target_include_directories(thinkhid PRIVATE ${THINKWEB_INCLUDES})
 target_link_libraries(thinkhid PRIVATE think_objects sigc)

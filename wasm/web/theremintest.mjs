@@ -26,6 +26,7 @@
  * leaves a frame extra a while rather than for good; a tracker that stops
  * answering lets the note go, as
  * does a switch to the air harp; and a build with no hand model says so.
+ * The camera's form edits the theremin's profile, which plays at once.
  * What the hands play is twhands.cpp's (handscheck.mjs); the tracker is
  * trackcheck.mjs's.
  *
@@ -282,6 +283,97 @@ try
                   document.getElementById('camerastatus').textContent)),
               'switched to the air harp, it lets the note go and opens as the harp',
               await status(page));
+        check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
+        await page.close();
+    }
+
+    {
+        /* The form drawn for the air harp and closed, then the theremin
+           played: its values aren't the harp's, and it plays. */
+        const { page, errors } = await open();
+
+        await page.selectOption('#cameramode', 'harp');
+        await page.evaluate(() => { document.getElementById('camerapane').open = true; });
+        await until(page, () => document.querySelector('#camerarows .formgroup > summary')
+                                    ?.textContent.startsWith('Zones'));
+        await page.evaluate(() => { document.getElementById('camerapane').open = false; });
+        await page.selectOption('#cameramode', 'theremin');
+        await page.click('#camera');
+        await until(page, () => /pinch your left hand/.test(
+            document.getElementById('camerastatus').textContent));
+        await stub(page, { hands: [{ x: 0.7, y: 0.2, pinched: false },
+                                   { x: 0.3, y: 0.8, pinched: true }] });
+        check(await posted(page, 'on 48') && errors.length === 0,
+              'the theremin plays with the form left drawn for the air harp',
+              errors.join('; '));
+        await page.close();
+    }
+
+    {
+        /* The camera's form: the theremin's hands, Learn finding the pinch,
+           and an edit kept and played at once; the air harp's zones on a
+           profile of their own. */
+        const { page, errors } = await open();
+        const cards = () => page.evaluate(() =>
+            [...document.querySelectorAll('#camerarows .formgroup > summary')]
+                .map((s) => s.textContent.replace(/\s+/g, ' ')));
+        const now = (c) => page.evaluate((c) =>
+            document.querySelector(`[aria-label="${c} now"]`)?.textContent, c);
+
+        await page.evaluate(() => { document.getElementById('camerapane').open = true; });
+        await until(page, () => document.querySelectorAll('#camerarows .formgroup').length === 2);
+        check(JSON.stringify(await cards()) === JSON.stringify(
+                  ['Left hand pinch: note 0 y: aux 3', 'Right hand y: bend, pentatonic']),
+              'the theremin\'s form has a card for each hand', JSON.stringify(await cards()));
+
+        await page.click('#camera');
+        await stub(page, { hands: [{ x: 0.7, y: 0.2, pinched: false },
+                                   { x: 0.3, y: 0.8, pinched: false }] });
+        await until(page, () =>
+            document.querySelector('[aria-label="left_pinch now"]')?.textContent === 'up');
+        await page.click('#cameralearn');
+        await stub(page, { hands: [{ x: 0.7, y: 0.2, pinched: false },
+                                   { x: 0.3, y: 0.8, pinched: true }] });
+        check(await until(page, () => document.querySelector('.formcontrol.learned output')
+                                          ?.ariaLabel === 'left_pinch now'),
+              'Learn finds the hand pinched', await now('left_pinch'));
+
+        await page.evaluate(() =>
+        {
+            const e = document.querySelector('[aria-label="left_pinch 1 semis"]');
+
+            e.value = '7';
+            e.dispatchEvent(new Event('change'));
+        });
+        check(await until(page, () => localStorage.getItem('thinksynth:hid:hands') ===
+                                      'device hands {\n    left_pinch = note 7;\n};\n'),
+              'an edit is kept as the theremin\'s profile',
+              await page.evaluate(() => localStorage.getItem('thinksynth:hid:hands')));
+        await stub(page, { hands: [{ x: 0.7, y: 0.2, pinched: false },
+                                   { x: 0.3, y: 0.8, pinched: false }] });
+        await until(page, () =>
+            document.querySelector('[aria-label="left_pinch now"]')?.textContent === 'up');
+        await page.evaluate(() => { window.posted.length = 0; });
+        await stub(page, { hands: [{ x: 0.7, y: 0.2, pinched: false },
+                                   { x: 0.3, y: 0.8, pinched: true }] });
+        check(await posted(page, 'on 55'), 'and the open camera plays it: G3',
+              JSON.stringify(await page.evaluate(() => window.posted.slice(-4))));
+
+        await page.evaluate(() => { document.getElementById('cameratext').open = true; });
+        await page.fill('#cameraprofile', 'device hands {\n    left_x = loop record;\n};\n');
+        await page.click('#cameraapply');
+        check(await until(page, () => document.querySelector('[aria-label="left_x 1 action"]')
+                                          ?.value === 'loop'),
+              'a binding the camera doesn\'t play is shown as what it is',
+              await page.evaluate(() =>
+                  document.querySelector('[aria-label="left_x 1 action"]')?.value));
+
+        await page.selectOption('#cameramode', 'harp');
+        check(await until(page, () => document.querySelector('#camerarows .formgroup > summary')
+                                          ?.textContent.startsWith('Zones')) &&
+              await page.inputValue('#cameraprofile') === '',
+              'the air harp\'s form is its zones, on a profile of its own',
+              JSON.stringify(await cards()));
         check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
         await page.close();
     }

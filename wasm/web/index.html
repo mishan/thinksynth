@@ -505,6 +505,20 @@
       <span></span><span></span><span></span>
       <span></span><span></span><span></span>
     </div>
+    <!-- What the camera plays, as a form over the player's profile of the
+         air harp or the theremin, whichever is chosen (profileform.js). -->
+    <details id="camerapane" hidden>
+      <summary>What the camera plays</summary>
+      <button id="cameralearn" aria-pressed="false">Learn</button>
+      <p id="cameraformproblem" class="hint" aria-live="polite"></p>
+      <div id="camerarows" class="formrows"></div>
+      <details id="cameratext">
+        <summary>Your profile as text</summary>
+        <label for="cameraprofile">Your profile, over the camera's own</label>
+        <textarea id="cameraprofile" rows="6" spellcheck="false"></textarea>
+        <button id="cameraapply">Apply</button>
+      </details>
+    </details>
 
     <!-- A piece's MIDI instruments onto devices (midiout.js): where each
          plays is chosen on its channel's row, and the delay moves every

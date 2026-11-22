@@ -591,8 +591,43 @@ try
         check(await page.waitForFunction((b) => document.getElementById('hidrows')
                   .textContent !== b, before, { timeout: 5000 }).then(() => true, () => false) &&
               /LHR-3=(left|right)/.test(await page.evaluate(
-                  () => localStorage.getItem('thinksynth:hid:hands'))),
+                  () => localStorage.getItem('thinksynth:hid:index:hands'))),
               'a pair that says no hands can be swapped, and the swap is kept');
+        await context.close();
+    }
+
+    {
+        /* The hands a pair was swapped to, kept where the theremin's
+           profile now is, are moved once, as the page loads; a profile
+           there stays. */
+        const context = await browser.newContext();
+        const { page } = await open({}, context);
+        const stored = () => page.evaluate(() =>
+            [localStorage.getItem('thinksynth:hid:hands'),
+             localStorage.getItem('thinksynth:hid:index:hands')]);
+
+        await page.evaluate(() =>
+        {
+            localStorage.removeItem('thinksynth:hid:index:hands');
+            localStorage.setItem('thinksynth:hid:hands', 'LHR-3=left\nLHR-4=right\n');
+        });
+        await page.reload();
+
+        const moved = await stored();
+
+        await page.evaluate(() =>
+        {
+            localStorage.removeItem('thinksynth:hid:index:hands');
+            localStorage.setItem('thinksynth:hid:hands', 'device hands {\n};\n');
+        });
+        await page.reload();
+
+        const left = await stored();
+
+        check(JSON.stringify(moved) === JSON.stringify([null, 'LHR-3=left\nLHR-4=right\n']) &&
+              JSON.stringify(left) === JSON.stringify(['device hands {\n};\n', null]),
+              'the hands a pair was swapped to move to their own key once; a profile stays: ' +
+              JSON.stringify([moved, left]));
         await context.close();
     }
 

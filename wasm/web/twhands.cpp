@@ -18,10 +18,11 @@
  *
  * The page hands over each frame's hands as the tracker gave them (into
  * hd_hands); thhHandTrack makes a controller's state of them and thhMapper
- * plays the hands' own profile (hid/thhHandTrack.h). What comes back is the
- * notes, their bends and their aux values, in order, for the page to play
- * as the Valve Index's are played, and where each hand is, for the camera
- * view to draw.
+ * plays the hands' own profile with the player's over it
+ * (hid/thhHandTrack.h). What comes back is the notes, their bends and their
+ * aux values, in order, for the page to play as the Valve Index's are
+ * played, where each hand is, for the camera view to draw, and the
+ * controls' values, for the configurator's form.
  */
 
 #include <cstdio>
@@ -33,6 +34,7 @@
 #include "thHidBlock.h"
 #include "thhHandTrack.h"
 #include "thhMapper.h"
+#include "twprofile.h"
 
 namespace {
 
@@ -44,6 +46,7 @@ thhHandTrack       track_;
 thhMapper          mapper_;
 std::vector<float> hands_;
 std::string        said_;
+thhState           last_;
 
 void
 add (const char *fmt, double a, double b = 0, double c = 0)
@@ -56,10 +59,14 @@ add (const char *fmt, double a, double b = 0, double c = 0)
 
 /* {"notes":[[note,velocity],...],"bends":[[note,semitones],...],
    "aux":[[note,which,value],...],"left":[x,y,close,pinched]|null,
-   "right":...}: a velocity of 0 lets the note go. */
+   "right":...,"values":[...]}, and "problem" with the player's profile if
+   given: a velocity of 0 lets the note go; the values as twValues has
+   them. */
 const char *
-say (const std::vector<thhAction> &acts, const thhState &s)
+say (const std::vector<thhAction> &acts, const thhState &s,
+     const std::string *problem = NULL)
 {
+    last_ = s;
     static const thhAction::Kind KINDS[3] = {
         thhAction::NOTE_ON, thhAction::NOTE_BEND, thhAction::NOTE_AUX };
     static const char *const NAMES[3] = { "notes", "bends", "aux" };
@@ -105,7 +112,8 @@ say (const std::vector<thhAction> &acts, const thhState &s)
         add("[%.3f,%.3f,", s.axis[side.x], s.axis[side.x + 1]);
         add("%.3f,%.0f]", s.axis[side.x + 2], s.buttons & (1u << side.pinch) ? 1 : 0);
     }
-    said_ += "}";
+    said_ += ",\"values\":" + twValues(thhHandsControls(), s) +
+             (problem != NULL ? twProblem(*problem) : "") + "}";
     return said_.c_str();
 }
 
@@ -113,23 +121,32 @@ say (const std::vector<thhAction> &acts, const thhState &s)
 
 extern "C" {
 
-/* The hands' own profile, snapped to its scale or not, onto a fresh
-   mapper. "" if it binds, else what is wrong, which would be this build's
-   fault. */
-EMSCRIPTEN_KEEPALIVE const char *hd_start (int snap)
+/* The hands' own profile, snapped to its scale or not, with the player's
+   `text' over it, onto a fresh mapper: what is wrong with the player's, or
+   "". */
+EMSCRIPTEN_KEEPALIVE const char *hd_start (int snap, const char *text)
 {
-    thHidBlock profile;
     std::vector<thhAction> none;
-    int line = 0;
 
-    said_.clear();
     track_ = thhHandTrack();
     mapper_ = thhMapper();
-    if (thHidParseProfile(snap ? THH_HANDS_PROFILE : THH_HANDS_FREE_PROFILE,
-                          profile, said_, line))
-        mapper_.configure(profile, thhHandsControls(), none, said_, line);
-
+    last_ = thhState();
+    said_ = twConfigure(mapper_, thhHandsControls(),
+                        snap ? THH_HANDS_PROFILE : THH_HANDS_FREE_PROFILE, text, none);
     return said_.c_str();
+}
+
+/* The player's profile changed while the hands play: what it lets go of,
+   as hd_feed says it, with "problem". */
+EMSCRIPTEN_KEEPALIVE const char *hd_profile (int snap, const char *text)
+{
+    std::vector<thhAction> acts;
+    const thhState s = last_;
+    const std::string problem = twConfigure(
+        mapper_, thhHandsControls(),
+        snap ? THH_HANDS_PROFILE : THH_HANDS_FREE_PROFILE, text, acts);
+
+    return say(acts, s, &problem);
 }
 
 /* Where to write n hands, HAND floats each, before hd_feed. */

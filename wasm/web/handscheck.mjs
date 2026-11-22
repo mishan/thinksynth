@@ -92,7 +92,8 @@ function feed (frames, t = 0)
 const gone = () => JSON.parse(M.UTF8ToString(M._hd_gone()));
 const near = (a, b) => Math.abs(a - b) < 0.02;
 
-check('the hands\' own profile binds', M.ccall('hd_start', 'string', ['number'], [1]) === '');
+check('the hands\' own profile binds',
+      M.ccall('hd_start', 'string', ['number', 'string'], [1, '']) === '');
 
 /* The right hand a fifth of the way up, the left pinched halfway up, then
    the left let go of. */
@@ -116,9 +117,27 @@ const left = gone().notes;
 
 check('a camera gone lets go of what it holds', JSON.stringify(left) === '[[48,0]]',
       JSON.stringify(left));
-check('the unsnapped profile binds', M.ccall('hd_start', 'string', ['number'], [0]) === '');
+check('the unsnapped profile binds',
+      M.ccall('hd_start', 'string', ['number', 'string'], [0, '']) === '');
 got = feed([...Array(8).fill([hand(0.7, 0.21, false), hand(0.3, 0.5, true)])], 10);
 check('unsnapped, the bend goes where the hand is: 0.21 of 36 semitones',
       near(got.bends.at(-1)?.[1], 0.21 * 36), JSON.stringify(got.bends.slice(-2)));
+check('and what its 4 buttons and 6 axes read is said, the left pinch down',
+      got.last.values.length === 10 && got.last.values[0] === 1, JSON.stringify(got.last.values));
+
+/* The player's profile over its own, and changed as it plays. */
+check('the player\'s profile binds over its own',
+      M.ccall('hd_start', 'string', ['number', 'string'],
+              [1, 'device hands { left_pinch = note 7; };']) === '');
+got = feed([...Array(8).fill([right, hand(0.3, 0.8, true)])], 20);
+check('and a left pinch plays its G3', got.notes[0]?.[0] === 55, JSON.stringify(got.notes));
+
+const changed = JSON.parse(M.ccall('hd_profile', 'string', ['number', 'string'],
+                                   [1, 'device hands { left_pinch = note 12; };']));
+
+got = feed([...Array(4).fill([right]), ...Array(8).fill([right, hand(0.3, 0.8, true)])], 30);
+check('changed as it plays, what it held is let go, and a pinch plays C4',
+      changed.problem === '' && JSON.stringify(changed.notes) === '[[55,0]]' &&
+      got.notes[0]?.[0] === 60, JSON.stringify([changed.notes, got.notes]));
 
 process.exit(failures);

@@ -184,11 +184,16 @@ where the last note was left.
 ## The configurator
 
 A form over the profile language, for any device, the phone first and
-then the Index, camera and hands. Built for the phone and the Index:
-the Phone pane's "What the phone plays" and the Controller pane's "What
-the controller plays" (`wasm/web/profileform.js` over `hid/thhForm`), a
-card for each part of the device. A phone's masking waits on it taking a
-patch's `controller` block, which it doesn't yet. The language stays the one source of
+then the Index, camera and hands. Built for each: the Phone pane's "What
+the phone plays", the Controller pane's "What the controller plays" and
+"What the camera plays", for the air harp (`camera`) or the theremin
+(`hands`), whichever is picked (`wasm/web/profileform.js` over
+`hid/thhForm`), a card for each part of the device. The camera's worker
+plays the player's profile over its own, and offers no action it doesn't
+play: no knobs or loops, and on the air harp no bends or aux. The Index's
+remembered hands moved to `thinksynth:hid:index:hands` to make room. A
+phone's masking waits on it taking a patch's `controller` block, which
+it doesn't yet. The language stays the one source of
 truth: the form writes the player's profile text, and the text box
 stays beside it. Each device keeps its own (`thinksynth:hid:DEVICE`).
 
