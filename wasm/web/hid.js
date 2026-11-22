@@ -148,7 +148,9 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
         problem = M.ccall('th_profile', 'string', ['string'], [profile]);
         setInterval(() =>
         {
-            if (wired !== null || [...open.values()].some((r) => r.id !== null))
+            /* And the form open, whose marks are the patch's. */
+            if (wired !== null || [...open.values()].some((r) => r.id !== null) ||
+                pane.form.open)
                 follow().catch(() => {});
         }, PROBE_MS);
     })().catch((e) =>
