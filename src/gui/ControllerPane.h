@@ -24,11 +24,13 @@
 
 #include <gtkmm.h>
 
+#include "ControllerForm.h"
 #include "thhPane.h"
 
-/* A controller's profile, read only: a row per binding with what it does,
-   where, and what the control is doing now, and what won't work. Reload
-   reads the file again; Open file opens it in the desktop's editor,
+/* A controller's profile: a row per binding with what it does, where, and
+   what the control is doing now, and what won't work; and the
+   configurator's form (ControllerForm), which edits the player's file.
+   Reload reads the file again; Open file opens it in the desktop's editor,
    writing the controller's own profile there first if there is none. */
 class ControllerPane : public Gtk::Box
 {
@@ -43,8 +45,10 @@ private:
     unsigned       generation_;
     std::string    problem_;    /* the last Reload's or Open's, until the next */
 
-    Gtk::Label  status_;
-    Gtk::Grid   grid_;
+    Gtk::Label     status_;
+    Gtk::Expander  formBox_;
+    ControllerForm form_;
+    Gtk::Grid      grid_;
     Gtk::Box    buttons_;
     Gtk::Button reload_, open_, swap_, clearLoops_, pair_;
     /* A binding's labels: the control and its value now, what it does and

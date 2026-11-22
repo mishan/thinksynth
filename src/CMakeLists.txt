@@ -209,6 +209,7 @@ set(THINKSYNTH_SOURCES
     gui/MainSynthWindow.cpp
     gui/MidiMap.cpp
     gui/MidiRoutesView.cpp
+    gui/ControllerForm.cpp
     gui/ControllerPane.cpp
     gui/GraphCanvas.cpp
     gui/NodeCanvasWidget.cpp

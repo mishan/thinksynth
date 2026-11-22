@@ -71,8 +71,11 @@ public:
     virtual void swapHands () = 0;
 
     /* The patch whose controller block plays over the player's file, as
-       a line to show, or nothing. */
+       a line to show, or nothing; that block, if it plays; and the knobs of
+       the patch the controllers play, for the configurator's form. */
     virtual std::string patch () const { return ""; }
+    virtual std::string patchText () const { return ""; }
+    virtual std::vector<std::string> knobs () const { return {}; }
 
     /* What the loops are doing, as a line to show, or nothing; and every
        loop stopped, which a controller gone can't ask for. */

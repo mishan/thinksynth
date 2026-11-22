@@ -70,6 +70,11 @@ public:
     std::string pairing () const;
     void clearLoops () { session_.clearLoops(); }
     std::string patch () const { return session_.patch(); }
+    std::string patchText () const
+    {
+        return session_.patchPlays() ? session_.patchText() : "";
+    }
+    std::vector<std::string> knobs () const;
 
 private:
     /* A controller: the USB device it is at and its reader; the session's

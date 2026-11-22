@@ -16,6 +16,7 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 
@@ -36,6 +37,10 @@ static const char TEMPLATE[] =
 
 ControllerPane::ControllerPane (void)
     : Gtk::Box(Gtk::Orientation::VERTICAL, 6), source_(NULL), generation_(0),
+      formBox_("What the controller _plays", true),
+      form_(thhIndexControls(), THH_INDEX_PROFILE, [this](std::string &err) {
+          return source_ && source_->reload(err);
+      }),
       buttons_(Gtk::Orientation::HORIZONTAL, 6), reload_("_Reload", true),
       open_("_Open file", true), swap_("_Swap hands", true),
       clearLoops_("_Clear loops", true), pair_("_Pair a controller", true)
@@ -68,7 +73,10 @@ ControllerPane::ControllerPane (void)
     buttons_.append(clearLoops_);
     buttons_.append(pair_);
 
+    formBox_.set_child(form_);
+
     append(status_);
+    append(formBox_);
     append(grid_);
     append(buttons_);
 
@@ -88,6 +96,8 @@ void ControllerPane::setSource (thhPaneSource *source)
     source_ = source;
     generation_ = (unsigned)-1;
     problem_.clear();
+    if (source_)
+        form_.setPath(source_->path());
     onTick();
 }
 
@@ -142,12 +152,36 @@ bool ControllerPane::onTick (void)
     pair_.set_visible(source_ != NULL && source_->canPair() &&
                       source_->pairing().empty());
 
+    formBox_.set_visible(source_ != NULL);
     if (!source_)
     {
         status_.set_text("Controllers are read on Linux only.");
         rebuild(0);
         return true;
     }
+
+    /* Of a pair, whichever is further from rest. */
+    const thhControls &controls = thhIndexControls();
+    std::vector<double> values;
+
+    form_.setPatch(source_->patchText(), source_->knobs());
+    for (int i = 0; i < source_->controllers(); i++)
+    {
+        const thhState s = source_->stateOf(i);
+
+        if (!s.connected)
+            continue;
+        values.resize(controls.buttons.size() + controls.axes.size(), 0);
+        for (size_t k = 0; k < values.size(); k++)
+        {
+            const double x = k < controls.buttons.size()
+                ? (s.buttons >> k) & 1 : s.axis[k - controls.buttons.size()];
+
+            if (std::fabs(x) > std::fabs(values[k]))
+                values[k] = x;
+        }
+    }
+    form_.values(values);
 
     /* Each controller's rows, under its hand where there are two. */
     std::vector<thhPaneRow> rows;
@@ -259,6 +293,7 @@ void ControllerPane::onReload (void)
     std::string err;
 
     problem_ = source_ && !source_->reload(err) ? err : "";
+    form_.draw();
     onTick();
 }
 

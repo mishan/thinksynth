@@ -219,8 +219,10 @@ survive. `thhBindingText` writes a binding with only the options the
 parser wouldn't assume, and any binding it writes reads back as itself.
 An edit whose result wouldn't read, or a binding the language can't
 write, is refused and the text left as it was.
-`hid/thhProfileEdit` holds this without a toolkit, as `thhPane` holds
-the pane, so the desktop's Controller pane can have the same form later.
+`hid/thhProfileEdit` and `hid/thhForm` hold this without a toolkit, as
+`thhPane` holds the pane, with each device's layout, so the desktop's
+Controller pane has the same form (`src/gui/ControllerForm`), writing
+the player's file and reading it again.
 `thcGenEdit`'s span helpers moved to libthink (`thTextEdit`) for both.
 
 ## Failure
