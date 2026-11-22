@@ -202,9 +202,11 @@ export function profileForm ({ rows, problem, learn, form, edit, args, text,
 
         for (const l of c.layered)
             div.append(make('p', { className: 'hint', textContent: `in layer ${l}` }));
-        button('Add', () => made('add', c.control, -1,
-            c.axis ? (knobs.length ? `kind=value\narg=${knobs[0]}` : 'kind=aux')
-                   : 'kind=note'));
+        /* A button does one thing. */
+        if (c.axis || c.bindings.length === 0)
+            button('Add', () => made('add', c.control, -1,
+                c.axis ? (knobs.length ? `kind=value\narg=${knobs[0]}` : 'kind=aux')
+                       : 'kind=note'));
         if (c.yours || c.off)
             button('Reset', () => made('reset', c.control, -1));
         if (!c.off && c.bindings.length)

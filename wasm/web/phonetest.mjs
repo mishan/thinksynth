@@ -253,6 +253,10 @@ try
           (await row('touch_1')).action === 'note' && (await row('touch_5'))?.action === undefined,
           'every control is on one, the phone\'s own bindings as its own',
           JSON.stringify(await row('touch_1')));
+    check(await host.evaluate(() => document.querySelector('[aria-label="Add touch_1"]') === null &&
+                                    document.querySelector('[aria-label="Add touch_5"]') !== null &&
+                                    document.querySelector('[aria-label="Add touch_1_x"]') !== null),
+          'a bound finger has no Add, as a button does one thing; an axis does');
 
     await host.click('#phonelearn');
     await touch(phone, 0.2, 0.5);

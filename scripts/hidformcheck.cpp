@@ -188,6 +188,7 @@ checkEdits ()
         { "a second note on a button", "", "add", "touch_1", -1, "kind=note" },
         { "a number that isn't one", "", "set", "touch_1", 0, "semis=x" },
         { "a whole number that isn't whole", "", "set", "touch_1", 0, "semis=1.5" },
+        { "a number that isn't finite", "", "set", "touch_1", 0, "semis=nan" },
         { "a scale there isn't", "", "set", "touch_1_x", 0, "scale=nope" },
         { "a layer there isn't", "", "set", "touch_1", 0, "kind=hold" },
         { "a binding there isn't", "", "set", "touch_5", 0, "semis=1" },

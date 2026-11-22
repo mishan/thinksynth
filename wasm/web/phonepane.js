@@ -113,15 +113,12 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
     let mine = kept(PROFILE_KEY);
     const profile = () =>
         M.ccall('th_phone_profile', 'string', ['string'], [mine]);
-    const load = async () =>
-    {
-        if (M === null)
-        {
-            const { default: createThinkHid } = await import('./thinkhid.js');
-
-            M ??= await createThinkHid();
-        }
-    };
+    /* One module, however many ask for it while it loads. */
+    let loading = null;
+    const load = () => loading ??= import('./thinkhid.js')
+        .then(({ default: createThinkHid }) => createThinkHid())
+        .then((m) => { M = m; })
+        .catch((e) => { loading = null; throw e; });
 
     const form = profileForm({
         rows: pane.rows, problem: pane.problem, learn: pane.learn,

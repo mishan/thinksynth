@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstdlib>
 #include <sstream>
 
@@ -81,7 +82,7 @@ number (const std::string &v, double &out)
     char *end;
 
     out = strtod(v.c_str(), &end);
-    return !v.empty() && *end == '\0';
+    return !v.empty() && *end == '\0' && std::isfinite(out);
 }
 
 /* `key=value' made so in `b'. */
