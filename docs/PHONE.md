@@ -151,10 +151,13 @@ after the last frame.
 - A finger takes the lowest free slot when it lands and keeps it until
   it lifts or is cancelled (`pointercancel`), so a second finger never
   becomes the first.
-- The phone page: one full-screen surface, `touch-action: none`, no
-  pull to refresh, a Wake Lock while paired, and both motion permissions
-  asked for inside Start's tap. Motion refused or absent, it says so and
-  touches play.
+- The phone page (built: phone.html, phone.js, and the page's Phone pane,
+  phonepane.js): one full-screen surface, `touch-action: none`, no pull
+  to refresh, a Wake Lock while paired, and both motion permissions asked
+  for inside Start's tap. Motion refused or absent, it says so and
+  touches play. Gravity is read with the spec's signs; a platform that
+  reads them the other way, as some iOS versions have, is still to be
+  confirmed on a phone.
 
 The default profile, `THH_PHONE_PROFILE`, a theremin under one finger,
 for `theremin.dsp` as the hands' is (docs/CAMERA.md):

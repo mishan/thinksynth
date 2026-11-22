@@ -938,6 +938,11 @@ jobs:
       - name: The phone's pad
         run: node wasm/web/phonepadcheck.mjs
 
+      # A controller's actions played on the page (actions.js), its values
+      # flushed by a timer once the page is hidden.
+      - name: A controller's actions on the page
+        run: node wasm/web/actionscheck.mjs
+
       # A Valve Index controller's values and bends on the module's synth
       # (thinkweb.cpp, tw_hid), and a patch's controller block asked of it
       # (tw_controller): each heard by rendering the same note twice.
@@ -1264,6 +1269,14 @@ jobs:
         if: matrix.browser == 'chromium'
         working-directory: wasm/web
         run: node linktest.mjs
+
+      # A phone played on the page end to end (phone.html, phonepane.js): the
+      # link and its QR code, a touch and a tilt played, hidden, reloaded,
+      # disconnected.
+      - name: A phone played on the page
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node phonetest.mjs ../../build-web
 
       # The chat box against a relay the script plays: a slow echo, a
       # refusal, no connection.

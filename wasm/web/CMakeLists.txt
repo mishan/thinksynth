@@ -397,11 +397,12 @@ target_link_options(thinkhid PRIVATE
 # The page and its scripts, copied beside the module so the build directory
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
-set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js
+set(SITE_SOURCES index.html jam.html phone.html style.css main.js keyboard.js
                 keyfocus.js panel.js patch.js host.js worklet.js
                 engine.js mic.js midi.js midimap.js midiroutesui.js midiout.js
                 midioutui.js clock.js
                 camera.js cameraview.js camworker.js handworker.js hid.js videoview.js videoworker.js videopart.js videoscale.js mirror.js
+                actions.js phone.js phonepad.js phonepane.js pair.js mesh.js
                 ear.js evolve.js evolveui.js
                 growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
                 seqview.js nodeview.js rollview.js tapediff.js offline.js
@@ -438,6 +439,22 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/replay.js"
             "${PROJECT_BINARY_DIR}/replay.js"
     DEPENDS "${CAIRO2D}/replay.js")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/replay.js")
+
+# The phone's QR code (phonepane.js): qrcode-generator's own module, its
+# license in its header, as .js: a server that knows no .mjs serves it as
+# octet-stream, which no browser runs, and the page imports it.
+set(QRCODE "${THINK_TOP}/node_modules/qrcode-generator/dist/qrcode.mjs")
+
+if(NOT EXISTS "${QRCODE}")
+  message(FATAL_ERROR
+      "qrcode-generator is not installed: run `npm ci` at the top first.")
+endif()
+
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/qrcode.js"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${QRCODE}" "${PROJECT_BINARY_DIR}/qrcode.js"
+    DEPENDS "${QRCODE}")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/qrcode.js")
 
 # And the tiler, which is mullion's, under the names it has there.
 foreach(name panes.js panes.css popover.js)
@@ -781,6 +798,7 @@ list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/panes.js"
     "${PROJECT_BINARY_DIR}/panes.css"
     "${PROJECT_BINARY_DIR}/popover.js"
+    "${PROJECT_BINARY_DIR}/qrcode.js"
     ${BUNDLE_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "${PROJECT_BINARY_DIR}/sw.js"

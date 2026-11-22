@@ -79,6 +79,7 @@ import { routesTable } from './midiroutesui.js';
 import { cameraAvailable, cameraToggle } from './camera.js';
 import { createCameraView } from './cameraview.js';
 import { hidToggle } from './hid.js';
+import { phoneToggle } from './phonepane.js';
 import { createVideoView } from './videoview.js';
 import { MidiOutControls } from './midioutui.js';
 import { createNodeView } from './nodeview.js';
@@ -486,6 +487,7 @@ const routedPedal = new Set();
 const engineHolds = new Map();
 let cameraIn = null;             /* the camera button (camera.js)   */
 let hidIn = null;                /* the controller button (hid.js)  */
+let phoneIn = null;              /* the phone button (phonepane.js) */
 let video = null;                /* the picture (videoview.js)      */
 let micPeak = 0;                 /* the loudest capture frame the worklet saw */
 let micDropped = 0;
@@ -731,8 +733,9 @@ function composing ()
 
 /* Every way of pressing a note comes here. A second press of a note
    already down is counted and nothing else: one note, however many things
-   are holding it. `from' names a device holding it -- 'midi', 'camera' or
-   'hid' -- whose presses are counted apart as well (releaseKeys). */
+   are holding it. `from' names a device holding it -- 'midi', 'camera',
+   'hid' or 'phone' -- whose presses are counted apart as well
+   (releaseKeys). */
 function press (note, velocity = VELOCITY, from = null)
 {
     if (synth === null)
@@ -770,7 +773,8 @@ function press (note, velocity = VELOCITY, from = null)
 
     sounding.set(note, { count: 1, midi: from === 'midi' ? 1 : 0,
                          camera: from === 'camera' ? 1 : 0,
-                         hid: from === 'hid' ? 1 : 0, velocity,
+                         hid: from === 'hid' ? 1 : 0,
+                         phone: from === 'phone' ? 1 : 0, velocity,
                          piece: piecing, channel });
 
     if (piecing)
@@ -909,10 +913,11 @@ function releaseAll ()
 
     cameraIn?.forget();
     hidIn?.forget();
+    phoneIn?.forget();
     pedal(0);
 
     for (const held of sounding.values())
-        held.midi = held.camera = held.hid = 0;
+        held.midi = held.camera = held.hid = held.phone = 0;
 
     releaseKeys();
 }
@@ -945,9 +950,9 @@ function pedal (value)
 }
 
 /* Everything the pointer and the computer keyboard hold: a key released
-   while the page was not looking never sends its keyup. A MIDI key's or the
-   camera's note off arrives wherever the focus is, so what they hold stays
-   down. */
+   while the page was not looking never sends its keyup. A MIDI key's, the
+   camera's or a controller's note off arrives wherever the focus is, so
+   what they hold stays down. */
 function releaseKeys ()
 {
     keyboard?.releaseAll();
@@ -955,8 +960,10 @@ function releaseKeys ()
 
     for (const [note, held] of [...sounding])
     {
-        if (held.midi + held.camera + held.hid > 0)
-            held.count = held.midi + held.camera + held.hid;
+        const devices = held.midi + held.camera + held.hid + held.phone;
+
+        if (devices > 0)
+            held.count = devices;
         else
         {
             held.count = 1;
@@ -3529,6 +3536,7 @@ async function start ()
     $('midi').disabled = $('midilearn').disabled = !midiAvailable();
     $('camera').disabled = !cameraAvailable();
     hidIn.start();
+    phoneIn.start();
 
     if (!cameraAvailable())
         $('camerastatus').textContent = 'needs https, or localhost';
@@ -4836,6 +4844,23 @@ async function init ()
             pair: $('hidpair'), swap: $('hidswap'), clear: $('hidclear'),
             profile: $('hidprofile'), reload: $('hidreload'),
             file: $('hidfile'), problem: $('hidproblem'),
+        },
+    });
+    /* A phone plays as the Index does: the same keys, the same channels. */
+    phoneIn = phoneToggle({
+        button: $('phone'), status: $('phonestatus'),
+        onNoteOn: (note, velocity) => press(note, velocity, 'phone'),
+        onNoteOff: (note) => release(note, 'phone'),
+        play: (action) =>
+        {
+            pollSoon();
+            synth?.hid(action);
+        },
+        channel: controlChannel,
+        bendChannel,
+        pane: {
+            root: $('phonepane'), qr: $('phoneqr'), link: $('phonelink'),
+            end: $('phoneend'), again: $('phoneagain'),
         },
     });
     video = createVideoView({

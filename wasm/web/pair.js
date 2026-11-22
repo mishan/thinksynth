@@ -61,6 +61,27 @@ const newEpoch = () => Math.random().toString(36).slice(2);
 /* relay/pair.mjs's close for a socket its side has replaced. */
 const REPLACED = 4001;
 
+/* The site's relay's /pair: the build's config.json, as the room page
+   finds its relay (jam.js), or the page's own host on the relay's usual
+   port, over TLS for a page that is: an https page can't open ws:. A
+   phone uses its own site's, never one a link names, so a link can't send
+   its player's touches elsewhere. */
+export async function pairUrl ()
+{
+    let relay = null;
+
+    try
+    {
+        relay = (await (await fetch('config.json')).json()).relay;
+    }
+    catch
+    {
+    }
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+
+    return `${(relay || `${scheme}://${location.hostname}:8787`).replace(/\/+$/, '')}/pair`;
+}
+
 export class Pair
 {
     constructor (url, { make = false, host = make, code = null, token = null,
