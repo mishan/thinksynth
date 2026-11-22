@@ -445,6 +445,14 @@
       <button id="hidpair" hidden>Pair a controller</button>
       <button id="hidswap" hidden>Swap hands</button>
       <button id="hidclear" hidden>Clear loops</button>
+      <!-- What each of its controls does, as a form over the player's
+           profile (profileform.js). -->
+      <details id="hidform">
+        <summary>What the controller plays</summary>
+        <button id="hidlearn" aria-pressed="false">Learn</button>
+        <p id="hidformproblem" class="hint" aria-live="polite"></p>
+        <div id="hidformrows" class="formrows"></div>
+      </details>
       <label for="hidprofile">Your profile, over the controller's own</label>
       <textarea id="hidprofile" rows="6" spellcheck="false"
                 placeholder="device index {&#10;};"></textarea>
@@ -465,12 +473,12 @@
       <button id="phoneagain" hidden>New code</button>
       <button id="phoneend" hidden>Disconnect</button>
       <!-- What each of the phone's controls does, as a form over the
-           player's profile (phoneform.js), and the profile as text. -->
+           player's profile (profileform.js), and the profile as text. -->
       <details id="phoneform">
         <summary>What the phone plays</summary>
         <button id="phonelearn" aria-pressed="false">Learn</button>
         <p id="phoneformproblem" class="hint" aria-live="polite"></p>
-        <div id="phonerows"></div>
+        <div id="phonerows" class="formrows"></div>
         <details id="phonetext">
           <summary>Your profile as text</summary>
           <label for="phoneprofile">Your profile, over the phone's own</label>

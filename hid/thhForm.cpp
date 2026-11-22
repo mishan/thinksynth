@@ -28,32 +28,36 @@
 
 namespace {
 
-/* The block for either hand of `text', if it reads and has one, and is
-   `device''s. */
+/* The blocks of `text', if it reads and they are all `device''s. */
 bool
-eitherHand (const std::string &text, const std::string &device,
-            thHidBlock &out, std::string &err)
+blocksOf (const std::string &text, const std::string &device,
+          std::vector<thHidBlock> &out, std::string &err)
 {
-    std::vector<thHidBlock> blocks;
     int line = 0;
 
-    if (!thHidParseProfiles(text, blocks, err, line))
+    if (!thHidParseProfiles(text, out, err, line))
     {
         err = "line " + std::to_string(line) + ": " + err;
+        out.clear();
         return false;
     }
-    for (const thHidBlock &b : blocks)
+    for (const thHidBlock &b : out)
         if (b.device != device)
         {
             err = "it is for '" + b.device + "', not '" + device + "'";
+            out.clear();
             return false;
         }
-        else if (b.hand.empty())
-        {
-            out = b;
-            return true;
-        }
-    return false;
+    return true;
+}
+
+thHidBlock
+eitherHand (const std::vector<thHidBlock> &blocks)
+{
+    for (const thHidBlock &b : blocks)
+        if (b.hand.empty())
+            return b;
+    return thHidBlock();
 }
 
 std::vector<thHidBinding>
@@ -231,17 +235,20 @@ thhFormKindName (thHidBinding::Kind kind)
 
 thhForm
 thhFormOf (const thhControls &controls, const char *fallback,
-           const std::string &text)
+           const std::string &text, const std::string &patch)
 {
     thhForm form;
-    thHidBlock own, mine;
+    std::vector<thHidBlock> owns, mines, patches;
     std::string ignored;
 
-    eitherHand(fallback, controls.device, own, ignored);
+    blocksOf(fallback, controls.device, owns, ignored);
+    blocksOf(patch, controls.device, patches, ignored);
     if (text.find_first_not_of(" \t\r\n") != std::string::npos &&
-        !eitherHand(text, controls.device, mine, form.problem) &&
-        !form.problem.empty())
+        !blocksOf(text, controls.device, mines, form.problem))
         form.problem = "your profile doesn't read (" + form.problem + ")";
+
+    const thHidBlock own = eitherHand(owns), mine = eitherHand(mines);
+
     for (const thHidLayer &l : mine.layers)
         form.layers.push_back(l.name);
 
@@ -253,7 +260,7 @@ thhFormOf (const thhControls &controls, const char *fallback,
         all.push_back({ a.name, true });
     for (const auto &[name, axis] : all)
     {
-        thhFormControl c;
+        thhFormControl c = {};
 
         c.control = name;
         c.axis = axis;
@@ -263,10 +270,29 @@ thhFormOf (const thhControls &controls, const char *fallback,
         c.own = !boundTo(own.bindings, name).empty();
         if (!c.yours && !c.off)
             c.bindings = boundTo(own.bindings, name);
-        for (const thHidBlock *blk : { &mine, &own })
-            for (const thHidLayer &l : blk->layers)
-                for (const thHidBinding &b : boundTo(l.bindings, name))
-                    c.layered.push_back(l.name + ": " + thhBindingText(b));
+        for (const thHidBlock &blk : patches)
+            c.patched |= !boundTo(blk.bindings, name).empty() || ignores(blk, name);
+        for (const auto *blocks : { &mines, &owns })
+            for (const thHidBlock &blk : *blocks)
+            {
+                const std::string hand = blk.hand.empty() ? "" : blk.hand + " hand";
+
+                /* The player's binding for either hand replaces a hand's own
+                   too. */
+                const std::string under = blocks == &owns && (c.yours || c.off)
+                                        ? " (yours plays instead)" : "";
+
+                for (const thHidBinding &b : hand.empty()
+                         ? std::vector<thHidBinding>() : boundTo(blk.bindings, name))
+                    c.elsewhere.push_back(hand + ": " + thhBindingText(b) + under);
+                if (!hand.empty() && ignores(blk, name))
+                    c.elsewhere.push_back(hand + ": ignore " + name + ";" + under);
+                for (const thHidLayer &l : blk.layers)
+                    for (const thHidBinding &b : boundTo(l.bindings, name))
+                        c.elsewhere.push_back((hand.empty() ? "" : hand + ", ") +
+                                              "layer " + l.name + ": " +
+                                              thhBindingText(b));
+            }
         form.controls.push_back(c);
     }
     return form;
@@ -278,7 +304,7 @@ thhFormEdit (std::string &text, const thhControls &controls,
              const std::string &control, int which,
              const std::string &lines, std::string &err)
 {
-    const thhForm form = thhFormOf(controls, fallback, text);
+    const thhForm form = thhFormOf(controls, fallback, text, "");
     const thhFormControl *c = NULL;
 
     err = form.problem;

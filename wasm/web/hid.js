@@ -39,6 +39,7 @@
  */
 
 import { actionPlayer } from './actions.js';
+import { INDEX_LAYOUT, MAX_PROFILE, profileForm } from './profileform.js';
 
 const VALVE = 0x28de;
 const WIRED = 0x2300;
@@ -112,7 +113,9 @@ export function hidAvailable ()
  * `pane' is the controller pane's elements, drawn here while it is open
  * (drawPane): its `root' (a <details>), `line', `rows' (a <tbody>), the
  * `pair', `swap' and `clear' buttons, and the profile's `profile' (a
- * <textarea>), `reload', `file' (an <input type=file>) and `problem'.
+ * <textarea>), `reload', `file' (an <input type=file>) and `problem'; and
+ * the form's (profileform.js) `form' (a <details>), `formRows',
+ * `formProblem' and `learn'.
  *
  * Returns { start, forget }: start once there is a synth to play, which
  * enables the button and takes up any controller granted before; forget
@@ -221,6 +224,8 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
             M.ccall('th_patch', 'string', ['string', 'string', 'string'],
                     [c.block, c.name, c.args.join('\n')]);
             take();
+            if (pane.form.open)
+                form.draw();
         }
     };
 
@@ -524,15 +529,39 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
 
     const setProfile = (text) =>
     {
+        if (text.length > MAX_PROFILE)
+        {
+            problem = `Your profile is too long: ${MAX_PROFILE} characters at most.`;
+            drawPane();
+            return;
+        }
         profile = text;
         keep(PROFILE_KEY, text);
+        pane.profile.value = text;
         if (M !== null)
         {
             problem = M.ccall('th_profile', 'string', ['string'], [text]);
             take();
         }
         drawPane();
+        if (pane.form.open && M !== null)
+            form.draw();
     };
+
+    const form = profileForm({
+        rows: pane.formRows, problem: pane.formProblem, learn: pane.learn,
+        layout: INDEX_LAYOUT,
+        form: (text) => JSON.parse(M.ccall('th_form', 'string', ['string', 'string'],
+                                           ['index', text])),
+        edit: (text, op, control, which, fields) => pane.profile.value !== text
+            ? { err: 'Your profile\'s text has changes; Reload them first.' }
+            : JSON.parse(M.ccall('th_form_edit', 'string',
+                ['string', 'string', 'string', 'string', 'number', 'string'],
+                ['index', text, op, control, which, fields])),
+        args: async () => (await controller(channel())).args,
+        text: () => profile,
+        changed: setProfile,
+    });
 
     const wirePane = () =>
     {
@@ -560,6 +589,34 @@ export function hidToggle ({ button, status, onNoteOn, onNoteOff, play,
             drawPane();
         });
         pane.reload.addEventListener('click', () => setProfile(pane.profile.value));
+
+        let showing = 0, opened = 0;
+
+        pane.form.addEventListener('toggle', async () =>
+        {
+            const run = ++opened;
+
+            clearInterval(showing);
+            showing = 0;
+            if (!pane.form.open)
+                return;
+            try
+            {
+                await load();
+            }
+            catch (e)
+            {
+                pane.formProblem.textContent = `The controller module didn't load: ${e.message}`;
+                return;
+            }
+            await form.draw();
+            /* Closed, or opened again, while it drew. */
+            if (run !== opened)
+                return;
+            showing = setInterval(() => form.values(JSON.parse(
+                M.ccall('th_form_values', 'string', ['string', 'number'], ['index', 0]))),
+                100);
+        });
         pane.file.addEventListener('change', async () =>
         {
             const f = pane.file.files[0];

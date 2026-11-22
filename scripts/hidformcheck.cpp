@@ -24,7 +24,9 @@
  * ignore as off, and a layer's bindings beside; an edit of its own writes
  * them all as the player's, the last taken out writes an ignore, and one
  * added to a control that is off drops the ignore; and an edit that
- * wouldn't play is refused with the text as it was.
+ * wouldn't play is refused with the text as it was. On the Index, a hand's
+ * block is shown beside, and what the patch's controller block binds is
+ * marked as the patch's.
  */
 
 #include <cstdio>
@@ -32,6 +34,7 @@
 #include <vector>
 
 #include "thhForm.h"
+#include "thhIndex.h"
 #include "thhPhone.h"
 #include "thhProfileEdit.h"
 
@@ -69,7 +72,7 @@ texts (const thhFormControl &c)
 
     for (const thHidBinding &b : c.bindings)
         out += thhBindingText(b) + " ";
-    for (const string &l : c.layered)
+    for (const string &l : c.elsewhere)
         out += "[" + l + "] ";
     return out + (c.yours ? "yours" : "its own") + (c.off ? ", off" : "");
 }
@@ -100,7 +103,7 @@ checkForm ()
         { plain, "touch_1", "touch_1 = note 0; its own",
           "the phone's own binding, as its own" },
         { plain, "touch_5", "its own", "a control nothing binds, with none" },
-        { mine, "touch_1", "touch_1 = note 7; [up: touch_1 = note 12;] yours",
+        { mine, "touch_1", "touch_1 = note 7; [layer up: touch_1 = note 12;] yours",
           "the player's over it, and a layer's beside" },
         { mine, "touch_2", "its own, off", "an ignore, as off with nothing" },
         { both, "touch_1", "touch_1 = note 5; yours",
@@ -116,6 +119,28 @@ checkForm ()
           broken.problem);
     check(!other.problem.empty() && texts(of(other, "touch_1")) ==
           "touch_1 = note 0; its own", "and another device's", other.problem);
+
+    const thhForm index = thhFormOf(thhIndexControls(), THH_INDEX_PROFILE, "",
+                                    "device index { a = note 3; };");
+
+    check(texts(of(index, "trigger")) == "trigger = strike 0 { at = 0.5; }; "
+          "[left hand: trigger = strike -12 { at = 0.5; };] its own" &&
+          texts(of(index, "turn")) == "turn = \"pan\" { min = -1; max = 1; smooth = 0.05; }; "
+          "[layer fist: turn = bend { range = 2; smooth = 0.05; };] "
+          "[left hand: turn = bend { range = 2; smooth = 0.05; of = both; };] its own" &&
+          texts(of(index, "grip_mid")).find("[right hand: ignore grip_mid;]") != string::npos,
+          "a hand's block, and its layers, beside",
+          texts(of(index, "trigger")) + "\n" + texts(of(index, "turn")) + "\n" +
+          texts(of(index, "grip_mid")));
+    check(of(index, "a").patched && !of(index, "b").patched,
+          "what the patch's block binds, as the patch's");
+
+    const thhForm rebound = thhFormOf(thhIndexControls(), THH_INDEX_PROFILE,
+                                      "device index { trigger = strike 2; };");
+
+    check(texts(of(rebound, "trigger")) == "trigger = strike 2; [left hand: trigger = "
+          "strike -12 { at = 0.5; }; (yours plays instead)] yours",
+          "a hand's own the player's replaces, said so", texts(of(rebound, "trigger")));
 }
 
 static void

@@ -26,14 +26,14 @@
  * controller module (thinkhid.cpp's th_phone_*), whose actions are played
  * as the Index's are (actions.js). The pairing's code and this page's
  * token are kept for the tab, so a reload comes back to the same pairing.
- * The pane's form (phoneform.js) and text box edit the player's profile,
+ * The pane's form (profileform.js) and text box edit the player's profile,
  * paired or not.
  */
 
 import { actionPlayer } from './actions.js';
 import { Mesh } from './mesh.js';
 import { Pair, pairUrl } from './pair.js';
-import { profileForm } from './phoneform.js';
+import { MAX_PROFILE, PHONE_LAYOUT, profileForm } from './profileform.js';
 import qrcode from './qrcode.js';
 
 /* The player's changes to the phone's own profile, as hid.js keeps the
@@ -47,9 +47,6 @@ const TICK_MS = 100;
 
 const AXES = 12;
 
-/* The longest profile handed the module, whose strings go on its stack:
-   at most three bytes a character, well inside it. */
-const MAX_PROFILE = 16384;
 
 /* `session' for the tab's storage, else the browser's. Looked up inside
    the try: a browser that refuses storage refuses it by throwing from the
@@ -121,13 +118,14 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
         .catch((e) => { loading = null; throw e; });
 
     const form = profileForm({
-        rows: pane.rows, problem: pane.problem, learn: pane.learn,
-        form: (text) => JSON.parse(M.ccall('th_phone_form', 'string', ['string'], [text])),
+        rows: pane.rows, problem: pane.problem, learn: pane.learn, layout: PHONE_LAYOUT,
+        form: (text) => JSON.parse(M.ccall('th_form', 'string', ['string', 'string'],
+                                           ['phone', text])),
         edit: (text, op, control, which, fields) => pane.profile.value !== text
             ? { err: 'Your profile\'s text has changes; Apply them first.' }
-            : JSON.parse(M.ccall('th_phone_edit', 'string',
-                ['string', 'string', 'string', 'number', 'string'],
-                [text, op, control, which, fields])),
+            : JSON.parse(M.ccall('th_form_edit', 'string',
+                ['string', 'string', 'string', 'string', 'number', 'string'],
+                ['phone', text, op, control, which, fields])),
         args: async () => (await controller(channel())).args,
         text: () => mine,
         changed: (text) => setProfile(text),
@@ -339,7 +337,8 @@ export function phoneToggle ({ button, status, pane, onNoteOn, onNoteOff, play,
         if (run !== opened)
             return;
         showing = setInterval(() => form.values(JSON.parse(
-            M.ccall('th_phone_values', 'string', ['number'], [now()]))), TICK_MS);
+            M.ccall('th_form_values', 'string', ['string', 'number'], ['phone', now()]))),
+            TICK_MS);
     });
 
     return {
