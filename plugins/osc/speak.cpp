@@ -56,8 +56,9 @@
  * line is sung legato. It is the old note let go and the new one begun:
  * what the old one had still to say -- its coda, or its vowel too if the
  * slide came before it -- is said first, at its own lengths, and then
- * the new syllable. A vowel the note was holding ends at the slide. The key never comes up across a legato line, and
- * without this no syllable in it would end on its consonant.
+ * the new syllable. A vowel the note was holding ends at the slide.
+ * The key never comes up across a legato line, and without this no
+ * syllable in it would end on its consonant.
  *
  * `shift' scales every formant: 1 is an adult male, about 1.15 an adult
  * female, and under 0.8 a giant. `buzz' moves the source from a glottal
@@ -440,7 +441,7 @@ enum {
     S_TILT,                 /* the tilt's low-pass */
     S_RING,                 /* the singer's formant, two samples */
     S_RING2,
-    S_SAID,                 /* TH_NOTE_SAY: what is being said */
+    S_SAID,                 /* TH_NOTE_SAY: the `say' last seen */
     S_LEAVING = S_SAID + TH_NOTE_SAY,   /* 1 while a slide finishes the old words */
     S_OLD,                  /* TH_NOTE_SAY: the words a slide left */
     S_LEN = S_OLD + TH_NOTE_SAY
@@ -679,22 +680,34 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         }
 
         /* A slide that leaves words unfinished finishes them first, from
-           where they were; one that leaves them said, or a slide during
-           another slide's finishing, starts the new ones now. */
+           where they were; one that leaves them said starts the new ones
+           now. A slide during another's finishing drops the coda being
+           finished and leaves the words it was finishing for, from their
+           first, so no note's syllable is skipped and the lag stays a
+           note long. */
+        const bool wasLeaving = st[S_LEAVING] != 0;
+
+        if (wasLeaving)
+        {
+            st[S_SEGMENT] = 0;
+            st[S_INTO] = 0;
+        }
+
         int old[TH_NOTE_SAY];
         Segment was[MAX_SEGMENTS];
         const int wasCount = segments(old, readCodes(st + S_SAID, TH_NOTE_SAY, old), was);
         int at = (int)st[S_SEGMENT];
 
         /* A nucleus the note was holding has been sung: it ends here, and
-           what follows it is what is left. */
-        if (at < wasCount && was[at].hold)
+           what follows it is what is left. Words not yet begun have had
+           no nucleus held. */
+        if (!wasLeaving && at < wasCount && was[at].hold)
         {
             at++;
             st[S_INTO] = 0;
         }
 
-        const bool leaving = st[S_STARTED] != 0 && st[S_LEAVING] == 0 && at < wasCount;
+        const bool leaving = st[S_STARTED] != 0 && at < wasCount;
 
         if (leaving)
         {
@@ -756,7 +769,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         const bool leavingNow = st[S_LEAVING] != 0;
         const Segment *words = leavingNow ? left : segs;
         const int wordCount = leavingNow ? leftCount : count;
-        const bool held = !leavingNow && (*in_trigger)[i] > 0;
+        const bool held = (*in_trigger)[i] > 0;
 
         /* Where the words are. A held nucleus waits for the key; anything
            else moves on when its time is up. */
@@ -971,8 +984,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         out[i] = thClampArg(v, -2, 2) * TH_MAX;
 
-        const bool speaking = leavingNow || seg < count ||
-                              st[S_TAIL] < TAIL_MS * rate / 1000;
+        const bool speaking = seg < wordCount || st[S_TAIL] < TAIL_MS * rate / 1000;
 
         play[i] = speaking ? 1 : 0;
     }

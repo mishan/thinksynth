@@ -995,7 +995,7 @@ int main (int argc, char **argv)
                    IY goes straight to the vowel. Each from a voice of its
                    own, held a quarter second on its AA. */
                 const unsigned char aas[] = { 1, 31, 0 };
-                double coda[2];
+                double coda[2] = {}, iyF1 = 0;
 
                 for (int k = 0; k < 2; k++)
                 {
@@ -1008,14 +1008,57 @@ int main (int argc, char **argv)
                     fresh.addNote(0, 45, 100, 1, NULL, k ? aa : aas);
                     listen(fresh, windows / 4, held);
                     fresh.addNote(0, 45, 100, 1, NULL, iy);
-                    listen(fresh, windows / 8, after);
+                    listen(fresh, windows / 2, after);
                     coda[k] = hiss(after, TH_DEFAULT_SAMPLES / 40);
+                    if (k == 0)
+                        vowel(after, TH_DEFAULT_SAMPLES / 4, iyF1, high);
                 }
-                okOrFail(coda[0] > 30 * coda[1],
+                okOrFail(coda[0] > 30 * coda[1] && fabs(iyF1 - 310) <= f0,
                          "osc::speak: a mono slide says the coda of the "
-                         "syllable it leaves",
+                         "syllable it leaves, then the new one",
                          "5-7 kHz after AA S slides " + num(coda[0]) +
-                         ", after AA " + num(coda[1]));
+                         ", after AA " + num(coda[1]) + "; then loudest under "
+                         "1 kHz at " + num(iyF1) + " Hz");
+
+                /* A slide before the vowel is reached says the vowel: S AA
+                   slid onto IY 20 ms in is AA a tenth of a second later,
+                   and a slide during another's coda says the words it
+                   was finishing for: AA S, slid onto IY and at once onto
+                   AA, says IY before the AA rather than skipping it. */
+                const struct { const char *what; const unsigned char *first, *second, *third; double want; } early[] = {
+                    { "a mono slide before the vowel says the vowel", saa, iy, NULL, 700 },
+                    { "a mono slide during a coda says the next note's words", aas, iy, aa, 310 },
+                };
+
+                for (const auto &e : early)
+                {
+                    thSynth fresh(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                                  TH_DEFAULT_SAMPLES);
+                    vector<float> held, mid, after;
+                    double f = 0;
+
+                    if (fresh.loadTree(file, 0, 100) == NULL)
+                    {
+                        fail("a mono graph on osc::speak loads", "");
+                        break;
+                    }
+                    fresh.addNote(0, 45, 100, 1, NULL, e.first);
+                    listen(fresh, e.third ? windows / 4 : 2, held);
+                    fresh.addNote(0, 45, 100, 1, NULL, e.second);
+                    if (e.third)
+                    {
+                        listen(fresh, 2, mid);
+                        fresh.addNote(0, 45, 100, 1, NULL, e.third);
+                    }
+                    listen(fresh, windows / 4, after);
+                    /* AA after the early slide, past the rest of the S;
+                       IY at once, the S being finished dropped for it,
+                       and ahead of the AA. */
+                    vowel(after, TH_DEFAULT_SAMPLES * (e.third ? 20 : 140) / 1000, f, high);
+                    okOrFail(fabs(f - e.want) <= f0, string("osc::speak: ") + e.what,
+                             "loudest under 1 kHz at " + num(f) + " Hz, " + num(e.want) +
+                                 " wanted");
+                }
             }
         }
     }
