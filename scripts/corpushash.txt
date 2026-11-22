@@ -8,6 +8,7 @@ b32504b1b640679d  bass.dsp
 9c27b84027a18e45  bd10.dsp
 1a0f0cfeff0bb98d  bdshaped.dsp
 1181ad71330433e9  bed.dsp
+5bc3a74d67cf7265  bend.dsp
 4272dc38171f5855  bowl.dsp
 db33994f4b82398d  brass.dsp
 d89609cf920c240d  breakloop.dsp
