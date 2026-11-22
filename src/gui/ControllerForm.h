@@ -57,8 +57,9 @@ public:
        next, and spoken. */
     void draw (const std::string &why = "");
 
-    /* The text an edit is made to, as the file has it. */
-    std::string text () const;
+    /* The file read again into what plays, by Reload: what an edit is
+       made to from now. */
+    void reloaded ();
 
 private:
     struct Drawn
@@ -73,7 +74,8 @@ private:
     const char                         *own_;
     std::function<bool (std::string &)> reload_;
     std::string                         path_, patch_;
-    std::string                         shown_;     /* the text drawn */
+    std::string                         loaded_;    /* the text the controllers
+                                                       last read */
     std::vector<std::string>            knobs_;
 
     Gtk::Box          top_;
@@ -89,6 +91,9 @@ private:
                                            not yet back */
 
     void say (const std::string &text);
+    /* The file's text into `out', "" for none: false if there is one and
+       it can't be read. */
+    bool read (std::string &out) const;
 
     void edit (const std::string &op, const std::string &control, int which,
                const std::string &fields = "");

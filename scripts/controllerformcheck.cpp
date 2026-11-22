@@ -264,17 +264,30 @@ run (void)
           problem->get_text().find("Reload") != Glib::ustring::npos,
           "an edit over a file changed by hand, not read again, is refused",
           read(path) + problem->get_text().raw());
+    press(form, "Remove a 1");
+    check(read(path) == "device index {\n    a = note 9;\n};\n",
+          "and so is the next, till it is read again", read(path));
 
     /* The profile a link to the player's own copy, as dotfiles keep it. */
     const fs::path real = fs::path(dir) / "index-real";
 
     fs::rename(path, real);
     fs::create_symlink(real, path);
-    form.draw();
+    form.reloaded();
     pump();
     type(form, "a 1 semis", "6");
     check(fs::is_symlink(path) && read(real) == "device index {\n    a = note 6;\n};\n",
-          "a profile that is a link stays one, and its file is written", read(real));
+          "read again, it takes edits; a profile that is a link stays one, its file written",
+          read(real));
+
+    /* A profile there that can't be read is not one to write over. */
+    fs::permissions(real, fs::perms::none);
+    type(form, "a 1 semis", "7");
+    fs::permissions(real, fs::perms::owner_read | fs::perms::owner_write);
+    check(read(real) == "device index {\n    a = note 6;\n};\n" &&
+          problem->get_text().find("can't read") != Glib::ustring::npos,
+          "a profile that can't be read is refused, not written over",
+          read(real) + problem->get_text().raw());
 
     fs::remove_all(dir);
     return failures;

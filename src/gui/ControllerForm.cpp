@@ -170,6 +170,13 @@ void
 ControllerForm::setPath (const std::string &path)
 {
     path_ = path;
+    reloaded();
+}
+
+void
+ControllerForm::reloaded ()
+{
+    read(loaded_);
     draw();
 }
 
@@ -183,14 +190,25 @@ ControllerForm::setPatch (const std::string &block, const std::vector<std::strin
     draw();
 }
 
-std::string
-ControllerForm::text () const
+bool
+ControllerForm::read (std::string &out) const
 {
-    std::ifstream in(path_);
+    std::error_code ec;
+
+    out.clear();
+    if (!fs::exists(path_, ec) && !ec)
+        return true;
+
+    std::ifstream in(path_, std::ios::binary);
     std::stringstream s;
 
+    if (!in)
+        return false;
     s << in.rdbuf();
-    return s.str();
+    if (in.bad())
+        return false;
+    out = s.str();
+    return true;
 }
 
 /* Made to the file, which is then read again; drawn afresh once the
@@ -199,12 +217,15 @@ void
 ControllerForm::edit (const std::string &op, const std::string &control, int which,
                       const std::string &fields)
 {
-    std::string t = text(), err;
+    std::string t, err;
     std::error_code ec;
 
-    /* The file changed since it was drawn, by hand, say: the form's rows
-       aren't its, and the change isn't played yet. */
-    if (t != shown_)
+    /* A file that can't be read isn't one to write over; one changed
+       since the controllers read it, by hand, say, has a change not yet
+       played, which Reload plays. */
+    if (!read(t))
+        err = "can't read " + path_;
+    else if (t != loaded_)
         err = "Your profile has changes; Reload them first.";
     else if (thhFormEdit(t, controls_, own_, op, control, which, fields, err))
     {
@@ -230,6 +251,8 @@ ControllerForm::edit (const std::string &op, const std::string &control, int whi
             err = "can't write " + path.string() + ": " + ec.message();
         if (err.empty() && !reload_(err))
             err = "your profile: " + err;
+        else if (err.empty())
+            loaded_ = t;
     }
     Glib::signal_idle().connect_once(sigc::track_obj([this, err] { draw(err); }, *this));
 }
@@ -480,12 +503,12 @@ ControllerForm::draw (const std::string &why)
         had = had->get_parent();
 
     const std::string focused = had && had != this ? had->get_name().raw() : "";
-    shown_ = text();
+    std::string shown;
+    const bool readable = read(shown);
+    const thhForm f = thhFormOf(controls_, own_, shown, patch_);
 
-    const thhForm f = thhFormOf(controls_, own_, shown_, patch_);
-
-    say(!f.problem.empty() ? f.problem : !why.empty() ? why
-        : learnOn_ ? "Move the control you mean." : "");
+    say(!readable ? "can't read " + path_ : !f.problem.empty() ? f.problem
+        : !why.empty() ? why : learnOn_ ? "Move the control you mean." : "");
     backUp_ = f.backUp;
     /* Until the focus is back: the old rows' focus leaves them as it
        comes. */

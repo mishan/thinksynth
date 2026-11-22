@@ -293,7 +293,10 @@ void ControllerPane::onReload (void)
     std::string err;
 
     problem_ = source_ && !source_->reload(err) ? err : "";
-    form_.draw();
+    if (problem_.empty())
+        form_.reloaded();
+    else
+        form_.draw();
     onTick();
 }
 
