@@ -1278,6 +1278,14 @@ jobs:
         working-directory: wasm/web
         run: node phonetest.mjs ../../build-web
 
+      # The phone's benchmark page (phonebench.html) on a fake camera: the
+      # camera's frames, the air harp's motion read in thinkhid, the hand
+      # tracker on each delegate, and the heat run, all in its results.
+      - name: The phone's benchmark page
+        if: matrix.browser == 'chromium'
+        working-directory: wasm/web
+        run: node phonebenchtest.mjs ../../build-web
+
       # The chat box against a relay the script plays: a slow echo, a
       # refusal, no connection.
       - name: The chat box
