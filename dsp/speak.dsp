@@ -65,17 +65,17 @@ category "Synths";
     @vibrate.max = 8;
     @vibrate.label = "Vibrato Rate (Hz)";
 
-    @sibilance = -12;
-    @sibilance.widget = 1;
-    @sibilance.min = -24;
-    @sibilance.max = 0;
-    @sibilance.label = "Sibilance (dB)";
-
     @level = 0.8;
     @level.widget = 1;
     @level.min = 0;
     @level.max = 1;
     @level.label = "Level";
+
+    @sibilance = -12;
+    @sibilance.widget = 1;
+    @sibilance.min = -24;
+    @sibilance.max = 0;
+    @sibilance.label = "Sibilance (dB)";
 
 node ionode {
     channels = 1;
