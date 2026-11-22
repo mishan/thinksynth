@@ -209,6 +209,20 @@ gthHid::hasArg (int channel, const std::string &arg) const
     return synth_->getChanArg(channel, arg) != NULL;
 }
 
+std::vector<std::string>
+gthHid::knobs () const
+{
+    const int play = session_.playChannel();
+    std::vector<std::string> out;
+
+    /* One number each, as a binding moves it (setChanArgFraction), as the
+       page's are (tw_controller). */
+    for (const auto &a : synth_->getChanArgs(play >= 0 ? play : channel_()))
+        if (a.second && a.second->len() == 1)
+            out.push_back(a.first);
+    return out;
+}
+
 /* A profile that is wrong still plays the controller's own, as at start. */
 bool
 gthHid::reload (std::string &err)

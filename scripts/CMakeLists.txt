@@ -646,6 +646,14 @@ if(THINK_GUI)
                              "${PROJECT_SOURCE_DIR}/src/gui")
   target_link_libraries(midiroutescheck PRIVATE PkgConfig::GTKMM)
 
+  # The desktop's configurator form (src/gui/ControllerForm.h) on a
+  # profile file of its own.
+  think_harness(controllerformcheck HID
+                EXTRA "${PROJECT_SOURCE_DIR}/src/gui/ControllerForm.cpp")
+  target_include_directories(controllerformcheck PRIVATE
+                             "${PROJECT_SOURCE_DIR}/src/gui")
+  target_link_libraries(controllerformcheck PRIVATE PkgConfig::GTKMM)
+
   # The composer window, driven the way editorcheck drives the node editor.
   # Its own harness rather than more EXTRA on that one: the two share no code
   # and a link chain that pulls the whole GUI into one binary makes a failure
@@ -700,6 +708,7 @@ if(THINK_GUI)
                       "${PROJECT_SOURCE_DIR}/src/gui/MainSynthWindow.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/MidiMap.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/MidiRoutesView.cpp"
+                      "${PROJECT_SOURCE_DIR}/src/gui/ControllerForm.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/ControllerPane.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                       "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
@@ -1511,6 +1520,8 @@ if(THINK_GUI)
   add_test(NAME midiroutescheck
            COMMAND midiroutescheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
+  add_test(NAME controllerformcheck COMMAND controllerformcheck)
+
   add_test(NAME editorcheck
            COMMAND editorcheck -p "${PROJECT_BINARY_DIR}/plugins/"
                    "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
@@ -1639,7 +1650,7 @@ set_tests_properties(${GENCHECK_PARTS} poolcheck editcheck PROPERTIES
 # failed on the runner while every one of them passed locally. A gate that
 # disagrees with CI about what it is testing is worse than no gate.
 if(THINK_GUI AND THINK_SANITIZE MATCHES "address")
-  foreach(_t composercheck editorcheck windowcheck midiroutescheck)
+  foreach(_t composercheck editorcheck windowcheck midiroutescheck controllerformcheck)
     set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT
         "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
   endforeach()
