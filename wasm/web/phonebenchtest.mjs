@@ -62,9 +62,20 @@ try
     await page.goto(`http://127.0.0.1:${site.address().port}/phonebench.html?seconds=2&soak=0.05`);
     await page.check('#soak');
     await page.click('#start');
-    const finished = await page.waitForFunction(() => /"done": true|"error"/.test(
-        document.getElementById('results').textContent), null, { timeout: 240000 })
-        .then(() => true, () => false);
+    /* The run's end, not a stage's error, which the run goes on past. */
+    const finished = await page.waitForFunction(() =>
+    {
+        try
+        {
+            const r = JSON.parse(document.getElementById('results').textContent);
+
+            return r.done === true || r.error !== undefined;
+        }
+        catch
+        {
+            return false;
+        }
+    }, null, { timeout: 240000 }).then(() => true, () => false);
 
     if (!finished)
         throw new Error(`it didn't finish: ${await page.textContent('#status')}\n` +
@@ -89,7 +100,56 @@ try
     check(typeof r.soak?.error === 'string' || r.soak?.perMinute?.length > 0,
           'the heat run reports by the minute, or says why not', JSON.stringify(r.soak));
     check(await page.isVisible('#copy'), 'and the results can be copied');
+
+    /* Run again, without the heat run: none of the first run's is left. */
+    await page.uncheck('#soak');
+    await page.click('#start');
+    await page.waitForFunction((was) =>
+    {
+        try
+        {
+            const r = JSON.parse(document.getElementById('results').textContent);
+
+            return r.done === true && r.when !== was;
+        }
+        catch
+        {
+            return false;
+        }
+    }, r.when, { timeout: 240000 });
+
+    const again = JSON.parse(await page.textContent('#results'));
+
+    check(again.soak === undefined && again.batteryAfter === undefined,
+          'a second run has its own results, with no heat run left from the first',
+          JSON.stringify(Object.keys(again)));
     check(errors.length === 0, `no page errors${errors.length ? ': ' + errors.join('; ') : ''}`);
+
+    /* A tracker whose worker fails on its first frame: each delegate says
+       so, and the run goes on to its end. */
+    const broken = await browser.newPage();
+
+    await broken.route('**/handworker.js', (route) => route.fulfill({
+        contentType: 'text/javascript',
+        body: `onmessage = (e) => {
+                   if (e.data.type === 'start')
+                       postMessage({ type: 'ready', delegate: e.data.delegate });
+                   else
+                       throw new Error('the tracker broke');
+               };` }));
+    await broken.goto(`http://127.0.0.1:${site.address().port}/phonebench.html?seconds=2&soak=0.05`);
+    await broken.check('#soak');
+    await broken.click('#start');
+    await broken.waitForFunction(() => /"done": true|"error": "[^"]*stopped/.test(
+        document.getElementById('results').textContent), null, { timeout: 120000 })
+        .catch(() => {});
+
+    const failed = JSON.parse(await broken.textContent('#results'));
+
+    check(failed.done === true && /broke/.test(failed.tracker?.GPU?.error) &&
+          /broke/.test(failed.tracker?.CPU?.error) && /neither/.test(failed.soak?.error),
+          'a tracker that fails says so for each delegate, and the run finishes',
+          JSON.stringify({ tracker: failed.tracker, soak: failed.soak, done: failed.done }));
 }
 catch (e)
 {

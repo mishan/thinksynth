@@ -40,12 +40,18 @@ const SOAK_MINUTES = Number(query.get('soak')) || 10;
 /* The width the air harp reads frames at, as camera.js draws them. */
 const WIDTH = 160;
 
+/* A camera with no frame this long has stopped; a tracker that takes
+   longer than these to start, or to answer a frame, has hung. */
+const STALL_MS = 3000;
+const LOAD_MS = 60000;
+const FRAME_MS = 10000;
+
 const $ = (id) => document.getElementById(id);
 const say = (text) => { $('status').textContent = text; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => performance.now();
 
-const results = { version: 1, when: new Date().toISOString() };
+let results = {};
 
 const show = () => { $('results').textContent = JSON.stringify(results, null, 2); };
 
@@ -84,32 +90,44 @@ async function battery ()
 }
 
 /* Each frame the camera gives, for `seconds', to `each(meta)': the
-   frames a second, or what `each' threw. */
+   frames a second, or what `each' threw, or that the camera stopped. */
 function frames (video, seconds, each)
 {
     return new Promise((resolve, reject) =>
     {
-        const end = now() + seconds * 1000;
-        let count = 0;
+        const start = now(), end = start + seconds * 1000;
+        let count = 0, last = start, asked = 0;
+        const watch = setInterval(() =>
+        {
+            if (now() - last > STALL_MS)
+                settle(() => reject(new Error('the camera stopped giving frames')));
+        }, STALL_MS / 4);
+        const settle = (then) =>
+        {
+            clearInterval(watch);
+            video.cancelVideoFrameCallback(asked);
+            then();
+        };
         const next = (ms, meta) =>
         {
             count++;
+            last = now();
             try
             {
                 each(meta);
             }
             catch (e)
             {
-                reject(e);
+                settle(() => reject(e));
                 return;
             }
             if (now() < end)
-                video.requestVideoFrameCallback(next);
+                asked = video.requestVideoFrameCallback(next);
             else
-                resolve(count / seconds);
+                settle(() => resolve(count / ((now() - start) / 1000)));
         };
 
-        video.requestVideoFrameCallback(next);
+        asked = video.requestVideoFrameCallback(next);
     });
 }
 
@@ -148,149 +166,168 @@ async function harp (video)
              readMs: summary(read), motionMs: summary(motion) };
 }
 
+/* A message from `worker', or why there is none: an error, or nothing
+   within `ms'. */
+function answer (worker, ms)
+{
+    return new Promise((resolve, reject) =>
+    {
+        const late = setTimeout(() => reject(new Error(`no answer in ${ms / 1000} s`)), ms);
+
+        worker.onmessage = (e) => { clearTimeout(late); resolve(e.data); };
+        worker.onerror = (e) =>
+        {
+            clearTimeout(late);
+            reject(new Error(e.message ?? 'the worker failed'));
+        };
+    });
+}
+
 /* The tracker on `delegate' for `seconds', a frame at a time. */
 async function tracker (video, delegate, seconds, minutes = null)
 {
     const worker = new Worker(new URL('handworker.js', import.meta.url), { type: 'module' });
-    const t0 = now();
-    const ready = await new Promise((resolve) =>
+
+    try
     {
-        worker.onmessage = (e) => resolve(e.data);
-        worker.onerror = (e) => resolve({ type: 'failed', text: e.message ?? 'the worker failed' });
+        const t0 = now();
+        const starting = answer(worker, LOAD_MS);
+
         worker.postMessage({ type: 'start', delegate });
-    });
 
-    if (ready.type !== 'ready')
-    {
-        worker.terminate();
-        return { error: ready.text };
-    }
+        const ready = await starting;
 
-    const loadMs = Math.round(now() - t0);
-    const latency = [], perMinute = [];
-    let id = 0, hands = 0, answered = 0, minute = now(), inMinute = 0;
-    const end = now() + seconds * 1000;
+        if (ready.type !== 'ready')
+            return { error: ready.text };
 
-    while (now() < end)
-    {
-        const sent = now();
-        const bitmap = await createImageBitmap(video);
-        const answer = await new Promise((resolve) =>
+        const loadMs = Math.round(now() - t0);
+        const latency = [], perMinute = [];
+        let id = 0, hands = 0, answered = 0, minute = now(), inMinute = 0;
+        const start = now(), end = start + seconds * 1000;
+        const aMinute = () => ({
+            fps: Math.round(inMinute / ((now() - minute) / 1000) * 10) / 10 });
+
+        while (now() < end)
         {
-            worker.onmessage = (e) => resolve(e.data);
+            const sent = now();
+            const bitmap = await createImageBitmap(video);
+            const replying = answer(worker, FRAME_MS);
+
             worker.postMessage({ type: 'frame', bitmap, seconds: sent / 1000,
                                  generation: 0, id: ++id }, [bitmap]);
-        });
 
-        latency.push(now() - sent);
-        answered++;
-        inMinute++;
-        hands += answer.count > 0 ? 1 : 0;
-        if (minutes !== null && now() - minute >= 60000)
-        {
-            perMinute.push({ fps: Math.round(inMinute / ((now() - minute) / 1000) * 10) / 10,
-                             battery: await battery() });
-            say(`Heat run: minute ${perMinute.length} of ${minutes}...`);
-            minute = now();
-            inMinute = 0;
+            const got = await replying;
+
+            latency.push(now() - sent);
+            answered++;
+            inMinute++;
+            hands += got.count > 0 ? 1 : 0;
+            if (minutes !== null && now() - minute >= 60000)
+            {
+                perMinute.push({ ...aMinute(), battery: await battery() });
+                say(`Heat run: minute ${perMinute.length} of ${minutes}...`);
+                minute = now();
+                inMinute = 0;
+            }
         }
-    }
-    worker.terminate();
-    /* And what there is of the last minute. */
-    if (minutes !== null && inMinute > 0)
-        perMinute.push({ fps: Math.round(inMinute / ((now() - minute) / 1000) * 10) / 10,
-                         battery: await battery() });
+        /* And what there is of the last minute. */
+        if (minutes !== null && inMinute > 0)
+            perMinute.push({ ...aMinute(), battery: await battery() });
 
-    return { delegate: ready.delegate, loadMs,
-             fps: Math.round(answered / seconds * 10) / 10,
-             framesWithHands: hands, frameMs: summary(latency),
-             ...(minutes !== null ? { perMinute } : {}) };
+        return { delegate: ready.delegate, loadMs,
+                 fps: Math.round(answered / ((now() - start) / 1000) * 10) / 10,
+                 framesWithHands: hands, frameMs: summary(latency),
+                 ...(minutes !== null ? { perMinute } : {}) };
+    }
+    finally
+    {
+        worker.terminate();
+    }
 }
 
 async function run ()
 {
-    $('start').disabled = true;
-    $('copy').hidden = true;
-    results.device = device();
-    results.battery = await battery();
-    show();
-
-    let wake = null;
-
-    try
-    {
-        wake = await navigator.wakeLock?.request('screen');
-    }
-    catch
-    {
-    }
-
-    say('Asking for the camera...');
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 },
-                 frameRate: { ideal: 60 } },
-    });
+    let wake = null, stream = null;
     const video = $('preview');
 
-    video.srcObject = stream;
-    video.hidden = false;
-    await video.play();
-
-    const settings = stream.getVideoTracks()[0].getSettings();
-
-    say(`The camera, ${SECONDS} seconds...`);
-    results.camera = { width: settings.width, height: settings.height,
-                       asked: settings.frameRate ?? null,
-                       fps: Math.round(await frames(video, SECONDS, () => {}) * 10) / 10 };
+    $('start').disabled = true;
+    $('copy').hidden = true;
+    results = { version: 1, when: new Date().toISOString(),
+                device: device(), battery: await battery() };
     show();
-
-    say(`The air harp, ${SECONDS} seconds...`);
-    results.harp = await harp(video).catch((e) => ({ error: e.message }));
-    show();
-
-    results.tracker = {};
-    for (const delegate of ['GPU', 'CPU'])
+    try
     {
-        say(`The hand tracker on the ${delegate}, ${SECONDS} seconds...`);
-        results.tracker[delegate] = await tracker(video, delegate, SECONDS)
-            .catch((e) => ({ error: e.message }));
-        show();
-    }
-
-    if ($('soak').checked)
-    {
-        const best = ['GPU', 'CPU'].filter((d) => results.tracker[d].fps)
-            .sort((a, b) => results.tracker[b].fps - results.tracker[a].fps)[0];
-
-        if (best)
+        try
         {
-            say(`Heat run on the ${best}: ${SOAK_MINUTES} minutes...`);
-            results.soak = await tracker(video, best, SOAK_MINUTES * 60, SOAK_MINUTES)
+            wake = await navigator.wakeLock?.request('screen');
+        }
+        catch
+        {
+        }
+
+        say('Asking for the camera...');
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 },
+                     frameRate: { ideal: 60 } },
+        });
+        video.srcObject = stream;
+        video.hidden = false;
+        await video.play();
+
+        const settings = stream.getVideoTracks()[0].getSettings();
+
+        say(`The camera, ${SECONDS} seconds...`);
+        results.camera = { width: settings.width, height: settings.height,
+                           asked: settings.frameRate ?? null,
+                           fps: Math.round(await frames(video, SECONDS, () => {}) * 10) / 10 };
+        show();
+
+        say(`The air harp, ${SECONDS} seconds...`);
+        results.harp = await harp(video).catch((e) => ({ error: e.message }));
+        show();
+
+        results.tracker = {};
+        for (const delegate of ['GPU', 'CPU'])
+        {
+            say(`The hand tracker on the ${delegate}, ${SECONDS} seconds...`);
+            results.tracker[delegate] = await tracker(video, delegate, SECONDS)
                 .catch((e) => ({ error: e.message }));
-            results.batteryAfter = await battery();
             show();
         }
-    }
 
-    stream.getTracks().forEach((t) => t.stop());
-    video.hidden = true;
-    wake?.release().catch(() => {});
-    results.done = true;
-    show();
-    say('Done. Copy the results and send them back.');
-    $('copy').hidden = false;
-    $('start').disabled = false;
+        if ($('soak').checked)
+        {
+            const best = ['GPU', 'CPU'].filter((d) => results.tracker[d].fps)
+                .sort((a, b) => results.tracker[b].fps - results.tracker[a].fps)[0];
+
+            say(`Heat run on the ${best}: ${SOAK_MINUTES} minutes...`);
+            results.soak = best === undefined
+                ? { error: 'the tracker ran on neither' }
+                : await tracker(video, best, SOAK_MINUTES * 60, SOAK_MINUTES)
+                    .catch((e) => ({ error: e.message }));
+            results.batteryAfter = await battery();
+        }
+        results.done = true;
+        say('Done. Copy the results and send them back.');
+    }
+    catch (e)
+    {
+        results.error = e.message;
+        say(`It stopped: ${e.message}`);
+    }
+    finally
+    {
+        stream?.getTracks().forEach((t) => t.stop());
+        video.hidden = true;
+        wake?.release().catch(() => {});
+        show();
+        $('copy').hidden = false;
+        $('start').disabled = false;
+    }
 }
 
-$('start').addEventListener('click', () => run().catch((e) =>
-{
-    results.error = e.message;
-    show();
-    say(`It stopped: ${e.message}`);
-    $('start').disabled = false;
-}));
+$('start').addEventListener('click', () => run());
 $('copy').addEventListener('click', async () =>
 {
     try
