@@ -1,25 +1,30 @@
 # Bend -- phase distortion, swept by an envelope: a sine that opens into
-# a saw, a square or a resonance and closes again, with no filter.
+# a saw or a square, or a resonance that climbs, and settles again, with
+# no filter.
 #
 # osc::pd reads a cosine through a bent phase. `Bend' is how far it is
 # bent with the envelope at rest; the envelope adds `Sweep' on top, so
 # a strike opens the wave and lets it settle back over `Sweep Decay' to
-# `Sweep Sustain'. Played harder, it opens further. On the resonant waves
-# the same sweep moves a resonance from the fundamental up to `Resonance'
-# times it: the swept, sync-like sound those waves are for.
+# `Sweep Sustain'. Played harder, it opens further, until Bend and Sweep
+# reach the whole wave between them. On the resonant waves the same sweep
+# moves a resonance from the fundamental, or Bend's share of the way, up
+# toward `Resonance' times it: the swept, sync-like sound those waves are
+# for. A high note's resonance stops short of the top, where it would fold.
 #
-# Two oscillators, one a side, `Detune' cents apart, so the sound is wide
-# and slowly moving rather than one point in the middle.
+# Two oscillators, one a side, `Detune' cents either side of the note, so
+# the sound is wide and slowly moving rather than one point in the
+# middle.
 
 name "Bend";
 author "Misha Nasledov";
-description "Phase distortion swept by an envelope: a sine that opens into a saw, square or resonance, with no filter.";
+description "Phase distortion swept by an envelope: a sine that opens into a saw or square, or a climbing resonance, with no filter.";
 category "Synths";
 
     @wave = 0;
     @wave.widget = 1;
     @wave.min = 0;
     @wave.max = 7;
+    @wave.step = 1;
     @wave.values = "Saw,Square,Pulse,Double,Saw-pulse,Resonant saw,Resonant triangle,Resonant trapezoid";
     @wave.label = "Wave";
 
@@ -115,7 +120,6 @@ node oscr osc::pd {
     waveform = @wave;
     amount = @bend + sweep->out * @sweep * ionode->velocity;
     reso = @reso;
-    phase = 0.25;
 };
 
 node env env::adsr {
