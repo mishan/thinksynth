@@ -19,18 +19,21 @@
 # gives up its own levels for the modulator's, and what is left of it is
 # its phase: the modulator, smeared and robotic.
 #
-# THE MODULATOR IS HEARD TOO. A side is the other channel's sound as it
-# is mixed, so to hear only the morph, turn that channel down and `Side
-# Level' up by the same amount. It scales the modulator as the morph
-# takes it, so the output, which follows the modulator's level, is back
-# where it was at Morph 1, and the carrier at Morph 0 is untouched --
-# and it rides the same frames Morph does, so a change of both at once
-# is never a frame of one without the other. It is linear: 4 is twelve
-# decibels, 16 twenty-four.
+# THE MODULATOR IS HEARD TOO. A side is the other channel's output, after
+# its amp and its effect, and that channel is mixed as well. To hear only
+# the morph, turn it down and `Side Level' up by the same amount: the
+# morph is handed the same modulator, so nothing changes at any Morph.
+# It is linear, 4 being twelve decibels and 16, its top, twenty-four, so
+# the modulator stays at least that far under; and it cannot undo a
+# compressor or a saturator on that channel, which does not scale with
+# its amp. The modulator's channel is also the place to tame it: an EQ
+# there cutting its sibilance takes the hiss out of what the morph
+# copies, as well as out of the channel itself.
 #
 # With no side named, an effect hears its own channel as its side, and a
 # sound morphed by itself is itself: at Side Level 1 this passes the
-# channel through, a frame late.
+# channel through, a frame late. At any other, it is that channel times
+# Side Level to the Morph.
 #
 # Size, rounded to a power of two, is the frame and the latency: 2048
 # resolves a low pad's partials, 512 keeps a drum's attacks closer.
