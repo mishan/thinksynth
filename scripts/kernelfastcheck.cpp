@@ -32,6 +32,7 @@
 #include "../plugins/mixer/pan.h"
 #include "../plugins/osc/blep.h"
 #include "../plugins/osc/noise.h"
+#include "../plugins/osc/pd.h"
 #include "../plugins/osc/simple.h"
 
 static int failed = 0;
@@ -96,6 +97,21 @@ main ()
             ok = ok && same(a.tick(c, nan, nan, sync, edge), b.tick(c, zero, zero, sync, edge));
         report("osc::blep takes a NaN start and reset as none", ok);
     }
+    report("osc::pd's NaN frequency, waveform, amount and reso are the slowest, the saw, "
+           "unbent and 1",
+           same(thkPd::ctl(nan, nan, nan, nan, 32000), thkPd::ctl(zero, zero, zero, 1, 32000)));
+    {
+        const thkPd::Ctl c = thkPd::ctl(1000, 6, 0.7f, 5, 32000);
+        thkPd a, b;
+        float sync, edge;
+        bool ok = true;
+
+        for (int i = 0; i < 100; i++)
+            ok = ok && same(a.tick(c, nan, nan, sync, edge), b.tick(c, zero, zero, sync, edge));
+        report("osc::pd takes a NaN start and reset as none", ok);
+    }
+    report("osc::pd's NaN reso is 1",
+           same(thkPd::ctl(1000, 6, 0.7f, nan, 32000), thkPd::ctl(1000, 6, 0.7f, 1, 32000)));
     report("a NaN color and level are white at full scale",
            same(thkNoise::ctl(nan, nan), thkNoise::ctl(zero, 1)));
     report("a NaN cutoff and resonance are 0",

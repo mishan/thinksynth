@@ -157,6 +157,8 @@ static const Kind KINDS[] = {
                        { "fm", "" }, { "fmamt", "" }, { "reset", "" } }, { "out" } },
     { "osc::blep", { { "freq", "" }, { "waveform", "0|1|2" }, { "pw", "0:1" },
                      { "reset", "" } }, { "out" } },
+    { "osc::pd", { { "freq", "" }, { "waveform", "0|1|2|3|4|5|6|7" }, { "amount", "0:1" },
+                   { "reso", "1:16" }, { "reset", "" } }, { "out" } },
     { "osc::fmop", { { "freq", "" }, { "ratio", "0:4" }, { "mod", "" }, { "index", "" },
                      { "feedback", "0:1" } }, { "out" } },
     { "mixer::pan", { { "in", "" }, { "pan", "~" } }, { "out0", "out1" } },

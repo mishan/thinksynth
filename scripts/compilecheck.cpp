@@ -45,6 +45,7 @@
 #include "thvTwice.h"
 #include "thvNames.h"
 #include "thvNoise.h"
+#include "thvPd.h"
 #include "thvGrab.h"
 #include "thvIndex.h"
 #include "thvAurora.h"
@@ -557,6 +558,20 @@ main (int argc, char **argv)
                      { { "id", 61740 }, { "ia", 44.1f }, { "d", 198450 } }, 44100);
     check<thvNames>("knobs named for a word of C++'s and for set()'s own",
                     dsp + "/../scripts/compiled/names.dsp", plugins, 100, 200, true);
+    static const char *const PD_WAVES[] = {
+        "osc::pd's saw swept by an envelope and synced",
+        "osc::pd's square swept by an envelope and synced",
+        "osc::pd's pulse swept by an envelope and synced",
+        "osc::pd's double swept by an envelope and synced",
+        "osc::pd's sawpulse swept by an envelope and synced",
+        "osc::pd's resonant saw swept by an envelope and synced",
+        "osc::pd's resonant triangle swept by an envelope and synced",
+        "osc::pd's resonant trapezoid swept by an envelope and synced",
+    };
+
+    for (int w = 0; w < 8; w++)
+        check<thvPd>(PD_WAVES[w], dsp + "/../scripts/compiled/pd.dsp", plugins, 100, 200,
+                     true, { { "wave", (float)w } });
     checkNoise(dsp + "/../scripts/compiled/noise.dsp", plugins);
 
     static const struct { const char *name; float levels[2], amp, ampTo; } POOLS[] = {
