@@ -53,7 +53,11 @@
  *
  * A MONO SLIDE onto the next syllable restarts the words without
  * restarting anything else: the resonators and the glide carry, so the
- * line is sung legato.
+ * line is sung legato. It is the old note let go and the new one begun:
+ * what the old one had still to say -- its coda, or its vowel too if the
+ * slide came before it -- is said first, at its own lengths, and then
+ * the new syllable. A vowel the note was holding ends at the slide. The key never comes up across a legato line, and
+ * without this no syllable in it would end on its consonant.
  *
  * `shift' scales every formant: 1 is an adult male, about 1.15 an adult
  * female, and under 0.8 a giant. `buzz' moves the source from a glottal
@@ -436,8 +440,10 @@ enum {
     S_TILT,                 /* the tilt's low-pass */
     S_RING,                 /* the singer's formant, two samples */
     S_RING2,
-    S_SAID,                 /* TH_NOTE_SAY: what was being said */
-    S_LEN = S_SAID + TH_NOTE_SAY
+    S_SAID,                 /* TH_NOTE_SAY: what is being said */
+    S_LEAVING = S_SAID + TH_NOTE_SAY,   /* 1 while a slide finishes the old words */
+    S_OLD,                  /* TH_NOTE_SAY: the words a slide left */
+    S_LEN = S_OLD + TH_NOTE_SAY
 };
 
 /* How long `play' stays up after the last phoneme, so the glide can
@@ -576,15 +582,15 @@ int module_init (thPlugin *plugin)
     return 0;
 }
 
-/* The codes in `say', up to its first 0 or anything that is not one. */
-static int readSay (thArg *say, int *codes)
+/* The codes in `len' values of `say', up to its first 0 or anything that
+   is not one. */
+static int readCodes (const float *say, unsigned len, int *codes)
 {
     int n = 0;
-    const unsigned len = say ? say->len() : 0;
 
     for (unsigned i = 0; i < len && n < TH_NOTE_SAY - 1; i++)
     {
-        const float v = (*say)[i];
+        const float v = say[i];
 
         if (!(v >= 1 && v <= TH_PHONEMES))
             break;
@@ -639,8 +645,6 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
 
     const float rate = (float)samples;
-    int codes[TH_NOTE_SAY];
-    const int n = readSay(in_say, codes);
 
     /* A new utterance: the first window of a voice, or a slide onto
        another note. `say' as a whole, its stamp included (SAYARG), so a
@@ -649,6 +653,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     for (unsigned k = 0; in_say && k < in_say->len() && k < TH_NOTE_SAY; k++)
         said[k] = (*in_say)[k];
+
+    int codes[TH_NOTE_SAY];
+    const int n = readCodes(said, TH_NOTE_SAY, codes);
 
     bool fresh = st[S_STARTED] == 0;
 
@@ -671,9 +678,36 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                 (double)(*in_freq)[0], samples) * 64) & 0xffff);
         }
 
+        /* A slide that leaves words unfinished finishes them first, from
+           where they were; one that leaves them said, or a slide during
+           another slide's finishing, starts the new ones now. */
+        int old[TH_NOTE_SAY];
+        Segment was[MAX_SEGMENTS];
+        const int wasCount = segments(old, readCodes(st + S_SAID, TH_NOTE_SAY, old), was);
+        int at = (int)st[S_SEGMENT];
+
+        /* A nucleus the note was holding has been sung: it ends here, and
+           what follows it is what is left. */
+        if (at < wasCount && was[at].hold)
+        {
+            at++;
+            st[S_INTO] = 0;
+        }
+
+        const bool leaving = st[S_STARTED] != 0 && st[S_LEAVING] == 0 && at < wasCount;
+
+        if (leaving)
+        {
+            memcpy(st + S_OLD, st + S_SAID, sizeof(said));
+            st[S_SEGMENT] = (float)at;
+        }
+        else
+        {
+            st[S_SEGMENT] = 0;
+            st[S_INTO] = 0;
+        }
+        st[S_LEAVING] = leaving ? 1 : 0;
         st[S_STARTED] = 1;
-        st[S_SEGMENT] = 0;
-        st[S_INTO] = 0;
         st[S_TAIL] = 0;
 
         memcpy(st + S_SAID, said, sizeof(said));
@@ -688,20 +722,45 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     /* Laid out in milliseconds and timed against `rate' sample by sample,
        so the pace moves on the sample it is asked to, whatever the
        window. */
-    Segment segs[MAX_SEGMENTS];
+    Segment segs[MAX_SEGMENTS], left[MAX_SEGMENTS];
     const int count = segments(codes, n, segs);
+    int oldCodes[TH_NOTE_SAY];
+    const int leftCount = st[S_LEAVING] != 0
+        ? segments(oldCodes, readCodes(st + S_OLD, TH_NOTE_SAY, oldCodes), left) : 0;
 
     for (unsigned int i = 0; i < windowlen; i++)
     {
         const float perMs = rate / 1000 / thClampArg((*in_rate)[i], 0.25f, 4);
 
-        const bool held = (*in_trigger)[i] > 0;
         int seg = (int)st[S_SEGMENT];
         float target[P_COUNT];
 
+        /* The words a slide left, let go: each phoneme at its own length,
+           the nucleus too, and then the new words from their first. */
+        if (st[S_LEAVING] != 0)
+        {
+            if (seg < leftCount && st[S_INTO] >= left[seg].dur * perMs)
+            {
+                seg++;
+                st[S_INTO] = 0;
+            }
+            if (seg >= leftCount)
+            {
+                st[S_LEAVING] = 0;
+                seg = 0;
+                st[S_INTO] = 0;
+            }
+            st[S_SEGMENT] = (float)seg;
+        }
+
+        const bool leavingNow = st[S_LEAVING] != 0;
+        const Segment *words = leavingNow ? left : segs;
+        const int wordCount = leavingNow ? leftCount : count;
+        const bool held = !leavingNow && (*in_trigger)[i] > 0;
+
         /* Where the words are. A held nucleus waits for the key; anything
            else moves on when its time is up. */
-        if (seg < count)
+        if (!leavingNow && seg < count)
         {
             const Segment &s = segs[seg];
 
@@ -713,9 +772,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
         }
 
-        if (seg < count)
+        if (seg < wordCount)
         {
-            memcpy(target, segs[seg].target, sizeof(target));
+            memcpy(target, words[seg].target, sizeof(target));
             st[S_INTO] += 1;
         }
         else
@@ -728,7 +787,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
            at full strength is a spit: turned down, S, Z, SH and ZH also
            come in over SIB_ONSET_MS rather than the gains' few. */
         const float sibilance = thClampArg((*in_sibilance)[i], -40, 12);
-        const bool sib = sibilance != 0 && seg < count && segs[seg].sib;
+        const bool sib = sibilance != 0 && seg < wordCount && words[seg].sib;
 
         if (sib)
             target[P_AF] *= expf(sibilance * DB_TO_LN);
@@ -740,7 +799,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             const float d = target[k] - st[S_GLIDE + k];
             const float g = k <= P_B3 ? formantK
-                          : sib && sibilance < 0 && segs[seg].fade &&
+                          : sib && sibilance < 0 && words[seg].fade &&
                             k == P_AF && d > 0
                           ? onsetK : gainK;
 
@@ -912,7 +971,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         out[i] = thClampArg(v, -2, 2) * TH_MAX;
 
-        const bool speaking = seg < count || st[S_TAIL] < TAIL_MS * rate / 1000;
+        const bool speaking = leavingNow || seg < count ||
+                              st[S_TAIL] < TAIL_MS * rate / 1000;
 
         play[i] = speaking ? 1 : 0;
     }

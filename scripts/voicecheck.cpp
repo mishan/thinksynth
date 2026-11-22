@@ -989,6 +989,33 @@ int main (int argc, char **argv)
                          "them again",
                          "5-7 kHz in the first S " + num(hiss(first, 0)) +
                          ", in the second " + num(hiss(again, 0)));
+
+                /* A slide is the old note let go and the new one begun:
+                   AA S slid onto IY says its S first, where AA slid onto
+                   IY goes straight to the vowel. Each from a voice of its
+                   own, held a quarter second on its AA. */
+                const unsigned char aas[] = { 1, 31, 0 };
+                double coda[2];
+
+                for (int k = 0; k < 2; k++)
+                {
+                    thSynth fresh(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                                  TH_DEFAULT_SAMPLES);
+                    vector<float> held, after;
+
+                    if (fresh.loadTree(file, 0, 100) == NULL)
+                        break;
+                    fresh.addNote(0, 45, 100, 1, NULL, k ? aa : aas);
+                    listen(fresh, windows / 4, held);
+                    fresh.addNote(0, 45, 100, 1, NULL, iy);
+                    listen(fresh, windows / 8, after);
+                    coda[k] = hiss(after, TH_DEFAULT_SAMPLES / 40);
+                }
+                okOrFail(coda[0] > 30 * coda[1],
+                         "osc::speak: a mono slide says the coda of the "
+                         "syllable it leaves",
+                         "5-7 kHz after AA S slides " + num(coda[0]) +
+                         ", after AA " + num(coda[1]));
             }
         }
     }
