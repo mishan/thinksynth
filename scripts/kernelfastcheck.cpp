@@ -110,6 +110,8 @@ main ()
             ok = ok && same(a.tick(c, nan, nan, sync, edge), b.tick(c, zero, zero, sync, edge));
         report("osc::pd takes a NaN start and reset as none", ok);
     }
+    report("osc::pd's NaN reso is 1",
+           same(thkPd::ctl(1000, 6, 0.7f, nan, 32000), thkPd::ctl(1000, 6, 0.7f, 1, 32000)));
     report("a NaN color and level are white at full scale",
            same(thkNoise::ctl(nan, nan), thkNoise::ctl(zero, 1)));
     report("a NaN cutoff and resonance are 0",

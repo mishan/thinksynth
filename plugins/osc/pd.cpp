@@ -36,7 +36,9 @@
  *
  * A HOLD IS DC: the pulse sits on its crest for all but its dip. Each
  * wave's mean is closed form, taken off, and the result divided by 1 plus
- * it, so a sweep of `amount' neither thumps nor passes full scale.
+ * it, so a sweep of `amount' neither thumps nor passes full scale. That
+ * is the cycle's mean; near Nyquist a harmonic sampled onto 0 Hz is DC
+ * again, as for any wave.
  *
  * THE RESONANT WAVES are a cosine at r times the pitch under a window that
  * falls to nothing by the end of the cycle -- a saw, a triangle or a

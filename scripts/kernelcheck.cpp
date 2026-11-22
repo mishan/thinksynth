@@ -177,6 +177,13 @@ struct RefPd
     }
 };
 
+/* |e|, or infinity for a NaN, which std::max would pass over. */
+static double
+err (double e)
+{
+    return std::isfinite(e) ? std::fabs(e) : INFINITY;
+}
+
 /* The magnitude of harmonic h of a cycle sampled n times. */
 static double
 harmonic (const std::vector<double> &y, int h)
@@ -229,8 +236,7 @@ checkPd ()
                         {
                             const float p = (i + 0.37f) / 997;
 
-                            worst = std::max(worst,
-                                             std::fabs(thkPd::shape(p, c) - ref.at(p)));
+                            worst = std::max(worst, err(thkPd::shape(p, c) - ref.at(p)));
                         }
                     }
         report("osc::pd's waves against their maps in double", worst, 2e-4);
@@ -359,7 +365,11 @@ checkPd ()
                 mean /= (double)y.size();
                 total = total / (double)y.size() - mean * mean;
                 for (int h = 1; h <= top; h++)
-                    band += harmonic(y, h) * harmonic(y, h) / 2;
+                {
+                    const double mag = harmonic(y, h);
+
+                    band += mag * mag / 2;
+                }
                 worst = std::max(worst, 10 * std::log10(std::max(total - band, 1e-30) / band));
             }
 
@@ -412,8 +422,8 @@ checkPd ()
             };
 
             for (int n = 0; n < 3; n++)
-                worst = std::max(worst, std::fabs(osc.tick(c, k.start, n ? 0 : k.r,
-                                                           sync, edge) - want[n]));
+                worst = std::max(worst, err(osc.tick(c, k.start, n ? 0 : k.r, sync, edge) -
+                                            want[n]));
         }
         report("osc::pd restarts partway into a sample, and past a wrap", worst, 1e-4);
     }
