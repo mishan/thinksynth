@@ -9695,10 +9695,7 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
                  got);
     }
 
-    /* Legato: a note held into the next when the next syllable is
-       sounded, so a mono voice slides into it rather than starting again
-       from silence; never into a pause, past punctuation or past the end
-       of the words, and by at most half the note. */
+    /* Legato: a note held into the next, so a mono voice slides. */
     {
         struct Case { const char *name, *words, *args; double durs[5]; };
         static const Case cases[] = {
@@ -9709,6 +9706,8 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
               { 0.3, 0.2, 0.3, 0.2, 0.3 } },
             { "on by default", "la la", "", { 0.3, 0.2, 0.3, 0.2, 0.3 } },
             { "off at 0", "la la", "legato = 0 s;",
+              { 0.2, 0.2, 0.2, 0.2, 0.2 } },
+            { "never shortening", "la la", "legato = -1 s;",
               { 0.2, 0.2, 0.2, 0.2, 0.2 } },
         };
 

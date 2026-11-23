@@ -45,7 +45,9 @@
  * osc::speak then slides into it, its mouth moving from one syllable to
  * the next, rather than starting again from silence, where a speech
  * recognizer hears under half the words. A pause, a comma or a full stop
- * and the end of the words let the voice go.
+ * and the end of the words let the voice go. A next note shorter than
+ * the overlap ends before this one does, and the voice drops back to
+ * this note's pitch until it ends too.
  *
  * DETERMINISM. None of it is random: the words are a function of how many
  * notes have passed, and a rewind is a fresh stage.
@@ -260,7 +262,7 @@ static void parse (const char *text, std::vector<Syllable> &out,
 struct State {
     const thcParams     *params;
     std::vector<Syllable> syllables;
-    std::vector<bool>    ends;      /* parse()'s */
+    std::vector<bool>    ends;
     size_t               next;      /* the syllable the next note takes */
     double               lastAt;    /* when the last note arrived */
     bool                 any;       /* whether one has */
@@ -346,7 +348,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     if (copy.u.note.duration > 0 && after < st->syllables.size() &&
         !st->ends[take] && sounded(take) && sounded(after))
         copy.u.note.duration += fmin(
-            st->params->get(st->params->ctx, paramIndex[P_LEGATO]),
+            fmax(0, st->params->get(st->params->ctx, paramIndex[P_LEGATO])),
             copy.u.note.duration / 2);
 
     out->emit(out->ctx, &copy);
