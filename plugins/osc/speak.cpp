@@ -281,6 +281,7 @@ static void silence (float *t)
     memset(t, 0, P_COUNT * sizeof(float));
     t[P_F1] = silent[0];  t[P_F2] = silent[1];  t[P_F3] = silent[2];
     t[P_B1] = 100;  t[P_B2] = 100;  t[P_B3] = 150;
+    t[P_F6] = 6000;  t[P_B6] = 800;
 }
 
 /* The last of `count' segments with frication in it, or -1. */
@@ -413,12 +414,12 @@ static int segments (const int *codes, int n, Segment *out)
        belong before the hiss rises, and move only while nothing passes
        them -- or from one fricative to the next. A shape gliding under a
        rising hiss starts it as the wrong sound. */
-    int shaper = -1;
+    int shaper = lastFrication(out, count);
 
     for (int k = count - 1; k >= 0; k--)
         if (out[k].target[P_AF] > 0)
             shaper = k;
-        else if (shaper >= 0 || (shaper = lastFrication(out, count)) >= 0)
+        else if (shaper >= 0)
             for (int q = P_HP; q <= P_B6; q++)
                 out[k].target[q] = out[shaper].target[q];
 

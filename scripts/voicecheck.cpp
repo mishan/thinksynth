@@ -86,16 +86,16 @@
 
 #ifdef __linux__
 #include <pthread.h>
-
-/* An S's and an SH's 1-11 kHz energy against a held AA's, before their
-   spectra were rebuilt: what the rebuild holds them to. */
-static const double S_LEVEL_DB = -10.9, SH_LEVEL_DB = -11.8;
 #include <sched.h>
 
 #include <chrono>
 #include <set>
 #include <thread>
 #endif
+
+/* An S's and an SH's 1-11 kHz energy against a held AA's with the
+   narrow resonator-only shapes, the levels `sibilance' was set by. */
+static const double S_LEVEL_DB = -10.9, SH_LEVEL_DB = -11.8;
 
 #include "think.h"
 #include "thPhoneme.h"
@@ -1127,8 +1127,8 @@ int main (int argc, char **argv)
                      num(100 * up) + "%");
 
             /* Their level against a vowel: the frication's 1-11 kHz energy
-               against a held AA's, where it was before the S and SH were
-               reshaped -- `sibilance' meaning what it did. */
+               against a held AA's, held to the levels `sibilance' was
+               set by. */
             const vector<double> aaP = spectrum(say({ 1 }, ""), 0.1, 0.45);
             const double sDb = 10 * log10(energy(sP, 1000, 11000) / energy(aaP, 0, 11000));
             const double shDb = 10 * log10(energy(shP, 1000, 11000) / energy(aaP, 0, 11000));
