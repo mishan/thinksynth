@@ -133,6 +133,8 @@ struct Phoneme
     int   voiced;           /* a stop or an affricate: B D G JH */
     Place place;            /* a stop's burst */
     int   fric;             /* an affricate's fricative, by code */
+    float hp = 0;           /* the frication's high-pass, Hz; 0 for none */
+    float f6 = 6000, b6 = 800;      /* the parallel path's top resonator */
 };
 
 /* Adult male targets. The vowels follow Peterson and Barney's averages and
@@ -188,9 +190,11 @@ static const Phoneme table[] = {
       0, 0, 0, 0, 0, 0.25f, 0, 0, 0, 0, LABIAL, 0 },
     { "R",  SONORANT,   70, 310, 1060, 1380, 70, 100, 120, 0.8f, 0 },
     { "S",  FRICATIVE, 120, 320, 1390, 2530, 200, 80, 200, 0, 0.8f,
-      0, 0, 0, 0.2f, 1, 0 },
+      0, 0, 0, 0, 0.564f, 0,
+      0, 0, 0, 0, LABIAL, 0, 3500, 7000, 3500 },
     { "SH", FRICATIVE, 120, 300, 1840, 2750, 200, 100, 300, 0, 0.8f,
-      0, 1, 0.6f, 0.2f, 0, 0 },
+      0, 0.453f, 0.634f, 0.815f, 0.362f, 0,
+      0, 0, 0, 0, LABIAL, 0, 2500 },
     { "T",  STOP,       60, 400, 1600, 2600, 300, 120, 250, 0, 0.6f,
       0, 0, 0, 0.6f, 0.8f, 0, 0, 0, 0, 0, ALVEOLAR, 0 },
     { "TH", FRICATIVE, 100, 320, 1290, 2540, 200, 90, 200, 0, 0.5f,
@@ -200,9 +204,11 @@ static const Phoneme table[] = {
     { "W",  SONORANT,   60, 290, 610, 2150, 50, 80, 60, 0.8f, 0 },
     { "Y",  SONORANT,   60, 260, 2070, 3020, 40, 250, 500, 0.8f, 0 },
     { "Z",  FRICATIVE,  80, 240, 1390, 2530, 70, 60, 180, 0.5f, 0.6f,
-      0, 0, 0, 0.2f, 1, 0 },
+      0, 0, 0, 0, 0.564f, 0,
+      0, 0, 0, 0, LABIAL, 0, 3500, 7000, 3500 },
     { "ZH", FRICATIVE,  80, 300, 1840, 2750, 60, 90, 200, 0.5f, 0.6f,
-      0, 1, 0.6f, 0.2f, 0, 0 },
+      0, 0.453f, 0.634f, 0.815f, 0.362f, 0,
+      0, 0, 0, 0, LABIAL, 0, 2500 },
     { "_",  PAUSE,      80, 0, 0, 0, 0, 0, 0, 0, 0 },
 };
 
@@ -212,8 +218,8 @@ static_assert(sizeof(table) / sizeof(table[0]) == TH_PHONEMES,
 /* ---- what the glide heads for -------------------------------------------- */
 
 /* Everything that moves, in the order it is kept in the state. */
-enum { P_F1, P_F2, P_F3, P_B1, P_B2, P_B3, P_AV, P_AH, P_AF, P_A2, P_A3, P_A4,
-       P_A5, P_A6, P_AB, P_COUNT };
+enum { P_F1, P_F2, P_F3, P_B1, P_B2, P_B3, P_HP, P_F6, P_B6, P_AV, P_AH, P_AF,
+       P_A2, P_A3, P_A4, P_A5, P_A6, P_AB, P_COUNT };
 
 /* The formants and bandwidths glide slowly, and the gains fast: a vowel
    bends into the next over tens of milliseconds, but a stop's burst is
@@ -244,6 +250,7 @@ static void fromRow (const Phoneme &p, float *t)
     t[P_AV] = p.av;  t[P_AH] = 0;     t[P_AF] = p.af;
     t[P_A2] = p.a2;  t[P_A3] = p.a3;  t[P_A4] = p.a4;
     t[P_A5] = p.a5;  t[P_A6] = p.a6;  t[P_AB] = p.ab;
+    t[P_HP] = p.hp;  t[P_F6] = p.f6;  t[P_B6] = p.b6;
 }
 
 /* The formants of the next phoneme that has some, for an aspiration
@@ -274,6 +281,16 @@ static void silence (float *t)
     memset(t, 0, P_COUNT * sizeof(float));
     t[P_F1] = silent[0];  t[P_F2] = silent[1];  t[P_F3] = silent[2];
     t[P_B1] = 100;  t[P_B2] = 100;  t[P_B3] = 150;
+    t[P_F6] = 6000;  t[P_B6] = 800;
+}
+
+/* The last of `count' segments with frication in it, or -1. */
+static int lastFrication (const Segment *s, int count)
+{
+    for (int k = count - 1; k >= 0; k--)
+        if (s[k].target[P_AF] > 0)
+            return k;
+    return -1;
 }
 
 /* What `codes' says, as segments. The first vowel is the one held. */
@@ -391,6 +408,21 @@ static int segments (const int *codes, int n, Segment *out)
         }
     }
 
+    /* The frication's shape is set while it is silent: each segment with
+       none takes the shape of the next that has some (or, past the last,
+       the last's), so the high-pass and the top resonator are where they
+       belong before the hiss rises, and move only while nothing passes
+       them -- or from one fricative to the next. A shape gliding under a
+       rising hiss starts it as the wrong sound. */
+    int shaper = lastFrication(out, count);
+
+    for (int k = count - 1; k >= 0; k--)
+        if (out[k].target[P_AF] > 0)
+            shaper = k;
+        else if (shaper >= 0)
+            for (int q = P_HP; q <= P_B6; q++)
+                out[k].target[q] = out[shaper].target[q];
+
     return count;
 }
 
@@ -413,10 +445,27 @@ static inline float resonate (float x, float f, float bw, float rate,
     return y;
 }
 
-/* The fixed formants above F3, and the parallel path's top two. */
+/* The fixed formants above F3, and the parallel path's fixed fifth. */
 #define F4 3300.0f
 #define F5 3850.0f
-#define F6 6000.0f
+
+/* A high-pass stage, a state-variable filter in the trapezoidal form
+   (Simper's), which holds steady while its corner moves sample by sample.
+   `s' is its two states. */
+static inline float highpass (float x, float g, float k, float *s)
+{
+    const float a1 = 1 / (1 + g * (g + k));
+    const float a2 = g * a1;
+    const float a3 = g * a2;
+    const float v3 = x - s[1];
+    const float v1 = a1 * s[0] + a2 * v3;
+    const float v2 = s[1] + a2 * s[0] + a3 * v3;
+
+    s[0] = 2 * v1 - s[0];
+    s[1] = 2 * v2 - s[1];
+
+    return x - k * v1 - v2;
+}
 
 /* ---- the state ----------------------------------------------------------- */
 
@@ -441,7 +490,8 @@ enum {
     S_TILT,                 /* the tilt's low-pass */
     S_RING,                 /* the singer's formant, two samples */
     S_RING2,
-    S_SAID,                 /* TH_NOTE_SAY: the `say' last seen */
+    S_HIGH,                 /* the frication's high-pass, two stages of two */
+    S_SAID = S_HIGH + 4,    /* TH_NOTE_SAY: the `say' last seen */
     S_LEAVING = S_SAID + TH_NOTE_SAY,   /* 1 while a slide finishes the old words */
     S_OLD,                  /* TH_NOTE_SAY: the words a slide left */
     S_LEN = S_OLD + TH_NOTE_SAY
@@ -668,8 +718,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (st[S_STARTED] == 0)
         {
             float t[P_COUNT];
+            Segment first[MAX_SEGMENTS];
 
+            /* From silence, but with the frication's shape where the words
+               first want it, so a note that starts on an S starts on its
+               hiss rather than gliding to it. */
             silence(t);
+            segments(codes, n, first);
+            for (int q = P_HP; q <= P_B6; q++)
+                t[q] = first[0].target[q];
             memcpy(st + S_GLIDE, t, sizeof(t));
             st[S_SEEDLO] = 1;
 
@@ -811,7 +868,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         for (int k = 0; k < P_COUNT; k++)
         {
             const float d = target[k] - st[S_GLIDE + k];
-            const float g = k <= P_B3 ? formantK
+            const float g = k <= P_B6 ? formantK
                           : sib && sibilance < 0 && words[seg].fade &&
                             k == P_AF && d > 0
                           ? onsetK : gainK;
@@ -954,10 +1011,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         /* The parallel path: frication through F2 to F6 and past them.
            Each resonator is unity at DC, which is about Q at its peak, so
-           its output is scaled down by Q to put its amplitude there. */
-        const float fric = p[P_AF] * hiss;
-        const float pf[5] = { p[P_F2], p[P_F3], F4, F5, F6 };
-        const float pb[5] = { 200, 250, 300, 400, 800 };
+           its output is scaled down by Q to put its amplitude there --
+           which a broad one, S's top, leaks far under its peak, so a
+           sibilant's hiss is high-passed first: a fourth-order
+           Butterworth, two stages, at the phoneme's corner. */
+        float fric = p[P_AF] * hiss;
+
+        if (p[P_HP] > 0)
+        {
+            const float g = tanf((float)M_PI * fminf(p[P_HP] * shift, nyq) / rate);
+
+            fric = highpass(fric, g, 1.847759f, st + S_HIGH);
+            fric = highpass(fric, g, 0.765367f, st + S_HIGH + 2);
+        }
+        else
+            st[S_HIGH] = st[S_HIGH + 1] = st[S_HIGH + 2] = st[S_HIGH + 3] = 0;
+
+        const float pf[5] = { p[P_F2], p[P_F3], F4, F5, p[P_F6] };
+        const float pb[5] = { 200, 250, 300, 400, p[P_B6] };
         const float pa[5] = { p[P_A2], p[P_A3], p[P_A4], p[P_A5], p[P_A6] };
         float par = fric * p[P_AB];
 
@@ -979,6 +1050,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             v = 0;
             memset(st + S_CASCADE, 0, 20 * sizeof(float));
+            memset(st + S_HIGH, 0, 4 * sizeof(float));
             st[S_TILT] = st[S_RING] = st[S_RING2] = 0;
         }
 

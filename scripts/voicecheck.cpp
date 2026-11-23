@@ -93,6 +93,10 @@
 #include <thread>
 #endif
 
+/* An S's and an SH's 1-11 kHz energy against a held AA's with the
+   narrow resonator-only shapes, the levels `sibilance' was set by. */
+static const double S_LEVEL_DB = -10.9, SH_LEVEL_DB = -11.8;
+
 #include "think.h"
 #include "thPhoneme.h"
 
@@ -823,9 +827,9 @@ int main (int argc, char **argv)
         }
 
         /* The vowel is held while the key is, and the consonant after it
-           is said when the key comes up: AA S held for half a second has
-           no hiss until the release and plenty after, and the voice ends
-           once the S has been said. */
+           is said when the key comes up: AA S held for half a second is a
+           plain AA, sample for sample, until the release, has plenty of
+           hiss after it, and the voice ends once the S has been said. */
         if (writeFile(file, speakGraph("")))
         {
             thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
@@ -837,6 +841,15 @@ int main (int argc, char **argv)
                 fail("a graph on osc::speak loads", "");
             else
             {
+                const unsigned char plainAa[] = { 1, 0 };
+                thSynth plain(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+                vector<float> aaHeld;
+
+                if (plain.loadTree(file, 0, 100) != NULL)
+                {
+                    plain.addNote(0, 45, 100, 1, NULL, plainAa);
+                    listen(plain, windows / 2, aaHeld);
+                }
                 synth.addNote(0, 45, 100, 1, NULL, ahs);
                 listen(synth, windows / 2, held);
                 synth.delNote(0, 45);
@@ -845,7 +858,7 @@ int main (int argc, char **argv)
                 auto hiss = [&](const vector<float> &v, size_t from) {
                     double e = 0;
 
-                    for (double hz = 5000; hz < 7000; hz += 100)
+                    for (double hz = 4000; hz < 10000; hz += 100)
                         e += pow(harmonic(v, from, 2048, hz), 2);
 
                     return e;
@@ -857,11 +870,13 @@ int main (int argc, char **argv)
                 synth.process();
                 listen(synth, windows / 4, after);
 
-                okOrFail(then > during * 100,
+                okOrFail(aaHeld.size() == held.size() &&
+                             memcmp(aaHeld.data(), held.data(), held.size() * sizeof(float)) == 0 &&
+                             then > during * 30,
                          "osc::speak: the S after a held AA waits for the "
                          "release",
-                         "5-7 kHz held " + num(during) + ", released " +
-                         num(then));
+                         string(aaHeld == held ? "held, a plain AA" : "held, not a plain AA") +
+                             "; 4-10 kHz held " + num(during) + ", released " + num(then));
                 okOrFail(synth.getChannel(0)->getNote(45) == NULL,
                          "osc::speak: the voice ends once the S is said", "");
             }
@@ -940,6 +955,187 @@ int main (int argc, char **argv)
                      "its sharp rise",
                      "the first 12 ms " + num(chOnset) + " dB, from 23 ms " +
                      num(chHiss) + " dB");
+        }
+
+        /* THE SIBILANTS' SPECTRA. Real speech (Jongman, Wayland and Wong,
+           JASA 2000, twenty speakers) puts an S's spectral mean about
+           6.1 kHz and an SH's about 4.2, each a band kilohertz wide with
+           little under 2 kHz; a man a little under. Read off a held
+           sibilant -- four in a row -- through Hann windows a twentieth of
+           a second long, at 25 Hz a bin. */
+        {
+            auto say = [&](const vector<unsigned char> &codes, const string &more) {
+                vector<float> got;
+                string g = speakGraph("");
+                const string at = "    trigger = ionode->trigger;\n";
+
+                g.insert(g.find(at) + at.size(), more);
+                thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+                if (!writeFile(file, g) || synth.loadTree(file, 0, 100) == NULL)
+                    return got;
+                vector<unsigned char> z = codes;
+
+                z.push_back(0);
+                synth.addNote(0, 45, 100, 1, NULL, z.data());
+                listen(synth, windows, got);
+                return got;
+            };
+            /* Power in 25 Hz bins up to 11 kHz, averaged over windows from
+               `from' to `to' seconds. */
+            auto spectrum = [&](const vector<float> &v, double from, double to,
+                                double window = 0.05) {
+                const size_t n = (size_t)(window * TH_DEFAULT_SAMPLES);
+                vector<double> p(440, 0);
+                int count = 0;
+
+                for (size_t a = (size_t)(from * TH_DEFAULT_SAMPLES);
+                     a + n <= (size_t)(to * TH_DEFAULT_SAMPLES) && a + n <= v.size(); a += n / 2)
+                {
+                    for (size_t b = 0; b < p.size(); b++)
+                    {
+                        double re = 0, im = 0;
+                        const double w = 2 * M_PI * 25 * (double)b / TH_DEFAULT_SAMPLES;
+
+                        for (size_t i = 0; i < n; i++)
+                        {
+                            const double h = 0.5 - 0.5 * cos(2 * M_PI * (double)i / (double)n);
+
+                            re += h * v[a + i] * cos(w * (double)i);
+                            im += h * v[a + i] * sin(w * (double)i);
+                        }
+                        p[b] += re * re + im * im;
+                    }
+                    count++;
+                }
+                for (double &x : p)
+                    x /= count > 0 ? count : 1;
+                return p;
+            };
+            auto energy = [](const vector<double> &p, double lo, double hi) {
+                double e = 0;
+
+                for (size_t b = 0; b < p.size(); b++)
+                    if (b * 25.0 >= lo && b * 25.0 < hi)
+                        e += p[b];
+                return e;
+            };
+            auto centroid = [](const vector<double> &p, double lo, double hi) {
+                double e = 0, m = 0;
+
+                for (size_t b = 0; b < p.size(); b++)
+                    if (b * 25.0 >= lo && b * 25.0 < hi)
+                    {
+                        e += p[b];
+                        m += p[b] * b * 25.0;
+                    }
+                return e > 0 ? m / e : 0;
+            };
+            /* The peak and the -10 dB edges of the spectrum smoothed over
+               half a kilohertz, from 1 to 11 kHz. */
+            auto band = [](const vector<double> &p, double &peak, double &lo, double &hi) {
+                vector<double> sm(p.size(), 0);
+
+                for (size_t b = 0; b < p.size(); b++)
+                    for (int d = -10; d <= 10; d++)
+                        if ((int)b + d >= 0 && b + d < p.size())
+                            sm[b] += p[b + d];
+                size_t top = 40;
+
+                for (size_t b = 40; b < sm.size(); b++)
+                    if (sm[b] > sm[top])
+                        top = b;
+                peak = top * 25.0;
+                size_t l = top, h = top;
+
+                while (l > 40 && sm[l - 1] > sm[top] / 10)
+                    l--;
+                while (h + 1 < sm.size() && sm[h + 1] > sm[top] / 10)
+                    h++;
+                lo = l * 25.0;
+                hi = h * 25.0;
+            };
+            const vector<unsigned char> s4 = { 31, 31, 31, 31 }, sh4 = { 32, 32, 32, 32 },
+                                        z4 = { 38, 38, 38, 38 }, zh4 = { 39, 39, 39, 39 };
+            const vector<double> sP = spectrum(say(s4, ""), 0.05, 0.45);
+            const vector<double> shP = spectrum(say(sh4, ""), 0.05, 0.45);
+            double peak, lo, hi;
+
+            band(sP, peak, lo, hi);
+            okOrFail(centroid(sP, 0, 11000) > 5700 && centroid(sP, 0, 11000) < 6800 && lo < 3500 &&
+                         hi > 9500 && energy(sP, 0, 2000) < energy(sP, 1000, 11000) / 316,
+                     "osc::speak: an S is a band from 3.5 kHz to past 9.5, centered 5.7-6.8 kHz, "
+                     "25 dB down under 2 kHz",
+                     "centroid " + num(centroid(sP, 0, 11000)) + ", -10 dB from " + num(lo) + " to " +
+                         num(hi) + ", under 2 kHz " +
+                         num(10 * log10(energy(sP, 0, 2000) / energy(sP, 1000, 11000))) + " dB");
+            band(shP, peak, lo, hi);
+            okOrFail(peak > 3300 && peak < 4400 && centroid(shP, 0, 11000) > 3400 &&
+                         centroid(shP, 0, 11000) < 4600 &&
+                         energy(shP, 0, 2000) < energy(shP, 1000, 11000) / 31.6,
+                     "osc::speak: an SH peaks at 3.3-4.4 kHz, centered 3.4-4.6, 15 dB down under 2 kHz",
+                     "peak " + num(peak) + ", centroid " + num(centroid(shP, 0, 11000)) +
+                         ", under 2 kHz " +
+                         num(10 * log10(energy(shP, 0, 2000) / energy(shP, 1000, 11000))) + " dB");
+
+            /* Z and ZH are S and SH with a voice under them: above it,
+               the same hiss. */
+            const vector<double> zP = spectrum(say(z4, ""), 0.05, 0.3);
+            const vector<double> zhP = spectrum(say(zh4, ""), 0.05, 0.3);
+
+            okOrFail(fabs(centroid(zP, 4000, 11000) / centroid(sP, 4000, 11000) - 1) < 0.05 &&
+                         fabs(centroid(zhP, 4000, 11000) / centroid(shP, 4000, 11000) - 1) < 0.05,
+                     "osc::speak: Z and ZH hiss as S and SH do, over 4 kHz",
+                     "Z " + num(centroid(zP, 4000, 11000)) + " against S " +
+                         num(centroid(sP, 4000, 11000)) + ", ZH " + num(centroid(zhP, 4000, 11000)) +
+                         " against SH " + num(centroid(shP, 4000, 11000)));
+
+            /* CH and JH are SH and ZH after a closure, and their hiss is
+               the shape from its first moment: the shape is set during the
+               closure, as during a pause before an S. */
+            const vector<float> ch = say({ 17 }, ""), jh = say({ 23 }, ""), ps = say({ 40, 31 }, "");
+            const double chAt = 0.14, psAt = 0.08;
+            const vector<double> chP = spectrum(ch, chAt + 0.02, chAt + 0.09);
+            const vector<double> jhP = spectrum(jh, 0.1 + 0.005, 0.1 + 0.06);
+            const vector<double> chOn = spectrum(ch, chAt, chAt + 0.015, 0.015);
+            const vector<double> psOn = spectrum(ps, psAt, psAt + 0.015, 0.015);
+            const vector<double> sOn = spectrum(say(s4, ""), 0, 0.015, 0.015);
+
+            okOrFail(fabs(centroid(chP, 1000, 11000) / centroid(shP, 1000, 11000) - 1) < 0.1 &&
+                         fabs(centroid(jhP, 4000, 11000) / centroid(shP, 4000, 11000) - 1) < 0.1,
+                     "osc::speak: CH and JH hiss as SH does",
+                     "CH " + num(centroid(chP, 1000, 11000)) + ", JH over 4 kHz " +
+                         num(centroid(jhP, 4000, 11000)) + ", SH " + num(centroid(shP, 1000, 11000)));
+            auto under2k = [&](const vector<double> &p) {
+                return 10 * log10(energy(p, 0, 2000) / energy(p, 1000, 11000));
+            };
+
+            okOrFail(under2k(chOn) < -20 && under2k(psOn) < -30 && under2k(sOn) < -30,
+                     "osc::speak: a CH's release, an S after a pause and an S at a note's start "
+                     "are the shape from their first 15 ms",
+                     "under 2 kHz: CH " + num(under2k(chOn)) + " dB, S after a pause " +
+                         num(under2k(psOn)) + " dB, S first " + num(under2k(sOn)) + " dB");
+
+            /* A higher voice's S is higher: `shift' 1.2, a woman's, takes
+               its centroid up 17%, where moving its resonator alone and
+               not its high-pass would take it up 14. */
+            const vector<double> sHi = spectrum(say(s4, "    shift = 1.2;\n"), 0.05, 0.45);
+            const double up = centroid(sHi, 0, 11000) / centroid(sP, 0, 11000) - 1;
+
+            okOrFail(up > 0.155 && up < 0.25,
+                     "osc::speak: `shift' 1.2 moves an S's centroid up",
+                     num(100 * up) + "%");
+
+            /* Their level against a vowel: the frication's 1-11 kHz energy
+               against a held AA's, held to the levels `sibilance' was
+               set by. */
+            const vector<double> aaP = spectrum(say({ 1 }, ""), 0.1, 0.45);
+            const double sDb = 10 * log10(energy(sP, 1000, 11000) / energy(aaP, 0, 11000));
+            const double shDb = 10 * log10(energy(shP, 1000, 11000) / energy(aaP, 0, 11000));
+
+            okOrFail(fabs(sDb - S_LEVEL_DB) < 1 && fabs(shDb - SH_LEVEL_DB) < 1,
+                     "osc::speak: an S and an SH as loud against a vowel as they were",
+                     "S " + num(sDb) + " dB, SH " + num(shDb) + " dB against AA");
         }
 
         /* A mono slide moves the words on without starting the voice
