@@ -1024,7 +1024,9 @@ int main (int argc, char **argv)
            sibilant -- four in a row -- through Hann windows a twentieth of
            a second long, at 25 Hz a bin. */
         {
-            auto say = [&](const vector<unsigned char> &codes, const string &more) {
+            /* `codes' said on a note held for `held' windows, or all of them. */
+            auto say = [&](const vector<unsigned char> &codes, const string &more,
+                           int held = 0) {
                 vector<float> got;
                 string g = speakGraph("");
                 const string at = "    trigger = ionode->trigger;\n";
@@ -1038,7 +1040,12 @@ int main (int argc, char **argv)
 
                 z.push_back(0);
                 synth.addNote(0, 45, 100, 1, NULL, z.data());
-                listen(synth, windows, got);
+                if (held > 0)
+                {
+                    listen(synth, held, got);
+                    synth.delNote(0, 45);
+                }
+                listen(synth, windows - held, got);
                 return got;
             };
             /* Power in 25 Hz bins up to 11 kHz, averaged over windows from
@@ -1196,6 +1203,24 @@ int main (int argc, char **argv)
             okOrFail(fabs(sDb - S_LEVEL_DB) < 1 && fabs(shDb - SH_LEVEL_DB) < 1,
                      "osc::speak: an S and an SH as loud against a vowel as they were",
                      "S " + num(sDb) + " dB, SH " + num(shDb) + " dB against AA");
+
+            /* A velar's burst is where the back of the tongue meets the
+               palate, and the vowel decides where that is (Blumstein and
+               Stevens, JASA 1979): K's is under 2 kHz before AA and over
+               it before IY, and a K after a vowel takes that vowel's. */
+            auto burst = [&](const vector<unsigned char> &codes, int held) {
+                const double at = held * TH_DEFAULT_WINDOW_LENGTH / (double)TH_DEFAULT_SAMPLES +
+                                  0.062;
+
+                return centroid(spectrum(say(codes, "", held), at, at + 0.02, 0.02), 1000, 4500);
+            };
+            const double kaa = burst({ 24, 1 }, 0), kiy = burst({ 24, 11 }, 0);
+            const double aak = burst({ 1, 24 }, windows / 5), iyk = burst({ 11, 24 }, windows / 5);
+
+            okOrFail(kaa < 2000 && kiy > 2000 && aak < 2000 && iyk > 2000,
+                     "osc::speak: a K's burst is low before and after AA, high by IY",
+                     "K AA " + num(kaa) + ", K IY " + num(kiy) + ", AA K " + num(aak) +
+                     ", IY K " + num(iyk) + " Hz");
         }
 
         /* A mono slide moves the words on without starting the voice
