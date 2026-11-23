@@ -987,7 +987,21 @@ int main (int argc, char **argv)
                                 double window = 0.05) {
                 const size_t n = (size_t)(window * TH_DEFAULT_SAMPLES);
                 vector<double> p(440, 0);
+                vector<double> hc(p.size() * n), hs(p.size() * n);
                 int count = 0;
+
+                for (size_t b = 0; b < p.size(); b++)
+                {
+                    const double w = 2 * M_PI * 25 * (double)b / TH_DEFAULT_SAMPLES;
+
+                    for (size_t i = 0; i < n; i++)
+                    {
+                        const double h = 0.5 - 0.5 * cos(2 * M_PI * (double)i / (double)n);
+
+                        hc[b * n + i] = h * cos(w * (double)i);
+                        hs[b * n + i] = h * sin(w * (double)i);
+                    }
+                }
 
                 for (size_t a = (size_t)(from * TH_DEFAULT_SAMPLES);
                      a + n <= (size_t)(to * TH_DEFAULT_SAMPLES) && a + n <= v.size(); a += n / 2)
@@ -995,14 +1009,11 @@ int main (int argc, char **argv)
                     for (size_t b = 0; b < p.size(); b++)
                     {
                         double re = 0, im = 0;
-                        const double w = 2 * M_PI * 25 * (double)b / TH_DEFAULT_SAMPLES;
 
                         for (size_t i = 0; i < n; i++)
                         {
-                            const double h = 0.5 - 0.5 * cos(2 * M_PI * (double)i / (double)n);
-
-                            re += h * v[a + i] * cos(w * (double)i);
-                            im += h * v[a + i] * sin(w * (double)i);
+                            re += hc[b * n + i] * v[a + i];
+                            im += hs[b * n + i] * v[a + i];
                         }
                         p[b] += re * re + im * im;
                     }
