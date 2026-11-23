@@ -9687,6 +9687,15 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
     }
 
     {
+        const std::string got = says(playBody(plugins, synth, "say held breath",
+            piece("one, ~ two", ""), 1.9));
+
+        if (got != "W.AH.N _ AH T.UW")
+            fail("say: a ~ after a breath holds the vowel before it; got " +
+                 got);
+    }
+
+    {
         const std::string got = says(playBody(plugins, synth, "say arp",
             "chain c {\n"
             "  stage src gen::euclid { steps = 1; fills = 1;"

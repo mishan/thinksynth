@@ -31,10 +31,11 @@
  * `-' in a word is only a reading aid.
  *
  * `~' HOLDS A SYLLABLE OVER ANOTHER NOTE: the note it lands on sings the
- * last syllable's vowel and nothing else, which is a melisma. `_' is a
- * note that says nothing at all, and so is punctuation -- , . ; : ! ? --
- * one note for a run of it: a breath, which is how a listener hears where
- * a phrase ends.
+ * last vowel said, past any pause, and nothing else, which is a
+ * melisma. `_' is a note that says nothing at all, each one its own, and
+ * so is punctuation -- , . ; : ! ? -- one note for a run of it and none
+ * after a `_': a breath, which is how a listener hears where a phrase
+ * ends.
  *
  * A CHORD IS ONE SYLLABLE. Notes that arrive at the same instant -- what
  * xform::harmonize makes of one -- all take the syllable the first did,
@@ -47,9 +48,9 @@
  * osc::speak then slides into it, its mouth moving from one syllable to
  * the next, rather than starting again from silence, where a speech
  * recognizer hears under half the words. A pause and the end of the
- * words let the voice go. A next note shorter than
- * the overlap ends before this one does, and the voice drops back to
- * this note's pitch until it ends too.
+ * words let the voice go. A next note shorter than the overlap ends
+ * before this one does, and the voice drops back to this note's pitch
+ * until it ends too.
  *
  * DETERMINISM. None of it is random: the words are a function of how many
  * notes have passed, and a rewind is a fresh stage.
@@ -216,7 +217,10 @@ static void parse (const char *text, std::vector<Syllable> &out)
         }
         else if (c == '~')
         {
-            const unsigned char v = out.empty() ? 0 : vowelOf(out.back());
+            unsigned char v = 0;
+
+            for (size_t k = out.size(); k-- > 0 && !v; )
+                v = vowelOf(out[k]);
 
             out.push_back(v ? Syllable(1, v) : Syllable());
             i++;

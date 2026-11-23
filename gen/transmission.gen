@@ -236,7 +236,7 @@ chain voice {
         step = 0.5 beats;  hold = 0.45 beats;  vel = 100;
     };
     stage words xform::say {
-        words = "we are the machines, we sing in binary, one and zero, on and off";
+        words = "we are the machines we sing in binary one and zero on and off";
     };
     sink { instrument = voice; };
 };
