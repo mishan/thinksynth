@@ -9748,6 +9748,16 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
         }
     }
 
+    /* Words the rules get wrong come from the CMU dictionary. */
+    {
+        const std::string got = says(playBody(plugins, synth, "say dictionary",
+            piece("beauty juice canoe swan", ""), 2.9));
+
+        if (got != "B.Y.UW T.IY JH.UW.S K.AH N.UW S.W.AA.N")
+            fail("say: the dictionary spells what the rules do not; got " +
+                 got);
+    }
+
     /* Words the exceptions do not list, so the rules alone. */
     static const char *const spelled[][2] = {
         { "stop", "S T AA P" },     { "she", "SH IY" },
@@ -9770,9 +9780,9 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
     };
 
     for (const auto &w : listed)
-        if (englishToPhonemes(w[0]) != w[1])
+        if (englishSpell(w[0]) != w[1])
             fail(std::string("say: ") + w[0] + " is said " + w[1] +
-                 ", not " + englishToPhonemes(w[0]));
+                 ", not " + englishSpell(w[0]));
 }
 
 /* ---- throws ------------------------------------------------------------ */

@@ -245,7 +245,7 @@ static void parse (const char *text, std::vector<Syllable> &out)
                 if (t[k] != '-')
                     word += t[k];
 
-            syllabify(englishToPhonemes(word) + " ", out);
+            syllabify(englishSpell(word) + " ", out);
             i = end;
         }
         else

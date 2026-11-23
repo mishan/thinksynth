@@ -37,15 +37,21 @@
  *
  * The rules are about ninety percent right on running text, and the
  * misses are mostly the common words with spellings of their own, so
- * those come from `exceptions' first. AX, NRL's schwa, is written AH: the
+ * those come from `exceptions' first, and then from the CMU dictionary
+ * (cmudict.h), which spells thirty-odd thousand common words; the rules
+ * are for the rest. AX, NRL's schwa, is written AH: the
  * phoneme set has no separate unstressed vowel.
  */
 
 #ifndef TH_ENGLISH_H
 #define TH_ENGLISH_H 1
 
+#include <algorithm>
 #include <cstring>
 #include <string>
+#include <vector>
+
+#include "cmudict.h"
 
 struct EnglishRule
 {
@@ -619,6 +625,57 @@ static std::string englishToPhonemes (const std::string &word)
     }
 
     return out;
+}
+
+/* `word' as the CMU dictionary says it, stress digits and all, or "". */
+static std::string englishLookUp (const std::string &word)
+{
+    static const std::vector<const char *> lines = [] {
+        std::vector<const char *> v;
+
+        for (const char *l = englishDictionary; *l; l = strchr(l, '\n') + 1)
+            v.push_back(l);
+        return v;
+    }();
+    std::string w;
+
+    for (char c : word)
+        if (englishLetter(c) || c == '\'')
+            w += englishUpper(c);
+
+    /* A space sorts before an apostrophe and the letters, so a word's
+       line is the first that starts with it. */
+    const auto at = std::lower_bound(lines.begin(), lines.end(), w,
+        [](const char *l, const std::string &key) {
+            return strncmp(l, key.c_str(), key.size()) < 0;
+        });
+
+    if (w.empty() || at == lines.end() ||
+        strncmp(*at, w.c_str(), w.size()) != 0 || (*at)[w.size()] != ' ')
+        return "";
+
+    const char *from = *at + w.size() + 1;
+
+    return std::string(from, strchr(from, '\n') - from);
+}
+
+/* `word' as space-separated ARPAbet: an exception, the dictionary's, or
+   the rules'. */
+static std::string englishSpell (const std::string &word)
+{
+    std::string w;
+
+    for (char c : word)
+        if (englishLetter(c) || c == '\'')
+            w += englishUpper(c);
+
+    for (const auto &e : englishExceptions)
+        if (w == e[0])
+            return e[1];
+
+    const std::string said = englishLookUp(word);
+
+    return said.empty() ? englishToPhonemes(word) : said;
 }
 
 #endif /* TH_ENGLISH_H */
