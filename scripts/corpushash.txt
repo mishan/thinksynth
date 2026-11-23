@@ -135,11 +135,11 @@ c74b47c8c74a2325  sampled_violins.dsp
 81518ca7523a86ed  shaker.dsp
 6bb32217201f927d  shapeo.dsp
 cd7804c3c8dd6fbd  sho.dsp
-622135aa6cb7f135  sing.dsp
+a950c3253f048e6d  sing.dsp
 6f174dbc2b82983d  slicer.dsp
 c311e7dc95ffd125  snare.dsp
 d7723199aeb1773d  snare808.dsp
-4aa75946972c7535  speak.dsp
+09d335f97821b345  speak.dsp
 a0299c973f28af8d  spectral.dsp
 f3026ce10e3b8c0d  stab.dsp
 2c28be4c1e8f04a5  strings.dsp
