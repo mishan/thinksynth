@@ -149,7 +149,7 @@ e7d48243ce2f7d95  sub.dsp
 016c7daee139199d  syncfun.dsp
 f1c218be115db09d  syndrum.dsp
 72fb8fe9c5cd2ad1  taiko.dsp
-a7aa2e52aaf1dc6d  talkbox.dsp
+ab7efb9268cd459d  talkbox.dsp
 79d7f7ee63586c5d  tambourine.dsp
 aa30bd76de657875  templebell.dsp
 8a41d6fc60c5239d  theremin.dsp
