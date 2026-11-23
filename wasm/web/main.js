@@ -4361,6 +4361,7 @@ window.solo = {
     transport: () => lastTape === null ? null
         : { now: lastTape.now, frame: lastTape.frame,
             origin: lastTape.origin, speed: lastTape.speed,
+            section: lastTape.section, sectionCued: lastTape.sectionCued,
             rate: ctx?.sampleRate ?? 0 },
 
     /* Every load asked for so far, finished -- including the redraw each

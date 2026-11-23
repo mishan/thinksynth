@@ -14022,6 +14022,138 @@ checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* Sections edited while a piece plays, and cued by a person.
+ *
+ * A live edit keeps the piece where it is: in a held section on its
+ * third pass, taking the hold off would put it two sections on if the
+ * list were walked again from the top, and removing the section playing
+ * hands its place to the one that now stands there. A person's cue
+ * (cueInstead) replaces the one pending, and asking for the section
+ * playing takes it back; cuedSection says which is coming. And a
+ * section's knob value set and cleared in place.
+ */
+static void
+checkSectionsLive (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const std::string chains =
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n";
+    const std::string head = "tempo 120;\n@k = 0.5;\n";
+    const std::string held =
+        "section a 1 bars { };\n"
+        "section b 1 bars hold { };\n"
+        "section c 1 bars { };\n";
+    auto playedTo = [&] (thcScheduler &sched, double seconds,
+                         const std::string &sections)
+    {
+        thcGenLoader loader(plugins);
+
+        clearChannels(synth);
+        sched.setAuditionSynchronous(true);
+
+        if (!loader.loadText(head + sections + chains, "live.gen", &sched))
+            return false;
+
+        sched.start();
+
+        for (int step = 1; step <= (int)(seconds / 0.02 + 0.5); step++)
+            sched.stepTransportAt(0.02, 1000000000 + (int64_t)step * 20000);
+
+        return true;
+    };
+    auto edited = [&] (thcScheduler &sched, const std::string &sections)
+    {
+        thcScheduler next(synth);
+        thcGenLoader edit(plugins);
+        std::string why;
+
+        sched.prepareEdit(next, {});
+        return edit.loadText(head + sections + chains, "live.gen", &next) &&
+               sched.adopt(next, thcScheduler::EditPlan(), why);
+    };
+    const struct
+    {
+        const char *what;
+        std::string sections;
+        const char *playing;        /* after the edit, at 7 s */
+    } EDITS[] = {
+        { "the hold taken off the section playing",
+          "section a 1 bars { };\nsection b 1 bars { };\n"
+          "section c 1 bars { };\n", "b" },
+        { "a section added before it",
+          "section x 1 beats { };\n" + held, "b" },
+        { "the section playing taken out",
+          "section a 1 bars { };\nsection c 2 bars { };\n", "c" },
+    };
+
+    /* A bar is 2 s: a 0-2, then b held from 2, its third pass 6-8. */
+    for (const auto &e : EDITS)
+    {
+        thcScheduler sched(synth);
+        thcScheduler::SectionSpan span;
+
+        if (!playedTo(sched, 7, held) || !edited(sched, e.sections))
+        {
+            fail(std::string("sections live: ") + e.what + " did not apply");
+            continue;
+        }
+
+        const bool found = sched.sectionSpanAt(sched.now(), span);
+        const std::string at = found
+            ? sched.sections()[span.section].name : "nothing";
+
+        if (at != e.playing || std::fabs(span.start - 6) > 1e-6)
+            fail(std::string("sections live: after ") + e.what +
+                 ", 7 s is in " + at + " from " + std::to_string(span.start) +
+                 " s, not " + e.playing + " from 6 s");
+        sched.stop();
+    }
+
+    thcScheduler sched(synth);
+
+    if (!playedTo(sched, 0.5, "section a 1 bars { };\nsection b 1 bars { };\n"
+                              "section c 1 bars { };\nsection d 1 bars { };\n"))
+    {
+        fail("sections live: the piece did not load");
+        return;
+    }
+
+    /* In a: c then d leaves d; b, which comes next anyway, and a, which
+       is playing, each only take back what is cued. */
+    std::string cued;
+
+    for (size_t s : { 2, 3, 1, 3, 0 })
+    {
+        sched.cueInstead(s, 0);
+        cued += std::to_string(sched.cuedSection()) + " ";
+    }
+
+    if (cued != "2 3 -1 3 -1 ")
+        fail("sections live: a person's cues of c, d, b, d and a left " +
+             cued + "cued, not 2 3 -1 3 -1");
+
+    /* A knob value given to b before it begins is what b sets it to. */
+    const bool set = sched.setSectionKnob(1, "k", 0.75, true) &&
+                     sched.setSectionKnob(2, "k", 0.25, true) &&
+                     sched.setSectionKnob(2, "k", 0, false) &&
+                     !sched.setSectionKnob(1, "nope", 1, true);
+
+    for (int step = 1; step <= 100; step++)
+        sched.stepTransportAt(0.02, 2000000000 + (int64_t)step * 20000);
+
+    const float k = (*sched.knob("k"))[0];
+
+    if (!set || k != 0.75f || !sched.sections()[2].knobs.empty())
+        fail("sections live: b set to give @k 0.75 left it at " +
+             std::to_string(k) + (set ? "" : ", and an edit was refused"));
+    sched.stop();
+}
+
 /* Sections moved, copied, added, taken out and the list's end changed at
  * random, from a piece with a held section, one setting a knob, a comment
  * inside one and `section end;' -- after every edit the file read back
@@ -17834,6 +17966,7 @@ main (int argc, char *argv[])
         checkChainIdentity(plugins, &synth);
         checkSectionEdits(plugins, &synth);
         checkSectionOrder(plugins, &synth);
+        checkSectionsLive(plugins, &synth);
         checkDrawnControls(plugins, &synth);
         checkSeek(plugins, &synth);
         checkProbes(plugins, &synth);

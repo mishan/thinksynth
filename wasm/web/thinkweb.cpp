@@ -180,7 +180,8 @@ enum CmdType
    TW_SOLO, TW_SECTION, TW_KNOBWRITE, TW_GROWBACK and TW_TRYGRAPH have entry
    points of their own and never arrive as an op from there. TW_SEEK and
    TW_SEEKSECTION are a solo page's, framed; a room's seek is a begin
-   from a time (tw_begin). So is TW_CUE. */
+   from a time (tw_begin). So are TW_CUE and the person's cues, TW_CUEEND
+   and TW_CUEBAR. */
 enum TransportOp
 {
     TW_START,
@@ -204,6 +205,8 @@ enum TransportOp
     TW_TRYGRAPH,
     TW_SEEKSECTION,
     TW_CUE,
+    TW_CUEEND,
+    TW_CUEBAR,
 };
 
 struct Command
@@ -818,6 +821,16 @@ void applyDue (double start, int len)
                        finishing its phrase first. */
                     case TW_CUE:
                         sched_->cueSection((size_t)c.value, sched_->meter());
+                        break;
+
+                    /* A person's, on the session grid: in place of what
+                       is pending, for the end of the section playing or
+                       the next bar line (thcScheduler::cueInstead). */
+                    case TW_CUEEND:
+                    case TW_CUEBAR:
+                        sched_->cueInstead((size_t)c.value,
+                                           c.op == TW_CUEBAR
+                                               ? sched_->meter() : 0);
                         break;
                 }
                 break;
@@ -4284,6 +4297,12 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_sections_json (void)
 EMSCRIPTEN_KEEPALIVE int tw_section_now (void)
 {
     return sched_ == NULL ? -1 : sched_->sectionAt(sched_->now());
+}
+
+/* The section the next cue still to come goes to, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_section_cued (void)
+{
+    return sched_ == NULL ? -1 : sched_->cuedSection();
 }
 
 /* Where the section the transport is in began and how long it lasts, as

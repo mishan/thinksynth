@@ -1479,6 +1479,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             /* The section the transport is in, -1 for none, and where it
                began and how long it lasts. */
             section: this.M._tw_section_now(),
+            sectionCued: this.M._tw_section_cued(),
             sectionStart: this.M._tw_section_start(),
             sectionLength: this.M._tw_section_length(),
 

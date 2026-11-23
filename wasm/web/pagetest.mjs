@@ -5596,16 +5596,24 @@ try
         await page.click('#bandscenes .scene >> nth=1');
 
         const marked = await lit();
+        const engineCued = await page.waitForFunction(
+            () => window.solo.transport()?.sectionCued === 1, null,
+            { polling: 20, timeout: 5000 }).then(() => true, () => false);
         const came = await until(lit, (l) => l.includes('*scene2'), 15000);
+        const cleared = await page.waitForFunction(
+            () => window.solo.transport()?.sectionCued === -1, null,
+            { polling: 20, timeout: 5000 }).then(() => true, () => false);
 
         await page.click('#stop');
         await page.click('#rewind');
         await page.evaluate(() => window.solo.settled());
 
         check(/^section scene2 \S+ \S+ hold /m.test(held) &&
-              /^\*scene >scene2/.test(marked) && /\*scene2/.test(came),
+              /^\*scene >scene2/.test(marked) && /\*scene2/.test(came) &&
+              engineCued && cleared,
               '...a scene held, and one clicked while it plays cued and ' +
-              `marked until it comes in: ${marked}, then ${came}`);
+              `marked until it comes in, the engine saying so: ${marked}, ` +
+              `then ${came}; cued ${engineCued}, cleared ${cleared}`);
     }
 
     /* Start from a phrase: what the keys play goes into the piece, and
