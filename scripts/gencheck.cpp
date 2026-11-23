@@ -9678,6 +9678,15 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
     }
 
     {
+        const std::string got = says(playBody(plugins, synth, "say breath",
+            piece("one, two... three _ four!", ""), 3.9));
+
+        if (got != "W.AH.N _ T.UW _ TH.R.IY _ F.AO.R _")
+            fail("say: punctuation is a breath, one for a run of it; got " +
+                 got);
+    }
+
+    {
         const std::string got = says(playBody(plugins, synth, "say arp",
             "chain c {\n"
             "  stage src gen::euclid { steps = 1; fills = 1;"
@@ -9700,8 +9709,8 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
         struct Case { const char *name, *words, *args; double durs[5]; };
         static const Case cases[] = {
             { "held into the next sounded syllable only",
-              "one two, three _ four", "legato = 0.05 s;",
-              { 0.25, 0.2, 0.2, 0.2, 0.2 } },
+              "one two three _ four", "legato = 0.05 s;",
+              { 0.25, 0.25, 0.2, 0.2, 0.2 } },
             { "at most half the note", "la la", "legato = 1 s;",
               { 0.3, 0.2, 0.3, 0.2, 0.3 } },
             { "on by default", "la la", "", { 0.3, 0.2, 0.3, 0.2, 0.3 } },

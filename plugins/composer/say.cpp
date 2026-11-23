@@ -32,7 +32,9 @@
  *
  * `~' HOLDS A SYLLABLE OVER ANOTHER NOTE: the note it lands on sings the
  * last syllable's vowel and nothing else, which is a melisma. `_' is a
- * note that says nothing at all.
+ * note that says nothing at all, and so is punctuation -- , . ; : ! ? --
+ * one note for a run of it: a breath, which is how a listener hears where
+ * a phrase ends.
  *
  * A CHORD IS ONE SYLLABLE. Notes that arrive at the same instant -- what
  * xform::harmonize makes of one -- all take the syllable the first did,
@@ -44,8 +46,8 @@
  * length, when the next syllable is sounded: a mono voice built on
  * osc::speak then slides into it, its mouth moving from one syllable to
  * the next, rather than starting again from silence, where a speech
- * recognizer hears under half the words. A pause, a comma or a full stop
- * and the end of the words let the voice go. A next note shorter than
+ * recognizer hears under half the words. A pause and the end of the
+ * words let the voice go. A next note shorter than
  * the overlap ends before this one does, and the voice drops back to
  * this note's pitch until it ends too.
  *
@@ -72,7 +74,7 @@ composer_init (thcComposerInfo *info)
 {
     static const thcParamDef defs[P_COUNT] = {
         { "words", "English, a syllable to a note; [K AH M] is ARPAbet, "
-          "~ holds the last vowel, _ is a silent note",
+          "~ holds the last vowel, _ and punctuation are silent notes",
           THC_PARAM_STRING, 0, 0, 0, "", NULL },
         { "legato", "how far a syllable is held into a sounded next one",
           THC_PARAM_FLOAT, 0, 4, 0.125, NULL, "s" },
@@ -159,16 +161,13 @@ static unsigned char vowelOf (const Syllable &s)
     return 0;
 }
 
-/* `ends' marks the syllables a phrase ends on: the last before
-   punctuation. */
-static void parse (const char *text, std::vector<Syllable> &out,
-                   std::vector<bool> &ends)
+static void parse (const char *text, std::vector<Syllable> &out)
 {
     const std::string t = text ? text : "";
+    const Syllable pause(1, (unsigned char)thPhonemeCode("_"));
     size_t i = 0;
 
     out.clear();
-    ends.clear();
 
     while (i < t.size())
     {
@@ -224,7 +223,7 @@ static void parse (const char *text, std::vector<Syllable> &out,
         }
         else if (c == '_')
         {
-            out.push_back(Syllable(1, (unsigned char)thPhonemeCode("_")));
+            out.push_back(pause);
             i++;
         }
         else if (englishLetter(c) || c == '\'')
@@ -247,22 +246,16 @@ static void parse (const char *text, std::vector<Syllable> &out,
         }
         else
         {
-            if (strchr(",.;:!?", c) && !out.empty())
-            {
-                ends.resize(out.size(), false);
-                ends.back() = true;
-            }
+            if (strchr(",.;:!?", c) && !out.empty() && out.back() != pause)
+                out.push_back(pause);
             i++;
         }
     }
-
-    ends.resize(out.size(), false);
 }
 
 struct State {
     const thcParams     *params;
     std::vector<Syllable> syllables;
-    std::vector<bool>    ends;
     size_t               next;      /* the syllable the next note takes */
     double               lastAt;    /* when the last note arrived */
     bool                 any;       /* whether one has */
@@ -279,7 +272,7 @@ composer_create (const thcParams *params)
     st->any = false;
 
     parse(params->get_string(params->ctx, paramIndex[P_WORDS]),
-          st->syllables, st->ends);
+          st->syllables);
 
     return st;
 }
@@ -299,8 +292,7 @@ composer_param_changed (void *state, int index)
         return;
 
     /* New words start from their first syllable. */
-    parse(st->params->get_string(st->params->ctx, index), st->syllables,
-          st->ends);
+    parse(st->params->get_string(st->params->ctx, index), st->syllables);
     st->next = 0;
     st->any = false;
 }
@@ -346,7 +338,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     };
 
     if (copy.u.note.duration > 0 && after < st->syllables.size() &&
-        !st->ends[take] && sounded(take) && sounded(after))
+        sounded(take) && sounded(after))
         copy.u.note.duration += fmin(
             fmax(0, st->params->get(st->params->ctx, paramIndex[P_LEGATO])),
             copy.u.note.duration / 2);
