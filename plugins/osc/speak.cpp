@@ -384,8 +384,15 @@ static int segments (const int *codes, int n, Segment *out)
                 b->hold = false;
                 count++;
 
-                /* And for P, T and K the breath before the voicing. */
-                if (p.kind == STOP && !p.voiced)
+                /* And for P, T and K the breath before the voicing, but
+                   not after an S that starts the syllable: the vowel of
+                   "stop" is voiced straight after its burst. A stop that
+                   ends a syllable, "just" too, keeps its breath, which is
+                   most of what is heard of it. */
+                const bool afterS = !nucleus && i > 0 &&
+                                    strcmp(table[codes[i - 1] - 1].name, "S") == 0;
+
+                if (p.kind == STOP && !p.voiced && !afterS)
                 {
                     Segment *a = &out[count];
 
