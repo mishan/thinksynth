@@ -720,20 +720,22 @@ foreach(pair IN LISTS SITE_ICONS)
   list(APPEND DIST_ICON_FILES "${PROJECT_BINARY_DIR}/icons/${name}")
 endforeach()
 
+# The licenses: the site's own and those of what it carries of others'.
+foreach(name COPYING docs/THIRD_PARTY_NOTICES.txt)
+  get_filename_component(leaf "${name}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/${leaf}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${THINK_TOP}/${name}" "${PROJECT_BINARY_DIR}/${leaf}"
+      DEPENDS "${THINK_TOP}/${name}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/${leaf}")
+endforeach()
+
 # The service worker, which keeps the site for offline use
 # (serviceworker.js). What it keeps is every file here either page can
 # load: everything above, the room page's two included, plus the module
 # and the indexes, which are not custom command outputs. precache.mjs
 # hashes them into sw.js, so a build that changes one is a new version to
 # a browser.
-# The licenses of what the page carries of others'.
-add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${THINK_TOP}/docs/THIRD_PARTY_NOTICES.txt"
-            "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt"
-    DEPENDS "${THINK_TOP}/docs/THIRD_PARTY_NOTICES.txt")
-list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt")
-
 set(PRECACHE_FILES ${SITE_OUTPUTS})
 list(APPEND PRECACHE_FILES
     "${PROJECT_BINARY_DIR}/thinkweb.js"
@@ -815,6 +817,7 @@ list(APPEND DIST_ROOT_FILES
     ${BUNDLE_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "${PROJECT_BINARY_DIR}/sw.js"
+    "${PROJECT_BINARY_DIR}/COPYING"
     "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt"
     "$<TARGET_FILE:thinkweb>"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm"
