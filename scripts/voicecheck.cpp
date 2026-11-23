@@ -78,6 +78,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -1162,8 +1163,8 @@ int main (int argc, char **argv)
                closure, as during a pause before an S. */
             const vector<float> ch = say({ 17 }, ""), jh = say({ 23 }, ""), ps = say({ 40, 31 }, "");
             const double chAt = 0.14, psAt = 0.08;
-            const vector<double> chP = spectrum(ch, chAt + 0.02, chAt + 0.09);
-            const vector<double> jhP = spectrum(jh, 0.1 + 0.005, 0.1 + 0.06);
+            const vector<double> chP = spectrum(ch, chAt + 0.01, chAt + 0.05, 0.04);
+            const vector<double> jhP = spectrum(jh, 0.1 + 0.005, 0.1 + 0.035, 0.03);
             const vector<double> chOn = spectrum(ch, chAt, chAt + 0.015, 0.015);
             const vector<double> psOn = spectrum(ps, psAt, psAt + 0.015, 0.015);
             const vector<double> sOn = spectrum(say(s4, ""), 0, 0.015, 0.015);
@@ -1224,6 +1225,40 @@ int main (int argc, char **argv)
                      "pause ends its syllable",
                      "K AA " + num(kaa) + ", K IY " + num(kiy) + ", AA K " + num(aak) +
                      ", IY K " + num(iyk) + ", AA K _ IY " + num(aakiy) + " Hz");
+
+            /* NG closes where K does, at its vowel's velar locus, with F2
+               and F3 drawn together (the velar pinch): low after AA, high
+               after IY. */
+            auto murmur = [&](const vector<unsigned char> &codes) {
+                const double at = (windows / 5) * TH_DEFAULT_WINDOW_LENGTH /
+                                  (double)TH_DEFAULT_SAMPLES + 0.03;
+
+                return centroid(spectrum(say(codes, "", windows / 5), at, at + 0.03, 0.03),
+                                1000, 3500);
+            };
+            const double aang = murmur({ 1, 28 }), iyng = murmur({ 11, 28 });
+
+            okOrFail(aang > 0 && iyng - aang > 300, "osc::speak: an NG closes at its vowel's locus",
+                     "AA NG " + num(aang) + ", IY NG " + num(iyng) + " Hz");
+
+            /* A CH's hiss is shorter than an SH's: the stop before it
+               takes up time the fricative would. */
+            auto hiss = [&](const vector<unsigned char> &codes) {
+                const vector<float> v = say(codes, "");
+                vector<double> e;
+
+                for (double t = 0; t < 0.4; t += 0.005)
+                    e.push_back(energy(spectrum(v, t, t + 0.01, 0.01), 2000, 8000));
+
+                const double top = *std::max_element(e.begin(), e.end());
+
+                return 5.0 * (double)std::count_if(e.begin(), e.end(),
+                                                   [&](double x) { return x > top / 10; });
+            };
+            const double chMs = hiss({ 17, 1 }), shMs = hiss({ 32, 1 });
+
+            okOrFail(chMs > 20 && chMs < 0.7 * shMs, "osc::speak: a CH hisses for less time than an SH",
+                     "CH " + num(chMs) + " ms, SH " + num(shMs) + " ms");
         }
 
         /* A mono slide moves the words on without starting the voice
