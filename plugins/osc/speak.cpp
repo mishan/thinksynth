@@ -305,13 +305,16 @@ static void silence (float *t)
 }
 
 /* A velar's locus is its vowel's own F2 and F3, where the back of the
-   tongue meets the palate: the next vowel's, or for a coda the last's. */
+   tongue meets the palate: the next vowel's, or for a coda the last's,
+   neither across a pause. */
 static bool velarLocus (const int *codes, int n, int i, float *f2, float *f3)
 {
     for (int k = i + 1; k < n; k++)
     {
         const Phoneme &q = table[codes[k] - 1];
 
+        if (q.kind == PAUSE)
+            break;
         if (q.kind == VOWEL || q.kind == DIPHTHONG)
         {
             *f2 = q.f2;  *f3 = q.f3;
@@ -322,6 +325,8 @@ static bool velarLocus (const int *codes, int n, int i, float *f2, float *f3)
     {
         const Phoneme &q = table[codes[k] - 1];
 
+        if (q.kind == PAUSE)
+            break;
         if (q.kind == VOWEL || q.kind == DIPHTHONG)
         {
             *f2 = q.kind == DIPHTHONG ? q.g2 : q.f2;

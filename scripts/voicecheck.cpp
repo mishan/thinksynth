@@ -1216,11 +1216,14 @@ int main (int argc, char **argv)
             };
             const double kaa = burst({ 24, 1 }, 0), kiy = burst({ 24, 11 }, 0);
             const double aak = burst({ 1, 24 }, windows / 5), iyk = burst({ 11, 24 }, windows / 5);
+            const double aakiy = burst({ 1, 24, 40, 11 }, windows / 5);
 
-            okOrFail(kaa < 2000 && kiy > 2000 && aak < 2000 && iyk > 2000,
-                     "osc::speak: a K's burst is low before and after AA, high by IY",
+            okOrFail(kaa > 0 && kaa < 2000 && kiy > 2000 && aak > 0 && aak < 2000 && iyk > 2000 &&
+                         aakiy > 0 && aakiy < 2000,
+                     "osc::speak: a K's burst is low before and after AA, high by IY, and a "
+                     "pause ends its syllable",
                      "K AA " + num(kaa) + ", K IY " + num(kiy) + ", AA K " + num(aak) +
-                     ", IY K " + num(iyk) + " Hz");
+                     ", IY K " + num(iyk) + ", AA K _ IY " + num(aakiy) + " Hz");
         }
 
         /* A mono slide moves the words on without starting the voice
