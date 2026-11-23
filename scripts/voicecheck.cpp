@@ -957,6 +957,66 @@ int main (int argc, char **argv)
                      num(chHiss) + " dB");
         }
 
+        /* THE BREATH AFTER P, T AND K, but not after an S that starts the
+           syllable: T AA is breath for 25 to 45 ms past the T's burst,
+           where S T AA is already voiced. AA S T, let go, keeps the
+           breath after its T. */
+        {
+            const unsigned char taa[] = { 33, 1, 0 }, staa[] = { 31, 33, 1, 0 },
+                                aast[] = { 1, 31, 33, 0 };
+            const size_t ms = TH_DEFAULT_SAMPLES / 1000;
+            auto level = [&](const vector<float> &v, size_t from, size_t n,
+                             double lo, double hi) {
+                double e = 0;
+
+                for (double hz = lo; hz < hi; hz += 50)
+                    e += pow(harmonic(v, from, n, hz), 2);
+                return 10 * log10(e > 0 ? e : 1e-30);
+            };
+            auto render = [&](const unsigned char *say, int heldWindows,
+                              vector<float> &held, vector<float> &after) {
+                thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                              TH_DEFAULT_SAMPLES);
+
+                if (!writeFile(file, speakGraph("")) ||
+                    synth.loadTree(file, 0, 100) == NULL)
+                    return false;
+                synth.addNote(0, 45, 100, 1, NULL, say);
+                listen(synth, heldWindows, held);
+                synth.delNote(0, 45);
+                listen(synth, windows / 4, after);
+                return true;
+            };
+            vector<float> t, st, aa, coda, none;
+
+            if (!render(taa, windows / 2, t, none) ||
+                !render(staa, windows / 2, st, none) ||
+                !render(aast, windows / 4, aa, coda))
+                fail("a graph on osc::speak loads", "");
+            else
+            {
+                /* The bursts end 70 ms into T AA and 190 into S T AA. */
+                const double vowel = level(t, 400 * ms, 20 * ms, 50, 1000);
+                const double tBreath = level(t, 95 * ms, 20 * ms, 50, 1000) - vowel;
+                const double stBreath = level(st, 215 * ms, 20 * ms, 50, 1000) -
+                                        level(st, 400 * ms, 20 * ms, 50, 1000);
+
+                okOrFail(tBreath < -15 && stBreath > -6,
+                         "osc::speak: a T is breathed before its vowel, and "
+                         "not after an S",
+                         "under 1 kHz past the burst: T AA " + num(tBreath) +
+                         " dB, S T AA " + num(stBreath) + " dB");
+
+                /* AA S T's burst ends 190 ms after the release. */
+                const double held = level(aa, aa.size() - 40 * ms, 30 * ms, 50, 8000);
+                const double breath = level(coda, 200 * ms, 30 * ms, 50, 8000) - held;
+
+                okOrFail(breath > -30,
+                         "osc::speak: a T after an S that ends a syllable is "
+                         "breathed", "past its burst " + num(breath) + " dB");
+            }
+        }
+
         /* THE SIBILANTS' SPECTRA. Real speech (Jongman, Wayland and Wong,
            JASA 2000, twenty speakers) puts an S's spectral mean about
            6.1 kHz and an SH's about 4.2, each a band kilohertz wide with
