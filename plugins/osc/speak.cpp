@@ -25,14 +25,21 @@
  * wired from `ionode->say' -- and with nothing there it sings AA.
  *
  * TWO PATHS, as in Klatt's 1980 synthesizer. The voiced sound goes
- * through five resonators in CASCADE, F1 to F5, each with unity gain at
- * DC, so the formants' relative levels come out of the frequencies the
- * way they do in a throat and nobody has to set them. The noise of a
+ * through the nose's resonance and antiresonance and then five resonators
+ * in CASCADE, F1 to F5, each with unity gain at DC, so the formants'
+ * relative levels come out of the frequencies the way they do in a throat
+ * and nobody has to set them. The noise of a
  * fricative or a burst goes through resonators in PARALLEL, F2 to F6
  * with a gain each, plus a bypass for the flat ones (F, TH), because a
  * fricative's spectrum is a place in the mouth and not a vowel's shape.
  * Aspiration, the breath of HH and of a P before its vowel, joins the
  * voicing at the top of the cascade.
+ *
+ * THE NOSE is a resonance at NASAL_POLE_HZ that an antiresonance cancels
+ * wherever the velum is shut. For M, N and NG the antiresonance moves up
+ * onto the mouth's first formant, a closed side branch's notch, and what
+ * is left is the murmur at 270 Hz; it glides as the formants do, so the
+ * vowel after a nasal begins nasalized.
  *
  * IT SINGS RATHER THAN READS. The first vowel of what a note says is the
  * syllable's nucleus, and it is held for as long as the note is: the
@@ -173,8 +180,8 @@ static const Phoneme table[] = {
       0, 0, 0, 0.5f, 0.7f, 0, 0, 0, 0, 1, ALVEOLAR, 0 },
     { "DH", FRICATIVE,  50, 270, 1290, 2540, 60, 80, 170, 0.5f, 0.3f,
       0, 0, 0, 0.2f, 0.3f, 0.1f },
-    { "F",  FRICATIVE, 100, 340, 1100, 2080, 200, 120, 150, 0, 0.6f,
-      0, 0, 0, 0, 0.2f, 0.15f },
+    { "F",  FRICATIVE, 100, 340, 1100, 2080, 200, 120, 150, 0, 0.4f,
+      0, 0, 0, 0, 0, 0.2f },
     { "G",  STOP,       50, 200, 1990, 2850, 60, 150, 280, 0.25f, 0.5f,
       0, 0.8f, 0.6f, 0, 0, 0, 0, 0, 0, 1, VELAR, 0 },
     { "HH", ASPIRATE,   60, 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -183,9 +190,9 @@ static const Phoneme table[] = {
     { "K",  STOP,       60, 300, 1990, 2850, 250, 160, 330, 0, 0.6f,
       0, 0.8f, 0.6f, 0.2f, 0, 0, 0, 0, 0, 0, VELAR, 0 },
     { "L",  SONORANT,   70, 310, 1050, 2880, 50, 100, 280, 0.8f, 0 },
-    { "M",  SONORANT,   70, 250, 1100, 2150, 100, 200, 300, 0.6f, 0 },
-    { "N",  SONORANT,   70, 250, 1700, 2600, 100, 200, 300, 0.6f, 0 },
-    { "NG", SONORANT,   70, 250, 2300, 2750, 100, 200, 300, 0.6f, 0 },
+    { "M",  SONORANT,   70, 480, 1100, 2150, 40, 200, 300, 0.6f, 0 },
+    { "N",  SONORANT,   70, 480, 1700, 2600, 40, 200, 300, 0.6f, 0 },
+    { "NG", SONORANT,   70, 480, 2300, 2750, 160, 200, 300, 0.6f, 0 },
     { "P",  STOP,       70, 400, 1100, 2150, 300, 150, 220, 0, 0.6f,
       0, 0, 0, 0, 0, 0.25f, 0, 0, 0, 0, LABIAL, 0 },
     { "R",  SONORANT,   70, 310, 1060, 1380, 70, 100, 120, 0.8f, 0 },
@@ -218,8 +225,8 @@ static_assert(sizeof(table) / sizeof(table[0]) == TH_PHONEMES,
 /* ---- what the glide heads for -------------------------------------------- */
 
 /* Everything that moves, in the order it is kept in the state. */
-enum { P_F1, P_F2, P_F3, P_B1, P_B2, P_B3, P_HP, P_F6, P_B6, P_AV, P_AH, P_AF,
-       P_A2, P_A3, P_A4, P_A5, P_A6, P_AB, P_COUNT };
+enum { P_F1, P_F2, P_F3, P_B1, P_B2, P_B3, P_FNZ, P_HP, P_F6, P_B6, P_AV, P_AH,
+       P_AF, P_A2, P_A3, P_A4, P_A5, P_A6, P_AB, P_COUNT };
 
 /* The formants and bandwidths glide slowly, and the gains fast: a vowel
    bends into the next over tens of milliseconds, but a stop's burst is
@@ -243,6 +250,17 @@ struct Segment
 
 static const float silent[3] = { 500, 1500, 2500 };
 
+/* The nose's resonance, and where its antiresonance goes when the mouth is
+   closed and the velum open (Klatt 1980's FNP and FNZ). */
+#define NASAL_POLE_HZ 270.0f
+#define NASAL_ZERO_HZ 450.0f
+#define NASAL_BW_HZ   100.0f
+
+static bool nasal (const Phoneme &p)
+{
+    return p.kind == SONORANT && (p.name[0] == 'M' || p.name[0] == 'N');
+}
+
 static void fromRow (const Phoneme &p, float *t)
 {
     t[P_F1] = p.f1;  t[P_F2] = p.f2;  t[P_F3] = p.f3;
@@ -251,6 +269,7 @@ static void fromRow (const Phoneme &p, float *t)
     t[P_A2] = p.a2;  t[P_A3] = p.a3;  t[P_A4] = p.a4;
     t[P_A5] = p.a5;  t[P_A6] = p.a6;  t[P_AB] = p.ab;
     t[P_HP] = p.hp;  t[P_F6] = p.f6;  t[P_B6] = p.b6;
+    t[P_FNZ] = nasal(p) ? NASAL_ZERO_HZ : NASAL_POLE_HZ;
 }
 
 /* The formants of the next phoneme that has some, for an aspiration
@@ -282,6 +301,40 @@ static void silence (float *t)
     t[P_F1] = silent[0];  t[P_F2] = silent[1];  t[P_F3] = silent[2];
     t[P_B1] = 100;  t[P_B2] = 100;  t[P_B3] = 150;
     t[P_F6] = 6000;  t[P_B6] = 800;
+    t[P_FNZ] = NASAL_POLE_HZ;
+}
+
+/* A velar's locus is its vowel's own F2 and F3, where the back of the
+   tongue meets the palate: the next vowel's, or for a coda the last's,
+   neither across a pause. */
+static bool velarLocus (const int *codes, int n, int i, float *f2, float *f3)
+{
+    for (int k = i + 1; k < n; k++)
+    {
+        const Phoneme &q = table[codes[k] - 1];
+
+        if (q.kind == PAUSE)
+            break;
+        if (q.kind == VOWEL || q.kind == DIPHTHONG)
+        {
+            *f2 = q.f2;  *f3 = q.f3;
+            return true;
+        }
+    }
+    for (int k = i - 1; k >= 0; k--)
+    {
+        const Phoneme &q = table[codes[k] - 1];
+
+        if (q.kind == PAUSE)
+            break;
+        if (q.kind == VOWEL || q.kind == DIPHTHONG)
+        {
+            *f2 = q.kind == DIPHTHONG ? q.g2 : q.f2;
+            *f3 = q.kind == DIPHTHONG ? q.g3 : q.f3;
+            return true;
+        }
+    }
+    return false;
 }
 
 /* The last of `count' segments with frication in it, or -1. */
@@ -379,7 +432,18 @@ static int segments (const int *codes, int n, Segment *out)
                 {
                     fromRow(p, b->target);
                     b->target[P_AV] = p.voiced ? 0.3f : 0;
-                    b->dur = (p.place == VELAR ? 15 : 10);
+                    b->dur = (p.place == VELAR ? 25 : 10);
+
+                    float f2, f3;
+
+                    if (p.place == VELAR && velarLocus(codes, n, i, &f2, &f3))
+                    {
+                        s->target[P_F2] = b->target[P_F2] = f2;
+                        s->target[P_F3] = b->target[P_F3] = f3;
+                        b->target[P_A2] = 0.8f;
+                        b->target[P_A3] = 0.4f;
+                        b->target[P_A4] = 0;
+                    }
                 }
                 b->hold = false;
                 count++;
@@ -452,6 +516,24 @@ static inline float resonate (float x, float f, float bw, float rate,
     return y;
 }
 
+/* The resonator's inverse, its zeros where its poles were, so one at a
+   resonator's frequency and bandwidth cancels it. `s' is two samples of
+   its input. */
+static inline float antiresonate (float x, float f, float bw, float rate,
+                                  float *s)
+{
+    const float r = expf(-(float)M_PI * bw / rate);
+    const float c = -r * r;
+    const float b = 2 * r * cosf(2 * (float)M_PI * f / rate);
+    const float a = 1 - b - c;
+    const float y = (x - b * s[0] - c * s[1]) / a;
+
+    s[1] = s[0];
+    s[0] = x;
+
+    return y;
+}
+
 /* The fixed formants above F3, and the parallel path's fixed fifth. */
 #define F4 3300.0f
 #define F5 3850.0f
@@ -498,7 +580,8 @@ enum {
     S_RING,                 /* the singer's formant, two samples */
     S_RING2,
     S_HIGH,                 /* the frication's high-pass, two stages of two */
-    S_SAID = S_HIGH + 4,    /* TH_NOTE_SAY: the `say' last seen */
+    S_NOSE = S_HIGH + 4,    /* the nose's resonance and antiresonance, two each */
+    S_SAID = S_NOSE + 4,    /* TH_NOTE_SAY: the `say' last seen */
     S_LEAVING = S_SAID + TH_NOTE_SAY,   /* 1 while a slide finishes the old words */
     S_OLD,                  /* TH_NOTE_SAY: the words a slide left */
     S_LEN = S_OLD + TH_NOTE_SAY
@@ -982,6 +1065,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (track > 0)
             f1 += track * (fmaxf(f1, note * TRACK_ABOVE) - f1);
 
+        y = resonate(y, NASAL_POLE_HZ * shift, NASAL_BW_HZ, rate, st + S_NOSE);
+        y = antiresonate(y, p[P_FNZ] * shift, NASAL_BW_HZ, rate, st + S_NOSE + 2);
         y = resonate(y, fminf(f1, nyq), p[P_B1], rate, st + S_CASCADE);
         y = resonate(y, fminf(p[P_F2] * shift, nyq), p[P_B2], rate,
                      st + S_CASCADE + 2);
@@ -1057,7 +1142,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             v = 0;
             memset(st + S_CASCADE, 0, 20 * sizeof(float));
-            memset(st + S_HIGH, 0, 4 * sizeof(float));
+            memset(st + S_HIGH, 0, 8 * sizeof(float));
             st[S_TILT] = st[S_RING] = st[S_RING2] = 0;
         }
 
