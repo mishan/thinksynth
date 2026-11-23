@@ -9638,12 +9638,14 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
 
         return out;
     };
-    auto piece = [](const std::string &words, const std::string &more) {
+    auto piece = [](const std::string &words, const std::string &more,
+                    const std::string &sayArgs = "") {
         return "chain c {\n"
                "  stage src gen::euclid { steps = 1; fills = 1;"
                "    notes = \"C4\"; period = 0.5 s; hold = 0.2 s; vel = 100;"
                " };\n" + more +
-               "  stage w xform::say { words = \"" + words + "\"; };\n"
+               "  stage w xform::say { words = \"" + words + "\"; " +
+               sayArgs + "};\n"
                "  sink { channel = 1; };\n"
                "};\n";
     };
@@ -9691,6 +9693,42 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
         if (got.empty() || got.find('-') != std::string::npos)
             fail("say: gen::arp's steps say what the held notes said; got " +
                  got);
+    }
+
+    /* Legato: a note held into the next when the next syllable is
+       sounded, so a mono voice slides into it rather than starting again
+       from silence; never into a pause, past punctuation or past the end
+       of the words, and by at most half the note. */
+    {
+        struct Case { const char *name, *words, *args; double durs[5]; };
+        static const Case cases[] = {
+            { "held into the next sounded syllable only",
+              "one two, three _ four", "legato = 0.05 s;",
+              { 0.25, 0.2, 0.2, 0.2, 0.2 } },
+            { "at most half the note", "la la", "legato = 1 s;",
+              { 0.3, 0.2, 0.3, 0.2, 0.3 } },
+            { "on by default", "la la", "", { 0.3, 0.2, 0.3, 0.2, 0.3 } },
+            { "off at 0", "la la", "legato = 0 s;",
+              { 0.2, 0.2, 0.2, 0.2, 0.2 } },
+        };
+
+        for (const Case &c : cases)
+        {
+            const std::vector<Heard> h = playBody(plugins, synth, "say legato",
+                piece(c.words, "", c.args), 2.4);
+            std::string got;
+
+            for (const Heard &n : h)
+                got += " " + std::to_string(n.dur);
+
+            bool ok = h.size() == 5;
+
+            for (size_t i = 0; ok && i < 5; i++)
+                ok = near(h[i].dur, c.durs[i]);
+            if (!ok)
+                fail(std::string("say legato: ") + c.name + "; durations" +
+                     got);
+        }
     }
 
     /* Words the exceptions do not list, so the rules alone. */
