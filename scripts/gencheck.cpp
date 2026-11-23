@@ -9744,6 +9744,17 @@ checkSay (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth)
         if (englishToPhonemes(w[0]) != w[1])
             fail(std::string("say: the rules spell ") + w[0] + " as " +
                  englishToPhonemes(w[0]) + ", not " + w[1]);
+
+    /* Words the rules get wrong: an irregular vowel, a silent T. */
+    static const char *const listed[][2] = {
+        { "says", "S EH Z" },       { "listen", "L IH S AH N" },
+        { "listening", "L IH S AH N IH NG" },
+    };
+
+    for (const auto &w : listed)
+        if (englishToPhonemes(w[0]) != w[1])
+            fail(std::string("say: ") + w[0] + " is said " + w[1] +
+                 ", not " + englishToPhonemes(w[0]));
 }
 
 /* ---- throws ------------------------------------------------------------ */
