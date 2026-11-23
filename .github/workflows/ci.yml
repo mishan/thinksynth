@@ -791,6 +791,8 @@ jobs:
             build-web/*.css
             build-web/*.json
             build-web/*.wasm
+            build-web/THIRD_PARTY_NOTICES.txt
+            build-web/COPYING
             build-web/dsp
             build-web/gen
             build-web/patches
