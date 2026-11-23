@@ -65,6 +65,7 @@
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "SessionModel.h"
 #include "thcMidiExport.h"
 #include "NodeEvolve.h"
 #include "NodeGraft.h"
@@ -14022,6 +14023,213 @@ checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* The session grid's model of a piece: what it reads -- the sections in
+ * order with their lengths as written, the playing and cued ones, a row
+ * per chain then per knob, written cells and not -- what it refuses, and
+ * what it writes, read back. A toggle turns a cell off and back to the
+ * level it had, remembered across builds.
+ */
+static void
+checkSessionModel (void)
+{
+    const std::string path = thUtil::tempFile("gencheck-session-");
+
+    if (path.empty())
+    {
+        fail("could not write the session piece");
+        return;
+    }
+
+    auto write = [&path] (const std::string &text)
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << text;
+    };
+    const std::string chains =
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n"
+        "chain conductor {\n"
+        "  stage src gen::euclid { steps = 4; fills = 1; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { knob = @act; };\n"
+        "};\n";
+    const std::string sections =
+        "section intro 2 bars { kick = 0.75; @kick = 0.25; };\n"
+        "section verse 8 beats hold { };\n"
+        "section end;\n";
+
+    write("tempo 120;\n@kick = 0.5;\n@act = 1;\n" + sections + chains);
+
+    SessionModel model;
+    thSession grid;
+    std::string why, warn;
+
+    if (!model.build(path, 1, 0, grid, why))
+    {
+        fail("session model: the piece did not read: " + why);
+        remove(path.c_str());
+        return;
+    }
+
+    std::string seen;
+
+    for (const auto &c : grid.columns)
+        seen += c.name + "/" + c.length + (c.hold ? "/hold" : "") +
+                (c.playing ? "/playing" : "") + (c.cued ? "/cued" : "") + " ";
+
+    for (const auto &r : grid.rows)
+    {
+        seen += "| " + std::string(r.knob ? "@" : "") + r.name +
+                (r.notes ? " notes" : "") + (r.cues ? " cues" : "");
+
+        for (const auto &cell : r.cells)
+            seen += cell.written ? " " + std::to_string(cell.value).substr(0, 4)
+                                 : " -";
+    }
+
+    const std::string want =
+        "intro/2 bars/cued verse/8 beats/hold/playing | kick notes 0.75 -"
+        "| conductor - -| @kick 0.25 -| @act - -";
+
+    if (seen != want || grid.ending != thSession::ENDS)
+        fail("session model: read as\n  " + seen + "\nnot\n  " + want);
+
+    /* Edits, each read back. */
+    auto made = [&] (thSessionEdit e)
+    {
+        return model.propose(e, why, warn) &&
+               model.apply(path, e, why) == thcGenEdit::OK &&
+               model.build(path, -1, -1, grid, why);
+    };
+    thSessionEdit e;
+
+    e.kind = thSessionEdit::LEVEL;
+    e.section = "verse";
+    e.row = "kick";
+    e.value = 0.5;
+
+    const bool level = made(e) && grid.rows[0].cells[1].written &&
+                       grid.rows[0].cells[1].value == 0.5;
+
+    /* The knob, though a chain shares its name. */
+    e.row = "@kick";
+    e.section = "intro";
+    e.set = false;
+
+    const bool cleared = made(e) && !grid.rows[2].cells[0].written &&
+                         grid.rows[0].cells[0].value == 0.75;
+
+    e = thSessionEdit();
+    e.kind = thSessionEdit::DUPLICATE;
+    e.section = "verse";
+    e.name = "chorus";
+
+    const bool copied = made(e) && grid.columns.size() == 3 &&
+                        grid.columns[2].name == "chorus" &&
+                        grid.columns[2].hold;
+
+    e = thSessionEdit();
+    e.kind = thSessionEdit::MOVE;
+    e.section = "chorus";
+
+    const bool moved = made(e) && grid.columns[0].name == "chorus";
+
+    e = thSessionEdit();
+    e.kind = thSessionEdit::LOOP;
+    e.section = "verse";
+
+    const bool looped = made(e) && grid.ending == thSession::LOOPS &&
+                        grid.loopTo == "verse";
+
+    e.section = "";
+
+    const bool cycles = made(e) && grid.ending == thSession::CYCLES;
+
+    if (!level || !cleared || !copied || !moved || !looped || !cycles)
+        fail("session model: an edit did not read back as made: level " +
+             std::to_string(level) + ", cleared " + std::to_string(cleared) +
+             ", copied " + std::to_string(copied) + ", moved " +
+             std::to_string(moved) + ", looped " + std::to_string(looped) +
+             ", cycles " + std::to_string(cycles) + ": " + why + "\n" +
+             slurp(path));
+
+    /* A cell clicked off and on again comes back at 0.75, after a build
+       between; an unwritten one goes off, and one off with nothing
+       remembered comes on at 1. */
+    thSessionEdit off = model.toggle("intro", "kick");
+    const bool turnedOff = off.value == 0 && made(off);
+    thSessionEdit on = model.toggle("intro", "kick");
+    thSessionEdit fresh = model.toggle("chorus", "conductor");
+    SessionModel other;
+
+    other.build(path, -1, -1, grid, why);
+
+    thSessionEdit forgot = other.toggle("intro", "kick");
+
+    if (!turnedOff || on.value != 0.75 || fresh.value != 0 ||
+        forgot.value != 1)
+        fail("session model: toggled, intro's kick went " +
+             std::to_string(off.value) + " then " + std::to_string(on.value) +
+             ", chorus's conductor to " + std::to_string(fresh.value) +
+             ", and with nothing remembered to " +
+             std::to_string(forgot.value));
+
+    /* Refused: a level below 0, a section not there; with a cue, any
+       reordering -- and muting the chain that writes the cue's knob is
+       said first. */
+    thSessionEdit bad;
+
+    bad.kind = thSessionEdit::LEVEL;
+    bad.section = "intro";
+    bad.row = "kick";
+    bad.value = -1;
+
+    const bool negative = !model.propose(bad, why, warn);
+
+    bad.section = "nowhere";
+    bad.value = 1;
+
+    const bool missing = !model.propose(bad, why, warn);
+
+    write("tempo 120;\n@kick = 0.5;\n@act = 1;\n" + sections + chains +
+          "cue @act 1 bars;\n");
+    model.build(path, -1, -1, grid, why);
+
+    thSessionEdit reorder;
+
+    reorder.kind = thSessionEdit::MOVE;
+    reorder.section = "verse";
+
+    const bool cueRefused = !model.propose(reorder, why, warn) &&
+                            why.find("@act") != std::string::npos;
+
+    thSessionEdit mute;
+
+    mute.kind = thSessionEdit::LEVEL;
+    mute.section = "intro";
+    mute.row = "conductor";
+    mute.value = 0;
+
+    const bool warned = model.propose(mute, why, warn) &&
+                        warn.find("@act") != std::string::npos &&
+                        grid.rows[1].cues;
+
+    if (!negative || !missing || !cueRefused || !warned)
+        fail("session model: refused a negative level " +
+             std::to_string(negative) + ", a missing section " +
+             std::to_string(missing) + ", a reorder under a cue " +
+             std::to_string(cueRefused) + ", warned of muting the cue's " +
+             "chain " + std::to_string(warned));
+
+    remove(path.c_str());
+}
+
 /* Sections edited while a piece plays, and cued by a person.
  *
  * A live edit keeps the piece where it is: in a held section on its
@@ -17967,6 +18175,7 @@ main (int argc, char *argv[])
         checkSectionEdits(plugins, &synth);
         checkSectionOrder(plugins, &synth);
         checkSectionsLive(plugins, &synth);
+        checkSessionModel();
         checkDrawnControls(plugins, &synth);
         checkSeek(plugins, &synth);
         checkProbes(plugins, &synth);
