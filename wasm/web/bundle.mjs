@@ -44,8 +44,12 @@
  * name the browser loads it by. A module that is loaded both ways, bundled here and fetched there,
  * therefore imports the copied name; the plugin below is how the bundler
  * finds the original.
+ *
+ * And the site's THIRD_PARTY_NOTICES.txt: docs/' own, with the license of
+ * every npm package the two bundles carry, since minifying drops theirs.
  */
 
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,7 +84,7 @@ const copiedIn = {
     },
 };
 
-await esbuild.build({
+const built = await esbuild.build({
     entryPoints: [path.join(here, 'jam.js'), path.join(here, 'sourcebox.js')],
     plugins: [copiedIn],
     bundle: true,
@@ -99,5 +103,67 @@ await esbuild.build({
     minify: true,
     sourcemap: true,
     outdir: out,
+    metafile: true,
     logLevel: 'warning',
 });
+
+/* The site's notices, with the licenses of every npm package the
+   bundles carry: minified, their own headers are gone. A package with
+   no license file of its own fails the build rather than going out
+   without one. */
+const top = path.resolve(here, '..', '..');
+const packages = new Set();
+const missing = [];
+
+for (const input of Object.keys(built.metafile.inputs))
+{
+    const at = input.lastIndexOf('node_modules/');
+
+    /* A package linked in from outside the tree has no node_modules in
+       its path, and would otherwise go out unlisted. */
+    if (at < 0)
+    {
+        if (path.relative(top, path.resolve(input)).startsWith('..'))
+            missing.push(input);
+        continue;
+    }
+
+    const rest = input.slice(at + 'node_modules/'.length).split('/');
+    const dir = path.resolve(input.slice(0, at), 'node_modules',
+                             ...rest.slice(0, rest[0].startsWith('@') ? 2 : 1));
+
+    packages.add(dir);
+}
+
+let notices = fs.readFileSync(path.join(top, 'docs', 'THIRD_PARTY_NOTICES.txt'),
+                              'utf8');
+
+notices = notices.trimEnd() + '\n\n\nThe web page\'s scripts\n' +
+          '======================\n\n' +
+          'jam.js and sourcebox.js are built with these packages from npm.\n';
+
+for (const dir of [...packages].sort())
+{
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    const file = fs.readdirSync(dir).sort()
+        .find((n) => /^(licen[cs]e|copying)(\.(md|txt))?$/i.test(n));
+
+    if (file === undefined)
+    {
+        missing.push(pkg.name);
+        continue;
+    }
+
+    const head = `${pkg.name} ${pkg.version}`;
+
+    notices += `\n\n${head}\n${'-'.repeat(head.length)}\n\n` +
+               fs.readFileSync(path.join(dir, file), 'utf8').trim() + '\n';
+}
+
+if (missing.length)
+{
+    process.stderr.write(`bundle.mjs: no license for ${missing.join(', ')}\n`);
+    process.exit(1);
+}
+
+fs.writeFileSync(path.join(out, 'THIRD_PARTY_NOTICES.txt'), notices);

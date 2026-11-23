@@ -680,12 +680,14 @@ endforeach()
 
 add_custom_command(
     OUTPUT "${PROJECT_BINARY_DIR}/jam.js" "${PROJECT_BINARY_DIR}/sourcebox.js"
+           "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt"
     COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
             "${PROJECT_BINARY_DIR}"
-    DEPENDS ${BUNDLE_DEPENDS}
-    COMMENT "Bundling the room page and the solo page's editor")
+    DEPENDS ${BUNDLE_DEPENDS} "${THINK_TOP}/docs/THIRD_PARTY_NOTICES.txt"
+    COMMENT "Bundling the room page and the solo page's editor, and their notices")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js"
-                         "${PROJECT_BINARY_DIR}/sourcebox.js")
+                         "${PROJECT_BINARY_DIR}/sourcebox.js"
+                         "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt")
 
 # For dist below. The maps go too: they are fetched only when somebody
 # opens the devtools, and a phone is where that somebody most wants them.
@@ -720,15 +722,13 @@ foreach(pair IN LISTS SITE_ICONS)
   list(APPEND DIST_ICON_FILES "${PROJECT_BINARY_DIR}/icons/${name}")
 endforeach()
 
-# The licenses: the site's own and those of what it carries of others'.
-foreach(name COPYING docs/THIRD_PARTY_NOTICES.txt)
-  get_filename_component(leaf "${name}" NAME)
-  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/${leaf}"
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-              "${THINK_TOP}/${name}" "${PROJECT_BINARY_DIR}/${leaf}"
-      DEPENDS "${THINK_TOP}/${name}")
-  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/${leaf}")
-endforeach()
+# The site's license; bundle.mjs above writes the notices of what it
+# carries of others'.
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/COPYING"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${THINK_TOP}/COPYING" "${PROJECT_BINARY_DIR}/COPYING"
+    DEPENDS "${THINK_TOP}/COPYING")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/COPYING")
 
 # The service worker, which keeps the site for offline use
 # (serviceworker.js). What it keeps is every file here either page can
