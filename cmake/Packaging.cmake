@@ -210,6 +210,17 @@ if(APPLE)
   install(FILES "${PROJECT_SOURCE_DIR}/data/README-macOS.txt" DESTINATION ".")
 endif()
 
+# The licenses, ours and those of what the plugins carry of others', beside
+# the program in a .dmg or a zip.
+if(APPLE OR WIN32)
+  set(THINK_NOTICES_DIR ".")
+else()
+  set(THINK_NOTICES_DIR "${CMAKE_INSTALL_DOCDIR}")
+endif()
+install(FILES "${PROJECT_SOURCE_DIR}/COPYING"
+              "${PROJECT_SOURCE_DIR}/docs/THIRD_PARTY_NOTICES.txt"
+        DESTINATION "${THINK_NOTICES_DIR}")
+
 if(APPLE)
   install(CODE "
     set(_app \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/thinksynth.app\")

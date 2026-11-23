@@ -11,7 +11,9 @@ and common spelling, and the first pronunciation of each.
 CMUDICT is cmudict.dict and its LICENSE beside it, from
 https://github.com/cmusphinx/cmudict; SCOWL_FINAL is the final/
 directory of a SCOWL release, from http://wordlist.aspell.net, with its
-Copyright and VERSION one level up. The header in the tree was made
+Copyright and VERSION one level up; their notices are in
+docs/THIRD_PARTY_NOTICES.txt too, which ships with the program. The
+header in the tree was made
 from cmudict at 74790861f652b15e4ac49015a90074ad62a27690 and SCOWL
 2020.12.07.
 """

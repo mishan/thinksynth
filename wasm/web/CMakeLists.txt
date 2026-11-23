@@ -726,6 +726,14 @@ endforeach()
 # and the indexes, which are not custom command outputs. precache.mjs
 # hashes them into sw.js, so a build that changes one is a new version to
 # a browser.
+# The licenses of what the page carries of others'.
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${THINK_TOP}/docs/THIRD_PARTY_NOTICES.txt"
+            "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt"
+    DEPENDS "${THINK_TOP}/docs/THIRD_PARTY_NOTICES.txt")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt")
+
 set(PRECACHE_FILES ${SITE_OUTPUTS})
 list(APPEND PRECACHE_FILES
     "${PROJECT_BINARY_DIR}/thinkweb.js"
@@ -807,6 +815,7 @@ list(APPEND DIST_ROOT_FILES
     ${BUNDLE_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "${PROJECT_BINARY_DIR}/sw.js"
+    "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt"
     "$<TARGET_FILE:thinkweb>"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm"
     "$<TARGET_FILE:thinkevolve>"
