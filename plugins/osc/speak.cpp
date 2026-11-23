@@ -165,8 +165,8 @@ static const Phoneme table[] = {
     { "IY", VOWEL,     160, 310, 2020, 2960, 45, 100, 200, 1, 0 },
     { "OW", DIPHTHONG, 180, 540, 1100, 2300, 80, 70, 70, 1, 0,
       0, 0, 0, 0, 0, 0, 450, 900, 2300 },
-    { "OY", DIPHTHONG, 250, 550, 960, 2400, 80, 50, 130, 1, 0,
-      0, 0, 0, 0, 0, 0, 360, 1820, 2450 },
+    { "OY", DIPHTHONG, 290, 550, 960, 2400, 80, 50, 130, 1, 0,
+      0, 0, 0, 0, 0, 0, 330, 1980, 2550 },
     { "UH", VOWEL,     110, 450, 1100, 2350, 80, 100, 80, 1, 0 },
     { "UW", VOWEL,     170, 300, 900, 2250, 65, 110, 140, 1, 0 },
 
@@ -306,7 +306,11 @@ static void silence (float *t)
 
 /* A velar's locus is its vowel's own F2 and F3, where the back of the
    tongue meets the palate: the next vowel's, or for a coda the last's,
-   neither across a pause. */
+   neither across a pause. An NG held there draws F2 and F3 together to
+   at most VELAR_PINCH_HZ either side of their middle, the velar pinch
+   that tells it from a vowel. */
+#define VELAR_PINCH_HZ 150.0f
+
 static bool velarLocus (const int *codes, int n, int i, float *f2, float *f3)
 {
     for (int k = i + 1; k < n; k++)
@@ -374,13 +378,23 @@ static int segments (const int *codes, int n, Segment *out)
             case VOWEL:
             case SONORANT:
             case FRICATIVE:
+            {
                 fromRow(p, s->target);
+
+                float f2, f3;
+
+                if (strcmp(p.name, "NG") == 0 && velarLocus(codes, n, i, &f2, &f3))
+                {
+                    s->target[P_F2] = fmaxf(f2, 0.5f * (f2 + f3) - VELAR_PINCH_HZ);
+                    s->target[P_F3] = fminf(f3, 0.5f * (f2 + f3) + VELAR_PINCH_HZ);
+                }
                 s->dur = p.dur;
                 s->hold = hold;
                 s->sib = p.name[0] == 'S' || p.name[0] == 'Z';
                 s->fade = s->sib;
                 count++;
                 break;
+            }
 
             case DIPHTHONG:
                 fromRow(p, s->target);
@@ -418,14 +432,16 @@ static int segments (const int *codes, int n, Segment *out)
                 s->hold = false;
                 count++;
 
-                /* The burst, or an affricate's fricative. */
+                /* The burst, or an affricate's fricative: half as long as
+                   the fricative alone, which is most of what tells CH
+                   from SH. */
                 Segment *b = &out[count];
 
                 if (p.kind == AFFRICATE)
                 {
                     fromRow(table[p.fric - 1], b->target);
                     b->target[P_AV] = p.voiced ? p.av : 0;
-                    b->dur = table[p.fric - 1].dur * 0.8f;
+                    b->dur = table[p.fric - 1].dur * 0.5f;
                     b->sib = true;
                 }
                 else
