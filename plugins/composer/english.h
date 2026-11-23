@@ -38,8 +38,7 @@
  * The rules are about ninety percent right on running text, and the
  * misses are mostly the common words with spellings of their own, so
  * those come from `exceptions' first, and then from the CMU dictionary
- * (cmudict.h), which spells thirty-odd thousand common words; the rules
- * are for the rest. AX, NRL's schwa, is written AH: the
+ * (cmudict.h) of the common words; the rules are for the rest. AX, NRL's schwa, is written AH: the
  * phoneme set has no separate unstressed vowel.
  */
 
