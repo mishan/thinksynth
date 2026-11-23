@@ -46,6 +46,7 @@
  * finds the original.
  */
 
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,7 +81,7 @@ const copiedIn = {
     },
 };
 
-await esbuild.build({
+const built = await esbuild.build({
     entryPoints: [path.join(here, 'jam.js'), path.join(here, 'sourcebox.js')],
     plugins: [copiedIn],
     bundle: true,
@@ -99,5 +100,59 @@ await esbuild.build({
     minify: true,
     sourcemap: true,
     outdir: out,
+    metafile: true,
     logLevel: 'warning',
 });
+
+/* The site's notices, with the licenses of every npm package the
+   bundles carry: minified, their own headers are gone. A package with
+   no license file of its own fails the build rather than going out
+   without one. */
+const packages = new Map();
+
+for (const input of Object.keys(built.metafile.inputs))
+{
+    const at = input.lastIndexOf('node_modules/');
+
+    if (at < 0)
+        continue;
+
+    const rest = input.slice(at + 'node_modules/'.length).split('/');
+    const dir = path.resolve(input.slice(0, at), 'node_modules',
+                             ...rest.slice(0, rest[0].startsWith('@') ? 2 : 1));
+
+    packages.set(dir, true);
+}
+
+let notices = fs.readFileSync(path.join(here, '..', '..', 'docs',
+                                        'THIRD_PARTY_NOTICES.txt'), 'utf8');
+const missing = [];
+
+notices = notices.trimEnd() + '\n\n\nThe web page\'s scripts\n' +
+          '=======================\n\n' +
+          'jam.js and sourcebox.js are built with these packages from npm.\n';
+
+for (const dir of [...packages.keys()].sort())
+{
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    const file = fs.readdirSync(dir).find((n) => /^(licen[cs]e|copying)/i.test(n));
+
+    if (file === undefined)
+    {
+        missing.push(pkg.name);
+        continue;
+    }
+
+    const head = `${pkg.name} ${pkg.version}`;
+
+    notices += `\n\n${head}\n${'-'.repeat(head.length)}\n\n` +
+               fs.readFileSync(path.join(dir, file), 'utf8').trim() + '\n';
+}
+
+if (missing.length)
+{
+    process.stderr.write(`bundle.mjs: no license file in ${missing.join(', ')}\n`);
+    process.exit(1);
+}
+
+fs.writeFileSync(path.join(out, 'THIRD_PARTY_NOTICES.txt'), notices);
