@@ -684,7 +684,7 @@ add_custom_command(
     COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
             "${PROJECT_BINARY_DIR}"
     DEPENDS ${BUNDLE_DEPENDS} "${THINK_TOP}/docs/THIRD_PARTY_NOTICES.txt"
-    COMMENT "Bundling the room page and the solo page's editor")
+    COMMENT "Bundling the room page and the solo page's editor, and their notices")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js"
                          "${PROJECT_BINARY_DIR}/sourcebox.js"
                          "${PROJECT_BINARY_DIR}/THIRD_PARTY_NOTICES.txt")

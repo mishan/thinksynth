@@ -44,6 +44,9 @@
  * name the browser loads it by. A module that is loaded both ways, bundled here and fetched there,
  * therefore imports the copied name; the plugin below is how the bundler
  * finds the original.
+ *
+ * And the site's THIRD_PARTY_NOTICES.txt: docs/' own, with the license of
+ * every npm package the two bundles carry, since minifying drops theirs.
  */
 
 import fs from 'node:fs';
@@ -108,34 +111,42 @@ const built = await esbuild.build({
    bundles carry: minified, their own headers are gone. A package with
    no license file of its own fails the build rather than going out
    without one. */
-const packages = new Map();
+const top = path.resolve(here, '..', '..');
+const packages = new Set();
+const missing = [];
 
 for (const input of Object.keys(built.metafile.inputs))
 {
     const at = input.lastIndexOf('node_modules/');
 
+    /* A package linked in from outside the tree has no node_modules in
+       its path, and would otherwise go out unlisted. */
     if (at < 0)
+    {
+        if (path.relative(top, path.resolve(input)).startsWith('..'))
+            missing.push(input);
         continue;
+    }
 
     const rest = input.slice(at + 'node_modules/'.length).split('/');
     const dir = path.resolve(input.slice(0, at), 'node_modules',
                              ...rest.slice(0, rest[0].startsWith('@') ? 2 : 1));
 
-    packages.set(dir, true);
+    packages.add(dir);
 }
 
-let notices = fs.readFileSync(path.join(here, '..', '..', 'docs',
-                                        'THIRD_PARTY_NOTICES.txt'), 'utf8');
-const missing = [];
+let notices = fs.readFileSync(path.join(top, 'docs', 'THIRD_PARTY_NOTICES.txt'),
+                              'utf8');
 
 notices = notices.trimEnd() + '\n\n\nThe web page\'s scripts\n' +
-          '=======================\n\n' +
+          '======================\n\n' +
           'jam.js and sourcebox.js are built with these packages from npm.\n';
 
-for (const dir of [...packages.keys()].sort())
+for (const dir of [...packages].sort())
 {
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
-    const file = fs.readdirSync(dir).find((n) => /^(licen[cs]e|copying)/i.test(n));
+    const file = fs.readdirSync(dir).sort()
+        .find((n) => /^(licen[cs]e|copying)(\.(md|txt))?$/i.test(n));
 
     if (file === undefined)
     {
@@ -151,7 +162,7 @@ for (const dir of [...packages.keys()].sort())
 
 if (missing.length)
 {
-    process.stderr.write(`bundle.mjs: no license file in ${missing.join(', ')}\n`);
+    process.stderr.write(`bundle.mjs: no license for ${missing.join(', ')}\n`);
     process.exit(1);
 }
 
