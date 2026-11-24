@@ -4,9 +4,12 @@
 Renders the first four Harvard sentence lists (IEEE, 1969), one sentence
 at a time, through a voice graph built on osc::speak, transcribes each
 with whisper.cpp, and scores the share of each sentence's words heard in
-order: their longest common run with the transcript. A recognizer that
-hallucinates "la la la" over a melisma, or says a line twice, loses
-nothing by it; one that hears the wrong word does.
+order: their longest common run with the transcript, where a word heard
+is one said the same ("four" and "for", "threw" and "through", by the
+first pronunciation the CMU dictionary gives) and a number under ten
+thousand is its words. A recognizer that hallucinates "la la la" over a
+melisma, or says a line twice, loses nothing by it; one that hears the
+wrong word does.
 
 It is a measuring stick for changes to the speech synthesis, not a gate:
 the recognizer is a separate download and runs on the CPU for a few
@@ -93,13 +96,41 @@ SENTENCES = [
 NOTES = 40
 
 
+ONES = ("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen "
+        "fifteen sixteen seventeen eighteen nineteen").split()
+TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def spelled(n):
+    """`n', under ten thousand, in words."""
+    if n < 20:
+        return ONES[n]
+    if n < 100:
+        return TENS[n // 10] + ("" if n % 10 == 0 else " " + ONES[n % 10])
+    if n < 1000:
+        return ONES[n // 100] + " hundred" + ("" if n % 100 == 0 else " " + spelled(n % 100))
+    return spelled(n // 1000) + " thousand" + ("" if n % 1000 == 0 else " " + spelled(n % 1000))
+
+
 def words(text):
+    text = re.sub(r"\d+", lambda m: " " + spelled(int(m.group())) + " " if int(m.group()) < 10000 else " ", text)
     return re.sub(r"[^a-z' ]", " ", text.lower().replace("-", " ")).split()
 
 
-def heard(ref, hyp):
+def dictionary(tree):
+    """Each word in xform::say's dictionary, by how it is said."""
+    said = {}
+    with open(os.path.join(tree, "plugins", "composer", "cmudict.h")) as f:
+        for line in f:
+            m = re.fullmatch(r'\s*"([A-Z\']+) ([A-Z0-9 ]+)\\n"\s*', line)
+            if m:
+                said[m.group(1).lower()] = re.sub(r"\d", "", m.group(2))
+    return said
+
+
+def heard(ref, hyp, said):
     """How many of ref's words hyp has, in order, and how many ref has."""
-    r, h = words(ref), words(hyp)
+    r, h = ([said.get(w, w) for w in words(t)] for t in (ref, hyp))
     run = [0] * (len(h) + 1)
     for i in range(1, len(r) + 1):
         diag = 0
@@ -147,6 +178,7 @@ def main():
     tree = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     genwav = os.path.join(a.build, "scripts", "genwav")
     plugins = os.path.join(a.build, "plugins") + "/"
+    said = dictionary(tree)
     env = dict(os.environ, THINK_DSP_PATH=a.dsp_path or os.path.join(tree, "dsp"))
 
     got = total = 0
@@ -165,7 +197,7 @@ def main():
             # -sns: no "(panting)" or "(music)" in place of words.
             hyp = subprocess.run([a.whisper, "-m", a.model, "-f", wav16, "-nt", "-np", "-sns"],
                                  capture_output=True, text=True, check=True).stdout.strip()
-            h, n = heard(sentence, hyp)
+            h, n = heard(sentence, hyp, said)
             got += h
             total += n
             if a.verbose:
