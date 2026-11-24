@@ -113,7 +113,8 @@ def spelled(n):
 
 
 def words(text):
-    text = re.sub(r"\d+", lambda m: " " + spelled(int(m.group())) + " " if int(m.group()) < 10000 else " ", text)
+    text = re.sub(r"\d{1,3}(?:,\d{3})+|\d+", lambda m: " " + spelled(int(m.group().replace(",", ""))) + " "
+                  if int(m.group().replace(",", "")) < 10000 else " ", text)
     return re.sub(r"[^a-z' ]", " ", text.lower().replace("-", " ")).split()
 
 
