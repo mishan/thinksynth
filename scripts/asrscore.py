@@ -254,17 +254,18 @@ def dictionary(tree):
 
 def mended(w, ref, said):
     """A word the recognizer wrote that the dictionary lacks, as the words
-    it is: a reference word spelled with a letter more or less ("smokey"),
-    or two run together ("redverse")."""
-    if w in said:
+    it is: two run together ("redverse"), or a reference word of three
+    letters or more spelled with a letter more or less ("smokey"). Shorter
+    ones are left alone, or "la" over a melisma would be heard as "a"."""
+    if w in said or w in ref:
         return [w]
-    for r in ref:
-        a, b = (w, r) if len(w) > len(r) else (r, w)
-        if len(a) == len(b) + 1 and any(a[:k] + a[k + 1:] == b for k in range(len(a))):
-            return [r]
     for k in range(1, len(w)):
         if w[:k] in said and w[k:] in said:
             return [w[:k], w[k:]]
+    for r in ref:
+        a, b = (w, r) if len(w) > len(r) else (r, w)
+        if len(b) >= 3 and len(a) == len(b) + 1 and any(a[:k] + a[k + 1:] == b for k in range(len(a))):
+            return [r]
     return [w]
 
 
@@ -336,7 +337,7 @@ def main():
             subprocess.run(["sox", "-q", wav, "-r", "16000", wav16], check=True)
             if a.keep:
                 os.makedirs(a.keep, exist_ok=True)
-                subprocess.run(["cp", "-f", wav, os.path.join(a.keep, f"{k:02d}.wav")], check=True)
+                subprocess.run(["cp", "-f", wav, os.path.join(a.keep, f"{k:03d}.wav")], check=True)
             # -sns: no "(panting)" or "(music)" in place of words.
             hyp = subprocess.run([a.whisper, "-m", a.model, "-f", wav16, "-nt", "-np", "-sns"],
                                  capture_output=True, text=True, check=True).stdout.strip()
