@@ -843,6 +843,10 @@ target_link_libraries(genwav PRIVATE think_compiled)
 # BS.1770 says a known signal measures.
 think_harness(lufscheck)
 
+# thSoundFeat's distance against orderings a listener gave.
+think_harness(soundfeatcheck)
+target_include_directories(soundfeatcheck PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
+
 # The MIDI file genwav --midi writes, read back: notes, tempo, meter,
 # markers, and the overlaps a MIDI channel cannot hold.
 think_harness(midicheck COMPOSERHOST)
@@ -1248,6 +1252,8 @@ add_test(NAME dspcapture
 # representative sample.
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 add_test(NAME lufscheck COMMAND lufscheck)
+add_test(NAME soundfeatcheck
+         COMMAND soundfeatcheck ${PROJECT_BINARY_DIR}/plugins/ ${PROJECT_SOURCE_DIR}/dsp)
 add_test(NAME wavcheck COMMAND wavcheck "${PROJECT_BINARY_DIR}/wavcheck")
 # A second normally; a chunk length read as a backwards seek is a loop, and
 # this makes it a failure in half a minute rather than ten.

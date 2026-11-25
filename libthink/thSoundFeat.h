@@ -52,7 +52,21 @@
  *              know little about how a note swells and dies; this term is
  *              where an attack time is heard.
  *
- * Both are taken from a signal that has been trimmed to its onset and scaled
+ *   modulation how the 2048-point spectrogram moves: filtered by
+ *              two-dimensional Morlet wavelets, a rate in time (0.25 to
+ *              8 Hz, an octave apart) by a rate across bands (up or
+ *              down), each band's magnitude averaged over the whole sound.
+ *              A cut-down joint time-frequency scattering. The terms above
+ *              compare instant with instant, and a chorus a little off is
+ *              a different sound at every instant while a dry one is the
+ *              same everywhere: they called a chorus 10% fast farther from
+ *              a Juno than the Juno with its chorus off, which an ear
+ *              hears the other way round. This does not look at instants.
+ *              It cannot hear a pitch -- a kick's floor a semitone off is
+ *              nothing to it -- which is why it is added to the rest and
+ *              not instead of them.
+ *
+ * All are taken from a signal that has been trimmed to its onset and scaled
  * to unit RMS, so neither a few ms of latency nor an output gain is
  * something a search has to discover. Gain is the one parameter that can
  * always be fixed afterwards by arithmetic.
@@ -132,6 +146,11 @@ struct Features {
        noise, -30 or so is a sine. */
     vector<float> noise;
 
+    /* Time-averaged magnitudes of the modulation filters: rates by band
+       scales by direction by groups of bands. Empty for a sound too short
+       to have any. */
+    vector<float> modulation;
+
 
     Features (void) : verdict(SILENT)
     {
@@ -146,8 +165,9 @@ struct Distance {
     double spectral;    /* mean |dB| per band per frame, over resolutions */
     double envelope;    /* mean |dB| per 10 ms                            */
     double noise;       /* mean |dB| of flatness per frame                */
+    double modulation;  /* RMS of log modulation magnitudes                */
 
-    Distance (void) : spectral(0), envelope(0), noise(0) {}
+    Distance (void) : spectral(0), envelope(0), noise(0), modulation(0) {}
 
     /* One number, for a search that wants one. The terms are already in
        dB, so the weights are a statement about taste rather than about
@@ -158,8 +178,13 @@ struct Distance {
        noise's mean spectrum, and came out a buzz; at 3 it kept the
        noise within a few dB of the target's. The pairs an ear called
        close have next to no noise error, so the weight costs them
-       nothing. */
-    double total (void) const { return spectral + 0.5 * envelope + 3.0 * noise; }
+       nothing. Modulation is not in dB; at 3, the changes a listener
+       could not hear (a chorus or PWM rate within 1.25x) cost under
+       0.6, and switching a chorus off costs 1.7. */
+    double total (void) const
+    {
+        return spectral + 0.5 * envelope + 3.0 * noise + 3.0 * modulation;
+    }
 };
 
 inline double hzToMel (double hz) { return 2595.0 * log10(1.0 + hz / 700.0); }
@@ -357,6 +382,7 @@ public:
             spectrogram(mono, r, out);
 
         envelope(mono, out);
+        modulation(out);
 
         out.verdict = USABLE;
     }
@@ -437,6 +463,34 @@ public:
 
         if (ncounted)
             d.noise = nacc / (double)ncounted;
+
+        /* Only between sounds of one length: each filter is averaged
+           over its sound's own length, so the same tone one second and
+           five seconds long differ by more than a chorus switched off.
+           Every caller cuts a target to the length of its renders. */
+        if (!a.modulation.empty() && !b.modulation.empty() &&
+            a.frames[NOISE_RESOLUTION] == b.frames[NOISE_RESOLUTION])
+        {
+            /* Log, so that a filter with a tenth of another's energy
+               counts as much as it; the floor a thousandth of the pair's
+               mean, so filters with nothing in them count for nothing. */
+            double mean = 0;
+
+            for (size_t i = 0; i < a.modulation.size(); i++)
+                mean += (double)a.modulation[i] + b.modulation[i];
+
+            const double eps = 1e-3 * mean / (2.0 * a.modulation.size()) + 1e-30;
+            double acc = 0;
+
+            for (size_t i = 0; i < a.modulation.size(); i++)
+            {
+                const double x = log1p(a.modulation[i] / eps) - log1p(b.modulation[i] / eps);
+
+                acc += x * x;
+            }
+
+            d.modulation = sqrt(acc / (double)a.modulation.size());
+        }
 
         return d;
     }
@@ -539,6 +593,168 @@ private:
 
             out.envelope[i] = (float)(db < ENV_FLOOR_DB ? ENV_FLOOR_DB : db);
         }
+    }
+
+    /* In place, radix 2, over n complex values `stride' apart. */
+    static void fft (double *re, double *im, int n, int stride, bool inverse)
+    {
+        for (int i = 1, j = 0; i < n; i++)
+        {
+            int bit = n >> 1;
+
+            for (; j & bit; bit >>= 1)
+                j ^= bit;
+
+            j ^= bit;
+
+            if (i < j)
+            {
+                std::swap(re[i * stride], re[j * stride]);
+                std::swap(im[i * stride], im[j * stride]);
+            }
+        }
+
+        for (int len = 2; len <= n; len <<= 1)
+        {
+            const double ang = 2.0 * thv::FFT_PI / len * (inverse ? 1 : -1);
+
+            for (int k = 0; k < len / 2; k++)
+            {
+                const double c = cos(ang * k), si = sin(ang * k);
+
+                for (int i = 0; i < n; i += len)
+                {
+                    const int a = (i + k) * stride, b = (i + k + len / 2) * stride;
+                    const double tr = re[b] * c - im[b] * si;
+                    const double ti = re[b] * si + im[b] * c;
+
+                    re[b] = re[a] - tr;
+                    im[b] = im[a] - ti;
+                    re[a] += tr;
+                    im[a] += ti;
+                }
+            }
+        }
+    }
+
+    static const int MOD_RATES = 6;     /* 0.25 .. 8 Hz */
+    static const int MOD_SCALES = 4;    /* 1/2 .. 1/16 cycle per band */
+    static const int MOD_GROUPS = 8;    /* bands pooled in fives */
+
+    void modulation (Features &out) const
+    {
+        const int r = NOISE_RESOLUTION, B = MEL_BANDS, NB = 64;
+
+        /* Frames averaged in pairs, 43 a second: room for an 8 Hz filter
+           and its upper skirt. A 16 Hz one was half past the 21.5 Hz
+           Nyquist and took faster tremolos for its own. */
+        const double frameRate = samplerate_ / ((1u << FFT_ORDERS[r]) / 4.0) / 2.0;
+        const int T = out.frames[r] / 2;
+        int NT = 2;
+
+        if (T < 2)
+            return;
+
+        while (NT < 2 * T)
+            NT <<= 1;
+
+        vector<double> xr((size_t)NB * NT, 0.0), xi((size_t)NB * NT, 0.0);
+        vector<double> yr((size_t)NB * NT), yi((size_t)NB * NT);
+
+        for (int b = 0; b < B; b++)
+            for (int t = 0; t < T; t++)
+                xr[(size_t)b * NT + t] =
+                    0.5 * (pow(10.0, out.mel[r][(size_t)(2 * t) * B + b] / 20.0) +
+                           pow(10.0, out.mel[r][(size_t)(2 * t + 1) * B + b] / 20.0));
+
+        for (int b = 0; b < NB; b++)
+            fft(&xr[(size_t)b * NT], &xi[(size_t)b * NT], NT, 1, false);
+        for (int t = 0; t < NT; t++)
+            fft(&xr[t], &xi[t], NB, NT, false);
+
+        vector<char> live(NT);
+        vector<double> rr(NT), ri(NT), ht(NT);
+
+        for (int k = 0; k < MOD_RATES; k++)
+            for (int j = 0; j < MOD_SCALES; j++)
+                for (int spin = -1; spin <= 1; spin += 2)
+                {
+                    /* An octave wide: a Gaussian whose sigma is 0.35 of
+                       its center, in time and across bands alike. Only
+                       positive rates in time, so the result is analytic
+                       and its magnitude an envelope. */
+                    const double ct = 0.25 * pow(2.0, k), st = 0.35 * ct;
+                    const double cf = spin * 0.5 / pow(2.0, j), sf = 0.35 * fabs(cf);
+                    int last = 0;
+
+                    std::fill(live.begin(), live.end(), 0);
+
+                    for (int t = 0; t < NT; t++)
+                    {
+                        const double wt = t * frameRate / NT;
+
+                        ht[t] = t > 0 && t < NT / 2
+                              ? exp(-0.5 * (wt - ct) * (wt - ct) / (st * st)) : 0.0;
+                    }
+
+                    for (int b = 0; b < NB; b++)
+                    {
+                        const double wf = (b <= NB / 2 ? b : b - NB) / (double)NB;
+                        const double hf = exp(-0.5 * (wf - cf) * (wf - cf) / (sf * sf));
+
+                        for (int t = 0; t < NT; t++)
+                        {
+                            const double h = hf * ht[t];
+                            const size_t at = (size_t)b * NT + t;
+
+                            yr[at] = h > 1e-6 ? xr[at] * h : 0.0;
+                            yi[at] = h > 1e-6 ? xi[at] * h : 0.0;
+
+                            if (h > 1e-6)
+                            {
+                                live[t] = 1;
+                                last = std::max(last, t);
+                            }
+                        }
+                    }
+
+                    /* Most of a filter is zero, and a column it leaves
+                       empty transforms to zeros. A slow rate leaves only
+                       the first few bins in time, and the inverse over the
+                       first M of them is the full inverse at every NT/M-th
+                       frame. Averaging those samples rather than every
+                       frame moves a filter's mean by a few percent at
+                       most; a slow envelope does not change between
+                       them. */
+                    for (int t = 0; t < NT; t++)
+                        if (live[t])
+                            fft(&yr[t], &yi[t], NB, NT, true);
+
+                    int M = 2;
+
+                    while (M <= last)
+                        M <<= 1;
+
+                    const int TM = std::max(1, (int)(((long)T * M + NT - 1) / NT));
+
+                    for (int g = 0; g < MOD_GROUPS; g++)
+                    {
+                        double acc = 0;
+
+                        for (int b = g * B / MOD_GROUPS; b < (g + 1) * B / MOD_GROUPS; b++)
+                        {
+                            std::copy(&yr[(size_t)b * NT], &yr[(size_t)b * NT] + M, rr.begin());
+                            std::copy(&yi[(size_t)b * NT], &yi[(size_t)b * NT] + M, ri.begin());
+                            fft(&rr[0], &ri[0], M, 1, true);
+
+                            for (int t = 0; t < TM; t++)
+                                acc += sqrt(rr[t] * rr[t] + ri[t] * ri[t]);
+                        }
+
+                        out.modulation.push_back(
+                            (float)(acc / ((double)NB * NT) / (TM * (B / MOD_GROUPS))));
+                    }
+                }
     }
 
     double samplerate_;
