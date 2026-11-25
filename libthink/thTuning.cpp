@@ -490,7 +490,10 @@ bool pitch (const thScale &s, const thKeymap &m, int key, double &cents)
     if (r >= (long long)m.map.size() || m.map[r] == thKeymap::UNMAPPED)
         return false;
 
-    cents = (double)q * degreeCents(s, m.periodDegree) + degreeCents(s, m.map[r]);
+    /* A formal octave of 0 is the scale's period (Scala, SHOW MAPPING). */
+    const long long octave = m.periodDegree ? m.periodDegree : (long long)s.cents.size();
+
+    cents = (double)q * degreeCents(s, octave) + degreeCents(s, m.map[r]);
     return true;
 }
 

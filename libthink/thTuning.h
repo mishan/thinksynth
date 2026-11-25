@@ -28,15 +28,15 @@
  * reference is 69 at 440 Hz, gives every key exactly itself.
  *
  * The formats are Scala's: huygens-fokker.org/scala/scl_format.html, and
- * the .kbm description in Scala's help. Deliberate refusals, each said in
+ * the .kbm description in Scala's help. A map entry past the scale wraps
+ * into the next period, and a formal octave of 0 is the scale's period,
+ * both as Scala reads them. Lenient where it costs nothing: blank lines
+ * before the count and between degrees. Deliberate refusals, each said in
  * the error: a scale of no degrees (the spec allows it, but it has no
  * period); a period at or below unison (nothing forbids it, but a keyboard
- * on it means nothing); a number that goes on past a blank (`3 / 2', `100
- * .0'), which read as a value and a label would be another pitch; and a
- * value not ended by a blank or `!' (`100.0c'). A map entry past the scale wraps into the
- * next period, as Scala reads it; a formal octave of degree 0 puts every
- * repeat of the map on the same pitch, as Scala reads it (Surge's
- * tuning-library takes 0 as the scale's size instead).
+ * on it means nothing); a number that goes on past a blank (`3 / 2',
+ * `100 .0'), which read as a value and a label would be another pitch; and
+ * a value not ended by a blank or `!' (`100.0c').
  *
  * Text in, not file names: a piece may carry its tuning inline, and the
  * browser hands over strings. An error is a message and, separately, the
@@ -72,7 +72,8 @@ struct THINK_API thKeymap {
        can be 60 itself rather than a rounding of it. */
     double frequency = 261.6255653005986;
     double referenceNote = 60;
-    int periodDegree = 0;           /* the degree one repeat of the map spans */
+    int periodDegree = 0;           /* the degree one repeat of the map spans;
+                                       0 for the scale's period */
 
     static constexpr int UNMAPPED = INT_MIN;
     std::vector<int> map;           /* a degree per slot, or UNMAPPED; slots

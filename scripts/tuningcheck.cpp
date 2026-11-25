@@ -49,7 +49,7 @@ static void fail (const std::string &what)
 static double repeatNotes (const thScale &s, const thKeymap &m)
 {
     const int n = (int)s.cents.size();
-    const int d = m.size == 0 ? n : m.periodDegree;
+    const int d = m.size == 0 || m.periodDegree == 0 ? n : m.periodDegree;
     const long long q = d >= 0 ? d / n : -((-(long long)d + n - 1) / n);
     const int r = (int)(d - q * n);
 
@@ -232,10 +232,18 @@ static void known (void)
           TET12, "0\n60\n127\n60\n57\n220\n12\n", 12,
           { { 57, false, 0, true }, { 60, true, 60, true },
             { 72, true, 72, true } } },
-        { "formal octave of degree 0",
+        /* 0 is the scale's period, Scala's default (SHOW MAPPING in its
+           help): a whole map with it is the plain keyboard. */
+        { "formal octave 0, a whole map",
+          TET12, "12\n0\n127\n60\n69\n440\n0\n"
+                 "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n", 12,
+          { { 48, true, 48, true }, { 60, true, 60, true },
+            { 72, true, 72, true }, { 127, true, 127, true } } },
+        { "formal octave 0, a two-key map",
           TET12, "2\n0\n127\n60\n69\n440\n0\n0\n4\n", 12,
-          { { 60, true, 65, true }, { 61, true, 69, true },
-            { 62, true, 65, true }, { 63, true, 69, true } } },
+          { { 60, true, 17, true }, { 61, true, 21, true },
+            { 62, true, 29, true }, { 63, true, 33, true },
+            { 69, true, 69, true } } },
         { "reference outside the retuned keys",
           TET12, "0\n60\n72\n60\n81\n880\n12\n", 12,
           { { 60, true, 60, true }, { 72, true, 72, true },
