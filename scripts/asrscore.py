@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """asrscore -- how much of a sung or spoken voice a speech recognizer hears.
 
-Renders the first four Harvard sentence lists (IEEE, 1969), one sentence
+Renders the first fifteen Harvard sentence lists (IEEE, 1969), one sentence
 at a time, through a voice graph built on osc::speak, transcribes each
 with whisper.cpp, and scores the share of each sentence's words heard in
 order: their longest common run with the transcript, where a word heard
@@ -27,9 +27,11 @@ can be scored at another value without editing the graph. The piece's
 seed is pinned, so a render is the same every time, and so, decoding
 greedily, is the transcript: a difference between two runs is the voice.
 
-A sentence is about eight words, so at forty sentences one word is a
-third of a percent of the score; a difference of a point or two is a
-handful of words and should be read as such.
+A sentence is about eight words, so at a hundred and fifty sentences one
+word is under a tenth of a percent of the score. Which sentences are said
+matters more than how many words: a voice tuned on a few lists can lose
+on the next. --lists 4 scores the first four alone, to compare with
+figures taken before the rest were added.
 
 whisper.cpp: https://github.com/ggml-org/whisper.cpp, built with cmake;
 its models are listed in its models/README.md. small.en is the one these
@@ -89,6 +91,127 @@ SENTENCES = [
     "The young girl gave no clear response.",
     "The meal was cooked before the bell rang.",
     "What joy there is in living.",
+    # List 5
+    "A king ruled the state in the early days.",
+    "The ship was torn apart on the sharp reef.",
+    "Sickness kept him home the third week.",
+    "The wide road shimmered in the hot sun.",
+    "The lazy cow lay in the cool grass.",
+    "Lift the square stone over the fence.",
+    "The rope will bind the seven books at once.",
+    "Hop over the fence and plunge in.",
+    "The friendly gang left the drug store.",
+    "Mesh wire keeps chicks inside.",
+    # List 6
+    "The frosty air passed through the coat.",
+    "The crooked maze failed to fool the mouse.",
+    "Adding fast leads to wrong sums.",
+    "The show was a flop from the very start.",
+    "A saw is a tool used for making boards.",
+    "The wagon moved on well oiled wheels.",
+    "March the soldiers past the next hill.",
+    "A cup of sugar makes sweet fudge.",
+    "Place a rosebush near the porch steps.",
+    "Both lost their lives in the raging storm.",
+    # List 7
+    "We talked of the side show in the circus.",
+    "Use a pencil to write the first draft.",
+    "He ran half way to the hardware store.",
+    "The clock struck to mark the third period.",
+    "A small creek cut across the field.",
+    "Cars and busses stalled in snow drifts.",
+    "The set of china hit the floor with a crash.",
+    "This is a grand season for hikes on the road.",
+    "The dune rose from the edge of the water.",
+    "Those words were the cue for the actor to leave.",
+    # List 8
+    "A yacht slid around the point into the bay.",
+    "The two met while playing on the sand.",
+    "The ink stain dried on the finished page.",
+    "The walled town was seized without a fight.",
+    "The lease ran out in sixteen weeks.",
+    "A tame squirrel makes a nice pet.",
+    "The horn of the car woke the sleeping cop.",
+    "The heart beat strongly and with firm strokes.",
+    "The pearl was worn in a thin silver ring.",
+    "The fruit peel was cut in thick slices.",
+    # List 9
+    "The Navy attacked the big task force.",
+    "See the cat glaring at the scared mouse.",
+    "There are more than two factors here.",
+    "The hat brim was wide and too droopy.",
+    "The lawyer tried to lose his case.",
+    "The grass curled around the fence post.",
+    "Cut the pie into large parts.",
+    "Men strive but seldom get rich.",
+    "Always close the barn door tight.",
+    "He lay prone and hardly moved a limb.",
+    # List 10
+    "The slush lay deep along the street.",
+    "A wisp of cloud hung in the blue air.",
+    "A pound of sugar costs more than eggs.",
+    "The fin was sharp and cut the clear water.",
+    "The play seems dull and quite stupid.",
+    "Bail the boat to stop it from sinking.",
+    "The term ended in late June that year.",
+    "A tusk is used to make costly gifts.",
+    "Ten pins were set in order.",
+    "The bill was paid every third week.",
+    # List 11
+    "Oak is strong and also gives shade.",
+    "Cats and dogs each hate the other.",
+    "The pipe began to rust while new.",
+    "Open the crate but don't break the glass.",
+    "Add the sum to the product of these three.",
+    "Thieves who rob friends deserve jail.",
+    "The ripe taste of cheese improves with age.",
+    "Act on these orders with great speed.",
+    "The hog crawled under the high fence.",
+    "Move the vat over the hot fire.",
+    # List 12
+    "The bark of the pine tree was shiny and dark.",
+    "Leaves turn brown and yellow in the fall.",
+    "The pennant waved when the wind blew.",
+    "Split the log with a quick, sharp blow.",
+    "Burn peat after the logs give out.",
+    "He ordered peach pie with ice cream.",
+    "Weave the carpet on the right hand side.",
+    "Hemp is a weed found in parts of the tropics.",
+    "A lame back kept his score low.",
+    "We find joy in the simplest things.",
+    # List 13
+    "Type out three lists of orders.",
+    "The harder he tried the less he got done.",
+    "The boss ran the show with a watchful eye.",
+    "The cup cracked and spilled its contents.",
+    "Paste can cleanse the most dirty brass.",
+    "The slang word for raw whiskey is booze.",
+    "It caught its hind paw in a rusty trap.",
+    "The wharf could be seen at the farther shore.",
+    "Feel the heat of the weak dying flame.",
+    "The tiny girl took off her hat.",
+    # List 14
+    "A cramp is no small danger on a swim.",
+    "He said the same phrase thirty times.",
+    "Pluck the bright rose without leaves.",
+    "Two plus seven is less than ten.",
+    "The glow deepened in the eyes of the sweet girl.",
+    "Bring your problems to the wise chief.",
+    "Write a fond note to the friend you cherish.",
+    "Clothes and lodging are free to new men.",
+    "We frown when events take a bad turn.",
+    "Port is a strong wine with a smoky taste.",
+    # List 15
+    "The young kid jumped the rusty gate.",
+    "Guess the results from the first scores.",
+    "A salt pickle tastes fine with ham.",
+    "The just claim got the right verdict.",
+    "These thistles bend in a high wind.",
+    "Pure bred poodles have curls.",
+    "The tree top waved in a graceful way.",
+    "The spot on the blotter was made by green ink.",
+    "Mud was spattered on the front of his white shirt.",
+    "The cigar burned a hole in the desk top.",
 ]
 
 # Notes in the piece: more than any sentence has syllables, the rest
@@ -129,9 +252,29 @@ def dictionary(tree):
     return said
 
 
+def mended(w, ref, said):
+    """A word the recognizer wrote that the dictionary lacks, as the words
+    it is: two of the sentence's words run together ("redverse", said as
+    "read verse"), or one of four letters or more spelled with a letter
+    more or less ("smokey"). Shorter ones are left alone, or a melisma's
+    "la" would be heard as "a" and "hoo" as "hook"."""
+    if w in said or w in ref:
+        return [w]
+    sounds = {said.get(r, r) for r in ref}
+    for k in range(1, len(w)):
+        if said.get(w[:k], w[:k]) in sounds and said.get(w[k:], w[k:]) in sounds:
+            return [w[:k], w[k:]]
+    for r in ref:
+        a, b = (w, r) if len(w) > len(r) else (r, w)
+        if len(b) >= 4 and len(a) == len(b) + 1 and any(a[:k] + a[k + 1:] == b for k in range(len(a))):
+            return [r]
+    return [w]
+
+
 def heard(ref, hyp, said):
     """How many of ref's words hyp has, in order, and how many ref has."""
-    r, h = ([said.get(w, w) for w in words(t)] for t in (ref, hyp))
+    r = [said.get(w, w) for w in words(ref)]
+    h = [said.get(m, m) for w in words(hyp) for m in mended(w, words(ref), said)]
     run = [0] * (len(h) + 1)
     for i in range(1, len(r) + 1):
         diag = 0
@@ -169,6 +312,8 @@ def main():
     ap.add_argument("--whisper", default=os.environ.get("THINK_WHISPER"), help="whisper.cpp's whisper-cli")
     ap.add_argument("--model", default=os.environ.get("THINK_WHISPER_MODEL"), help="a whisper.cpp model")
     ap.add_argument("--set", default="", help="chanargs for the instrument block, e.g. 'sibilance = -12;'")
+    ap.add_argument("--lists", type=int, default=len(SENTENCES) // 10, choices=range(1, len(SENTENCES) // 10 + 1),
+                    metavar="N", help="score the first N lists of ten")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--keep", help="a directory to keep each sentence's render in")
     ap.add_argument("-v", "--verbose", action="store_true", help="every sentence and what was heard")
@@ -184,7 +329,7 @@ def main():
 
     got = total = 0
     with tempfile.TemporaryDirectory() as tmp:
-        for k, sentence in enumerate(SENTENCES):
+        for k, sentence in enumerate(SENTENCES[:10 * a.lists]):
             text, seconds = piece(sentence, a.voice, a.mode, a.set, a.seed)
             gen, wav, wav16 = (os.path.join(tmp, f) for f in ("s.gen", "s.wav", "s16.wav"))
             with open(gen, "w") as f:
@@ -194,7 +339,7 @@ def main():
             subprocess.run(["sox", "-q", wav, "-r", "16000", wav16], check=True)
             if a.keep:
                 os.makedirs(a.keep, exist_ok=True)
-                subprocess.run(["cp", "-f", wav, os.path.join(a.keep, f"{k:02d}.wav")], check=True)
+                subprocess.run(["cp", "-f", wav, os.path.join(a.keep, f"{k:03d}.wav")], check=True)
             # -sns: no "(panting)" or "(music)" in place of words.
             hyp = subprocess.run([a.whisper, "-m", a.model, "-f", wav16, "-nt", "-np", "-sns"],
                                  capture_output=True, text=True, check=True).stdout.strip()
