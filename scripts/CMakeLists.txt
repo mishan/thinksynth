@@ -843,6 +843,11 @@ target_link_libraries(genwav PRIVATE think_compiled)
 # BS.1770 says a known signal measures.
 think_harness(lufscheck)
 
+# Scala tunings: hand-worked pitches, the spec's own examples, refusals,
+# and damaged files.
+think_harness(tuningcheck)
+target_include_directories(tuningcheck PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
+
 # thSoundFeat's distance against orderings a listener gave.
 think_harness(soundfeatcheck)
 target_include_directories(soundfeatcheck PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
@@ -1252,6 +1257,7 @@ add_test(NAME dspcapture
 # representative sample.
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 add_test(NAME lufscheck COMMAND lufscheck)
+add_test(NAME tuningcheck COMMAND tuningcheck)
 add_test(NAME soundfeatcheck
          COMMAND soundfeatcheck ${PROJECT_BINARY_DIR}/plugins/ ${PROJECT_SOURCE_DIR}/dsp)
 add_test(NAME wavcheck COMMAND wavcheck "${PROJECT_BINARY_DIR}/wavcheck")
