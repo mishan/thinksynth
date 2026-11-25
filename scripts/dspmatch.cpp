@@ -460,6 +460,7 @@ static int probe (const Extractor &ex, const char *file)
                 d[k] = probeTerm == "spectral" ? parts.spectral
                      : probeTerm == "envelope" ? parts.envelope
                      : probeTerm == "noise"    ? parts.noise
+                     : probeTerm == "modulation" ? parts.modulation
                      : d[k];
 
             if (d[k] > furthest)
@@ -653,8 +654,8 @@ static int scoreOnly (const Extractor &ex, const char *wav, const char *file)
 
     const Distance d = Extractor::distance(target, mine);
 
-    printf("%-40s total %6.2f  spectral %5.2f  envelope %5.2f  noise %5.2f\n",
-           file, d.total(), d.spectral, d.envelope, d.noise);
+    printf("%-40s total %6.2f  spectral %5.2f  envelope %5.2f  noise %5.2f  modulation %5.3f\n",
+           file, d.total(), d.spectral, d.envelope, d.noise, d.modulation);
 
     if (getenv("DSPMATCH_FLATNESS"))
     {
@@ -874,7 +875,7 @@ int main (int argc, char **argv)
         (i + 1 >= argc && strcmp(argv[i], "pool")))
     {
         printf("usage: %s -p PLUGINS [options] near file.dsp ...\n"
-               "       %s -p PLUGINS [options] [-t spectral|envelope|noise] probe file.dsp\n"
+               "       %s -p PLUGINS [options] [-t spectral|envelope|noise|modulation] probe file.dsp\n"
                "       %s -p PLUGINS [options] [-o PREFIX] recover file.dsp\n"
                "       %s -p PLUGINS [options] [-o PREFIX] match target.wav file.dsp\n"
                "       %s -p PLUGINS [options] [-o PREFIX] [-r ROUNDS] grow target.wav file.dsp\n"
