@@ -254,17 +254,19 @@ def dictionary(tree):
 
 def mended(w, ref, said):
     """A word the recognizer wrote that the dictionary lacks, as the words
-    it is: two run together ("redverse"), or a reference word of three
-    letters or more spelled with a letter more or less ("smokey"). Shorter
-    ones are left alone, or "la" over a melisma would be heard as "a"."""
+    it is: two of the sentence's words run together ("redverse", said as
+    "read verse"), or one of four letters or more spelled with a letter
+    more or less ("smokey"). Shorter ones are left alone, or a melisma's
+    "la" would be heard as "a" and "hoo" as "hook"."""
     if w in said or w in ref:
         return [w]
+    sounds = {said.get(r, r) for r in ref}
     for k in range(1, len(w)):
-        if w[:k] in said and w[k:] in said:
+        if said.get(w[:k], w[:k]) in sounds and said.get(w[k:], w[k:]) in sounds:
             return [w[:k], w[k:]]
     for r in ref:
         a, b = (w, r) if len(w) > len(r) else (r, w)
-        if len(b) >= 3 and len(a) == len(b) + 1 and any(a[:k] + a[k + 1:] == b for k in range(len(a))):
+        if len(b) >= 4 and len(a) == len(b) + 1 and any(a[:k] + a[k + 1:] == b for k in range(len(a))):
             return [r]
     return [w]
 
