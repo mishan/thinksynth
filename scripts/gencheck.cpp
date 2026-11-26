@@ -14109,7 +14109,8 @@ checkSessionModel (void)
     {
         return model.propose(e, why, warn) &&
                model.apply(path, e, why) == thcGenEdit::OK &&
-               model.build(path, -1, -1, grid, why);
+               model.build(path, -1, -1, grid, why) &&
+               grid.rows.size() == 4 && grid.columns.size() >= 2;
     };
     thSessionEdit e;
 

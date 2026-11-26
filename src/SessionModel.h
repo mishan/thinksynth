@@ -122,7 +122,8 @@ public:
                               const thSessionEdit &edit, std::string &why);
 
     /* What a click on a chain's cell does: off, or back to the level it
-       had before it was turned off, remembered by name across builds. */
+       had before it was turned off, remembered by name across builds of
+       one piece; a shell makes a new model for another. */
     thSessionEdit toggle (const std::string &section,
                           const std::string &chain);
 
