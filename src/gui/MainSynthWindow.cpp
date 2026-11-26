@@ -1999,11 +1999,15 @@ void MainSynthWindow::ensureEditor (int chan)
         kept_.erase(k);
 
         /* Anything else on the channel now was put there on purpose, and
-           replaces the graph these edits were to. */
-        if (patch != NULL && (kept->filename() == patch->doc.dsp ||
+           replaces the graph these edits were to. The load it was made on,
+           still there, is the same graph whatever file the editor has been
+           pointed at since; a load of the same file is the same graph. */
+        if (patch != NULL && (editorGen_[chan] == patch->generation ||
+                              kept->filename() == patch->doc.dsp ||
                               kept->filename() ==
                                   resolveDspPath(patch->doc.dsp)))
         {
+            editorGen_[chan] = patch->generation;
             editors_[chan] = kept;
             holders_[chan]->append(*kept);
             kept->unreference();
@@ -2022,6 +2026,7 @@ void MainSynthWindow::ensureEditor (int chan)
     NodeEditor *ed = manage(new NodeEditor(thSynth::instance()));
 
     editors_[chan] = ed;
+    editorGen_[chan] = patch->generation;
 
     ed->set_vexpand(true);
     holders_[chan]->append(*ed);

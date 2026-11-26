@@ -694,8 +694,11 @@ checkPatchPage (TestWindow *win, const std::string &dsp)
         { "Re_vert patch", true, false }, { "Re_vert patch", true, true },
         { "Re_vert patch", false, false }, { "Re_vert patch", false, true },
         { "Change _DSP...", false, false, true },
+        { "Change _DSP...", false, true, true },
         { "_Open patch...", false, false, true },
+        { "_Open patch...", false, true, true },
         { "Re_vert patch", false, false, true },
+        { "Re_vert patch", false, true, true },
     };
     const std::string copy = (dir / "copy.dsp").string();
 
@@ -954,6 +957,68 @@ run (const std::string &pluginPath, const std::string &dsp)
         check(undone && win->editors_.count(2) == 1 &&
               win->editors_[2] == edited && redo->get_sensitive(),
               "...and one with only a step to redo");
+    }
+
+    /* An editor on another file -- as after its Save As -- with edits not
+       saved, held across a rebuild while its channel is not looked at:
+       back when it is, the channel still playing the patch it was editing;
+       not back once something else has been put on the channel. */
+    {
+        const std::filesystem::path copy =
+            std::filesystem::temp_directory_path() /
+            ("windowcheck-copy-" +
+             std::to_string(std::chrono::steady_clock::now()
+                                .time_since_epoch().count()) + ".dsp");
+
+        std::filesystem::copy_file(dsp, copy);
+
+        bool back = false, gone = false;
+
+        for (int replace = 0; replace < 2; replace++)
+        {
+            win->selectChannel(2);
+            pump(4);
+
+            NodeEditor *ed = win->editors_.count(2) ? win->editors_[2] : NULL;
+
+            if (ed != NULL)
+                ed->open(copy.string(), -1);
+
+            pump(4);
+
+            NodeCanvasWidget *c = ed != NULL ? findCanvas(ed) : NULL;
+
+            if (c != NULL && c->graph() != NULL && !c->graph()->boxes().empty())
+            {
+                const double x = c->graph()->boxes()[0].x + 6;
+                const double y = c->graph()->boxes()[0].y + 6;
+
+                c->onPressed(1, x, y);
+                c->onMotion(x + 40, y);
+                c->onReleased(1, x + 40, y);
+            }
+
+            const bool edited = ed != NULL && ed->dirty();
+
+            win->selectChannel(0);
+            patchMgr->newPatch(dsp, replace ? 2 : 5);
+            pump(4);
+            win->selectChannel(2);
+            pump(4);
+
+            NodeEditor *now = win->editors_.count(2) ? win->editors_[2] : NULL;
+
+            if (replace)
+                gone = edited && now != NULL && !now->dirty();
+            else
+                back = edited && now == ed && ed->dirty();
+        }
+
+        std::filesystem::remove(copy);
+
+        check(back, "a graph editor on another file comes back with its "
+                    "edits across a rebuild");
+        check(gone, "...and not over a patch put on its channel since");
     }
 
     /* A graph with no patch file saved for it -- as every instrument a

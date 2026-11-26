@@ -366,6 +366,10 @@ protected:
        Each holds a reference. */
     std::map<int, NodeEditor *> kept_;
 
+    /* The load of its channel each editor was made on, which is what a kept
+       one has to find there to come back. */
+    std::map<int, unsigned> editorGen_;
+
     void releaseKept (void);
 
     /* The amplitude slider on each patch page, and its subscription to the
