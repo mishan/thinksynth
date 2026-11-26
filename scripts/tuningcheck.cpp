@@ -579,6 +579,59 @@ static std::string escape (const std::string &text)
     return out;
 }
 
+/* What a voice's key sounds at: mapped, unmapped, fractional either side
+   of an unmapped key, past the table, and with nothing built. */
+static void pitches (void)
+{
+    thScale s;
+    thKeymap m;
+    thTuning t;
+    std::string err;
+    int line;
+    const double step = 12.0 / 19;
+
+    if (!s.parse(edo(19), err, line) ||
+        !m.parse("2\n0\n127\n60\n60\n261.6255653005986\n1\n0\nx\n", err, line) ||
+        !t.build(s, m, err))
+    {
+        fail("pitches: the tuning was refused: " + err);
+        return;
+    }
+
+    static const struct { double key, pitch; } cases[] = {
+        { 60, 60 },                 /* mapped: degree 0 */
+        { 62, 60 + 12.0 / 19 },     /* mapped: one step up */
+        { 61, 61 },                 /* unmapped: its own 12-TET pitch */
+        { 61.5, 61.5 },             /* beside an unmapped key below */
+        { 60.5, 60.5 },             /* mapped below, unmapped above */
+        { 62.25, 60 + 12.0 / 19 + 0.25 },   /* 63 is unmapped */
+        { -3.5, -3.5 },             /* past the table */
+        { 127.5, 127.5 },
+        { 200, 200 },
+    };
+
+    for (const auto &c : cases)
+        if (fabs(t.pitch(c.key) - c.pitch) > 1e-9)
+            fail("pitch of " + std::to_string(c.key) + ": " +
+                 std::to_string(t.pitch(c.key)) + ", not " + std::to_string(c.pitch));
+
+    /* Between two mapped keys, that far between their notes. */
+    thTuning all;
+
+    if (!all.build(s, thKeymap(), err))
+        fail("pitches: 19-EDO refused: " + err);
+    else
+    {
+        if (fabs(all.pitch(60.25) - (60 + step / 4)) > 1e-9)
+            fail("pitch of 60.25 under 19-EDO: " + std::to_string(all.pitch(60.25)));
+        if (all.pitch(61) != all.note(61))
+            fail("pitch of a whole key is not its note");
+    }
+
+    if (thTuning().pitch(64.5) != 64.5)
+        fail("a tuning never built moved a key");
+}
+
 /* An object used twice keeps nothing of its first use. */
 static void reuse (void)
 {
@@ -781,6 +834,7 @@ int main (void)
     accepted();
     refused();
     reuse();
+    pitches();
     byHand();
     mutations();
 

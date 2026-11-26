@@ -474,7 +474,7 @@ double degreeCents (const thScale &s, long long d)
 }
 
 /* A key's pitch in cents, or false for a key the map leaves out. */
-bool pitch (const thScale &s, const thKeymap &m, int key, double &cents)
+bool keyCents (const thScale &s, const thKeymap &m, int key, double &cents)
 {
     const long long o = (long long)key - m.middle;
 
@@ -516,7 +516,7 @@ bool thTuning::build (const thScale &scale, const thKeymap &keymap, string &err)
 
     double ref;
 
-    if (!pitch(scale, keymap, keymap.reference, ref))
+    if (!keyCents(scale, keymap, keymap.reference, ref))
     {
         err = "the reference key, " + std::to_string(keymap.reference) +
               ", is unmapped";
@@ -529,7 +529,7 @@ bool thTuning::build (const thScale &scale, const thKeymap &keymap, string &err)
     {
         double cents;
 
-        if (k < keymap.first || k > keymap.last || !pitch(scale, keymap, k, cents))
+        if (k < keymap.first || k > keymap.last || !keyCents(scale, keymap, k, cents))
             continue;
 
         const double note = keymap.referenceNote + (cents - ref) / 100;
@@ -556,6 +556,24 @@ bool thTuning::mapped (int key) const
 double thTuning::note (int key) const
 {
     return mapped(key) ? note_[key] : 0;
+}
+
+double thTuning::pitch (double key) const
+{
+    if (!(key >= 0 && key <= KEYS - 1))     /* NaN too: as it came */
+        return key;
+
+    const int k = (int)floor(key);
+    const double f = key - k;
+    const double below = mapped_[k] ? note_[k] : k;
+
+    if (f == 0)
+        return below;
+
+    if (mapped_[k] && mapped_[k + 1])
+        return below + f * (note_[k + 1] - below);
+
+    return below + f;
 }
 
 bool thTuning::operator== (const thTuning &o) const

@@ -95,6 +95,13 @@ public:
     bool mapped (int key) const;
     double note (int key) const;
 
+    /* What a voice asked for `key' sounds at: a mapped key's note; an
+       unmapped key, or one past the table, at its own 12-TET pitch (Scala:
+       not retuned); a fraction between two mapped keys, that far between
+       their notes; a fraction beside an unmapped key, added in 12-TET to
+       the key below's pitch. */
+    double pitch (double key) const;
+
     bool operator== (const thTuning &o) const;
 
 private:

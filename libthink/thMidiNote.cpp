@@ -23,11 +23,12 @@
 #include <string.h>
 
 #include "think.h"
+#include "thTuning.h"
 
 thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity,
                         float level, const float *aux,
-                        const unsigned char *say)
-    : synthTree_(*tree)
+                        const unsigned char *say, const thTuning *tuning)
+    : synthTree_(*tree), tuning_(tuning)
 {
     synthTree_.buildSynthTree();
     channel_ = 0;
@@ -37,14 +38,21 @@ thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity,
 /* GUI thread. See the header. */
 bool thMidiNote::restart (const thSynthTree *tree, float note, float velocity,
                           float level, const float *aux,
-                          const unsigned char *say)
+                          const unsigned char *say, const thTuning *tuning)
 {
+    tuning_ = tuning;
+
     if (tree == NULL || !synthTree_.restore(*tree))
         return false;
 
     start(note, velocity, level, aux, say);
 
     return true;
+}
+
+float thMidiNote::sounding (float key) const
+{
+    return tuning_ ? (float)tuning_->pitch(key) : key;
 }
 
 /* What a new voice's io node is told, and what it starts out as. */
@@ -54,7 +62,7 @@ void thMidiNote::start (float note, float velocity, float level,
     thNode *ionode = synthTree_.IONode();
 
     bend_ = 0;
-    ionode->setArg("note", note);
+    ionode->setArg("note", sounding(note));
     ionode->setArg("velocity", velocity);
     ionode->setArg("trigger", 1);
 
@@ -142,7 +150,7 @@ void thMidiNote::retune (float note)
     /* A new key, which starts unbent: its own bend, if it has one, comes
        after. */
     bend_ = 0;
-    ionode->setArg("note", note);
+    ionode->setArg("note", sounding(note));
 
     note_ = note;
     noteid_ = (int)note;
@@ -160,7 +168,7 @@ void thMidiNote::express (int what, float value)
     if (what < 0)
     {
         bend_ = value;
-        ionode->setArg("note", note_ + bend_);
+        ionode->setArg("note", sounding(note_) + bend_);
     }
     else if (ionode->getArg(AUX[what]) != NULL)
         ionode->setArg(AUX[what], value);

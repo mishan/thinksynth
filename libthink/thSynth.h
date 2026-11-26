@@ -26,6 +26,8 @@
 
 #include "thExport.h"
 
+class thTuning;
+
 class thMidiNote;
 class thMidiChan;
 
@@ -54,8 +56,12 @@ public:
     /* Onto channel `channum'. Loaded over a channel that is sounding, the
        old graph's notes finish on it -- see thMidiChan::drain -- and the
        notes after play this one; a caller wanting a clean slate, as a
-       render that starts over does, calls removeChan first. */
-    thSynthTree *loadTree(const string &filename, int channum, float amp);
+       render that starts over does, calls removeChan first.
+
+       `tuning', if any, is what the channel's keys sound at (thTuning):
+       fixed for the channel's life, so a new tuning is a new channel. */
+    thSynthTree *loadTree(const string &filename, int channum, float amp,
+                          std::shared_ptr<const thTuning> tuning = nullptr);
     thSynthTree *loadTree(FILE *input);
 
     /* loadTree onto a channel, over text in memory rather than a file: a
@@ -64,7 +70,8 @@ public:
        way to hand this a FILE*, is not on Windows. `name' is what the
        channel is known by in a log line, and need not be a file. */
     thSynthTree *loadTreeText (const string &name, const string &text,
-                               int channum, float amp);
+                               int channum, float amp,
+                               std::shared_ptr<const thTuning> tuning = nullptr);
 
     /* Parses a .dsp and hands back a tree that thSynth neither owns nor
        tracks: the caller deletes it.
@@ -626,9 +633,11 @@ private:
        placeChannel is loadChannel after the parse, with synthMutex_
        held. */
     thSynthTree *loadChannel (const string &filename, const string *text,
-                              int channum, float amp);
+                              int channum, float amp,
+                              std::shared_ptr<const thTuning> tuning);
     thSynthTree *placeChannel (const string &filename, thSynthTree *raw,
-                               int parseResult, int channum, float amp);
+                               int parseResult, int channum, float amp,
+                               std::shared_ptr<const thTuning> tuning);
     thSynthTree *loadEffectFrom (const string &filename, const string *text,
                                  int channum, int sideChan);
     thSynthTree *loadMasterEffectFrom (const string &filename, const string *text);

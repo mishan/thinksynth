@@ -21,9 +21,12 @@
 
 #include <atomic>
 #include <map>
+#include <memory>
 #include <vector>
 
 #include "thExport.h"
+
+class thTuning;
 
 class THINK_API thMidiChan {
 public:
@@ -162,6 +165,11 @@ public:
                  (draining_->effect_ && draining_->effect_->sharesState())));
     }
     void setSharesState (bool shares) { sharesState_ = shares; }
+
+    /* What the channel's keys sound at, or none for 12-TET. Set before the
+       channel is published and fixed for its life: the audio thread reads
+       the table and nothing writes it, so no change crosses threads. */
+    void setTuning (std::shared_ptr<const thTuning> tuning) { tuning_ = std::move(tuning); }
 
     /* ---- either, with care ---- */
 
@@ -497,6 +505,7 @@ private:
     string graph_;
     string message_;
     string effectMessage_;
+    std::shared_ptr<const thTuning> tuning_;
     std::atomic<unsigned long> *nonFinite_;
 
     /* A diverging graph goes non-finite on every window of every note, so
