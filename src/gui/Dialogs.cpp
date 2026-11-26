@@ -90,8 +90,8 @@ std::string chosenPath (Gtk::FileChooser &chooser)
 }
 
 /* Yes or no, and the dialog goes either way. */
-static void overwriteAnswered (int response, Gtk::MessageDialog *dlg,
-                               sigc::slot<void ()> done)
+static void confirmAnswered (int response, Gtk::MessageDialog *dlg,
+                             sigc::slot<void ()> done)
 {
     closeDialog(dlg);
 
@@ -128,7 +128,29 @@ void confirmOverwrite (Gtk::Window *parent, const std::string &path,
     dlg->set_modal(true);
 
     dlg->signal_response().connect(
-        sigc::bind(sigc::ptr_fun(&overwriteAnswered), dlg, done));
+        sigc::bind(sigc::ptr_fun(&confirmAnswered), dlg, done));
+
+    dlg->present();
+}
+
+void confirmDiscard (Gtk::Window *parent, const std::string &what,
+                     const sigc::slot<void ()> &discard)
+{
+    Gtk::MessageDialog *dlg = parent != NULL
+        ? new Gtk::MessageDialog(*parent, "Discard changes?", false,
+                                 Gtk::MessageType::QUESTION,
+                                 Gtk::ButtonsType::NONE, true)
+        : new Gtk::MessageDialog("Discard changes?", false,
+                                 Gtk::MessageType::QUESTION,
+                                 Gtk::ButtonsType::NONE, true);
+
+    dlg->set_secondary_text(what + ". Discarding them cannot be undone.");
+    dlg->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    dlg->add_button("_Discard", Gtk::ResponseType::OK);
+    dlg->set_modal(true);
+
+    dlg->signal_response().connect(
+        sigc::bind(sigc::ptr_fun(&confirmAnswered), dlg, discard));
 
     dlg->present();
 }

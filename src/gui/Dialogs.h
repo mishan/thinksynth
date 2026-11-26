@@ -72,6 +72,11 @@ std::string chosenPath (Gtk::FileChooser &chooser);
 void confirmOverwrite (Gtk::Window *parent, const std::string &path,
                        const sigc::slot<void ()> &done);
 
+/* Asks before throwing away unsaved work, `what' saying which, and runs
+   `discard' if the answer is yes. */
+void confirmDiscard (Gtk::Window *parent, const std::string &what,
+                     const sigc::slot<void ()> &discard);
+
 /* Hides a dialog and frees it once the response that asked for it has
    finished being delivered.
  *

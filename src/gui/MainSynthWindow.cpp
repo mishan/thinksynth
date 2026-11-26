@@ -190,17 +190,6 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     header_.pack_end(menuBtn_);
     set_titlebar(header_);
 
-    dspEntryLbl_.set_label("Channel 1 DSP:");
-    dspBrowseBtn_.set_label("_Browse");
-    dspBrowseBtn_.set_use_underline(true);
-    dspEntryBox_.set_spacing(6);
-    dspEntryBox_.set_margin(6);
-    dspEntryBox_.append(dspEntryLbl_);
-    dspEntry_.set_hexpand(true);
-    dspEntryBox_.append(dspEntry_);
-    dspEntry_.add_mnemonic_label(dspEntryLbl_);
-    dspEntryBox_.append(dspBrowseBtn_);
-
     /* Master level, in the title bar because it is the whole synth's rather
        than one channel's. Shown 0..127 like a channel's own amplitude, so
        the two read on one scale; 100 is unity, which is where it starts, and
@@ -234,20 +223,13 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     header_.pack_end(masterScale_);
     header_.pack_end(masterLbl_);
 
-    dspEntry_.signal_activate().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::onDspEntryActivate));
-
-    dspBrowseBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::onBrowseButton));
-
     buildPanes();
 
     populate();
     selectChannel(0);
 
-    /* Focus on the channel list to begin with. Left to GTK it goes to the
-       first focusable widget, the DSP entry, with its text selected -- so
-       the first key typed replaced the channel's DSP. */
+    /* Focus on the channel list to begin with, the thing the rest of the
+       window follows, rather than whatever GTK finds first. */
     set_focus(chanList_);
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
@@ -398,9 +380,6 @@ void MainSynthWindow::buildPanes (void)
     chanBox_.append(chanScroll_);
     chanBox_.append(addChanBtn_);
 
-    paramBox_.append(dspEntryBox_);
-    paramBox_.append(*manage(new Gtk::Separator(
-                                 Gtk::Orientation::HORIZONTAL)));
     paramStack_.set_vexpand(true);
     paramBox_.append(paramStack_);
 
@@ -1370,13 +1349,16 @@ void MainSynthWindow::appendChannel (const string &tabName, const string &tip,
     holders_.push_back(holder);
     nodeStack_.add(*holder, name);
 
+    /* Every page starts with its strip, an empty channel's too: it is where
+       a graph or a patch is put on the channel. */
+    Gtk::Box *page = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+
+    page->append(*makePatchBar(num));
+    page->append(*manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
+    paramStack_.add(*page, name);
+
     if (is_real == false)
     {
-        Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
-        lbl->set_justify(Gtk::Justification::CENTER);
-        lbl->set_wrap(true);
-        paramStack_.add(*lbl, name);
-
         Gtk::Label *none = manage(new Gtk::Label("No patch on this channel."));
 
         none->add_css_class("dim-label");
@@ -1386,98 +1368,56 @@ void MainSynthWindow::appendChannel (const string &tabName, const string &tip,
     }
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
+    gthPatchManager::PatchFile *patch = patchMgr->getPatch(num);
     thArgMap args = patchMgr->getChannelArgs(num);
 
-    /* XXX: this no longer applies */
-    /* only 'amp' */
-    if (args.size() == 1)
-    {
-        Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
-        sorry->set_justify(Gtk::Justification::CENTER);
-        sorry->set_wrap(true);
-        paramStack_.add(*sorry, name);
-        return;
-    }
-        
     Gtk::ScrolledWindow *tab_view = manage(new Gtk::ScrolledWindow);
     Gtk::Box *tab_vbox = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
 
-    /* Room around and between the two frames. Everything sat flush against
-       the panel edge and against each other: the frame labels touched the
-       left border, and "Description:" ran into the line under it. */
     tab_vbox->set_margin_start(8);
     tab_vbox->set_margin_end(8);
     tab_vbox->set_margin_top(8);
     tab_vbox->set_margin_bottom(8);
     tab_vbox->set_spacing(8);
-    Gtk::Frame *info_frame = manage(new Gtk::Frame);
-    Gtk::Grid *info_table = manage(new Gtk::Grid);
-
     tab_view->set_child(*tab_vbox);
 
     /* No horizontal scrolling, and the parameter panel needs it that way.
      *
      * A scrolled window that may scroll gives its child the width the child
      * asks for and scrolls to the rest; one that may not gives the child the
-     * viewport. The panel now decides its own column count from the width it
-     * is handed, so the first of those means it is asked how wide it would
-     * like to be, answers with the widest thing it can draw, and never wraps
-     * -- the sideways scrollbar appears instead.
-     *
-     * It was NEVER before the columns existed, then AUTOMATIC so a narrow
-     * window could scroll to sliders squeezed to a nub rather than crushing
-     * them. Wrapping is the better answer to that and this is what it needs.
-     * The panel's minimum is one column, so the window still goes narrow. */
+     * viewport. The panel decides its own column count from the width it is
+     * handed, so the first of those means it is asked how wide it would like
+     * to be, answers with the widest thing it can draw, and never wraps --
+     * the sideways scrollbar appears instead. The panel's minimum is one
+     * column, so the window still goes narrow. */
     tab_view->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+    tab_view->set_vexpand(true);
+    page->append(*tab_view);
 
-    info_frame->set_label("DSP Information");
-    info_frame->set_child(*info_table);
+    /* What the graph says about itself, folded away: read once, and the
+       parameters are what the page is for. */
+    /* Managed only once something takes it, as the panels below are. */
+    Gtk::Grid *info_table = new Gtk::Grid;
+    int infoRows = 0;
 
     info_table->set_column_spacing(5);
     info_table->set_row_spacing(5);
-
-    /* Inside the frame as well as outside it, so the text is not against the
-       frame's own line. */
     info_table->set_margin_start(6);
-    info_table->set_margin_end(6);
     info_table->set_margin_top(6);
-    info_table->set_margin_bottom(6);
 
-    thArg *dspName = args["name"];
-
-    if (dspName)
+    for (const auto &[key, title] :
+         { std::pair("name", "Name: "), std::pair("author", "Author: "),
+           std::pair("desc", "Description: ") })
     {
-        Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
-        Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->comment()));
+        thArgMap::const_iterator found = args.find(key);
 
-        lname_lbl->set_xalign(1.0);
-        rname_lbl->set_xalign(0.0);
+        if (found == args.end() || found->second == NULL)
+            continue;
 
-        info_table->attach(*lname_lbl, 0, 0, 1, 1);
-        info_table->attach(*rname_lbl, 1, 0, 1, 1);
-    }
+        thArg *arg = found->second;
 
-    thArg *dspAuthor = args["author"];
-
-    if (dspAuthor)
-    {
-        Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
-        Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->comment()));
-
-        lname_lbl->set_xalign(1.0);
-        rname_lbl->set_xalign(0.0);
-
-        
-        info_table->attach(*lname_lbl, 0, 1, 1, 1);
-        info_table->attach(*rname_lbl, 1, 1, 1, 1);
-    }
-
-    thArg *dspDesc = args["desc"];
-
-    if (dspDesc)
-    {
-        Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
-        Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->comment()));
+        Gtk::Label *lname_lbl = manage(new Gtk::Label(title));
+        Gtk::Label *rname_lbl = manage(new Gtk::Label(arg->comment()));
 
         lname_lbl->set_xalign(1.0);
         lname_lbl->set_yalign(0.0);
@@ -1487,112 +1427,88 @@ void MainSynthWindow::appendChannel (const string &tabName, const string &tip,
            of description was the widest thing on the page. */
         rname_lbl->set_wrap(true);
         rname_lbl->set_hexpand(true);
-        
-        info_table->attach(*lname_lbl, 0, 2, 1, 1);
-        info_table->attach(*rname_lbl, 1, 2, 1, 1);
+
+        info_table->attach(*lname_lbl, 0, infoRows, 1, 1);
+        info_table->attach(*rname_lbl, 1, infoRows, 1, 1);
+        infoRows++;
     }
 
-    Gtk::Frame *dsp_frame = manage(new Gtk::Frame);
-    ArgPanelView *dsp_table = manage(new ArgPanelView);
+    if (infoRows > 0)
+    {
+        Gtk::Expander *about = manage(new Gtk::Expander(
+            patch->doc.dsp.empty() ? string("About the graph")
+            : "About " + thUtil::basename(patch->doc.dsp.c_str())));
 
-    dsp_frame->set_label("DSP Parameters");
-    dsp_table->set_margin_start(6);
-    dsp_table->set_margin_end(6);
-    dsp_table->set_margin_top(6);
-    dsp_table->set_margin_bottom(6);
-    dsp_frame->set_child(*dsp_table);
-        
-    tab_vbox->append(*info_frame);
-    dsp_frame->set_vexpand(true);
-    tab_vbox->append(*dsp_frame);
-    tab_vbox->append(*makeEffectFrame(num));
+        about->set_child(*manage(info_table));
+        tab_vbox->append(*about);
+    }
+    else
+        delete info_table;
+
+    ArgPanelView *dsp_table = new ArgPanelView;
 
     /* Which parameters there are, what each is worth in the unit it was
-       written in and which node drives it -- all of that is ArgPanel's now,
-       so this says only which channel and which of its parameters not to
-       draw. The rest of it used to be forty lines here and a second forty in
-       the browser; src/PanelModel.h says why there are none. */
+       written in and which node drives it -- all of that is ArgPanel's, so
+       this says only which channel and which of its parameters not to draw:
+       amplitude, which the strip has. src/PanelModel.h says why. Built before
+       it is managed, as the effect's is, for a graph with none. */
     dsp_table->setChannel(num);
-
-    /* The channel amplitude is a slider like the rest, and it is drawn once
-       already -- pinned to the patch bar above, where it is in the same
-       place on every page. Twice would be two controls for one value. */
     dsp_table->exclude("amp");
 
-    dsp_table->rebuild();
+    if (dsp_table->rebuild())
+        tab_vbox->append(*manage(dsp_table));
+    else
+    {
+        delete dsp_table;
 
-    /* The patch bar sits above the parameters. Which patch this is, how
-       loud it is and whether it has been saved are facts about the patch;
-       they should not scroll off the top of the parameter panel. The graph
-       they came from is a pane of its own, beside this one. */
-    Gtk::Box *page = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+        Gtk::Label *sorry = manage(new Gtk::Label(
+            "This graph has no settings of its own."));
 
-    page->append(*makePatchBar(num));
-    page->append(*manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
-    tab_view->set_vexpand(true);
-    page->append(*tab_view);
+        sorry->set_wrap(true);
+        sorry->add_css_class("dim-label");
+        tab_vbox->append(*sorry);
+    }
 
-    paramStack_.add(*page, name);
+    if (Gtk::Widget *fx = makeEffectParams(num))
+        tab_vbox->append(*fx);
 }
 
-/* The channel effect's block. See the header.
- *
- * Drawn on every page whether or not the channel has one, and empty when it
- * does not, because the way to *get* one is the button in it. A block that
- * appeared only once an effect was loaded would be a control you could not
- * reach until you had used it.
- */
-Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
+/* Drawn whether or not the channel has an effect, saying "none" when it
+ * does not, because the way to *get* one is the button here. A control that
+ * appeared only once an effect was loaded would be one you could not reach
+ * until you had used it. */
+void MainSynthWindow::appendEffectControls (Gtk::Box *row, int chan)
 {
-    gthPatchManager *patchMgr = gthPatchManager::instance();
-    gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
-
-    Gtk::Frame *frame = manage(new Gtk::Frame);
-    Gtk::Box *body = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
-
-    frame->set_label("Channel Effect");
-    frame->set_child(*body);
-
-    body->set_spacing(6);
-    body->set_margin_start(6);
-    body->set_margin_end(6);
-    body->set_margin_top(6);
-    body->set_margin_bottom(6);
-
-    const string name = patch ? patch->doc.effect : string();
-
-    Gtk::Box *bar = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
-
-    bar->set_spacing(6);
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+    const string name = patch != NULL ? patch->doc.effect : string();
 
     Gtk::Label *which = manage(new Gtk::Label(
-        name.empty() ? "None \xe2\x80\x94 the channel's voices go out as they "
-                       "are" : name));
+        "Effect: " + (name.empty() ? string("none")
+                                   : thUtil::basename(name.c_str()))));
 
-    which->set_xalign(0.0);
-    which->set_hexpand(true);
+    which->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
 
-    /* Dimmed rather than absent when there is none: "None" is a state the
-       channel is in, and a label that disappeared would leave the two buttons
-       floating with nothing saying what they act on. */
-    if (name.empty())
-        which->set_sensitive(false);
+    if (!name.empty())
+        which->set_tooltip_text(name);
 
-    bar->append(*which);
+    row->append(*which);
 
-    Gtk::Button *choose = manage(new Gtk::Button(name.empty() ? "_Choose\xe2\x80\xa6"
-                                                              : "_Replace\xe2\x80\xa6"));
+    Gtk::Button *choose = manage(new Gtk::Button(
+        name.empty() ? "_Choose\xe2\x80\xa6" : "_Replace\xe2\x80\xa6", true));
 
-    choose->set_use_underline(true);
+    choose->set_tooltip_text("A graph on the channel's sum, after its voices");
     choose->signal_clicked().connect(
         sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onEffectBrowse),
                    chan));
-    bar->append(*choose);
+    row->append(*choose);
 
-    Gtk::Button *none = manage(new Gtk::Button("_None"));
+    if (name.empty())
+        return;
 
-    none->set_use_underline(true);
-    none->set_sensitive(!name.empty());
+    Gtk::Button *none = manage(new Gtk::Button("_None", true));
+
+    none->set_tooltip_text("Take the effect off");
     /* Out of the click, as a save is: taking the effect off rebuilds every
        page, this button's with it, while its handler would still be on the
        stack. */
@@ -1604,42 +1520,45 @@ Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
                                          &MainSynthWindow::onEffectRemove),
                            chan));
         });
-    bar->append(*none);
+    row->append(*none);
+}
 
-    /* Nothing to load one onto. An effect belongs to a channel and the
-       channel is the patch, so the buttons say so rather than failing when
-       pressed. */
-    if (patch == NULL)
-    {
-        choose->set_sensitive(false);
-        none->set_sensitive(false);
-        which->set_text("Load a DSP on this channel first");
-    }
+/* The second parameter panel: the effect's own chanargs, which are a second
+ * map -- see thSynth::getChanArg and TH_EFFECT_PREFIX. Same widget as the
+ * instrument's, differing by the prefix its lookups carry. */
+Gtk::Widget *MainSynthWindow::makeEffectParams (int chan)
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
 
-    body->append(*bar);
+    if (patch == NULL || patch->doc.effect.empty())
+        return NULL;
 
-    /* The second parameter panel: the effect's own chanargs, which are a
-       second map -- see thSynth::getChanArg and TH_EFFECT_PREFIX. Same
-       widget as the one above it, differing by the prefix its lookups
-       carry. */
     ArgPanelView *table = new ArgPanelView;
 
     table->setChannel(chan);
     table->setPrefix(TH_EFFECT_PREFIX);
 
-    /* Built before it is managed, because an effect with no parameters gets
-       no panel and no separator above one -- and a managed widget nothing
-       ever takes is a widget nothing ever frees. */
-    if (table->rebuild())
+    /* Built before it is managed: an effect with no parameters gets no
+       panel, and a managed widget nothing ever takes is never freed. */
+    if (!table->rebuild())
     {
-        body->append(*manage(new Gtk::Separator(
-                                 Gtk::Orientation::HORIZONTAL)));
-        body->append(*manage(table));
-    }
-    else
         delete table;
+        return NULL;
+    }
 
-    return frame;
+    Gtk::Box *box = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+    Gtk::Label *heading = manage(new Gtk::Label);
+
+    heading->set_markup("<b>Effect: " + Glib::Markup::escape_text(
+                            thUtil::basename(patch->doc.effect.c_str())) +
+                        "</b>");
+    heading->set_xalign(0.0);
+    box->set_spacing(6);
+    box->append(*heading);
+    box->append(*manage(table));
+
+    return box;
 }
 
 /* Everything a change of effect has to do to this window, beyond what the
@@ -1694,50 +1613,128 @@ void MainSynthWindow::onEffectRemove (int chan)
     reloadPages(chan);
 }
 
-/* The strip across the top of a patch page.
+/* The strip across the top of a channel's page.
  *
- * Amplitude is here rather than down among the DSP Parameters because it is
- * the one control every patch has. In the parameter grid it sorts in with
- * whatever the .dsp happens to declare -- first for one patch, third for
- * another, in a different column for a third -- so the control you reach for
- * most often is the one you have to look for. Pinned here it is in the same
- * place on every page, on the same 0..127 scale as the Master slider at the
- * top of the window, which is the thing it is multiplied against.
+ * Amplitude is here rather than among the parameters because it is the one
+ * control every patch has. In the parameter grid it sorts in with whatever
+ * the .dsp happens to declare, so the control you reach for most often is the
+ * one you have to look for. Pinned here it is in the same place on every
+ * page, on the same 0..127 scale as the Master slider at the top of the
+ * window, which is the thing it is multiplied against.
  *
- * Save and Save As are here for the same reason. Saving a patch meant opening
- * the Patch Selector, finding this channel's row in it and saving from there
- * -- a second window to reach an operation that belongs to the page you are
- * already looking at. */
+ * Save, Open and Revert are here for the same reason: they belong to the page
+ * you are already looking at, not to the Patch Selector's row for it. */
 Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 {
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
 
+    Gtk::Box *strip = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
     Gtk::Box *bar = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
+    strip->set_name("patchstrip");
+    strip->set_spacing(6);
+    strip->set_margin(6);
+    strip->append(*bar);
     bar->set_spacing(6);
-    bar->set_margin_start(6);
-    bar->set_margin_end(6);
-    bar->set_margin_top(6);
-    bar->set_margin_bottom(6);
 
     const bool saved = (patch != NULL) && (patch->filename.length() > 0);
 
     Gtk::Label *nameLbl = manage(new Gtk::Label);
 
-    /* Channels carries this too, but ellipsized to sixteen characters in a
-       narrow pane -- so it is often the end of the name that is missing, and
-       the end is what tells two versions of a patch apart. */
-    nameLbl->set_markup("<b>" + Glib::Markup::escape_text(
-                            saved
-                            ? thUtil::basename(patch->filename.c_str())
-                            : string("(unsaved)")) + "</b>");
+    /* Channels carries the name too, but ellipsized to sixteen characters
+       in a narrow pane -- so it is often the end of the name that is
+       missing, and the end is what tells two versions of a patch apart.
+       The number is what says which channel this page is. */
+    nameLbl->set_markup(
+        std::to_string(chan + 1) + ": <b>" +
+        Glib::Markup::escape_text(
+            patch == NULL ? string("no patch")
+            : saved ? thUtil::basename(patch->filename.c_str())
+                    : string("(unsaved)")) + "</b>");
     nameLbl->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
 
     if (saved)
         nameLbl->set_tooltip_text(patch->filename);
 
     bar->append(*nameLbl);
+
+    if (patch != NULL && !patch->doc.dsp.empty())
+    {
+        Gtk::Label *dspLbl = manage(new Gtk::Label(
+            "on " + thUtil::basename(patch->doc.dsp.c_str())));
+
+        dspLbl->add_css_class("dim-label");
+        dspLbl->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
+        dspLbl->set_tooltip_text(patch->doc.dsp);
+        bar->append(*dspLbl);
+    }
+
+    Gtk::Button *change = manage(new Gtk::Button(
+        patch == NULL ? "Choose _DSP..." : "Change _DSP...", true));
+
+    change->set_tooltip_text("The graph this channel plays");
+    change->signal_clicked().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onChangeDsp), chan));
+    bar->append(*change);
+
+    /* Over on the right, which a GTK4 box reaches by appending an expanding
+       nothing first: it packs one way now, and pack_end is gone. */
+    Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+
+    gap->set_hexpand(true);
+    bar->append(*gap);
+
+    SaveButton *saveBtn = manage(new SaveButton("_Save patch"));
+    Gtk::Button *open = saveBtn->addItem("_Open patch...");
+    Gtk::Button *revert = saveBtn->addItem("Re_vert patch");
+
+    saveBtn->signal_save().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch), chan));
+    saveBtn->signal_save_as().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatchAs),
+                   chan));
+    open->signal_clicked().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onOpenPatch), chan));
+    revert->signal_clicked().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onRevertPatch),
+                   chan));
+
+    /* Nothing to overwrite until the patch has a file of its own -- which
+       makes Save mean Save As rather than making it dead. */
+    saveBtn->setHasFile(saved);
+    saveBtn->setSensitive(patch != NULL);
+
+    if (saved)
+        saveBtn->setFileName(patch->filename);
+
+    /* Reverting a patch nothing has changed reloads it, which is harmless;
+       greying it on that would also hide it when only its graph is edited,
+       which the patch's own dirty flag does not see. */
+    revert->set_sensitive(saved);
+
+    auto dirtied = [patchMgr, saveBtn, chan] (int which)
+    {
+        if (which == chan)
+            saveBtn->setModified(patchMgr->isDirty(chan));
+    };
+
+    dirtied(chan);
+
+    /* The button outlives this call and the patch's state changes under it,
+       so it listens rather than being told once; tracked, so a button gone
+       with its window is not told. */
+    saveConns_.push_back(patchMgr->signal_patch_dirty().connect(
+        sigc::track_obj(dirtied, *saveBtn)));
+    bar->append(*saveBtn);
+
+    if (patch == NULL)
+        return strip;
+
+    Gtk::Box *sound = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+
+    sound->set_spacing(6);
+    strip->append(*sound);
 
     thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
 
@@ -1772,57 +1769,19 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
         ampScales_[chan] = ampScale;
 
-        bar->append(*manage(new Gtk::Separator(
-                                Gtk::Orientation::VERTICAL)));
-        bar->append(*ampLbl);
-        bar->append(*ampScale);
+        sound->append(*ampLbl);
+        sound->append(*ampScale);
+        sound->append(*manage(new Gtk::Separator(
+                                  Gtk::Orientation::VERTICAL)));
     }
 
-    /* Over on the right, which a GTK4 box reaches by appending an expanding
-       nothing first: it packs one way now, and pack_end is gone. */
-    SaveButton *saveBtn = manage(new SaveButton);
+    appendEffectControls(sound, chan);
 
-    saveBtn->signal_save().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch), chan));
-    saveBtn->signal_save_as().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatchAs),
-                   chan));
-
-    /* Nothing to overwrite until the patch has a file of its own -- which
-       makes Save mean Save As rather than making it dead. */
-    saveBtn->setHasFile(saved);
-    saveBtn->setModified(patchMgr->isDirty(chan));
-
-    /* The button outlives this call and the patch's state changes under it,
-       so it listens rather than being told once. */
-    saveConns_.push_back(patchMgr->signal_patch_dirty().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onPatchDirty),
-                   saveBtn, chan)));
-
-    if (saved)
-        saveBtn->setFileName(patch->filename);
-
-    {
-        Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
-
-        gap->set_hexpand(true);
-        bar->append(*gap);
-    }
-
-    bar->append(*saveBtn);
-
-    return bar;
+    return strip;
 }
 
 /* Looked up rather than captured: the arg belongs to the thMidiChan, and
    loading a patch onto this channel replaces the channel. */
-/* A patch changed; if it is this button's, say so. */
-void MainSynthWindow::onPatchDirty (int chan, SaveButton *button, int mine)
-{
-    if (chan == mine)
-        button->setModified(gthPatchManager::instance()->isDirty(mine));
-}
-
 void MainSynthWindow::onAmpSlider (Gtk::Scale *scale, int chan)
 {
     thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
@@ -2465,21 +2424,6 @@ void MainSynthWindow::selectChannel (int chan)
 
     if (panes_ != NULL && panes_->isVisible("nodeview"))
         ensureEditor(chan);
-
-    gthPatchManager *patchMgr = gthPatchManager::instance();
-    gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
-
-    /* The entry is the current channel's DSP, and sits over all the
-       pages; the label says which one it is. */
-    dspEntryLbl_.set_label("Channel " + std::to_string(chan + 1) + " DSP:");
-
-    if (patch == NULL)
-    {
-        dspEntry_.set_text("");
-        return;
-    }
-
-    dspEntry_.set_text(patch->doc.dsp);
 }
 
 void MainSynthWindow::onChannelRow (Gtk::ListBoxRow *row)
@@ -2510,28 +2454,6 @@ void MainSynthWindow::onAddChannel (void)
 
     if (chan >= 0)
         openDspBrowser(false, chan);
-}
-
-void MainSynthWindow::onDspEntryActivate (void)
-{
-    gthPatchManager *patchMgr = gthPatchManager::instance();
-    string dspfile = dspEntry_.get_text();
-    int pagenum = chan_;
-
-    /* noop caused by a spurious Enter */
-    if (dspfile == "")
-        return;
-    
-    if (patchMgr->newPatch(dspfile, pagenum) == false)
-    {
-        showError(this, "Could not load the DSP",
-                  dspfile + "\n\nA syntax error, or it does not exist.");
-
-        return;
-    }
-
-    /* The pages are rebuilt already: loading says the patches changed. */
-    selectChannel(pagenum);
 }
 
 /* The instrument chooser: a browser over the catalog rather than a file
@@ -2616,9 +2538,8 @@ void MainSynthWindow::openDspBrowser (bool effects, int chan)
                              chan));
     else
         browseDsp(false, "thinksynth - Instrument", current,
-                  sigc::bind(sigc::mem_fun(*this,
-                                           &MainSynthWindow::onBrowseChosen),
-                             chan));
+                  [this, chan] (string picked)
+                  { onBrowseChosen(picked, chan); });
 }
 
 void MainSynthWindow::browseDsp (bool effects, const string &title,
@@ -2713,12 +2634,228 @@ void MainSynthWindow::onChooseTrack (size_t chain, size_t stage, string dsp)
     browser->present();
 }
 
-void MainSynthWindow::onBrowseButton (void)
+/* Which load a channel holds, 0 for none: what tells a channel replaced
+   while a question was open from the one the question was about. */
+static unsigned generationOf (int chan)
 {
-    /* The channel is captured now rather than read in the handler: the
-       browser is not modal to the window, and the channel that was current
-       when Browse was clicked is the one this is loading onto. */
-    openDspBrowser(false, chan_);
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+
+    return patch != NULL ? patch->generation : 0;
+}
+
+void MainSynthWindow::onChangeDsp (int chan)
+{
+    const unsigned generation = generationOf(chan);
+
+    askDsp(chan, sigc::track_obj([this, chan, generation] (string picked)
+    {
+        if (!picked.empty())
+            replacePatch(chan, generation, [this, chan, picked]
+                         { return onBrowseChosen(picked, chan); });
+    }, *this));
+}
+
+void MainSynthWindow::onOpenPatch (int chan)
+{
+    const unsigned generation = generationOf(chan);
+
+    askPatchFile(sigc::track_obj([this, chan, generation] (string picked)
+    {
+        if (!picked.empty())
+            replacePatch(chan, generation, [chan, picked]
+            {
+                /* A failure is said by the patch manager's load error,
+                   which onPatchLoadError shows. */
+                if (!gthPatchManager::instance()->loadPatch(picked, chan))
+                    return false;
+
+                string **vals = new string *[2];
+
+                vals[0] = new string(thUtil::dirname(picked.c_str()));
+                vals[1] = NULL;
+                gthPrefs::instance()->Set("patchdir", vals);
+
+                return true;
+            });
+    }, *this));
+}
+
+void MainSynthWindow::onRevertPatch (int chan)
+{
+    replacePatch(chan, generationOf(chan), [chan]
+    {
+        gthPatchManager *patchMgr = gthPatchManager::instance();
+        gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
+
+        /* A copy: the load replaces the slot that holds the name. */
+        const string file = patch != NULL ? patch->filename : string();
+
+        return !file.empty() && patchMgr->loadPatch(file, chan);
+    });
+}
+
+/* `load' runs only if the channel still holds the load the question was
+ * asked about, and from an idle callback either way: it rebuilds every page,
+ * the one holding the button that asked among them.
+ *
+ * The channel's graph editor is taken out of the window for the load, so
+ * nothing the load sets off -- rebuilds, a channel being picked -- can put it
+ * back or throw it away. Afterwards this alone decides: a load that replaced
+ * the patch lets it go, edits and all, which is what the person agreed to;
+ * one that failed replaced nothing, and it goes back where it was -- onto
+ * the page, whatever file it is editing now, or into kept_. */
+void MainSynthWindow::replacePatch (int chan, unsigned generation,
+                                    sigc::slot<bool ()> load)
+{
+    auto go = sigc::track_obj([this, chan, generation, load]
+    {
+        Glib::signal_idle().connect_once(sigc::track_obj(
+            [this, chan, generation, load]
+            {
+                if (generationOf(chan) != generation)
+                    return;
+
+                bool shown = false;
+                NodeEditor *held = takeEditor(chan, shown);
+                const bool loaded = load();
+
+                if (held == NULL)
+                    return;
+
+                if (loaded)
+                    held->unreference();
+                else
+                {
+                    /* A failed load can still rebuild the pages, and a
+                       rebuild built a fresh editor from the file: nothing
+                       in it to lose. */
+                    std::map<int, NodeEditor *>::iterator e =
+                        editors_.find(chan);
+
+                    if (e != editors_.end())
+                    {
+                        holders_[chan]->remove(*e->second);
+                        editors_.erase(e);
+                    }
+
+                    if (shown)
+                    {
+                        editors_[chan] = held;
+                        holders_[chan]->append(*held);
+                        held->unreference();
+                    }
+                    else
+                        kept_[chan] = held;
+                }
+            }, *this));
+    }, *this);
+
+    if (generationOf(chan) != generation)
+        return;
+
+    const string lost = wouldLose(chan);
+
+    if (lost.empty())
+        go();
+    else
+        askDiscard(lost, go);
+}
+
+/* The channel's editor, out of its page (`shown') or out of kept_, holding
+   a reference; NULL when it has none. */
+NodeEditor *MainSynthWindow::takeEditor (int chan, bool &shown)
+{
+    std::map<int, NodeEditor *>::iterator e = editors_.find(chan);
+
+    if (e != editors_.end())
+    {
+        NodeEditor *ed = e->second;
+
+        ed->reference();
+        holders_[chan]->remove(*ed);
+        editors_.erase(e);
+        shown = true;
+
+        return ed;
+    }
+
+    std::map<int, NodeEditor *>::iterator k = kept_.find(chan);
+
+    if (k == kept_.end())
+        return NULL;
+
+    NodeEditor *ed = k->second;
+
+    kept_.erase(k);
+
+    return ed;
+}
+
+string MainSynthWindow::wouldLose (int chan)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
+    string lost;
+
+    if (patch != NULL && patchMgr->isDirty(chan))
+        lost = (patch->filename.empty()
+                ? string("This patch")
+                : thUtil::basename(patch->filename.c_str())) +
+               " has changes that are not saved";
+
+    std::map<int, NodeEditor *>::iterator e = editors_.find(chan);
+    NodeEditor *editor = e != editors_.end() ? e->second : NULL;
+
+    if (editor == NULL && kept_.count(chan))
+        editor = kept_[chan];
+
+    if (editor != NULL && editor->dirty())
+        lost += string(lost.empty() ? "The" : ", and the") +
+                " graph has edits that are not saved";
+
+    return lost;
+}
+
+void MainSynthWindow::askPatchFile (sigc::slot<void (string)> chosen)
+{
+    Gtk::FileChooserDialog *dlg =
+        new Gtk::FileChooserDialog(*this, "thinksynth - Open Patch",
+                                   Gtk::FileChooser::Action::OPEN);
+    string **vals = gthPrefs::instance()->Get("patchdir");
+
+    dlg->set_modal(true);
+    dlg->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    dlg->add_button("_Open", Gtk::ResponseType::OK);
+
+    if (vals != NULL && vals[0] != NULL && !vals[0]->empty())
+        dlg->set_current_folder(Gio::File::create_for_path(*vals[0]));
+
+    dlg->signal_response().connect([dlg, chosen] (int response)
+    {
+        const string picked = response == Gtk::ResponseType::OK
+                              ? chosenPath(*dlg) : string();
+
+        closeDialog(dlg);
+        chosen(picked);
+    });
+
+    dlg->present();
+}
+
+void MainSynthWindow::askDsp (int chan, sigc::slot<void (string)> chosen)
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+
+    browseDsp(false, "thinksynth - Instrument",
+              patch != NULL ? patch->doc.dsp : string(), chosen);
+}
+
+void MainSynthWindow::askDiscard (const string &what,
+                                  sigc::slot<void ()> discard)
+{
+    confirmDiscard(this, what, discard);
 }
 
 void MainSynthWindow::queueSavePatch (string file, int chan)
@@ -2732,18 +2869,16 @@ void MainSynthWindow::queueSavePatch (string file, int chan)
  * browser's Other File..., an absolute path. newPatch resolves either and
  * keeps the name as given, so a patch saved afterwards carries the short one.
  */
-void MainSynthWindow::onBrowseChosen (string picked, int pagenum)
+bool MainSynthWindow::onBrowseChosen (string picked, int pagenum)
 {
     if (picked.empty())
-        return;
-
-    dspEntry_.set_text(picked);
+        return false;
 
     if (!gthPatchManager::instance()->newPatch(picked, pagenum))
     {
         showError(this, "Could not load the DSP",
                   picked + "\n\nA syntax error, or it does not exist.");
-        return;
+        return false;
     }
 
     /* Only a path moves the chooser's folder. A name out of the catalog is
@@ -2764,4 +2899,6 @@ void MainSynthWindow::onBrowseChosen (string picked, int pagenum)
 
     /* The pages are rebuilt already: loading says the patches changed. */
     selectChannel(pagenum);
+
+    return true;
 }

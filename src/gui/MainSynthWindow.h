@@ -110,20 +110,21 @@ protected:
     int firstFreeChannel (void);
     void onAddChannel (void);
 
-    /* The strip across the top of a patch's parameters: which patch it is,
-       its amplitude, and what can be done with it. Over the parameters
-       rather than among them, because it is about the patch and not about
-       one of its parameters. */
+    /* The strip across the top of every channel's page: which channel and
+       patch it is, on which graph, and the ways to replace or save it; then,
+       when there is a patch, its amplitude and its effect. Over the
+       parameters rather than among them, because it is about the patch and
+       not about one of its parameters. */
     Gtk::Widget *makePatchBar (int chan);
 
-    /* The channel effect's block on a patch page: which graph is on the
-     * channel's sum, the two buttons that change that, and a second
-     * parameter panel over the effect's own chanargs.
-     *
-     * A block of its own rather than more rows in DSP Parameters, because an
-     * effect's `@a' and an instrument's are two different numbers and a panel
-     * that ran them together would be saying otherwise. */
-    Gtk::Widget *makeEffectFrame (int chan);
+    /* The effect's row in the strip: which graph is on the channel's sum,
+       and the buttons that change that. */
+    void appendEffectControls (Gtk::Box *row, int chan);
+
+    /* The effect's own chanargs, under a heading, or NULL when it has none.
+       A panel of their own because an effect's `@a' and an instrument's
+       are two different numbers. */
+    Gtk::Widget *makeEffectParams (int chan);
 
     void onEffectBrowse (int chan);
 
@@ -140,7 +141,6 @@ protected:
     void reloadPages (int chan);
 
     void onAmpSlider (Gtk::Scale *scale, int chan);
-    void onPatchDirty (int chan, SaveButton *button, int mine);
     void onAmpArgChanged (thArg *arg, int chan);
 
     void onSavePatch (int chan);
@@ -153,7 +153,7 @@ protected:
                                 int chan);
     /* The browser's answer. Not a chooser response: DspBrowser hands back the
        name a file names itself by, and answers once. */
-    void onBrowseChosen (string picked, int pagenum);
+    bool onBrowseChosen (string picked, int pagenum);
 
     /* The write itself, run once the click that asked for it has returned.
        Saving emits signal_patches_changed, which tears down and rebuilds every
@@ -251,10 +251,27 @@ protected:
                          Gtk::Window *window);
     void onMasterGain (void);
 
-    void onDspEntryActivate (void);
-    void onBrowseButton (void);
     void onPatchLoadError (const char* failure);
 
+    /* The patch page's three ways to replace a channel's patch. Each asks
+       before discarding edits, and does nothing if the channel was replaced
+       by something else while it asked. */
+    void onChangeDsp (int chan);
+    void onOpenPatch (int chan);
+    void onRevertPatch (int chan);
+    void replacePatch (int chan, unsigned generation,
+                       sigc::slot<bool ()> load);
+
+    NodeEditor *takeEditor (int chan, bool &shown);
+
+    /* What replacing the channel's patch would lose, or empty. */
+    string wouldLose (int chan);
+
+    /* Where the patch page asks the person something: a .patch to open, a
+       graph to put on, whether to discard. Virtual so a test answers. */
+    virtual void askPatchFile (sigc::slot<void (string)> chosen);
+    virtual void askDsp (int chan, sigc::slot<void (string)> chosen);
+    virtual void askDiscard (const string &what, sigc::slot<void ()> discard);
 
     /* Names an action, gives it something to do, and optionally a key.
      *
@@ -290,11 +307,6 @@ protected:
     Gtk::ToggleButton seqModeBtn_;
 
     std::vector<std::pair<Glib::ustring, Glib::ustring> > accels_;
-
-    Gtk::Entry dspEntry_;
-    Gtk::Label dspEntryLbl_;
-    Gtk::Button dspBrowseBtn_;
-    Gtk::Box dspEntryBox_{Gtk::Orientation::HORIZONTAL};
 
     /* Owned here and destroyed first, in the destructor: a pane going out
        of view says so, and nothing it says should reach a window half torn
@@ -353,6 +365,7 @@ protected:
        put back by ensureEditor if their channel still plays the same graph.
        Each holds a reference. */
     std::map<int, NodeEditor *> kept_;
+
     void releaseKept (void);
 
     /* The amplitude slider on each patch page, and its subscription to the
