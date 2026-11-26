@@ -31,12 +31,15 @@
  * in src/gui/.
  */
 
+#include <memory>
+
 #include "PatchSet.h"
 
 #define NUM_PATCHES TH_ENGINE_CHANNELS
 
 class thArg;
 class thMidiChan;
+class thTuning;
 
 class gthPatchManager
 {
@@ -46,7 +49,10 @@ public:
 
     static gthPatchManager *instance (void);
 
-    bool newPatch (const string &dspName, int chan);
+    /* `tuning', if any, is what the channel's keys sound at; a piece's
+       instrument hands its own. */
+    bool newPatch (const string &dspName, int chan,
+                   std::shared_ptr<const thTuning> tuning = nullptr);
     bool loadPatch (const string & filename, int chan);
     bool savePatch (const string &filename, int chan);
     bool unloadPatch (int chan);

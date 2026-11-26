@@ -72,7 +72,7 @@ function(box_composer_sources out_sources out_includes)
   foreach(f thArg thArrays thCompiled thDspParser thExpr thChanEffect thMidiChan
             thMidiNote thMotion thSynthTree thNode thProbe thPlugin
             thMidiControllerConnection thMidiController thSoundFile thSynth
-            thUtil thWords thDynLib thPluginManager)
+            thTuning thUtil thWords thDynLib thPluginManager)
     list(APPEND srcs "${BOX_TOP}/libthink/${f}.cpp")
   endforeach()
   foreach(f thcPlugin thcScheduler thcAudition thcNodeHost thcGenFile)

@@ -31,6 +31,7 @@
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
+#include "thTuning.h"
 #include "NodeGraft.h"
 #include "NodeMutate.h"
 #include "thSoundFile.h"
@@ -1515,7 +1516,8 @@ static bool
 sameInstrument (const thcInstrument &a, const thcInstrument &b)
 {
     if (a.name != b.name || a.dsp != b.dsp || a.channel != b.channel ||
-        a.args.size() != b.args.size() || a.texts.size() != b.texts.size())
+        a.args.size() != b.args.size() || a.texts.size() != b.texts.size() ||
+        !thSameTuning(a.tuning.get(), b.tuning.get()))
         return false;
 
     for (size_t i = 0; i < a.texts.size(); i++)
@@ -1592,7 +1594,7 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
                 keep = true;
     }
 
-    if (!keep && !pm->newPatch(inst.dsp, inst.channel))
+    if (!keep && !pm->newPatch(inst.dsp, inst.channel, inst.tuning))
     {
         why = "'" + inst.dsp + "' did not load";
         return false;

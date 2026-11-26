@@ -30,6 +30,7 @@
 #include "thcScheduler.h"
 #include "thcGenFile.h"
 #include "thcNodeHost.h"
+#include "thTuning.h"
 
 thcGenLoader::thcGenLoader (const std::map<std::string, thcPlugin *> &plugins)
     : plugins_(plugins), pos_(0), meter_(4),
@@ -261,6 +262,8 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     tokens_.clear();
     scales_.clear();
     presets_.clear();
+    tunings_.clear();
+    failedTunings_.clear();
     instruments_.clear();
     failedInstruments_.clear();
     instrumentLines_.clear();
@@ -657,6 +660,12 @@ thcGenLoader::parseStatement (thcScheduler *sched)
         return parsePreset();
     }
 
+    if (t.text == "tuning")
+    {
+        take();
+        return parseTuning();
+    }
+
     if (t.text == "meter")
     {
         take();
@@ -859,6 +868,146 @@ thcGenLoader::parseScale (void)
     scales_[nameTok.text] = resolved;
 
     return expectPunct(';');
+}
+
+bool
+thcGenLoader::parseTuning (void)
+{
+    const Token &n = peek();
+
+    if (n.kind != Token::WORD)
+    {
+        error(n.line, "tuning wants a name");
+        return false;
+    }
+
+    Token nameTok = take();
+    const std::string what = "tuning " + nameTok.text;
+
+    if (tunings_.count(nameTok.text) || failedTunings_.count(nameTok.text))
+    {
+        error(nameTok.line, "tuning '" + nameTok.text + "' is already declared");
+        return false;
+    }
+
+    failedTunings_.insert(nameTok.text);
+
+    if (!expectPunct('{'))
+        return false;
+
+    /* Each a string of what a .scl and a .kbm have one to a line: the
+       degrees, and the keymap's seven header values and its map. A .gen
+       string is one line with no escapes and a .scl's comments are `!',
+       which .gen does not lex, so the files' own text cannot sit here. */
+    Token scale, keymap;
+
+    scale.kind = keymap.kind = Token::END;      /* END: not given */
+
+    while (true)
+    {
+        const Token &t = peek();
+
+        if (t.kind == Token::PUNCT && t.text[0] == '}')
+        {
+            take();
+            break;
+        }
+
+        if (t.kind != Token::WORD)
+        {
+            error(t.line, t.kind == Token::END ? "unterminated " + what
+                                               : what + ": expected a field");
+            return false;
+        }
+
+        Token field = take();
+        Token *into = field.text == "scale" ? &scale
+                    : field.text == "keymap" ? &keymap : NULL;
+
+        if (into == NULL)
+        {
+            error(field.line, what + ": no field '" + field.text +
+                  "'; it takes scale and keymap");
+            return false;
+        }
+
+        if (into->kind == Token::STRING)
+        {
+            error(field.line, what + " sets " + field.text + " twice");
+            return false;
+        }
+
+        if (!expectPunct('='))
+            return false;
+
+        if (peek().kind != Token::STRING)
+        {
+            error(peek().line, what + ": " + field.text + " wants a quoted list");
+            return false;
+        }
+
+        *into = take();
+
+        if (!expectPunct(';'))
+            return false;
+    }
+
+    if (!expectPunct(';'))
+        return false;
+
+    if (scale.kind != Token::STRING)
+    {
+        error(nameTok.line, what + " wants a scale");
+        return false;
+    }
+
+    /* A token per line, as the files have them. */
+    const auto lines = [] (const std::string &words, int &count) {
+        std::istringstream in(words);
+        std::string w, out;
+
+        count = 0;
+        while (in >> w)
+        {
+            out += w + "\n";
+            count++;
+        }
+
+        return out;
+    };
+
+    int degrees, values;
+    const std::string scl = lines(scale.text, degrees);
+    thScale s;
+    thKeymap m;
+    std::string err;
+    int line;
+
+    if (!s.parse(nameTok.text + "\n" + std::to_string(degrees) + "\n" + scl,
+                 err, line))
+    {
+        error(scale.line, what + ": scale: " + err);
+        return false;
+    }
+
+    if (keymap.kind == Token::STRING && !m.parse(lines(keymap.text, values), err, line))
+    {
+        error(keymap.line, what + ": keymap: " + err);
+        return false;
+    }
+
+    auto tuning = std::make_shared<thTuning>();
+
+    if (!tuning->build(s, m, err))
+    {
+        error(nameTok.line, what + ": " + err);
+        return false;
+    }
+
+    failedTunings_.erase(nameTok.text);
+    tunings_[nameTok.text] = tuning;
+
+    return true;
 }
 
 /* `preset warm { res = 0.8; fmin = 0.06; };'
@@ -2217,6 +2366,44 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
             if (!parseInstrumentValue(sched, inst,
                                       "instrument " + nameTok.text, key,
                                       TH_EFFECT_PREFIX))
+                return false;
+
+            continue;
+        }
+
+        if (key.text == "tuning")
+        {
+            if (inst.tuning)
+            {
+                error(key.line, "instrument " + nameTok.text +
+                      " names two tunings");
+                return false;
+            }
+
+            if (!expectPunct('='))
+                return false;
+
+            if (peek().kind != Token::WORD)
+            {
+                error(peek().line, "instrument " + nameTok.text +
+                      ": tuning wants a tuning's name");
+                return false;
+            }
+
+            const Token v = take();
+            const auto found = tunings_.find(v.text);
+
+            if (found == tunings_.end())
+            {
+                if (!failedTunings_.count(v.text))
+                    error(v.line, "no tuning called '" + v.text +
+                          "' has been declared");
+                return false;
+            }
+
+            inst.tuning = found->second;
+
+            if (!expectPunct(';'))
                 return false;
 
             continue;

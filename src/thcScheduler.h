@@ -42,6 +42,7 @@
 
 class thSynth;
 class thArg;
+class thTuning;
 class thcPlugin;
 
 /* The host side of the composer framework: one object, living in src/
@@ -407,6 +408,9 @@ struct thcInstrument
     std::vector<thcMidiCC> ccs;
 
     int channel;                /* engine channel; -1 unallocated */
+
+    /* `tuning = NAME;': what the channel's keys sound at, or none. */
+    std::shared_ptr<const thTuning> tuning;
 
     thcInstrument (void)
         : sideChannel(-1), midiChannel(-1), midiProgram(-1), channel(-1) {}

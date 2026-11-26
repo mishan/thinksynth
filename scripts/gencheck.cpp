@@ -73,6 +73,7 @@
 #include "thcNodeHost.h"
 #include "thcAudition.h"
 #include "libthink/thSoundFile.h"
+#include "libthink/thTuning.h"
 #include "GenCatalog.h"
 
 #include "../plugins/composer/english.h"
@@ -10053,6 +10054,266 @@ checkInstrumentText (const std::map<std::string, thcPlugin *> &plugins,
     drainSynth();
 }
 
+/* `tuning NAME { scale = "..."; };' declares a tuning; `tuning = NAME;' in
+ * an instrument loads its channel with it, and an instrument without one
+ * stays untuned. Bad tunings and bad references are refused by name, a
+ * reload hears a changed tuning and leaves an unchanged one alone, and the
+ * editor keeps the line through "pick a graph" without listing it as a
+ * chanarg. */
+static void
+checkTunings (const std::map<std::string, thcPlugin *> &plugins,
+              thSynth *synth)
+{
+    const std::string just =
+        "tuning just { scale = \"9/8 5/4 4/3 3/2 5/3 15/8 2/1\"; };\n";
+    const std::string tail =
+        "chain c { stage src gen::lsystem { axiom = \"F\"; depth = 0;"
+        " notes = \"C4\"; step = 1 s; hold = 0.5 s; vel = 100; };"
+        " sink { instrument = b; }; };\n";
+    auto write = [&](const std::string &path, const std::string &tunings,
+                     const std::string &line) {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "name \"t\"; author \"x\"; description \"x\";\n" << tunings
+            << "instrument a { dsp \"pluck.dsp\"; };\n"
+            << "instrument b { dsp \"pluck.dsp\"; " << line << " };\n" << tail;
+    };
+    auto load = [&](const std::string &tunings, const std::string &line,
+                    thcScheduler &sched, std::string &errors) {
+        const std::string path = thUtil::tempFile("gencheck-tuning-");
+
+        write(path, tunings, line);
+
+        thcGenLoader loader(plugins);
+        const bool ok = loader.load(path, &sched);
+
+        errors.clear();
+        for (const std::string &e : loader.errors())
+            errors += e + "\n";
+
+        remove(path.c_str());
+        return ok;
+    };
+    auto tuningOn = [&](thcScheduler &sched, const char *name) {
+        for (const thcInstrument &in : sched.instruments())
+            if (in.name == name)
+            {
+                thMidiChan *ch = synth->getChannel(in.channel);
+
+                return ch ? ch->tuning() : NULL;
+            }
+
+        return (const thTuning *)NULL;
+    };
+
+    /* Loaded: b's channel is tuned, a's is not. */
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        std::string errors;
+
+        if (!load(just, "tuning = just;", sched, errors))
+            fail("tuning: a tuned instrument did not load: " + errors);
+        else
+        {
+            const thTuning *t = tuningOn(sched, "b");
+
+            if (t == NULL || fabs(t->note(61) - 62.039100017307746) > 1e-9 ||
+                t->note(60) != 60)
+                fail("tuning: b's channel is not in just intonation");
+            if (tuningOn(sched, "a") != NULL)
+                fail("tuning: a, which names no tuning, is tuned");
+        }
+    }
+
+    /* A keymap: the seven header values and the map, as a .kbm has them. */
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        std::string errors;
+
+        if (!load("tuning at440 { scale = \"9/8 5/4 4/3 3/2 5/3 15/8 2/1\";"
+                  " keymap = \"0 0 127 60 69 440 7\"; };\n",
+                  "tuning = at440;", sched, errors))
+            fail("tuning: a keymap did not load: " + errors);
+        else if (tuningOn(sched, "b") == NULL || tuningOn(sched, "b")->note(69) != 69)
+            fail("tuning: the keymap's reference is not 69 at 440 Hz");
+    }
+
+    const struct { const char *tunings, *line, *says; } refused[] = {
+        { "", "tuning = nope;", "no tuning called 'nope'" },
+        { "tuning just { scale = \"2/1\"; };\ntuning just { scale = \"2/1\"; };\n",
+          "", "tuning 'just' is already declared" },
+        /* One error for one mistake: the instrument naming the failed
+           tuning adds none. */
+        { "tuning just { scale = \"9/8 abc 2/1\"; };\n", "tuning = just;", "'abc'" },
+        { "tuning just { scale = \"\"; };\n", "tuning = just;", "no degrees" },
+        { "tuning just { keymap = \"0 0 127 60 69 440 12\"; };\n", "tuning = just;",
+          "tuning just wants a scale" },
+        { "tuning just { scale = \"2/1\"; color = 1; };\n", "", "tuning just: no field 'color'" },
+        { "tuning just { scale = \"2/1\"; keymap = \"0 0 200 60 69 440 1\"; };\n", "",
+          "keymap" },
+        { "tuning just { scale = \"2/1\"; };\n", "tuning = just; tuning = just;",
+          "names two tunings" },
+        { "tuning just { scale = \"2/1\"; };\n", "tuning = 3;", "tuning wants a tuning's name" },
+    };
+
+    for (const auto &r : refused)
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        std::string errors;
+
+        if (load(r.tunings, r.line, sched, errors) ||
+            errors.find(r.says) == std::string::npos ||
+            std::count(errors.begin(), errors.end(), '\n') != 1)
+            fail(std::string("tuning: ") + r.tunings + r.line +
+                 " should be refused, once, saying \"" + r.says + "\"; got " +
+                 errors);
+    }
+
+    /* Declared below the instrument that names it: unknown there, as a
+       preset is. */
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        const std::string path = thUtil::tempFile("gencheck-tuning-");
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "name \"t\"; author \"x\"; description \"x\";\n"
+                << "instrument b { dsp \"pluck.dsp\"; tuning = just; };\n"
+                << just << tail;
+        }
+
+        thcGenLoader loader(plugins);
+        std::string errors;
+
+        const bool ok = loader.load(path, &sched);
+
+        for (const std::string &e : loader.errors())
+            errors += e + "\n";
+
+        if (ok || errors.find("no tuning called 'just'") == std::string::npos)
+            fail("tuning: a tuning named above its declaration loaded, or "
+                 "said something else: " + errors);
+
+        remove(path.c_str());
+    }
+
+    /* A live edit: a changed tuning reaches the channel; the same tuning
+       leaves the channel as it was. */
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        const std::string path = thUtil::tempFile("gencheck-tuning-");
+        std::string why;
+        auto edit = [&](const std::string &tunings) {
+            write(path, tunings, "tuning = just;");
+
+            thcScheduler next(synth);
+            thcGenLoader staged(plugins);
+
+            sched.prepareEdit(next, {});
+
+            return staged.load(path, &next) &&
+                   sched.adopt(next, thcScheduler::EditPlan(), why);
+        };
+        auto channelOf = [&](const char *name) {
+            for (const thcInstrument &in : sched.instruments())
+                if (in.name == name)
+                    return synth->getChannel(in.channel);
+
+            return (thMidiChan *)NULL;
+        };
+
+        write(path, just, "tuning = just;");
+
+        if (!loader.load(path, &sched))
+            fail("tuning: the edited piece did not load");
+        else
+        {
+            const thMidiChan *before = channelOf("b");
+            const thTuning *t = NULL;
+
+            if (!edit(just))
+                fail("tuning: an unchanged edit did not apply: " + why);
+            else if (channelOf("b") != before)
+                fail("tuning: an unchanged tuning reloaded the channel");
+
+            if (!edit("tuning just { scale = \"100.0 2/1\"; };\n"))
+                fail("tuning: a changed edit did not apply: " + why);
+            else if ((t = tuningOn(sched, "b")) == NULL || t->note(61) != 61 ||
+                     t->note(62) != 72)
+                fail("tuning: a changed tuning did not reach the channel");
+
+            /* And taken away: the channel plays untuned. */
+            write(path, just, "");
+
+            thcScheduler next(synth);
+            thcGenLoader staged(plugins);
+
+            sched.prepareEdit(next, {});
+
+            if (!staged.load(path, &next) ||
+                !sched.adopt(next, thcScheduler::EditPlan(), why))
+                fail("tuning: an edit taking the tuning away did not apply: " + why);
+            else if (tuningOn(sched, "b") != NULL)
+                fail("tuning: an instrument whose tuning was taken away is tuned");
+        }
+
+        remove(path.c_str());
+    }
+
+    /* The editor: `tuning = just;' is not a chanarg, and picking another
+       graph keeps it. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-tuning-");
+        thcGenEdit::Doc doc;
+        std::string why;
+
+        write(path, just, "tuning = just;");
+
+        if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK)
+            fail("tuning: the editor could not index the piece: " + why);
+        else
+            for (const auto &in : doc.instruments)
+                for (const auto &v : in.values)
+                    if (v.name == "tuning")
+                        fail("tuning: the editor lists the tuning as a chanarg");
+
+        if (thcGenEdit::setInstrumentGraph(path, "b", "rhodes.dsp", why) != thcGenEdit::OK)
+            fail("tuning: picking a graph failed: " + why);
+        else
+        {
+            std::ifstream in(path.c_str());
+            std::stringstream text;
+
+            text << in.rdbuf();
+
+            if (text.str().find("tuning = just;") == std::string::npos)
+                fail("tuning: picking a graph dropped the tuning:\n" + text.str());
+        }
+
+        remove(path.c_str());
+    }
+
+    clearChannels(synth);
+    drainSynth();
+}
+
 /* ---- the harmony plugins ------------------------------------------------ */
 
 /* progression walks a key with a cadence at every phrase end, two stages
@@ -18169,6 +18430,7 @@ main (int argc, char *argv[])
         checkThrow(plugins, &synth);
         checkStutter(plugins, &synth);
         checkInstrumentText(plugins, &synth);
+        checkTunings(plugins, &synth);
         checkSay(plugins, &synth);
         checkHarmonyKit(plugins, &synth);
         checkVoiceLeading(plugins, &synth);

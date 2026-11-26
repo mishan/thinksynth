@@ -42,7 +42,7 @@ const HEADER = ['name', 'author', 'description', 'category'];
 /* Keywords after which the next word is the thing being named. */
 const DSP_DECLARES = ['node', 'io'];
 const GEN_DECLARES = ['instrument', 'chain', 'stage', 'scale', 'section',
-                      'preset'];
+                      'preset', 'tuning'];
 
 const DSP_KEYWORDS = new Set([...HEADER, ...DSP_DECLARES]);
 const GEN_KEYWORDS = new Set([...HEADER, ...GEN_DECLARES,

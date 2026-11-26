@@ -414,6 +414,15 @@ loadInstrument (const thcInstrument &inst, std::string &why)
         return false;
     }
 
+    /* A compiled voice reads its key from the mapper, not a channel's
+       table: playing it untuned would be a wrong pitch, not a missing one. */
+    if (inst.tuning)
+    {
+        why = "instrument '" + inst.name + "' has a tuning, which the BOX "
+              "does not play";
+        return false;
+    }
+
     Patch *&p = poolOf[std::make_pair(c, k)];
 
     if (!p)

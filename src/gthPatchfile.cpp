@@ -79,7 +79,8 @@ string gthPatchManager::resolvePatch (const string &patchName)
     return found.empty() ? patchName : found;
 }
 
-bool gthPatchManager::newPatch (const string &dspName, int chan)
+bool gthPatchManager::newPatch (const string &dspName, int chan,
+                                std::shared_ptr<const thTuning> tuning)
 {
     if ((chan < 0) || (chan >= patches_.count()))
         return false;
@@ -101,7 +102,7 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
        volume at the bottom of its range. The scale here is MIDI's 0..127; why
        TH_DEFAULT_CHAN_AMP sits where it does is argued where it is defined. */
     if (synth->loadTree(resolveDsp(dspName).c_str(), chan,
-                        TH_DEFAULT_CHAN_AMP) == NULL)
+                        TH_DEFAULT_CHAN_AMP, tuning) == NULL)
     {
         /* The old slot used to be deleted before the load was attempted, so
            a DSP that failed to parse left the channel still playing the

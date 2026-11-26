@@ -650,6 +650,52 @@ the channels its key went to until it is let go, and the sustain pedal comes
 up where it went down, so a piece loaded while a key is held never strands
 it. In a jam room, live input plays your own seat.
 
+## 4c. Tunings are what an instrument's keys sound at
+
+```
+tuning just {
+    scale  = "9/8 5/4 4/3 3/2 5/3 15/8 2/1";    # a .scl's degrees
+    keymap = "0 0 127 60 69 440 7";              # a .kbm's values; optional
+};
+
+instrument keys { dsp "rhodes.dsp"; tuning = just; };
+```
+
+A `tuning` is a Scala scale and, optionally, a keyboard mapping. `scale` is
+the degrees a `.scl` file lists, one after another: cents where a degree has
+a point (`701.955`), a ratio where it does not (`3/2`, `2`), the last of
+them the period. Values only: every word is a degree, so a `.scl` line's
+label (`3/2 fifth`) and its `!` comments stay behind. `keymap` is a `.kbm`'s values in its order: the map size,
+the first and last key retuned, the key degree 0 sits on, the reference key
+and its frequency, the formal octave, then the map's degrees, `x` for a key
+left out. Without a keymap, degree 0 is middle C at its equal-tempered pitch
+and each key is the next degree. The rules, and the few files refused on
+purpose, are Scala's as `libthink/thTuning.h` reads them.
+
+The files' own text cannot sit in a `.gen`: a string here is one line, and
+a `.scl`'s comments start with `!`, which this language does not read. So a
+`.scl` is brought in by copying its degree lines into `scale`, and a piece
+stays one file wherever it goes -- the page, a room.
+
+`tuning = NAME;` in an instrument loads its channel with the tuning, and
+`tuning` is the instrument block's own word, as `dsp` is, not a chanarg.
+Each key then sounds at its degree's pitch; a key the keymap leaves out at
+its own equal-tempered pitch; a note between two keys that far between
+their pitches, or, beside a key left out, the key below's pitch plus the
+fraction in equal-tempered semitones; and a bend stays in equal-tempered
+semitones on top of it. A
+tuning must be declared before an instrument names it, like a preset.
+
+On a tuned channel the graph hears the tuned pitch wherever it reads
+`ionode->note` -- which is what pitch, keyboard tracking and drift want,
+and not what a drum kit choosing its sample by note number wants. Tune the
+pitched instruments.
+
+Composers still count in keys: a scale of note names, and the ones that step
+by semitones (harmonize, counterpoint, quantize, bassline, follow, run, vary,
+cloud), assume twelve keys to the octave. Under a tuning of another size a
+"third" is three keys, whatever that is in it.
+
 ## 5. Chains
 
 A `chain` is a named, *ordered* pipeline. Order in the file is order of
@@ -1244,7 +1290,8 @@ chain footsteps {
 ```
 genfile     : statement*
 statement   : infostring | tempo | seed | meter | knob | knobmeta | scale
-            | preset | instrument | section | cue | chain | mastereffect
+            | preset | tuning | instrument | section | cue | chain
+            | mastereffect
 infostring  : ("name" | "author" | "description" | "category") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
@@ -1264,6 +1311,8 @@ knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
 preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
+tuning      : "tuning" WORD "{" ("scale" "=" STRING ";"   # required
+                                | "keymap" "=" STRING ";")* "}" ";"
 mastereffect: effect                                   # at most one,
                                                        #   on the mix
 instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # one dsp, or a
@@ -1277,6 +1326,7 @@ instrstmt   : "dsp" graph ";"
             | "cc" WORD "=" NUMBER ccrange? ";"         # 0-119
             | "bend" WORD ccrange? ";"                  # the pitch wheel
             | "midiin" "=" NUMBER keyrange? ";"         # live input, 1-16
+            | "tuning" "=" WORD ";"                     # a declared tuning
             | WORD "." WORD "=" STRING ";"              # a node's text arg
             | instrval
 ccrange     : "{" ("min" "=" NUMBER ";" | "max" "=" NUMBER ";")* "}"
