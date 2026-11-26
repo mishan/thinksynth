@@ -494,7 +494,7 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
 
         pool_.pop_back();
 
-        if (voice->restart(modnode_, note, velocity, level, aux, say))
+        if (voice->restart(modnode_, note, velocity, level, aux, say, tuning_.get()))
         {
             restarts_++;
             voice->synthTree()->prepare(true);
@@ -505,7 +505,7 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
     }
 
     thMidiNote *voice = new thMidiNote(modnode_, note, velocity, level, aux,
-                                       say);
+                                       say, tuning_.get());
 
     voice->setChannel(serial_);
 

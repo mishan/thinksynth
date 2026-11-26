@@ -22,6 +22,7 @@
 #include "thExport.h"
 
 class thMidiNote;
+class thTuning;
 
 /* A voice's place on one of its channel's lists. */
 struct thNoteLink {
@@ -32,9 +33,12 @@ class THINK_API thMidiNote {
 public:
     /* `aux' is TH_NOTE_AUX floats, or NULL for all zeros; see AUXPREFIX.
        `say' is up to TH_NOTE_SAY phoneme codes ending in 0, or NULL for
-       none; see SAYARG. */
+       none; see SAYARG. `tuning' is the channel's, or NULL for 12-TET: the
+       voice keeps `note' as its key and its graph hears the key's pitch
+       in it. */
     thMidiNote (thSynthTree *tree, float note, float velocity, float level = 1,
-                const float *aux = NULL, const unsigned char *say = NULL);
+                const float *aux = NULL, const unsigned char *say = NULL,
+                const thTuning *tuning = NULL);
     thMidiNote (thSynthTree *tree);
     ~thMidiNote ();
 
@@ -44,7 +48,8 @@ public:
      * which case the voice is only fit to be deleted. */
     bool restart (const thSynthTree *tree, float note, float velocity,
                   float level = 1, const float *aux = NULL,
-                  const unsigned char *say = NULL);
+                  const unsigned char *say = NULL,
+                  const thTuning *tuning = NULL);
 
     /* Audio thread. What `from' says, into this voice: a mono slide onto
      * the next syllable. Nothing when `from' says nothing, so the vowel
@@ -131,11 +136,21 @@ private:
     thSynthTree synthTree_;
     unsigned long channel_;
     int noteid_;
-    /* The pitch as it was asked for. noteid_ is its integer part, which is
-       what the channel keys notes_ by; this is what a retune has to preserve
-       when a composer asks for something between two keys. */
+    /* The key as it was asked for, fraction and all; the graph hears its
+       pitch in the channel's tuning (sounding). noteid_ is its integer
+       part, which is what the channel keys notes_ by; this is what a
+       retune has to preserve when a composer asks for something between
+       two keys. */
     float note_;
-    float bend_ = 0;        /* semitones from note_, while it sounds */
+    float bend_ = 0;        /* semitones from note_'s pitch, while it sounds */
+
+    /* What the graph hears for `key': its pitch in the channel's tuning,
+       or the key itself with none, so that an untuned voice is unchanged
+       to the bit. */
+    float sounding (float key) const;
+    /* The channel's, valid while that channel drives the voice: a retired
+       or pooled voice keeps it unread, and restart sets it afresh. */
+    const thTuning *tuning_ = NULL;
     float level_;
 
     /* The steal ramp: how long it is, and how much of it is left. Both zero

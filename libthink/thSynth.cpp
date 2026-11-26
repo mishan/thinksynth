@@ -1851,15 +1851,17 @@ void thSynth::newMidiControllerConnection (unsigned char channel,
     controllerHandler_->newConnection(channel, param, connection);
 }
 
-thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
+thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp,
+                                 std::shared_ptr<const thTuning> tuning)
 {
-    return loadChannel(filename, NULL, channum, amp);
+    return loadChannel(filename, NULL, channum, amp, tuning);
 }
 
 thSynthTree *thSynth::loadTreeText (const string &name, const string &text,
-                                    int channum, float amp)
+                                    int channum, float amp,
+                                    std::shared_ptr<const thTuning> tuning)
 {
-    return loadChannel(name, &text, channum, amp);
+    return loadChannel(name, &text, channum, amp, tuning);
 }
 
 /* GUI thread. See the header. */
@@ -1883,7 +1885,8 @@ void thSynth::prepareTrees (void)
 /* GUI thread. loadTree and loadTreeText: `text' is the graph, or NULL to
    read the file `filename' names. Nothing after the parse can tell which. */
 thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
-                                   int channum, float amp)
+                                   int channum, float amp,
+                                   std::shared_ptr<const thTuning> tuning)
 {
     if (channum < 0)
     {
@@ -1910,7 +1913,7 @@ thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
         thSynthTree *raw = NULL;
         int parseResult = thParseDspText(this, *text, &raw);
 
-        return placeChannel(filename, raw, parseResult, channum, amp);
+        return placeChannel(filename, raw, parseResult, channum, amp, tuning);
     }
 
     std::error_code ec;
@@ -1963,13 +1966,14 @@ thSynthTree *thSynth::loadChannel (const string &filename, const string *text,
 
     fclose(input);
 
-    return placeChannel(filename, raw, parseResult, channum, amp);
+    return placeChannel(filename, raw, parseResult, channum, amp, tuning);
 }
 
 /* GUI thread, with synthMutex_ held. The half of loading an instrument that
    is about the channel rather than about where the graph came from. */
 thSynthTree *thSynth::placeChannel (const string &filename, thSynthTree *raw,
-                                    int parseResult, int channum, float amp)
+                                    int parseResult, int channum, float amp,
+                                    std::shared_ptr<const thTuning> tuning)
 {
     /* registerTree false: the thMidiChan below takes ownership. */
     thSynthTree *tree = finishParse(filename, raw, parseResult, false);
@@ -1995,6 +1999,7 @@ thSynthTree *thSynth::placeChannel (const string &filename, thSynthTree *raw,
     thMidiChan *newchan = new thMidiChan(tree, amp, windowlen_, sampleRate_);
 
     newchan->setSharesState(sharesSynthState(tree));
+    newchan->setTuning(tuning);
 
     /* The pedal is the channel's, not the graph's: a foot that is down when
        the graph is replaced is still down, and the notes it holds on the
