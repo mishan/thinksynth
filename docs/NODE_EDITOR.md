@@ -105,7 +105,7 @@ characters, `14.1k'; hovered, it says the whole label and the value as the
 parameter panel spells it, with its range, in the browser too
 (`NodeCanvas::tipAt`).
 
-**The toolbar.** New, Save As and Revert are in its File menu; then Save,
+**The toolbar.** New, Save As and Revert graph are in its File menu; then Save graph,
 Undo and Redo, Delete, Auto-arrange, and the zoom steps -- out, 1:1, in and
 Fit. The browser's has Add node and Add control, Delete, Arrange and the same
 zoom steps; its File list picks which of the page's files to show, and it has

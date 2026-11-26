@@ -62,6 +62,7 @@
 #include "gui/NodeCanvasWidget.h"
 #include "gui/NodeEditor.h"
 #include "gui/Panes.h"
+#include "gui/PanelView.h"
 
 /* The application-wide signals gthSignal.h declares, defined here because
  * main.cpp defines them there and this harness is not main.cpp. */
@@ -346,6 +347,43 @@ described (Gtk::Widget *w, const char *want)
     g_free(diff);
 
     return same;
+}
+
+/* In every parameter panel showing under `root': a number box beside a
+   slider has no - and +, since the slider and the arrow keys step it; one
+   with no slider keeps them, its only way to step by pointer. */
+static void
+checkNumberBoxes (Gtk::Widget *root, const char *where)
+{
+    std::vector<PanelView *> panels;
+    std::vector<Gtk::SpinButton *> boxes;
+    int beside = 0, wrong = 0;
+
+    collectUnder<PanelView>(root, panels);
+
+    for (PanelView *p : panels)
+        if (p->get_mapped())
+            collectUnder<Gtk::SpinButton>(p, boxes);
+
+    for (Gtk::SpinButton *box : boxes)
+    {
+        bool slider = false, buttons = false;
+
+        for (Gtk::Widget *w = box->get_parent()->get_first_child(); w != NULL;
+             w = w->get_next_sibling())
+            slider = slider || dynamic_cast<Gtk::Scale *>(w) != NULL;
+
+        for (Gtk::Widget *c = box->get_first_child(); c != NULL;
+             c = c->get_next_sibling())
+            buttons = buttons || (GTK_IS_BUTTON(c->gobj()) && c->get_visible());
+
+        beside += slider;
+        wrong += slider == buttons;
+    }
+
+    check(beside > 0 && wrong == 0,
+          (std::string("a number box in ") + where +
+           " has - and + only where there is no slider beside it").c_str());
 }
 
 /* That check, said: the first few offenders by name. */
@@ -960,6 +998,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     checkPatchPage(win, dsp);
 
     checkAccessible(win, "patch mode");
+    checkNumberBoxes(win, "patch mode");
 
     {
         Keyboard *keys = findUnder<Keyboard>(win);

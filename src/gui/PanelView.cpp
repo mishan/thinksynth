@@ -519,6 +519,15 @@ Gtk::Widget *PanelView::makeSlider (size_t at, Gtk::Label &label)
        long. Sized to its content now, so the width goes to the slider. */
     valEntry->set_width_chars(row.valueChars);
 
+    /* Its - and + would be a third way to step what the slider and the
+       arrow keys already step, at twice the box's width. GTK has no switch
+       for them, so they are hidden as found; a number with no slider keeps
+       them. */
+    for (Gtk::Widget *c = valEntry->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        if (GTK_IS_BUTTON(c->gobj()))
+            c->set_visible(false);
+
     if (!row.bounded)
         takeTyped(valEntry, bound.adjust);
 
@@ -570,8 +579,8 @@ Gtk::Widget *PanelView::makeNumber (size_t at)
     if (!row.bounded)
         takeTyped(valEntry, bound.adjust);
 
-    valueWidth_->add_widget(*valEntry);
-
+    /* Not in valueWidth_: it keeps its - and +, and in the group it would
+       widen every slider row's box to match. It fills its row anyway. */
     bound.adjust->set_value(row.value);
 
     bound.adjust->signal_value_changed().connect(
