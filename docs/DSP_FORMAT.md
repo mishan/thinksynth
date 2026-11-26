@@ -681,6 +681,19 @@ input described above — written 1-based, the way channels are numbered on the
 mixer, and omitted where there is none. A number outside the rack is read as
 no side: what is lost is a sidechain, and the instrument still plays.
 
+`tuning` lines give the channel a Scala tuning, as a piece's instrument has
+one (`GEN_FORMAT.md` 4c): `tuning name` its name, kept, `tuning scale` the
+degrees a `.scl` lists and `tuning keymap` a `.kbm`'s values, both as written,
+a space between and no labels or comments. Values, not a file's name, so the
+patch plays the same wherever it goes. A patch without them is untuned and
+writes none.
+
+```
+tuning name Just major
+tuning scale 9/8 5/4 4/3 3/2 5/3 15/8 2/1
+tuning keymap 0 0 127 60 69 440 7
+```
+
 **The order in the file is load-bearing.** An effect's parameters do not exist
 until the effect is on the channel, so `effect` is written above them and the
 reader depends on that rather than tolerating either order — and `side` above
@@ -727,6 +740,9 @@ fails a patch is the one thing that makes it not a patch: no `dsp` line.
 | `side 99`, `side` naming its own channel | read as written, then clamped to no side when it is put on a channel |
 | `side` with no `effect` under it | read, kept and written back; there is nothing to put it on, but it is what the file said |
 | `fx.` name nothing declares | reported and dropped when it is put on a channel |
+| `tuning color …`, `tuning scale` with nothing after it | complaint |
+| `tuning name` or `tuning keymap` with no `tuning scale` | complaint; both dropped, as they tune nothing |
+| a tuning that will not build (`tuning scale 9/8 abc 2/1`) | complaint when it is put on a channel; the instrument plays untuned, and a Save keeps the text for the person to fix |
 
 A value that is not a number used to become a silent zero, because `strtof`
 takes what it can and shrugs at the rest — a parameter set to a number nobody

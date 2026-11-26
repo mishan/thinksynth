@@ -132,6 +132,13 @@ static bool sameDoc (const thPatchDoc &a, const thPatchDoc &b, string &why)
         return false;
     }
 
+    if (a.tuningName != b.tuningName || a.tuningScale != b.tuningScale ||
+        a.tuningKeymap != b.tuningKeymap)
+    {
+        why = "the tuning `" + a.tuningScale + "' became `" + b.tuningScale + "'";
+        return false;
+    }
+
     if (a.side != b.side)
     {
         char buf[64];
@@ -368,6 +375,12 @@ static const Fixture FIXTURES[] = {
     { "effect",        "dsp ts1.dsp\neffect fx/delay.dsp\nfx.wet 0.5\n" },
     { "fx-orphan",     "dsp ts1.dsp\nfx.nosuchthing 0.5\n" },
     { "multi-value",   "dsp ts1.dsp\nwave 1,2,3\n" },
+    { "tuning",        "dsp rhodes.dsp\ntuning name Just major\n"
+                       "tuning scale 9/8 5/4 4/3 3/2 5/3 15/8 2/1\n"
+                       "tuning keymap 0 0 127 60 69 440.0 7\n" },
+    { "tuning-bad",    "dsp ts1.dsp\ntuning color 1\ntuning scale\n" },
+    { "tuning-no-scale", "dsp ts1.dsp\ntuning name Just\n"
+                         "tuning keymap 0 0 127 60 69 440 12\n" },
     { "not-a-number",  "dsp ts1.dsp\ncutoff abc\nres 4abc\nq 1,,3\n" },
     { "not-finite",    "dsp ts1.dsp\ncutoff nan\nres inf\nq -Infinity\n" },
     { "blanks",        "dsp ts1.dsp\nside 4 \neffect fx/delay.dsp\n"
@@ -412,6 +425,57 @@ static bool parses (const string &text, thPatchDoc &doc, const string &what)
 
 static void checkFixtures (void)
 {
+    /* `tuning name', `tuning scale', `tuning keymap': a patch carries its
+       tuning's values, so it plays the same wherever it goes. Unknown
+       tuning words and empty ones are complaints, as `info foo' is; an
+       untuned patch writes no tuning line. */
+    {
+        thPatchDoc doc;
+
+        if (parses(fixture("tuning"), doc, "a tuned patch"))
+        {
+            checkEq(doc.tuningName, "Just major", "its tuning's name");
+            checkEq(doc.tuningScale, "9/8 5/4 4/3 3/2 5/3 15/8 2/1",
+                    "its tuning's degrees, as written");
+            checkEq(doc.tuningKeymap, "0 0 127 60 69 440.0 7",
+                    "its keymap, as written");
+            check(roundTrips(fixture("tuning"), "a tuned patch round-trips"),
+                  "a tuned patch round-trips");
+        }
+
+        if (parses(fixture("tuning-bad"), doc, "a patch with bad tuning lines"))
+        {
+            check(doc.complaints.size() == 2 && doc.tuningScale.empty() &&
+                  doc.args.count("tuning") == 0,
+                  "an unknown tuning word and an empty one are complaints",
+                  std::to_string(doc.complaints.size()) + " complaints");
+            check(doc.complaints.size() == 2 &&
+                  doc.complaints[0].find("`color' is not name, scale or keymap") !=
+                      string::npos &&
+                  doc.complaints[1].find("tuning `scale' was given no value") !=
+                      string::npos,
+                  "each says which tuning word", doc.complaints.empty() ? "" :
+                  doc.complaints[0]);
+        }
+
+        /* A name or a keymap with no scale tunes nothing, and would vanish
+           on the next Save: a complaint now, and nothing kept. */
+        if (parses(fixture("tuning-no-scale"), doc, "a keymap with no scale"))
+        {
+            check(doc.complaints.size() == 1 && doc.tuningName.empty() &&
+                  doc.tuningKeymap.empty() &&
+                  doc.complaints[0].find("no tuning scale") != string::npos,
+                  "a tuning name or keymap with no scale is a complaint",
+                  doc.complaints.empty() ? "no complaint" : doc.complaints[0]);
+            check(roundTrips(fixture("tuning-no-scale"), "it round-trips"),
+                  "and the document round-trips");
+        }
+
+        if (parses(fixture("dsp-only"), doc, "an untuned patch"))
+            check(thPatchCompose(doc).find("tuning") == string::npos,
+                  "an untuned patch writes no tuning line");
+    }
+
     /* A patch is its `dsp' line. Nothing else is required and nothing else
        can fail it. */
     {

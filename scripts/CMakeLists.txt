@@ -849,7 +849,7 @@ think_harness(tuningcheck)
 target_include_directories(tuningcheck PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
 
 # A tuned channel, heard: frequencies measured off a sine.
-think_harness(tuningplay)
+think_harness(tuningplay PATCH)
 target_include_directories(tuningplay PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
 
 # thSoundFeat's distance against orderings a listener gave.
@@ -1263,6 +1263,8 @@ add_test(NAME ringcheck COMMAND ringcheck 20000)
 add_test(NAME lufscheck COMMAND lufscheck)
 add_test(NAME tuningcheck COMMAND tuningcheck)
 add_test(NAME tuningplay COMMAND tuningplay ${PROJECT_BINARY_DIR}/plugins/)
+set_tests_properties(tuningplay PROPERTIES
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 add_test(NAME soundfeatcheck
          COMMAND soundfeatcheck ${PROJECT_BINARY_DIR}/plugins/ ${PROJECT_SOURCE_DIR}/dsp)
 add_test(NAME wavcheck COMMAND wavcheck "${PROJECT_BINARY_DIR}/wavcheck")

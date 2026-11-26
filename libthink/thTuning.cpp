@@ -320,6 +320,7 @@ bool thScale::parse (const string &text, string &err, int &errLine)
         }
 
         out.cents.push_back(value);
+        out.written.push_back(token(ls[i]));
         i++;
     }
 
@@ -368,6 +369,8 @@ bool thKeymap::parse (const string &text, string &err, int &errLineOut)
         }
 
         const string t = token(ls[i++]);
+
+        out.written.push_back(t);
 
         if (h == 5)
         {
@@ -429,6 +432,8 @@ bool thKeymap::parse (const string &text, string &err, int &errLineOut)
         const string t = token(ls[i]);
         long long d;
 
+        out.written.push_back(t);
+
         if (t == "x")
             out.map.push_back(UNMAPPED);
         else if (!integer(t, d))
@@ -458,6 +463,77 @@ bool thKeymap::operator== (const thKeymap &o) const
            middle == o.middle && reference == o.reference &&
            frequency == o.frequency && referenceNote == o.referenceNote &&
            periodDegree == o.periodDegree && map == o.map;
+}
+
+namespace {
+
+/* The values form, one per line again, as the files have them. */
+string joined (const vector<string> &words, const char *between)
+{
+    string out;
+
+    for (size_t i = 0; i < words.size(); i++)
+        out += (i ? between : "") + words[i];
+
+    return out;
+}
+
+vector<string> split (const string &values)
+{
+    vector<string> out;
+    size_t at = 0;
+
+    while (true)
+    {
+        while (at < values.size() && (space(values[at]) || values[at] == '\n' ||
+                                      values[at] == '\r'))
+            at++;
+
+        if (at == values.size())
+            return out;
+
+        const size_t from = at;
+
+        while (at < values.size() && !space(values[at]) && values[at] != '\n' &&
+               values[at] != '\r')
+            at++;
+
+        out.push_back(values.substr(from, at - from));
+    }
+}
+
+}   /* namespace */
+
+string thScale::values (void) const
+{
+    return joined(written, " ");
+}
+
+bool thScale::parseValues (const string &values, const string &name, string &err)
+{
+    const vector<string> words = split(values);
+    int line;
+
+    /* The name set afterwards, not parsed: one starting with `!' would
+       read as a comment. */
+    if (!parse("-\n" + std::to_string(words.size()) + "\n" +
+               joined(words, "\n") + "\n", err, line))
+        return false;
+
+    description = name;
+    return true;
+}
+
+string thKeymap::values (void) const
+{
+    return joined(written, " ");
+}
+
+bool thKeymap::parseValues (const string &values, string &err)
+{
+    int line;
+
+    return parse(joined(split(values), "\n") + "\n", err, line);
 }
 
 /* ------------------------------------------------------------ thTuning */

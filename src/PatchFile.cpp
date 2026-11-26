@@ -229,6 +229,30 @@ bool thPatchParse (const string &text, thPatchDoc &doc, string &why)
             continue;
         }
 
+        /* `tuning name|scale|keymap the rest': as `info', a word and then
+           everything, because a scale's degrees have spaces between. */
+        if (key == "tuning")
+        {
+            const string::size_type sp2 = rest.find(' ');
+            const string word = rest.substr(0, sp2);
+            const string value = sp2 == string::npos ? string()
+                                                     : leadingTrim(rest.substr(sp2 + 1));
+            string *into = word == "name" ? &doc.tuningName
+                         : word == "scale" ? &doc.tuningScale
+                         : word == "keymap" ? &doc.tuningKeymap : NULL;
+
+            if (into == NULL)
+                doc.complaints.push_back(lineNo(number) + "tuning `" + word +
+                                         "' is not name, scale or keymap");
+            else if (value.empty())
+                doc.complaints.push_back(lineNo(number) + "tuning `" + word +
+                                         "' was given no value");
+            else
+                *into = value;
+
+            continue;
+        }
+
         /* The two structural keys whose value is a filename rather than a
            number, and which therefore never reach the arg parsing below --
            which is exactly what the page got wrong about `effect': it tried
@@ -298,6 +322,18 @@ bool thPatchParse (const string &text, thPatchDoc &doc, string &why)
 
         if (good)
             doc.args[key] = values;
+    }
+
+    /* A name or a keymap tunes nothing without degrees, and a Save writes
+       tuning lines only for a scale, so keeping them would be keeping what
+       the next Save silently drops. */
+    if (doc.tuningScale.empty() &&
+        (!doc.tuningName.empty() || !doc.tuningKeymap.empty()))
+    {
+        doc.complaints.push_back("tuning name or keymap with no tuning scale; "
+                                 "dropped");
+        doc.tuningName.clear();
+        doc.tuningKeymap.clear();
     }
 
     if (!seenDsp)
@@ -378,6 +414,17 @@ string thPatchCompose (const thPatchDoc &doc, const string &stamp)
     if (!doc.effect.empty())
         out += "effect " + doc.effect + "\n";
 
+    if (!doc.tuningScale.empty())
+    {
+        if (!doc.tuningName.empty())
+            out += "tuning name " + doc.tuningName + "\n";
+
+        out += "tuning scale " + doc.tuningScale + "\n";
+
+        if (!doc.tuningKeymap.empty())
+            out += "tuning keymap " + doc.tuningKeymap + "\n";
+    }
+
     out += "\n";
 
     for (map<string, string>::const_iterator k = doc.info.begin();
@@ -441,6 +488,13 @@ string thPatchDocToJson (const thPatchDoc &doc)
     jsonString(out, doc.effect);
     out += ",\"side\":";
     jsonInt(out, doc.side);
+    out += ",\"tuning\":{\"name\":";
+    jsonString(out, doc.tuningName);
+    out += ",\"scale\":";
+    jsonString(out, doc.tuningScale);
+    out += ",\"keymap\":";
+    jsonString(out, doc.tuningKeymap);
+    out += "}";
 
     /* Every property, not just `title'. What a shell shows is a shell's
        decision, and a document that handed over only the one it guessed would
