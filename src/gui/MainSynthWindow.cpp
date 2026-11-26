@@ -2703,7 +2703,8 @@ void MainSynthWindow::onRevertPatch (int chan)
  * nothing the load sets off -- rebuilds, a channel being picked -- can put it
  * back or throw it away. Afterwards this alone decides: a load that replaced
  * the patch lets it go, edits and all, which is what the person agreed to;
- * one that failed replaced nothing, and it goes back. */
+ * one that failed replaced nothing, and it goes back where it was -- onto
+ * the page, whatever file it is editing now, or into kept_. */
 void MainSynthWindow::replacePatch (int chan, unsigned generation,
                                     sigc::slot<bool ()> load)
 {
@@ -2715,7 +2716,8 @@ void MainSynthWindow::replacePatch (int chan, unsigned generation,
                 if (generationOf(chan) != generation)
                     return;
 
-                NodeEditor *held = takeEditor(chan);
+                bool shown = false;
+                NodeEditor *held = takeEditor(chan, shown);
                 const bool loaded = load();
 
                 if (held == NULL)
@@ -2737,11 +2739,14 @@ void MainSynthWindow::replacePatch (int chan, unsigned generation,
                         editors_.erase(e);
                     }
 
-                    kept_[chan] = held;
-
-                    if (chan == chan_ && panes_ != NULL &&
-                        panes_->isVisible("nodeview"))
-                        ensureEditor(chan);
+                    if (shown)
+                    {
+                        editors_[chan] = held;
+                        holders_[chan]->append(*held);
+                        held->unreference();
+                    }
+                    else
+                        kept_[chan] = held;
                 }
             }, *this));
     }, *this);
@@ -2757,9 +2762,9 @@ void MainSynthWindow::replacePatch (int chan, unsigned generation,
         askDiscard(lost, go);
 }
 
-/* The channel's editor, out of its page or out of kept_, holding a
-   reference; NULL when it has none. */
-NodeEditor *MainSynthWindow::takeEditor (int chan)
+/* The channel's editor, out of its page (`shown') or out of kept_, holding
+   a reference; NULL when it has none. */
+NodeEditor *MainSynthWindow::takeEditor (int chan, bool &shown)
 {
     std::map<int, NodeEditor *>::iterator e = editors_.find(chan);
 
@@ -2770,6 +2775,7 @@ NodeEditor *MainSynthWindow::takeEditor (int chan)
         ed->reference();
         holders_[chan]->remove(*ed);
         editors_.erase(e);
+        shown = true;
 
         return ed;
     }

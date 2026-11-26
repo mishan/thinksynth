@@ -262,7 +262,7 @@ protected:
     void replacePatch (int chan, unsigned generation,
                        sigc::slot<bool ()> load);
 
-    NodeEditor *takeEditor (int chan);
+    NodeEditor *takeEditor (int chan, bool &shown);
 
     /* What replacing the channel's patch would lose, or empty. */
     string wouldLose (int chan);

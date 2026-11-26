@@ -435,7 +435,7 @@ pageButton (TestWindow *win, int chan, const std::string &label)
         collectUnder<Gtk::Button>(page, buttons);
 
     for (Gtk::Button *b : buttons)
-        if (b->get_label() == label)
+        if (std::string(b->get_label()) == label)
             return b;
 
     return NULL;
@@ -644,10 +644,10 @@ checkPatchPage (TestWindow *win, const std::string &dsp)
 
     /* Graph edits and a replace, every way round: each action, its load
        succeeding or failing, with the channel's edited graph on screen or
-       held across a rebuild. A replace that happened leaves no editor
-       showing the old edits; one that failed leaves the same editor, edits
-       and all. */
-    struct Case { const char *action; bool works; bool held; };
+       held across a rebuild, and editing its own copy of the graph (as after
+       its Save As). A replace that happened leaves no editor showing the
+       old edits; one that failed leaves the same editor, edits and all. */
+    struct Case { const char *action; bool works; bool held; bool copy; };
     const Case cases[] = {
         { "Change _DSP...", true, false }, { "Change _DSP...", true, true },
         { "Change _DSP...", false, false }, { "Change _DSP...", false, true },
@@ -655,7 +655,14 @@ checkPatchPage (TestWindow *win, const std::string &dsp)
         { "_Open patch...", false, false }, { "_Open patch...", false, true },
         { "Re_vert patch", true, false }, { "Re_vert patch", true, true },
         { "Re_vert patch", false, false }, { "Re_vert patch", false, true },
+        { "Change _DSP...", false, false, true },
+        { "_Open patch...", false, false, true },
+        { "Re_vert patch", false, false, true },
     };
+    const std::string copy = (dir / "copy.dsp").string();
+
+    std::filesystem::copy_file(dsp, copy,
+                               std::filesystem::copy_options::overwrite_existing);
 
     win->discardAnswer = true;
 
@@ -663,7 +670,8 @@ checkPatchPage (TestWindow *win, const std::string &dsp)
     {
         const std::string what = std::string(c.action) +
                                  (c.works ? " loading" : " failing") +
-                                 (c.held ? ", its graph held" : ", its graph shown");
+                                 (c.held ? ", its graph held" : ", its graph shown") +
+                                 (c.copy ? " on a copy" : "");
 
         patchMgr->newPatch(dsp, 2);
         patchMgr->savePatch(saved, 2);
@@ -671,6 +679,12 @@ checkPatchPage (TestWindow *win, const std::string &dsp)
         pump(4);
 
         NodeEditor *graph = win->editors_.count(2) ? win->editors_[2] : NULL;
+
+        if (graph != NULL && c.copy)
+            graph->open(copy, -1);
+
+        pump(4);
+
         NodeCanvasWidget *canvas = graph != NULL ? findCanvas(graph) : NULL;
 
         if (canvas != NULL && canvas->graph() != NULL &&
