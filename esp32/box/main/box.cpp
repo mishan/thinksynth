@@ -96,8 +96,8 @@ static volatile int screen = ON_KEYS;
 #define NPATCHES (int)(sizeof(patches) / sizeof(patches[0]))
 
 /* The patch playing, and every patch's voices, the audio task's and the
-   control task's both, under `lock'. */
-static SemaphoreHandle_t lock;
+   control task's both, under `boxLock'. */
+static SemaphoreHandle_t boxLock;
 
 /* The keys fingers are on, a bit each, for the screen; and which patch it
    shows as playing. */
@@ -165,7 +165,7 @@ audioTask (void *)
     for (;;)
     {
         memset(mix, 0, sizeof(mix));
-        xSemaphoreTake(lock, portMAX_DELAY);
+        xSemaphoreTake(boxLock, portMAX_DELAY);
 
         const int64_t t = esp_timer_get_time();
         /* The block's own time: a block on from the last, the I2S taking
@@ -226,7 +226,7 @@ audioTask (void *)
         if (load > patches[playing]->peak)
             patches[playing]->peak = load;
         patches[playing]->late += load > 1;
-        xSemaphoreGive(lock);
+        xSemaphoreGive(boxLock);
 
         const float gain = GAIN * volume * volume;
 
@@ -692,10 +692,10 @@ playAll (const std::vector<thhAction> &acts, int owner)
 {
     if (acts.empty())
         return;
-    xSemaphoreTake(lock, portMAX_DELAY);
+    xSemaphoreTake(boxLock, portMAX_DELAY);
     for (const thhAction &a : acts)
         boxPlay(a.channel == 1 ? percussion : patches[playing], a, owner, 1);
-    xSemaphoreGive(lock);
+    xSemaphoreGive(boxLock);
 }
 
 /* A ball's mapper, its controls what it strikes, and when its `hit' and
@@ -977,9 +977,9 @@ controlTask (void *)
                 f.mapper.release(acts);
                 playAll(acts, (int)(&f - finger));
             }
-            xSemaphoreTake(lock, portMAX_DELAY);
+            xSemaphoreTake(boxLock, portMAX_DELAY);
             playing = (playing + 1) % NPATCHES;
-            xSemaphoreGive(lock);
+            xSemaphoreGive(boxLock);
             shown = playing;
             configureAll();
         }
@@ -1196,10 +1196,10 @@ app_main (void)
                "................/"
                "................/"
                "...........OOO../");
-    lock = xSemaphoreCreateMutex();
+    boxLock = xSemaphoreCreateMutex();
     go = xSemaphoreCreateBinary();
     done = xSemaphoreCreateBinary();
-    configASSERT(lock && go && done);
+    configASSERT(boxLock && go && done);
     printf("thinkbox: %d patches, %d voices each at %d Hz\n", NPATCHES, VOICES, BOX_RATE);
     if (speaker)
     {
