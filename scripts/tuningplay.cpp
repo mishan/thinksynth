@@ -34,6 +34,8 @@
 
 #include "think.h"
 #include "thTuning.h"
+#include "PatchApply.h"
+#include "PatchFile.h"
 
 static int failures = 0;
 
@@ -265,6 +267,45 @@ int main (int argc, char **argv)
         synth.addNote(0, 62, 100);
         run(synth, SETTLE, NULL);
         expect(synth, "mono: retuned to key 62", 60 + 2 * step);
+    }
+
+    /* A patch carrying a tuning tunes its channel; one whose tuning will
+       not build still plays, untuned, and says why. */
+    {
+        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        thPatchDoc doc;
+        std::string why;
+
+        if (!thPatchParse("dsp pluck.dsp\ntuning name just\n"
+                          "tuning scale 9/8 5/4 4/3 3/2 5/3 15/8 2/1\n", doc, why))
+            fail("the tuned patch did not parse: " + why);
+        else
+        {
+            const thPatchApplied a = thPatchApply(&synth, 0, doc);
+            const thMidiChan *ch = synth.getChannel(0);
+
+            if (!a.ok || ch == NULL || ch->tuning() == NULL ||
+                fabs(ch->tuning()->note(61) - 62.039100017307746) > 1e-9)
+                fail("a tuned patch did not tune its channel: " + a.why);
+        }
+
+        if (!thPatchParse("dsp pluck.dsp\ntuning scale 9/8 abc 2/1\n", doc, why))
+            fail("the badly tuned patch did not parse: " + why);
+        else
+        {
+            const thPatchApplied a = thPatchApply(&synth, 0, doc);
+            const thMidiChan *ch = synth.getChannel(0);
+            bool said = false;
+
+            for (const std::string &c : a.complaints)
+                said = said || c.find("'abc'") != std::string::npos;
+
+            if (!a.ok || ch == NULL || ch->tuning() != NULL || !said)
+                fail("a patch whose tuning will not build: ok " +
+                     std::to_string(a.ok) + ", tuned " +
+                     std::to_string(ch && ch->tuning() != NULL) +
+                     ", complaint " + std::to_string(said));
+        }
     }
 
     /* 12-TET as a tuning is no tuning, to the bit. */

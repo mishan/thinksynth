@@ -632,6 +632,46 @@ static void pitches (void)
         fail("a tuning never built moved a key");
 }
 
+/* The values form a piece and a patch carry: what a .scl or .kbm says,
+   values only, as written. A whole file in, with comments and labels, and
+   its values out; and the values parsed back to the same scale. */
+static void valuesForm (void)
+{
+    thScale s, t;
+    thKeymap m, n;
+    std::string err;
+    int line;
+
+    if (!s.parse("! just.scl\n!\nJust major\n 7\n!\n 9/8 ! a tone\n 5/4 E\n"
+                 " 4/3\n 3/2 fifth\n 5/3\n 15/8\n 2/1\n", err, line))
+        fail("values: a .scl with labels refused: " + err);
+    else if (s.values() != "9/8 5/4 4/3 3/2 5/3 15/8 2/1")
+        fail("values: a .scl's values read as '" + s.values() + "'");
+    else if (!t.parseValues(s.values(), s.description, err))
+        fail("values: its values refused: " + err);
+    else if (!(t == s) || t.values() != s.values())
+        fail("values: its values parse to another scale");
+
+    if (!s.parse(TET12, err, line) || s.values().find("1100.0 2/1") == std::string::npos)
+        fail("values: 12-TET's period is not written as it was: " + s.values());
+
+    if (!m.parse("! map\n0\n0\n127\n! middle\n60\n69\n440.0\n12\n", err, line))
+        fail("values: a .kbm with comments refused: " + err);
+    else if (m.values() != "0 0 127 60 69 440.0 12")
+        fail("values: a .kbm's values read as '" + m.values() + "'");
+    else if (!n.parseValues(m.values(), err) || !(n == m) || n.values() != m.values())
+        fail("values: a keymap's values parse to another keymap: " + err);
+
+    /* A name is a name, even one a .scl would read as a comment. */
+    if (!t.parseValues("2/1", "!odd", err) || t.description != "!odd")
+        fail("values: a name starting with ! is not kept: " + err);
+
+    if (t.parseValues("9/8 abc 2/1", "x", err) || err.find("'abc'") == std::string::npos)
+        fail("values: a bad degree is not refused by name: " + err);
+    if (t.parseValues("  ", "x", err) || err.find("no degrees") == std::string::npos)
+        fail("values: no degrees is not refused: " + err);
+}
+
 /* An object used twice keeps nothing of its first use. */
 static void reuse (void)
 {
@@ -834,6 +874,7 @@ int main (void)
     accepted();
     refused();
     reuse();
+    valuesForm();
     pitches();
     byHand();
     mutations();

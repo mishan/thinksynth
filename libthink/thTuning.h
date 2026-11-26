@@ -53,9 +53,16 @@
 struct THINK_API thScale {
     std::string description;
     std::vector<double> cents;      /* degrees 1..N; back() is the period */
+    std::vector<std::string> written;   /* each degree as the file wrote it */
 
     bool parse (const std::string &text, std::string &err, int &errLine);
     bool operator== (const thScale &o) const;
+
+    /* The values form a piece and a patch carry: the degrees as written,
+       a space between, and no labels or comments. */
+    std::string values (void) const;
+    bool parseValues (const std::string &values, const std::string &name,
+                      std::string &err);
 };
 
 struct THINK_API thKeymap {
@@ -78,9 +85,14 @@ struct THINK_API thKeymap {
     static constexpr int UNMAPPED = INT_MIN;
     std::vector<int> map;           /* a degree per slot, or UNMAPPED; slots
                                        past its end are unmapped too */
+    std::vector<std::string> written;   /* every value as the file wrote it */
 
     bool parse (const std::string &text, std::string &err, int &errLine);
     bool operator== (const thKeymap &o) const;
+
+    /* As thScale's: the header and the map, as written. */
+    std::string values (void) const;
+    bool parseValues (const std::string &values, std::string &err);
 };
 
 class THINK_API thTuning {

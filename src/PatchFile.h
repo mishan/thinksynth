@@ -126,6 +126,13 @@ struct thPatchDoc
        Patch Selector's Category box has gone). */
     map<string, string> info;
 
+    /* The channel's tuning, as `tuning name', `tuning scale' and `tuning
+       keymap' lines: a name to show, and the values a .scl and a .kbm
+       list, as written (thScale::values, thKeymap::values). The values
+       rather than a file's name, so a patch plays the same wherever it
+       goes. Empty scale: untuned, and no tuning line is written. */
+    string tuningName, tuningScale, tuningKeymap;
+
     /* The chanarg overrides, by name, every value in the order written.
      *
      * A vector rather than a float: a thArg has always held a list, the

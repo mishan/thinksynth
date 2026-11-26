@@ -961,36 +961,17 @@ thcGenLoader::parseTuning (void)
         return false;
     }
 
-    /* A token per line, as the files have them. */
-    const auto lines = [] (const std::string &words, int &count) {
-        std::istringstream in(words);
-        std::string w, out;
-
-        count = 0;
-        while (in >> w)
-        {
-            out += w + "\n";
-            count++;
-        }
-
-        return out;
-    };
-
-    int degrees, values;
-    const std::string scl = lines(scale.text, degrees);
     thScale s;
     thKeymap m;
     std::string err;
-    int line;
 
-    if (!s.parse(nameTok.text + "\n" + std::to_string(degrees) + "\n" + scl,
-                 err, line))
+    if (!s.parseValues(scale.text, nameTok.text, err))
     {
         error(scale.line, what + ": scale: " + err);
         return false;
     }
 
-    if (keymap.kind == Token::STRING && !m.parse(lines(keymap.text, values), err, line))
+    if (keymap.kind == Token::STRING && !m.parseValues(keymap.text, err))
     {
         error(keymap.line, what + ": keymap: " + err);
         return false;

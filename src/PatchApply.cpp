@@ -23,12 +23,14 @@
 
 #include "config.h"
 
+#include <memory>
 #include <stdio.h>
 #include <string.h>
 
 #include "think.h"
 
 #include "PatchApply.h"
+#include "thTuning.h"
 
 string thPatchResolveDsp (const string &name)
 {
@@ -63,6 +65,28 @@ thPatchApplied thPatchApply (thSynth *synth, int channel,
         return out;
     }
 
+    /* The tuning, built before the graph so the channel is made with it. A
+       tuning that will not build costs the tuning, not the instrument: it
+       plays untuned and says why, as a bad line elsewhere does. Unlike a
+       failed effect, the slot keeps its text, so a Save writes it back:
+       a typo in a scale is the person's to fix, not ours to delete. */
+    std::shared_ptr<const thTuning> tuning;
+
+    if (!doc.tuningScale.empty())
+    {
+        thScale scale;
+        thKeymap keymap;
+        auto built = std::make_shared<thTuning>();
+        string err;
+
+        if (!scale.parseValues(doc.tuningScale, doc.tuningName, err) ||
+            (!doc.tuningKeymap.empty() && !keymap.parseValues(doc.tuningKeymap, err)) ||
+            !built->build(scale, keymap, err))
+            out.complaints.push_back("tuning: " + err + "; played untuned");
+        else
+            tuning = built;
+    }
+
     /* The graph, first and on its own: everything below sets values on the
      * chanargs loading it declares, and a value set before it would be thrown
      * away with the tree it was set on.
@@ -74,7 +98,7 @@ thPatchApplied thPatchApply (thSynth *synth, int channel,
      * 0..127; why TH_DEFAULT_CHAN_AMP sits where it does is argued where it
      * is defined. */
     if (synth->loadTree(thPatchResolveDsp(doc.dsp).c_str(), channel,
-                        TH_DEFAULT_CHAN_AMP) == NULL)
+                        TH_DEFAULT_CHAN_AMP, tuning) == NULL)
     {
         out.why = "could not load the graph '" + doc.dsp + "'";
         return out;
