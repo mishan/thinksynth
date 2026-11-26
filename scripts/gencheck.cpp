@@ -14098,7 +14098,11 @@ checkSessionModel (void)
         "| conductor - -| @kick 0.25 -| @act - -";
 
     if (seen != want || grid.ending != thSession::ENDS)
+    {
         fail("session model: read as\n  " + seen + "\nnot\n  " + want);
+        remove(path.c_str());
+        return;
+    }
 
     /* Edits, each read back. */
     auto made = [&] (thSessionEdit e)
@@ -14140,8 +14144,12 @@ checkSessionModel (void)
 
     const bool moved = made(e) && grid.columns[0].name == "chorus";
 
+    /* Round from the first, from an end and from a loop. */
     e = thSessionEdit();
     e.kind = thSessionEdit::LOOP;
+
+    const bool cycles = made(e) && grid.ending == thSession::CYCLES;
+
     e.section = "verse";
 
     const bool looped = made(e) && grid.ending == thSession::LOOPS &&
@@ -14149,15 +14157,16 @@ checkSessionModel (void)
 
     e.section = "";
 
-    const bool cycles = made(e) && grid.ending == thSession::CYCLES;
+    const bool unlooped = made(e) && grid.ending == thSession::CYCLES;
 
-    if (!level || !cleared || !copied || !moved || !looped || !cycles)
+    if (!level || !cleared || !copied || !moved || !cycles || !looped ||
+        !unlooped)
         fail("session model: an edit did not read back as made: level " +
              std::to_string(level) + ", cleared " + std::to_string(cleared) +
              ", copied " + std::to_string(copied) + ", moved " +
-             std::to_string(moved) + ", looped " + std::to_string(looped) +
-             ", cycles " + std::to_string(cycles) + ": " + why + "\n" +
-             slurp(path));
+             std::to_string(moved) + ", cycles " + std::to_string(cycles) +
+             ", looped " + std::to_string(looped) + ", unlooped " +
+             std::to_string(unlooped) + ": " + why + "\n" + slurp(path));
 
     /* A cell clicked off and on again comes back at 0.75, after a build
        between; an unwritten one goes off, and one off with nothing
@@ -14694,10 +14703,13 @@ checkSectionOrder (const std::map<std::string, thcPlugin *> &plugins,
         thcScheduler sched(synth);
         thcGenLoader loader(plugins);
 
+        const size_t c = text.find("section c"), shared = text.find("# shared");
+
         if (text.find("meter 3;") > text.find("section b") ||
-            text.find("# shared") < text.find("section c") ||
-            text.find("# shared") < text.find("section d") ||
-            !loader.load(path, &sched))
+            shared == std::string::npos || shared < c ||
+            text.find('\n', c) < shared ||
+            shared < text.find("section d") ||
+            !loader.load(path, &sched) || !sched.endsAfterSections())
             fail("moved untidily, the sections read:\n" + text);
     }
 

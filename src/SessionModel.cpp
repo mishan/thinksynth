@@ -221,7 +221,9 @@ SessionModel::apply (const std::string &filename,
         case K::END:
             return thcGenEdit::setSectionEnd(filename, edit.set, why);
         case K::LOOP:
-            return thcGenEdit::setSectionLoop(filename, edit.section, why);
+            return edit.section.empty()
+                ? thcGenEdit::setSectionEnd(filename, false, why)
+                : thcGenEdit::setSectionLoop(filename, edit.section, why);
     }
 
     why = "not an edit the grid makes";

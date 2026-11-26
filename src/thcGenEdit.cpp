@@ -3986,7 +3986,13 @@ thcGenEdit::moveSection (const std::string &filename, const std::string &name,
     size_t where;
 
     if (to != NULL)
+    {
         where = behindStmt(text, to->stmtB, stmt);
+
+        /* Its comment would take in what follows on that line. */
+        if (end != se->stmtB && stmt.back() != '\n')
+            stmt += "\n";
+    }
     else
     {
         /* Above the first, on its line when another statement -- a
