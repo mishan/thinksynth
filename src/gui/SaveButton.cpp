@@ -22,9 +22,9 @@
 
 #include "SaveButton.h"
 
-SaveButton::SaveButton (void)
+SaveButton::SaveButton (const std::string &saveLabel)
     : Gtk::Box(Gtk::Orientation::HORIZONTAL),
-      save_("_Save", true), saveAs_("Save _As...", true),
+      save_(saveLabel, true), saveAs_("Save _As...", true),
       hasFile_(false), modified_(true), sensitive_(true)
 {
     /* What draws the two as one control: rounded on the outside, square where
@@ -38,7 +38,8 @@ SaveButton::SaveButton (void)
     saveAs_.add_css_class("flat");
     saveAs_.set_has_frame(false);
 
-    menu_.set_child(saveAs_);
+    items_.append(saveAs_);
+    menu_.set_child(items_);
     menu_.set_has_arrow(true);
 
     more_.set_popover(menu_);
@@ -52,6 +53,25 @@ SaveButton::SaveButton (void)
     append(more_);
 
     setHasFile(false);
+}
+
+Gtk::Button *SaveButton::addItem (const std::string &label)
+{
+    Gtk::Button *item = Gtk::make_managed<Gtk::Button>(label, true);
+
+    item->add_css_class("flat");
+    item->set_has_frame(false);
+    item->signal_clicked().connect([this] { menu_.popdown(); }, false);
+
+    /* The menu opens while any item in it can be chosen. */
+    item->property_sensitive().signal_changed().connect(
+        sigc::mem_fun(*this, &SaveButton::refresh));
+
+    items_.append(*item);
+    extras_.push_back(item);
+    refresh();
+
+    return item;
 }
 
 void SaveButton::onSave (void)
@@ -106,8 +126,14 @@ void SaveButton::refresh (void)
        Save As. */
     const bool canSave = sensitive_ && (!hasFile_ || modified_);
 
+    bool anyItem = sensitive_;
+
+    for (Gtk::Button *b : extras_)
+        anyItem = anyItem || b->get_sensitive();
+
     save_.set_sensitive(canSave);
-    more_.set_sensitive(sensitive_);
+    saveAs_.set_sensitive(sensitive_);
+    more_.set_sensitive(anyItem);
 
     /* Four states, and the tooltip says which one it is in. Nothing selected
        came first: describing a file when there is no patch at all was the

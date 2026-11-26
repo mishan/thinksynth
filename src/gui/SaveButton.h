@@ -19,6 +19,9 @@
 #ifndef SAVE_BUTTON_H
 #define SAVE_BUTTON_H
 
+#include <string>
+#include <vector>
+
 /*
  * Save, with Save As behind an arrow.
  *
@@ -38,7 +41,11 @@
 class SaveButton : public Gtk::Box
 {
 public:
-    SaveButton (void);
+    explicit SaveButton (const std::string &saveLabel = "_Save");
+
+    /* Another item in the menu, under Save As, for the caller to connect
+       and to grey as it sees fit. Choosing it closes the menu. */
+    Gtk::Button *addItem (const std::string &label);
 
     /* Clicking Save. When there is nothing to save over -- a patch that has
        never been written anywhere -- this is not emitted and signal_save_as()
@@ -74,7 +81,9 @@ protected:
     Gtk::Button save_;
     Gtk::MenuButton more_;
     Gtk::Popover menu_;
+    Gtk::Box items_{Gtk::Orientation::VERTICAL};
     Gtk::Button saveAs_;
+    std::vector<Gtk::Button *> extras_;
 
     /* Save is dead only when there is both a file to write over and nothing
        to write; with no file it means Save As, which is never pointless. */

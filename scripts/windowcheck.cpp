@@ -41,6 +41,7 @@
 #include <string.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -81,10 +82,8 @@ public:
     using MainSynthWindow::editors_;
     using MainSynthWindow::chan_;
     using MainSynthWindow::actions_;
-    using MainSynthWindow::dspEntryLbl_;
     using MainSynthWindow::composer_;
-    using MainSynthWindow::dspEntry_;
-    using MainSynthWindow::onDspEntryActivate;
+    using MainSynthWindow::paramStack_;
     using MainSynthWindow::selectChannel;
     using MainSynthWindow::writeLayout;
     using MainSynthWindow::layoutPath;
@@ -94,6 +93,42 @@ public:
     using MainSynthWindow::addChanBtn_;
     using MainSynthWindow::firstFreeChannel;
     using MainSynthWindow::onBrowseChosen;
+
+    /* The page's questions, answered here: what each would pick, and a
+       count of the discard prompts with the last one's text. A held DSP
+       answer waits in `held' until the test gives it. */
+    std::string patchAnswer, dspAnswer;
+    bool holdDsp = false;
+    sigc::slot<void (std::string)> held;
+    bool discardAnswer = false, holdDiscard = false;
+    int discardAsked = 0;
+    std::string discardWhat;
+    sigc::slot<void ()> heldDiscard;
+
+    void askPatchFile (sigc::slot<void (std::string)> chosen) override
+    {
+        chosen(patchAnswer);
+    }
+
+    void askDsp (int, sigc::slot<void (std::string)> chosen) override
+    {
+        if (holdDsp)
+            held = chosen;
+        else
+            chosen(dspAnswer);
+    }
+
+    void askDiscard (const std::string &what,
+                     sigc::slot<void ()> discard) override
+    {
+        discardAsked++;
+        discardWhat = what;
+
+        if (holdDiscard)
+            heldDiscard = discard;
+        else if (discardAnswer)
+            discard();
+    }
 };
 
 static int checks = 0;
@@ -339,6 +374,360 @@ checkAccessible (TestWindow *win, const char *where)
     }
 }
 
+/* The page Patch params has for `chan'. */
+static Gtk::Widget *
+pageFor (TestWindow *win, int chan)
+{
+    return win->paramStack_.get_child_by_name("ch" + std::to_string(chan));
+}
+
+/* The widget named `name' under `w', or NULL. */
+static Gtk::Widget *
+namedUnder (Gtk::Widget *w, const char *name)
+{
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+    {
+        if (c->get_name() == name)
+            return c;
+
+        if (Gtk::Widget *n = namedUnder(c, name))
+            return n;
+    }
+
+    return NULL;
+}
+
+/* The text of every label under `w', run together. */
+static std::string
+labelsUnder (Gtk::Widget *w)
+{
+    std::vector<Gtk::Label *> labels;
+    std::string all;
+
+    collectUnder<Gtk::Label>(w, labels);
+
+    for (Gtk::Label *l : labels)
+        all += std::string(l->get_text()) + "\n";
+
+    return all;
+}
+
+/* Whether `chan''s page has its strip and the strip says `what'. */
+static bool
+stripSays (TestWindow *win, int chan, const std::string &what)
+{
+    Gtk::Widget *page = pageFor(win, chan);
+    Gtk::Widget *strip = page != NULL ? namedUnder(page, "patchstrip") : NULL;
+
+    return strip != NULL && labelsUnder(strip).find(what) != std::string::npos;
+}
+
+/* The button on `chan''s page labeled `label' (with its underline), menus
+   included, or NULL. */
+static Gtk::Button *
+pageButton (TestWindow *win, int chan, const std::string &label)
+{
+    Gtk::Widget *page = pageFor(win, chan);
+    std::vector<Gtk::Button *> buttons;
+
+    if (page != NULL)
+        collectUnder<Gtk::Button>(page, buttons);
+
+    for (Gtk::Button *b : buttons)
+        if (b->get_label() == label)
+            return b;
+
+    return NULL;
+}
+
+/* Clicks `label' on `chan''s page, as a person would; false if it is not
+   there or not clickable. */
+static bool
+press (TestWindow *win, int chan, const std::string &label)
+{
+    Gtk::Button *b = pageButton(win, chan, label);
+
+    if (b == NULL || !b->is_sensitive())
+        return false;
+
+    g_signal_emit_by_name(b->gobj(), "clicked");
+    pump(4);
+
+    return true;
+}
+
+static float
+argValue (int chan, const char *name)
+{
+    thArg *a = thSynth::instance()->getChanArg(chan, name);
+
+    return a != NULL ? (*a)[0] : -1;
+}
+
+/* An edit as the panel makes one: the value, and the patch marked. */
+static void
+edit (int chan, const char *name, float value)
+{
+    thSynth::instance()->getChanArg(chan, name)->setValue(value);
+    gthPatchManager::instance()->markDirty(chan);
+}
+
+static unsigned
+generationOf (int chan)
+{
+    gthPatchManager::PatchFile *p = gthPatchManager::instance()->getPatch(chan);
+
+    return p != NULL ? p->generation : 0;
+}
+
+/* The patch page's strip, and the three ways it replaces a channel's
+   patch. Driven on channel 3 (index 2) while another channel is selected,
+   so a control that acted on the selected channel instead fails. */
+static void
+checkPatchPage (TestWindow *win, const std::string &dsp)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    const std::string dspName = std::filesystem::path(dsp).filename().string();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() /
+        ("windowcheck-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const std::string saved = (dir / "kept.patch").string();
+
+    std::filesystem::create_directories(dir);
+
+    /* Every kind of page has the strip: a patch, and an empty channel. */
+    check(stripSays(win, 2, "3: ") && stripSays(win, 2, dspName),
+          "a patch page's strip names its channel and its graph");
+    check(stripSays(win, 3, "4: ") && pageButton(win, 3, "_Open patch...") &&
+          pageButton(win, 3, "_Open patch...")->is_sensitive() &&
+          pageButton(win, 3, "_Save patch") != NULL &&
+          !pageButton(win, 3, "_Save patch")->is_sensitive(),
+          "...and an empty channel's: Open offered, Save not");
+    win->selectChannel(3);
+    pump(4);
+    checkAccessible(win, "an empty channel's page");
+
+    /* A graph with no settings of its own: the strip, and a page that says
+       so rather than an empty panel. */
+    {
+        const std::string bare = (dir / "bare.dsp").string();
+        std::ofstream out(bare);
+
+        out << "node ionode { out0 = osc->out; out1 = osc->out; "
+               "channels = 2; play = 1; };\n"
+               "node osc osc::simple { freq = 440; };\n"
+               "io ionode;\n";
+        out.close();
+
+        patchMgr->newPatch(bare, 3);
+        pump(4);
+
+        check(stripSays(win, 3, "4: ") &&
+                  labelsUnder(pageFor(win, 3)).find("no settings") !=
+                      std::string::npos &&
+                  labelsUnder(pageFor(win, 2)).find("no settings") ==
+                      std::string::npos,
+              "a graph with no settings gets the strip and says so");
+
+        patchMgr->unloadPatch(3);
+        pump(4);
+    }
+
+    win->selectChannel(0);
+    pump(4);
+
+    /* Revert: the file's values back, and nothing left to save. */
+    check(pageButton(win, 2, "Re_vert patch") != NULL &&
+          !pageButton(win, 2, "Re_vert patch")->is_sensitive(),
+          "Revert is greyed on a patch never saved");
+
+    patchMgr->savePatch(saved, 2);
+    pump(4);
+
+    const float before = argValue(2, "pw1");
+
+    edit(2, "pw1", before + 0.25f);
+    pump(4);
+    win->discardAsked = 0;
+    win->discardAnswer = false;
+
+    const bool asked = press(win, 2, "Re_vert patch") &&
+                       win->discardAsked == 1;
+
+    check(asked && argValue(2, "pw1") == before + 0.25f &&
+              patchMgr->isDirty(2),
+          "Revert on an edited patch asks first, and Cancel keeps the edit");
+
+    win->discardAnswer = true;
+    press(win, 2, "Re_vert patch");
+    pump(4);
+
+    check(win->discardAsked == 2 && argValue(2, "pw1") == before &&
+              !patchMgr->isDirty(2) && win->chan_ == 0,
+          "...and Discard puts the file's values back, on its own channel");
+
+    /* Open: the chosen file on this page's channel, named in the strip. */
+    std::filesystem::copy_file(saved, dir / "other.patch",
+                               std::filesystem::copy_options::overwrite_existing);
+    win->patchAnswer = (dir / "other.patch").string();
+    win->discardAsked = 0;
+
+    check(press(win, 2, "_Open patch...") && win->discardAsked == 0 &&
+              stripSays(win, 2, "other.patch") &&
+              !stripSays(win, 0, "other.patch"),
+          "Open patch... loads onto its page's channel, unasked when clean");
+
+    /* Change DSP: onto this page's channel, graph and all, asked when
+       edited. */
+    edit(2, "pw1", before + 0.5f);
+    win->dspAnswer = dsp;
+    win->discardAnswer = false;
+    win->discardAsked = 0;
+
+    const unsigned gen = generationOf(2), gen0 = generationOf(0);
+
+    check(press(win, 2, "Change _DSP...") && win->discardAsked == 1 &&
+              generationOf(2) == gen && argValue(2, "pw1") == before + 0.5f,
+          "Change DSP... on an edited patch asks, and Cancel keeps it");
+
+    win->discardAnswer = true;
+    press(win, 2, "Change _DSP...");
+    pump(4);
+
+    check(generationOf(2) != gen && stripSays(win, 2, "(unsaved)") &&
+              generationOf(0) == gen0 && win->chan_ == 2,
+          "...and Discard puts the graph on its own channel, and picks it");
+
+    /* An answer that comes after the channel was replaced by something else
+       replaces nothing. */
+    win->holdDsp = true;
+    press(win, 2, "Change _DSP...");
+    patchMgr->newPatch(dsp, 2);
+    pump(4);
+
+    const unsigned replaced = generationOf(2);
+    const int askedBefore = win->discardAsked;
+
+    win->holdDsp = false;
+
+    if (win->held)
+        win->held(dsp);
+
+    pump(4);
+
+    check(win->held && generationOf(2) == replaced &&
+              win->discardAsked == askedBefore,
+          "an answer for a channel since replaced is dropped, unasked");
+    win->held = sigc::slot<void (std::string)>();
+
+    /* The same for a discard answered after the channel moved on. */
+    edit(2, "pw1", before + 0.5f);
+    win->holdDiscard = true;
+    press(win, 2, "Change _DSP...");
+    patchMgr->newPatch(dsp, 2);
+    pump(4);
+
+    const unsigned again = generationOf(2);
+
+    win->holdDiscard = false;
+
+    if (win->heldDiscard)
+        win->heldDiscard();
+
+    pump(4);
+
+    check(win->heldDiscard && generationOf(2) == again,
+          "...and so is a discard for one");
+    win->heldDiscard = sigc::slot<void ()>();
+
+    /* Graph edits and a replace, every way round: each action, its load
+       succeeding or failing, with the channel's edited graph on screen or
+       held across a rebuild. A replace that happened leaves no editor
+       showing the old edits; one that failed leaves the same editor, edits
+       and all. */
+    struct Case { const char *action; bool works; bool held; };
+    const Case cases[] = {
+        { "Change _DSP...", true, false }, { "Change _DSP...", true, true },
+        { "Change _DSP...", false, false }, { "Change _DSP...", false, true },
+        { "_Open patch...", true, false }, { "_Open patch...", true, true },
+        { "_Open patch...", false, false }, { "_Open patch...", false, true },
+        { "Re_vert patch", true, false }, { "Re_vert patch", true, true },
+        { "Re_vert patch", false, false }, { "Re_vert patch", false, true },
+    };
+
+    win->discardAnswer = true;
+
+    for (const Case &c : cases)
+    {
+        const std::string what = std::string(c.action) +
+                                 (c.works ? " loading" : " failing") +
+                                 (c.held ? ", its graph held" : ", its graph shown");
+
+        patchMgr->newPatch(dsp, 2);
+        patchMgr->savePatch(saved, 2);
+        win->selectChannel(2);
+        pump(4);
+
+        NodeEditor *graph = win->editors_.count(2) ? win->editors_[2] : NULL;
+        NodeCanvasWidget *canvas = graph != NULL ? findCanvas(graph) : NULL;
+
+        if (canvas != NULL && canvas->graph() != NULL &&
+            !canvas->graph()->boxes().empty())
+        {
+            const double x = canvas->graph()->boxes()[0].x + 6;
+            const double y = canvas->graph()->boxes()[0].y + 6;
+
+            canvas->onPressed(1, x, y);
+            canvas->onMotion(x + 40, y);
+            canvas->onReleased(1, x + 40, y);
+        }
+
+        if (graph == NULL || !graph->dirty())
+        {
+            fail((what + ": the graph could not be edited").c_str());
+            continue;
+        }
+
+        if (c.held)
+        {
+            win->selectChannel(0);
+            patchMgr->newPatch(dsp, 5);
+            pump(4);
+        }
+
+        win->dspAnswer = c.works ? dsp : (dir / "missing.dsp").string();
+        win->patchAnswer = c.works ? saved : (dir / "missing.patch").string();
+
+        if (!c.works)
+            std::filesystem::remove(saved);
+
+        win->discardAsked = 0;
+
+        const unsigned gen = generationOf(2);
+        const bool pressed = press(win, 2, c.action);
+
+        pump(4);
+        win->selectChannel(2);
+        pump(4);
+
+        const bool replaced = generationOf(2) != gen;
+        NodeEditor *now = win->editors_.count(2) ? win->editors_[2] : NULL;
+
+        check(pressed && win->discardAsked == 1 &&
+                  win->discardWhat.find("graph") != std::string::npos &&
+                  replaced == c.works &&
+                  (c.works ? now != NULL && !now->dirty()
+                           : now == graph && graph->dirty()),
+              (what + ": " + (c.works ? "the edits go with the old patch"
+                                      : "nothing replaced, the edits stay"))
+                  .c_str());
+    }
+
+    std::filesystem::remove_all(dir);
+}
+
 static std::string
 readAll (const std::string &path)
 {
@@ -448,8 +837,9 @@ run (const std::string &pluginPath, const std::string &dsp)
     pump(4);
 
     check(win->chan_ == 2, "picking a row in Channels picks the channel");
-    check(win->dspEntryLbl_.get_label() == "Channel 3 DSP:",
-          "...and Patch params says which");
+    check(win->paramStack_.get_visible_child_name() == "ch2" &&
+              stripSays(win, 2, "3: "),
+          "...and Patch params shows its page, which says which");
     check(win->editors_.count(2) == 1,
           "...and its graph is built, since the graph is in view");
 
@@ -553,14 +943,7 @@ run (const std::string &pluginPath, const std::string &dsp)
               "...and its row selected");
     }
 
-    /* And one loaded on this channel through the DSP entry: the pages are
-       rebuilt under the entry, and the channel stays. */
-    win->dspEntry_.set_text(dsp);
-    win->onDspEntryActivate();
-    pump(4);
-
-    check(win->chan_ == 2 && win->editors_.count(2) == 1,
-          "the DSP entry reloads the channel and keeps it, graph and all");
+    checkPatchPage(win, dsp);
 
     checkAccessible(win, "patch mode");
 
