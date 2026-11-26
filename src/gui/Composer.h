@@ -38,6 +38,7 @@
 #include "SeqView.h"
 #include "StageParamsView.h"
 
+class thTuning;
 class gthMidiOut;
 class thSynth;
 class thArg;
@@ -462,8 +463,10 @@ protected:
            "unchanged instrument keeps its graph" shortcut below said
            keep and left the swapped-in graph up while the reload
            believed the declared one was there. Recording what was
-           loaded is the only thing that can tell those apart. */
+           loaded is the only thing that can tell those apart. A
+           swapped-in tuning on the same graph, likewise. */
         std::string dsp;
+        std::shared_ptr<const thTuning> tuning;
     };
 
     /* What this filled for the piece currently open, so a piece

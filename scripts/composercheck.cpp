@@ -2156,6 +2156,57 @@ runExportMidi (const std::string &pluginPath)
     }
 
     {
+        /* A swap puts a tuned instrument onto an untuned one's channel,
+           the same graph under both; a reload of the unchanged piece puts
+           the declared instrument back, untuned. */
+        const std::string tmp = stagePiece(
+                "name \"tuned swap\";\n"
+                "tuning just { scale = \"9/8 5/4 4/3 3/2 5/3 15/8 2/1\"; };\n"
+                "instrument pad { dsp \"bass.dsp\"; };\n"
+                "instrument low { dsp \"bass.dsp\"; tuning = just; };\n"
+                "chain melody {\n"
+                "    stage s gen::eno_line { notes = \"A2 C3\"; "
+                "period = 0.5 s; prob = 1; };\n"
+                "    sink { instrument = pad; };\n"
+                "};\n"
+                "chain bass {\n"
+                "    stage s gen::eno_line { notes = \"A2\"; "
+                "period = 0.5 s; prob = 1; };\n"
+                "    sink { instrument = low; };\n"
+                "};\n");
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+        TestComposer *win = new TestComposer(&synth);
+        std::string why;
+
+        pump(10);
+
+        const thcInstrument *pad = win->sched_->instrument("pad");
+        const int ch = pad != NULL ? pad->channel : -1;
+        const bool swapped = pad != NULL &&
+            win->sched_->swapInstrument(ch, "low", why) &&
+            synth.getChannel(ch) != NULL && synth.getChannel(ch)->tuning() != NULL;
+
+        win->structuralReload();
+        pump(10);
+
+        check(swapped && synth.getChannel(ch) != NULL &&
+              synth.getChannel(ch)->tuning() == NULL,
+              "a reload after a swap puts back the declared instrument's "
+              "tuning");
+
+        if (!swapped)
+            printf("      swap: %s\n", why.c_str());
+
+        delete win;
+
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
+
+    {
         /* Keep: a growing piece stepped past a growth, and what grew
            written into it as the instrument's dsp { }; reloaded, the
            instrument plays the graph it was written as. */
