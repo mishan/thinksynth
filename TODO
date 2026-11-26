@@ -216,6 +216,21 @@ Composition
   (docs/UNIFICATION.md)
 
 
+- A map of a drum's sounds, played by moving a point: thousands of random
+  settings of a drum graph's controls rendered, laid out on a square so
+  that nearby points sound alike, and a point decoded back to settings.
+  A piece moves the point -- a path, an orbit, jitter for round-robin
+  hits, a slow drift -- the way gen:: stages move numbers now, and a
+  pad on the instrument moves it by hand. A spike found a
+  self-organizing map, fitted on the sound and the settings together,
+  fills the square where a UMAP layout left holes; walks across maps of
+  kick909 and snare808 were heard as gradual and usable, though a
+  six-control map tears where the distance measures it (pitch and sweep
+  fold across the square), and maps of two or three controls tear less.
+  Named directions fitted on the settings -- tail, transient --
+  worked; brightness and body were one move in opposite directions on
+  a kick.
+
 Controllers
 -----------
 
