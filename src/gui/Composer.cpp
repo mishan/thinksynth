@@ -1576,7 +1576,8 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
 
         for (size_t i = 0; i < prevOwned_.size(); i++)
             if (prevOwned_[i].channel == inst.channel &&
-                prevOwned_[i].dsp == inst.dsp)
+                prevOwned_[i].dsp == inst.dsp &&
+                thSameTuning(prevOwned_[i].tuning.get(), inst.tuning.get()))
                 keep = true;
     }
 
@@ -1606,6 +1607,7 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
     o.channel = inst.channel;
     o.generation = have != NULL ? have->generation : 0;
     o.dsp = inst.dsp;
+    o.tuning = inst.tuning;
 
     /* One entry per channel. This is no longer called once per load: a
        swap calls it, and so does every rewind of a piece a swap has
