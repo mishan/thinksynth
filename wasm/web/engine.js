@@ -42,7 +42,8 @@
 
 /* thinkweb.cpp's TransportOp. */
 export const TRANSPORT = { start: 0, stop: 1, rewind: 2, tempo: 3,
-                           seek: 13, seekSection: 19, cue: 20 };
+                           seek: 13, seekSection: 19, cue: 20,
+                           cueEnd: 21, cueBar: 22 };
 
 const NOWHERE = {
     loaded: () => {},

@@ -1460,6 +1460,23 @@ public:
      * the piece says is what it plays from the top. */
     double cueSection (size_t section, double gridBeats);
 
+    /* A person's cue, where cueSection is a game's: what was cued and has
+       not come yet is taken back first, so the last asked for is the one
+       that plays. Asking for the section the piece would be in then
+       anyway -- the one written next, or for the end of a section that
+       section itself -- only takes them back. Returns when the asked-for
+       grid line or section end comes, or -1. */
+    double cueInstead (size_t section, double gridBeats);
+
+    /* The section the next cue still to come goes to, or -1. */
+    int cuedSection (void) const;
+
+    /* The value `section' sets knob `name' to as it begins, or with `set'
+       false none -- the knob stays where it was. In place, as the file's
+       `@name = v;' is edited. False for a section or knob not there. */
+    bool setSectionKnob (size_t section, const std::string &name,
+                         double value, bool set);
+
     /* The section a knob names, cued whenever it moves: 1 is the first
        section, 0 and anything past the last cue nothing. The file's
        `cue @knob 1 bars;'. A chain may write the knob, which makes the

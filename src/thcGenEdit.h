@@ -468,6 +468,47 @@ public:
                                   const std::string &name,
                                   std::string &why);
 
+    /* `section end;' closing the list, in place of a `section loop'; or,
+       with `end' false, whatever closes it taken out, and the list goes
+       round from the first. */
+    static Result setSectionEnd (const std::string &filename, bool end,
+                                 std::string &why);
+
+    /* Section `name' put after section `after', or first for "". */
+    static Result moveSection (const std::string &filename,
+                               const std::string &name,
+                               const std::string &after, std::string &why);
+
+    /* Section `name' again, called `copy', just after it, as written. */
+    static Result duplicateSection (const std::string &filename,
+                                    const std::string &name,
+                                    const std::string &copy,
+                                    std::string &why);
+
+    /* A section as the file writes it: its length as written (`16 bars'),
+       whether it holds, and every chain level and knob value it names
+       (a knob with its `@'). */
+    struct SectionText
+    {
+        std::string name;
+        std::string length;
+        bool hold = false;
+        std::vector<std::pair<std::string, double> > levels;
+    };
+
+    /* How the list closes: `section end;', `section loop <name>;', or
+       neither, going round; and the knobs a `cue @knob' follows. */
+    struct Ending
+    {
+        bool ends = false;
+        std::string loopTo;
+        std::vector<std::string> cues;
+    };
+
+    static Result sections (const std::string &filename,
+                            std::vector<SectionText> &out, Ending &ending,
+                            std::string &why);
+
     /* `cue @knob <grid>;' (`1 bars') at the end of the file, unless knob
        has one already; refused where another knob has, as a piece
        follows one. */

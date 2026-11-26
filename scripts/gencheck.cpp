@@ -65,6 +65,7 @@
 #include "thcGenFile.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "SessionModel.h"
 #include "thcMidiExport.h"
 #include "NodeEvolve.h"
 #include "NodeGraft.h"
@@ -14022,6 +14023,703 @@ checkChainIdentity (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* The session grid's model of a piece: what it reads -- the sections in
+ * order with their lengths as written, the playing and cued ones, a row
+ * per chain then per knob, written cells and not -- what it refuses, and
+ * what it writes, read back. A toggle turns a cell off and back to the
+ * level it had, remembered across builds.
+ */
+static void
+checkSessionModel (void)
+{
+    const std::string path = thUtil::tempFile("gencheck-session-");
+
+    if (path.empty())
+    {
+        fail("could not write the session piece");
+        return;
+    }
+
+    auto write = [&path] (const std::string &text)
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << text;
+    };
+    const std::string chains =
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n"
+        "chain conductor {\n"
+        "  stage src gen::euclid { steps = 4; fills = 1; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { knob = @act; };\n"
+        "};\n";
+    const std::string sections =
+        "section intro 2 bars { kick = 0.75; @kick = 0.25; };\n"
+        "section verse 8 beats hold { };\n"
+        "section end;\n";
+
+    write("tempo 120;\n@kick = 0.5;\n@act = 1;\n" + sections + chains);
+
+    SessionModel model;
+    thSession grid;
+    std::string why, warn;
+
+    if (!model.build(path, 1, 0, grid, why))
+    {
+        fail("session model: the piece did not read: " + why);
+        remove(path.c_str());
+        return;
+    }
+
+    std::string seen;
+
+    for (const auto &c : grid.columns)
+        seen += c.name + "/" + c.length + (c.hold ? "/hold" : "") +
+                (c.playing ? "/playing" : "") + (c.cued ? "/cued" : "") + " ";
+
+    for (const auto &r : grid.rows)
+    {
+        seen += "| " + std::string(r.knob ? "@" : "") + r.name +
+                (r.notes ? " notes" : "") + (r.cues ? " cues" : "");
+
+        for (const auto &cell : r.cells)
+            seen += cell.written ? " " + std::to_string(cell.value).substr(0, 4)
+                                 : " -";
+    }
+
+    const std::string want =
+        "intro/2 bars/cued verse/8 beats/hold/playing | kick notes 0.75 -"
+        "| conductor - -| @kick 0.25 -| @act - -";
+
+    if (seen != want || grid.ending != thSession::ENDS)
+    {
+        fail("session model: read as\n  " + seen + "\nnot\n  " + want);
+        remove(path.c_str());
+        return;
+    }
+
+    /* Edits, each read back. */
+    auto made = [&] (thSessionEdit e)
+    {
+        return model.propose(e, why, warn) &&
+               model.apply(path, e, why) == thcGenEdit::OK &&
+               model.build(path, -1, -1, grid, why) &&
+               grid.rows.size() == 4 && grid.columns.size() >= 2;
+    };
+    thSessionEdit e;
+
+    e.kind = thSessionEdit::LEVEL;
+    e.section = "verse";
+    e.row = "kick";
+    e.value = 0.5;
+
+    const bool level = made(e) && grid.rows[0].cells[1].written &&
+                       grid.rows[0].cells[1].value == 0.5;
+
+    /* The knob, though a chain shares its name. */
+    e.row = "@kick";
+    e.section = "intro";
+    e.set = false;
+
+    const bool cleared = made(e) && !grid.rows[2].cells[0].written &&
+                         grid.rows[0].cells[0].value == 0.75;
+
+    e = thSessionEdit();
+    e.kind = thSessionEdit::DUPLICATE;
+    e.section = "verse";
+    e.name = "chorus";
+
+    const bool copied = made(e) && grid.columns.size() == 3 &&
+                        grid.columns[2].name == "chorus" &&
+                        grid.columns[2].hold;
+
+    e = thSessionEdit();
+    e.kind = thSessionEdit::MOVE;
+    e.section = "chorus";
+
+    const bool moved = made(e) && grid.columns[0].name == "chorus";
+
+    /* Round from the first, from an end and from a loop. */
+    e = thSessionEdit();
+    e.kind = thSessionEdit::LOOP;
+
+    const bool cycles = made(e) && grid.ending == thSession::CYCLES;
+
+    e.section = "verse";
+
+    const bool looped = made(e) && grid.ending == thSession::LOOPS &&
+                        grid.loopTo == "verse";
+
+    e.section = "";
+
+    const bool unlooped = made(e) && grid.ending == thSession::CYCLES;
+
+    if (!level || !cleared || !copied || !moved || !cycles || !looped ||
+        !unlooped)
+        fail("session model: an edit did not read back as made: level " +
+             std::to_string(level) + ", cleared " + std::to_string(cleared) +
+             ", copied " + std::to_string(copied) + ", moved " +
+             std::to_string(moved) + ", cycles " + std::to_string(cycles) +
+             ", looped " + std::to_string(looped) + ", unlooped " +
+             std::to_string(unlooped) + ": " + why + "\n" + slurp(path));
+
+    /* A cell clicked off and on again comes back at 0.75, after a build
+       between; an unwritten one goes off, and one off with nothing
+       remembered comes on at 1. */
+    thSessionEdit off = model.toggle("intro", "kick");
+    const bool turnedOff = off.value == 0 && made(off);
+    thSessionEdit on = model.toggle("intro", "kick");
+    thSessionEdit fresh = model.toggle("chorus", "conductor");
+    SessionModel other;
+
+    other.build(path, -1, -1, grid, why);
+
+    thSessionEdit forgot = other.toggle("intro", "kick");
+
+    if (!turnedOff || on.value != 0.75 || fresh.value != 0 ||
+        forgot.value != 1)
+        fail("session model: toggled, intro's kick went " +
+             std::to_string(off.value) + " then " + std::to_string(on.value) +
+             ", chorus's conductor to " + std::to_string(fresh.value) +
+             ", and with nothing remembered to " +
+             std::to_string(forgot.value));
+
+    /* Refused: a level below 0, a section not there; with a cue, any
+       reordering -- and muting the chain that writes the cue's knob is
+       said first. */
+    thSessionEdit bad;
+
+    bad.kind = thSessionEdit::LEVEL;
+    bad.section = "intro";
+    bad.row = "kick";
+    bad.value = -1;
+
+    const bool negative = !model.propose(bad, why, warn);
+
+    bad.section = "nowhere";
+    bad.value = 1;
+
+    const bool missing = !model.propose(bad, why, warn);
+
+    write("tempo 120;\n@kick = 0.5;\n@act = 1;\n" + sections + chains +
+          "cue @act 1 bars;\n");
+    model.build(path, -1, -1, grid, why);
+
+    thSessionEdit reorder;
+
+    reorder.kind = thSessionEdit::MOVE;
+    reorder.section = "verse";
+
+    const bool cueRefused = !model.propose(reorder, why, warn) &&
+                            why.find("@act") != std::string::npos;
+
+    thSessionEdit mute;
+
+    mute.kind = thSessionEdit::LEVEL;
+    mute.section = "intro";
+    mute.row = "conductor";
+    mute.value = 0;
+
+    const bool warned = model.propose(mute, why, warn) &&
+                        warn.find("@act") != std::string::npos &&
+                        grid.rows[1].cues;
+
+    if (!negative || !missing || !cueRefused || !warned)
+        fail("session model: refused a negative level " +
+             std::to_string(negative) + ", a missing section " +
+             std::to_string(missing) + ", a reorder under a cue " +
+             std::to_string(cueRefused) + ", warned of muting the cue's " +
+             "chain " + std::to_string(warned));
+
+    remove(path.c_str());
+}
+
+/* Sections edited while a piece plays, and cued by a person.
+ *
+ * A live edit keeps the piece where it is: in a held section on its
+ * third pass, taking the hold off would put it two sections on if the
+ * list were walked again from the top, and removing the section playing
+ * hands its place to the one that now stands there. A person's cue
+ * (cueInstead) replaces the one pending, and asking for the section
+ * playing takes it back; cuedSection says which is coming. And a
+ * section's knob value set and cleared in place.
+ */
+static void
+checkSectionsLive (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const std::string chains =
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n";
+    const std::string head = "tempo 120;\n@k = 0.5;\n";
+    const std::string held =
+        "section a 1 bars { };\n"
+        "section b 1 bars hold { };\n"
+        "section c 1 bars { };\n";
+    auto playedTo = [&] (thcScheduler &sched, double seconds,
+                         const std::string &sections)
+    {
+        thcGenLoader loader(plugins);
+
+        clearChannels(synth);
+        sched.setAuditionSynchronous(true);
+
+        if (!loader.loadText(head + sections + chains, "live.gen", &sched))
+            return false;
+
+        sched.start();
+
+        for (int step = 1; step <= (int)(seconds / 0.02 + 0.5); step++)
+            sched.stepTransportAt(0.02, 1000000000 + (int64_t)step * 20000);
+
+        return true;
+    };
+    auto edited = [&] (thcScheduler &sched, const std::string &sections)
+    {
+        thcScheduler next(synth);
+        thcGenLoader edit(plugins);
+        std::string why;
+
+        sched.prepareEdit(next, {});
+        return edit.loadText(head + sections + chains, "live.gen", &next) &&
+               sched.adopt(next, thcScheduler::EditPlan(), why);
+    };
+    const struct
+    {
+        const char *what;
+        std::string sections;
+        const char *playing;        /* after the edit, at 7 s */
+    } EDITS[] = {
+        { "the hold taken off the section playing",
+          "section a 1 bars { };\nsection b 1 bars { };\n"
+          "section c 1 bars { };\n", "b" },
+        { "a section added before it",
+          "section x 1 beats { };\n" + held, "b" },
+        { "the section playing taken out",
+          "section a 1 bars { };\nsection c 2 bars { };\n", "c" },
+    };
+
+    /* A bar is 2 s: a 0-2, then b held from 2, its third pass 6-8. */
+    for (const auto &e : EDITS)
+    {
+        thcScheduler sched(synth);
+        thcScheduler::SectionSpan span;
+
+        if (!playedTo(sched, 7, held) || !edited(sched, e.sections))
+        {
+            fail(std::string("sections live: ") + e.what + " did not apply");
+            continue;
+        }
+
+        const bool found = sched.sectionSpanAt(sched.now(), span);
+        const std::string at = found
+            ? sched.sections()[span.section].name : "nothing";
+
+        if (at != e.playing || std::fabs(span.start - 6) > 1e-6)
+            fail(std::string("sections live: after ") + e.what +
+                 ", 7 s is in " + at + " from " + std::to_string(span.start) +
+                 " s, not " + e.playing + " from 6 s");
+        sched.stop();
+    }
+
+    thcScheduler sched(synth);
+
+    if (!playedTo(sched, 0.5, "section a 1 bars { };\nsection b 1 bars { };\n"
+                              "section c 1 bars { };\nsection d 1 bars { };\n"))
+    {
+        fail("sections live: the piece did not load");
+        return;
+    }
+
+    /* In a: c then d leaves d; b, which comes next anyway, and a, which
+       is playing, each only take back what is cued. */
+    std::string cued;
+
+    for (size_t s : { 2, 3, 1, 3, 0 })
+    {
+        sched.cueInstead(s, 0);
+        cued += std::to_string(sched.cuedSection()) + " ";
+    }
+
+    if (cued != "2 3 -1 3 -1 ")
+        fail("sections live: a person's cues of c, d, b, d and a left " +
+             cued + "cued, not 2 3 -1 3 -1");
+
+    /* A knob value given to b before it begins is what b sets it to. */
+    const bool set = sched.setSectionKnob(1, "k", 0.75, true) &&
+                     sched.setSectionKnob(2, "k", 0.25, true) &&
+                     sched.setSectionKnob(2, "k", 0, false) &&
+                     !sched.setSectionKnob(1, "nope", 1, true);
+
+    for (int step = 1; step <= 100; step++)
+        sched.stepTransportAt(0.02, 2000000000 + (int64_t)step * 20000);
+
+    const float k = (*sched.knob("k"))[0];
+
+    if (!set || k != 0.75f || !sched.sections()[2].knobs.empty())
+        fail("sections live: b set to give @k 0.75 left it at " +
+             std::to_string(k) + (set ? "" : ", and an edit was refused"));
+    sched.stop();
+}
+
+/* Sections moved, copied, added, taken out and the list's end changed at
+ * random, from a piece with a held section, one setting a knob, a comment
+ * inside one and `section end;' -- after every edit the file read back
+ * (thcGenEdit::sections) and loaded (the scheduler's sections) agree with
+ * a model of what was done, in order and in what each section holds. And
+ * what each new edit writes, once each.
+ */
+static void
+checkSectionOrder (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const std::string path = thUtil::tempFile("gencheck-order-");
+
+    if (path.empty())
+    {
+        fail("could not write the section-order piece");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << "tempo 120;\n"
+               "@k = 0.5;\n"
+               "section a 1 bars { kick = 0; };\n"
+               "section b 2 bars hold {\n"
+               "    # the quiet one\n"
+               "    snare = 0.5;\n"
+               "};\n"
+               "section c 4 beats { @k = 0.25; };\n"
+               "section end;\n"
+               "chain kick {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+               "    vel = 100; };\n"
+               "  sink { channel = 1; };\n"
+               "};\n"
+               "chain snare {\n"
+               "  stage src gen::euclid { steps = 4; fills = 4; "
+               "rotate = 0;\n"
+               "    notes = \"D2\"; period = 1 beats; hold = 0.2 beats;\n"
+               "    vel = 80; };\n"
+               "  sink { channel = 2; };\n"
+               "};\n";
+    }
+
+    using R = thcGenEdit::Result;
+    std::string why;
+    std::vector<thcGenEdit::SectionText> read;
+    thcGenEdit::Ending ending;
+
+    /* Once each: a copy keeps everything but its name, a move to the top
+       and past the last keeps the end below them, and the end turns into
+       a loop and back. */
+    editOk(thcGenEdit::duplicateSection(path, "b", "b2", why), why,
+           "duplicateSection");
+    editOk(thcGenEdit::moveSection(path, "c", "", why), why,
+           "moveSection to the top");
+    editOk(thcGenEdit::moveSection(path, "a", "b2", why), why,
+           "moveSection after the last");
+    thcGenEdit::sections(path, read, ending, why);
+
+    {
+        std::string order;
+
+        for (const auto &s : read)
+            order += s.name + " ";
+
+        const std::string text = slurp(path);
+
+        if (order != "c b b2 a " || !ending.ends || read.size() != 4 ||
+            !read[2].hold || read[2].length != "2 bars" ||
+            text.find("    # the quiet one\n    snare = 0.5;\n",
+                      text.find("section b2")) == std::string::npos ||
+            text.rfind("section end;") < text.rfind("section a "))
+            fail("moved and copied, the sections read back as " + order +
+                 "from:\n" + text);
+    }
+
+    editOk(thcGenEdit::setSectionLoop(path, "b", why), why,
+           "setSectionLoop");
+    editOk(thcGenEdit::setSectionEnd(path, true, why), why,
+           "setSectionEnd over a loop");
+    thcGenEdit::sections(path, read, ending, why);
+
+    if (!ending.ends || !ending.loopTo.empty())
+        fail("setSectionEnd did not put the end back over the loop:\n" +
+             slurp(path));
+
+    editOk(thcGenEdit::setSectionEnd(path, false, why), why,
+           "setSectionEnd off");
+    thcGenEdit::sections(path, read, ending, why);
+
+    if (ending.ends || slurp(path).find("section end") != std::string::npos)
+        fail("setSectionEnd(false) left the end in:\n" + slurp(path));
+
+    /* At random, against a model: the order, each section's length, hold
+       and levels, and how the list closes -- from that file, and from one
+       written untidily: statements sharing lines, comments after them, a
+       meter on the first section's line, a section named like a chain. */
+    struct Held
+    {
+        std::string length;
+        bool hold;
+        std::vector<std::pair<std::string, double> > levels;
+    };
+    const std::string chains =
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n"
+        "chain snare {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"D2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 80; };\n"
+        "  sink { channel = 2; };\n"
+        "};\n";
+    const std::string untidy =
+        "tempo 120; @k = 0.5;\n"
+        "meter 3; section kick 2 bars { kick = 0; }; # the first\n"
+        "section b 3 beats hold { snare = 0.5; @k = 1; }; section c 1 bars "
+        "{ };  # shared\n"
+        "section d 4 bars { kick = 0.25; }; section end;\n" + chains;
+
+    /* `meter' beats a bar: what a section's bars fold to. */
+    auto walk = [&] (const std::string &label, unsigned seed, int meter)
+    {
+        thcGenEdit::sections(path, read, ending, why);
+
+        std::vector<std::string> order;
+        std::map<std::string, Held> held;
+        bool ends = ending.ends;
+        std::string loopTo = ending.loopTo;
+        int fresh = 0;
+        auto rnd = [&seed] (size_t n)
+        {
+            seed = seed * 1103515245u + 12345u;
+            return n == 0 ? 0 : (size_t)((seed >> 8) % n);
+        };
+
+        for (const auto &sec : read)
+        {
+            order.push_back(sec.name);
+            held[sec.name] = { sec.length, sec.hold, sec.levels };
+        }
+
+        for (int step = 0; step < 400; step++)
+        {
+            const std::string any = order[rnd(order.size())];
+            const std::string other = order[rnd(order.size())];
+            std::string did;
+            R r = thcGenEdit::OK;
+
+            switch (rnd(6))
+            {
+                case 0:
+                case 1:
+                {
+                    const std::string after = rnd(4) == 0 ? "" : other;
+
+                    did = "move " + any + " after '" + after + "'";
+                    r = thcGenEdit::moveSection(path, any, after, why);
+
+                    if (r == thcGenEdit::OK && after != any)
+                    {
+                        order.erase(std::find(order.begin(), order.end(),
+                                              any));
+                        order.insert(after.empty() ? order.begin()
+                            : std::find(order.begin(), order.end(), after)
+                              + 1, any);
+                    }
+
+                    break;
+                }
+
+                case 2:
+                {
+                    const std::string copy = "d" + std::to_string(fresh++);
+
+                    did = "duplicate " + any + " as " + copy;
+                    r = thcGenEdit::duplicateSection(path, any, copy, why);
+
+                    if (r == thcGenEdit::OK)
+                    {
+                        order.insert(std::find(order.begin(), order.end(),
+                                               any) + 1, copy);
+                        held[copy] = held[any];
+                    }
+
+                    break;
+                }
+
+                case 3:
+                {
+                    const std::string name = "n" + std::to_string(fresh++);
+
+                    did = "add " + name + " after '" + other + "'";
+                    r = thcGenEdit::addSection(path, name, "1 bars", other,
+                                               {}, why);
+
+                    if (r == thcGenEdit::OK)
+                    {
+                        order.insert(std::find(order.begin(), order.end(),
+                                               other) + 1, name);
+                        held[name] = { "1 bars", false, {} };
+                    }
+
+                    break;
+                }
+
+                case 4:
+                    did = "remove " + any;
+
+                    if (order.size() <= 2)
+                        continue;
+
+                    r = thcGenEdit::removeSection(path, any, why);
+
+                    if (r == thcGenEdit::OK)
+                        order.erase(std::find(order.begin(), order.end(),
+                                              any));
+                    else if (r == thcGenEdit::REFUSED && any == loopTo)
+                        r = thcGenEdit::OK;
+
+                    break;
+
+                default:
+                    switch (rnd(3))
+                    {
+                        case 0:
+                            did = "end";
+                            r = thcGenEdit::setSectionEnd(path, true, why);
+                            ends = true;
+                            loopTo.clear();
+                            break;
+                        case 1:
+                            did = "go round";
+                            r = thcGenEdit::setSectionEnd(path, false, why);
+                            ends = false;
+                            loopTo.clear();
+                            break;
+                        default:
+                            did = "loop to " + any;
+                            r = thcGenEdit::setSectionLoop(path, any, why);
+                            ends = false;
+                            loopTo = any;
+                    }
+            }
+
+            if (r != thcGenEdit::OK)
+            {
+                fail(label + ", step " + std::to_string(step) + ": " + did +
+                     ": " + why + "\n" + slurp(path));
+                return;
+            }
+
+            const R readR = thcGenEdit::sections(path, read, ending, why);
+            std::string got, want;
+            bool same = readR == thcGenEdit::OK &&
+                        read.size() == order.size() &&
+                        ending.ends == ends && ending.loopTo == loopTo;
+
+            for (size_t i = 0; i < read.size(); i++)
+            {
+                const Held &h = held[i < order.size() ? order[i] : ""];
+
+                got += read[i].name + " ";
+
+                if (same && (read[i].name != order[i] ||
+                             read[i].length != h.length ||
+                             read[i].hold != h.hold ||
+                             read[i].levels != h.levels))
+                    same = false;
+            }
+
+            for (const auto &n : order)
+                want += n + " ";
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+            const bool loads = loader.load(path, &sched);
+            bool scheduled = loads &&
+                             sched.sections().size() == order.size();
+
+            for (size_t i = 0; scheduled && i < order.size(); i++)
+            {
+                const thcSection &sec = sched.sections()[i];
+                const std::string &len = held[order[i]].length;
+                const double n = strtod(len.c_str(), NULL);
+                const double beats =
+                    len.find("bar") != std::string::npos ? n * meter : n;
+
+                scheduled = sec.name == order[i] && sec.beats &&
+                            sec.length == beats;
+            }
+
+            if (!same || !scheduled)
+            {
+                fail(label + ", step " + std::to_string(step) + ": " + did +
+                     ": read " + got + "loaded " + (loads ? "" : "not ") +
+                     "for " + want + "\n" + slurp(path));
+                return;
+            }
+        }
+    };
+
+    walk("section order", 11, 4);
+
+    auto untidyFile = [&] ()
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << untidy;
+    };
+
+    /* Once each, untidily: to the top past the meter sharing the first
+       section's line, which has to stay above them all, and a section
+       moved with the comment after it on its line. */
+    untidyFile();
+    editOk(thcGenEdit::moveSection(path, "b", "", why), why,
+           "moveSection to the top past a meter");
+    editOk(thcGenEdit::moveSection(path, "c", "d", why), why,
+           "moveSection with a comment after it");
+
+    {
+        const std::string text = slurp(path);
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        const size_t c = text.find("section c"), shared = text.find("# shared");
+
+        if (text.find("meter 3;") > text.find("section b") ||
+            shared == std::string::npos || shared < c ||
+            text.find('\n', c) < shared ||
+            shared < text.find("section d") ||
+            !loader.load(path, &sched) || !sched.endsAfterSections())
+            fail("moved untidily, the sections read:\n" + text);
+    }
+
+    untidyFile();
+    walk("section order, untidy", 23, 3);
+
+    remove(path.c_str());
+}
+
 /* A chain's level in a section, edited: thcGenEdit::setSectionLevel
  * writes an entry into a one-line block and into a block written a line
  * at a time, changes one, and takes one out at 1 -- each file one the
@@ -17488,6 +18186,9 @@ main (int argc, char *argv[])
         checkMuteSolo(plugins, &synth);
         checkChainIdentity(plugins, &synth);
         checkSectionEdits(plugins, &synth);
+        checkSectionOrder(plugins, &synth);
+        checkSectionsLive(plugins, &synth);
+        checkSessionModel();
         checkDrawnControls(plugins, &synth);
         checkSeek(plugins, &synth);
         checkProbes(plugins, &synth);

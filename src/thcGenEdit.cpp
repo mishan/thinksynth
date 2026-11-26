@@ -3541,6 +3541,37 @@ validSectionLength (const std::string &text, std::string &why)
     return true;
 }
 
+/* Where `stmt' goes to follow the statement ending at `b': on the next
+   line, past a comment at the end of its own, or straight after it when
+   another statement shares it -- `stmt' given the line break that needs. */
+static size_t
+behindStmt (const std::string &text, size_t b, std::string &stmt)
+{
+    size_t k = b;
+
+    while (k < text.size() && (text[k] == ' ' || text[k] == '\t' ||
+                               text[k] == '\r'))
+        k++;
+
+    if (k < text.size() && text[k] == '#')
+        k = text.find('\n', k);
+
+    if (k == std::string::npos || k >= text.size())
+    {
+        stmt = "\n" + stmt;
+        return text.size();
+    }
+
+    if (text[k] != '\n')
+    {
+        stmt = "\n" + stmt;
+        return b;
+    }
+
+    stmt += "\n";
+    return k + 1;
+}
+
 static SectionIdx *
 findSection (Index &ix, const std::string &name)
 {
@@ -3621,34 +3652,9 @@ thcGenEdit::addSection (const std::string &filename, const std::string &name,
     stmt += " };";
 
     size_t at;
-
-    /* After a statement: on the next line, past a comment at the end of
-       its own, or straight after it when another statement shares it. */
     auto behind = [&text, &stmt] (size_t b)
     {
-        size_t k = b;
-
-        while (k < text.size() && (text[k] == ' ' || text[k] == '\t' ||
-                                   text[k] == '\r'))
-            k++;
-
-        if (k < text.size() && text[k] == '#')
-            k = text.find('\n', k);
-
-        if (k == std::string::npos || k >= text.size())
-        {
-            stmt = "\n" + stmt;
-            return text.size();
-        }
-
-        if (text[k] != '\n')
-        {
-            stmt = "\n" + stmt;
-            return b;
-        }
-
-        stmt += "\n";
-        return k + 1;
+        return behindStmt(text, b, stmt);
     };
 
     if (!after.empty())
@@ -3886,6 +3892,214 @@ thcGenEdit::setSectionLoop (const std::string &filename,
                           ix.sections.back().stmtB, "\n" + stmt });
 
     return finish(filename, text, edits, why);
+}
+
+/* `section end;' closing the list, in place of a `section loop', or
+   after the last section; or with `end' false, whatever closes it taken
+   out, so that the list goes round from the first. */
+R
+thcGenEdit::setSectionEnd (const std::string &filename, bool end,
+                           std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    std::vector<Edit> edits;
+    const bool closed = ix.sectionEndA != std::string::npos;
+
+    if (!end)
+    {
+        if (closed)
+            edits.push_back(thEraseStmt(text, ix.sectionEndA,
+                                        ix.sectionEndB));
+    }
+    else if (ix.sections.empty())
+    {
+        why = "a piece with no sections has nothing to end";
+        return REFUSED;
+    }
+    else if (closed && ix.loopTo.empty())
+        return OK;
+    else if (closed)
+        edits.push_back({ ix.sectionEndA, ix.sectionEndB, "section end;" });
+    else
+    {
+        std::string stmt = "section end;";
+        const size_t at = behindStmt(text, ix.sections.back().stmtB, stmt);
+
+        edits.push_back({ at, at, stmt });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+/* Section `name' taken from where it is and put after section `after',
+   or first for "": the statement as written, comments inside it and all.
+   The list's closing statement stays where it is, below them all. */
+R
+thcGenEdit::moveSection (const std::string &filename, const std::string &name,
+                         const std::string &after, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+    const SectionIdx *to = after.empty() ? NULL : findSection(ix, after);
+
+    if (se == NULL || (!after.empty() && to == NULL))
+    {
+        why = "no section called " + (se == NULL ? name : after);
+        return NOT_FOUND;
+    }
+
+    if (after == name)
+        return OK;
+
+    const size_t at = se - ix.sections.data();
+
+    /* Already there: after `after', or first. */
+    if (after.empty() ? at == 0
+                      : at > 0 && ix.sections[at - 1].name == after)
+        return OK;
+
+    /* With a comment after it on its line, which is about it. */
+    size_t end = se->stmtB;
+
+    while (end < text.size() && (text[end] == ' ' || text[end] == '\t'))
+        end++;
+
+    if (end < text.size() && text[end] == '#')
+        end = std::min(text.find('\n', end), text.size());
+    else
+        end = se->stmtB;
+
+    std::string stmt = text.substr(se->stmtA, end - se->stmtA);
+    std::vector<Edit> edits;
+    size_t where;
+
+    if (to != NULL)
+    {
+        where = behindStmt(text, to->stmtB, stmt);
+
+        /* Its comment would take in what follows on that line. */
+        if (end != se->stmtB && stmt.back() != '\n')
+            stmt += "\n";
+    }
+    else
+    {
+        /* Above the first, on its line when another statement -- a
+           `meter' the sections need above them -- comes first there. */
+        const size_t first = ix.sections.front().stmtA;
+
+        where = thLineStart(text, first);
+
+        if (text.find_first_not_of(" \t", where) < first)
+        {
+            where = first;
+            stmt += stmt.find('#') != std::string::npos ? "\n" : " ";
+        }
+        else
+            stmt += "\n";
+    }
+
+    edits.push_back(thEraseStmt(text, se->stmtA, end));
+    edits.push_back({ where, where, stmt });
+
+    return finish(filename, text, edits, why);
+}
+
+/* Section `name' again, called `copy', just after it: the statement as
+   written -- its levels, its knobs' values, `hold' -- under the new name. */
+R
+thcGenEdit::duplicateSection (const std::string &filename,
+                              const std::string &name,
+                              const std::string &copy, std::string &why)
+{
+    if (!validName(copy) || copy == "end" || copy == "loop")
+    {
+        why = "'" + copy + "' is not a name a section can have";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    const SectionIdx *se = findSection(ix, name);
+
+    if (se == NULL)
+    {
+        why = "no section called " + name;
+        return NOT_FOUND;
+    }
+
+    if (findSection(ix, copy) != NULL)
+    {
+        why = "there is already a section called " + copy;
+        return REFUSED;
+    }
+
+    std::string stmt = text.substr(se->stmtA, se->nameA - se->stmtA) +
+                       copy +
+                       text.substr(se->nameB, se->stmtB - se->nameB);
+    std::vector<Edit> edits;
+    const size_t where = behindStmt(text, se->stmtB, stmt);
+
+    edits.push_back({ where, where, stmt });
+
+    return finish(filename, text, edits, why);
+}
+
+/* The sections as the file writes them, in order, and how the list
+   closes. */
+R
+thcGenEdit::sections (const std::string &filename,
+                      std::vector<SectionText> &out, Ending &ending,
+                      std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    out.clear();
+    ending = Ending();
+
+    if (r != OK)
+        return r;
+
+    for (const SectionIdx &se : ix.sections)
+    {
+        SectionText st;
+
+        st.name = se.name;
+        st.length = text.substr(se.lenA, se.lenB - se.lenA);
+        st.hold = se.holdA != std::string::npos;
+
+        for (const SectionRefIdx &ref : se.refs)
+            st.levels.push_back({ ref.chain,
+                strtod(text.substr(ref.levelA,
+                                   ref.levelB - ref.levelA).c_str(),
+                       NULL) });
+
+        out.push_back(st);
+    }
+
+    ending.ends = ix.sectionEndA != std::string::npos && ix.loopTo.empty();
+    ending.loopTo = ix.loopTo;
+    ending.cues = ix.cues;
+
+    return OK;
 }
 
 R

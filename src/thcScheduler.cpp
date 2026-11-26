@@ -3486,6 +3486,35 @@ thcScheduler::adopt (thcScheduler &next, const EditPlan &plan,
                 next.sections_[k].name == sections_[c.second].name)
                 cues.push_back(std::make_pair(c.first, (int)k));
 
+    /* And the section playing goes on from where this pass of it began,
+       held to by a cue there. Where the piece is is found by walking the
+       list from the top or the last cue, so an edit that moves, adds or
+       removes a section before it, or drops a hold, would otherwise put
+       it somewhere else mid-phrase. Gone itself, the section now in its
+       place plays from there, and with none there the list decides. At
+       the top nothing is held to: the piece starts as the new text says. */
+    SectionSpan here;
+
+    if (transportNow_ > 1e-9 && !next.sections_.empty() &&
+        sectionSpanAt(transportNow_, here))
+    {
+        const std::string &was = sections_[here.section].name;
+        size_t k = (size_t)here.section;
+
+        for (size_t j = 0; j < next.sections_.size(); j++)
+            if (next.sections_[j].name == was)
+                k = j;
+
+        auto at = std::find_if(cues.begin(), cues.end(),
+            [&here] (const auto &c) { return c.first > here.start + 1e-9; });
+        const bool held = at != cues.begin() &&
+                          std::fabs((at - 1)->first - here.start) < 1e-9 &&
+                          (at - 1)->second == (int)k;
+
+        if (k < next.sections_.size() && !held)
+            cues.insert(at, std::make_pair(here.start, (int)k));
+    }
+
     sections_ = next.sections_;
     endAfter_ = next.endAfter_;
     loopFrom_ = next.loopFrom_;
@@ -4076,6 +4105,59 @@ thcScheduler::cueSection (size_t section, double gridBeats)
     cues_.push_back(std::make_pair(at, (int)section));
 
     return at;
+}
+
+double
+thcScheduler::cueInstead (size_t section, double gridBeats)
+{
+    if (section >= sections_.size() || tempo_ <= 0)
+        return -1;
+
+    while (!cues_.empty() && cues_.back().first > transportNow_ + 1e-9)
+        cues_.pop_back();
+
+    const double at = cueTime(gridBeats);
+    SectionSpan span;
+
+    if ((gridBeats <= 0 && sectionAt(transportNow_) == (int)section) ||
+        (sectionSpanAt(at, span) && span.section == (int)section))
+        return at;
+
+    return cueSection(section, gridBeats);
+}
+
+int
+thcScheduler::cuedSection (void) const
+{
+    for (const auto &c : cues_)
+        if (c.first > transportNow_ + 1e-9)
+            return c.second;
+
+    return -1;
+}
+
+bool
+thcScheduler::setSectionKnob (size_t section, const std::string &name,
+                              double value, bool set)
+{
+    if (section >= sections_.size() || knob(name) == NULL)
+        return false;
+
+    auto &knobs = sections_[section].knobs;
+    auto it = std::find_if(knobs.begin(), knobs.end(),
+                           [&name] (const auto &k) { return k.first == name; });
+
+    if (!set)
+    {
+        if (it != knobs.end())
+            knobs.erase(it);
+    }
+    else if (it != knobs.end())
+        it->second = value;
+    else
+        knobs.push_back(std::make_pair(name, value));
+
+    return true;
 }
 
 void
