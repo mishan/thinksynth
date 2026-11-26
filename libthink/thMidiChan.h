@@ -170,6 +170,7 @@ public:
        channel is published and fixed for its life: the audio thread reads
        the table and nothing writes it, so no change crosses threads. */
     void setTuning (std::shared_ptr<const thTuning> tuning) { tuning_ = std::move(tuning); }
+    const thTuning *tuning (void) const { return tuning_.get(); }
 
     /* ---- either, with care ---- */
 

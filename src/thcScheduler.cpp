@@ -33,6 +33,7 @@
 #include "thcScheduler.h"
 #include "thcGenFile.h"
 #include "JsonOut.h"
+#include "thTuning.h"
 
 static_assert(THC_NOTE_SAY == TH_NOTE_SAY,
               "a note's say fits the voice's");
@@ -1970,7 +1971,7 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
 
         if (synth_ == NULL ||
             synth_->loadTree((path.empty() ? inst.dsp : path).c_str(),
-                             inst.channel, TH_DEFAULT_CHAN_AMP) == NULL)
+                             inst.channel, TH_DEFAULT_CHAN_AMP, inst.tuning) == NULL)
         {
             why = "'" + inst.dsp + "' did not load";
             return false;
@@ -2312,7 +2313,7 @@ thcScheduler::putOn (const thcInstrument &put, std::string &why)
 
         if (synth_ == NULL ||
             synth_->loadTree((path.empty() ? put.dsp : path).c_str(),
-                             put.channel, TH_DEFAULT_CHAN_AMP) == NULL)
+                             put.channel, TH_DEFAULT_CHAN_AMP, put.tuning) == NULL)
         {
             why = "'" + put.dsp + "' did not load";
             return false;
@@ -3713,7 +3714,8 @@ thcScheduler::sameInstrument (const thcInstrument &a, const thcInstrument &b)
         a.channel != b.channel || a.args.size() != b.args.size() ||
         a.midi != b.midi || a.midiChannel != b.midiChannel ||
         a.midiProgram != b.midiProgram || a.ccs.size() != b.ccs.size() ||
-        a.texts.size() != b.texts.size())
+        a.texts.size() != b.texts.size() ||
+        !thSameTuning(a.tuning.get(), b.tuning.get()))
         return false;
 
     for (size_t i = 0; i < a.texts.size(); i++)

@@ -109,4 +109,10 @@ private:
     double note_[KEYS];
 };
 
+/* Two channels' tunings sound alike: both none, or the same table. */
+inline bool thSameTuning (const thTuning *a, const thTuning *b)
+{
+    return a == b || (a != NULL && b != NULL && *a == *b);
+}
+
 #endif /* TH_TUNING_H */

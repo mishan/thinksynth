@@ -835,11 +835,23 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     continue;
                 }
 
+                /* `tuning = just;': names a tuning, not a value, so it
+                   is no chanarg here and "pick a graph", which drops the
+                   values, keeps it. */
+                if (t[j].kind == Tok::WORD && t[j].text == "tuning" &&
+                    isPunct(t[j + 1], '=') && t[j + 2].kind == Tok::WORD &&
+                    isPunct(t[j + 3], ';'))
+                {
+                    j += 4;
+                    continue;
+                }
+
                 /* The MIDI statements: recorded, for a panel to say where
                    the instrument plays, and stepped over rather than left
                    to scanParam -- `midi "x";' and a `cc' block are shapes
                    it refuses, and a refusal drops the whole block out of
                    the index. Not edited from here. */
+
                 if (t[j].kind == Tok::WORD && t[j].text == "midi" &&
                     t[j + 1].kind == Tok::STRING && isPunct(t[j + 2], ';'))
                 {
@@ -3263,7 +3275,7 @@ thcGenEdit::addInstrument (const std::string &filename,
     /* The words an instrument block reads as its own statements. */
     static const char *const keywords[] = {
         "dsp", "midi", "midichannel", "midiprogram", "midiin", "effect", "cc",
-        "bend", NULL };
+        "bend", "tuning", NULL };
 
     for (const auto &v : values)
         for (int i = 0; keywords[i] != NULL; i++)

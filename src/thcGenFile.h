@@ -20,6 +20,7 @@
 #define THCGENFILE_H
 
 #include <map>
+#include <memory>
 #include <set>
 #include <utility>
 #include <string>
@@ -28,6 +29,8 @@
 #include "thExpr.h"
 #include "thLexer.h"
 #include "thWords.h"
+
+class thTuning;
 
 class thArg;
 class thcPlugin;
@@ -127,6 +130,7 @@ private:
     bool parseKnobStatement (thcScheduler *sched);
     bool parseScale (void);
     bool parsePreset (void);
+    bool parseTuning (void);
     bool parseInstrument (thcScheduler *sched);
     /* Into inst.dsp, or inst.effect if `effect'; `label' names the graph
        and the instrument in messages. */
@@ -283,6 +287,13 @@ private:
     typedef std::vector<std::pair<std::string, double> > Preset;
 
     std::map<std::string, Preset> presets_;
+
+    /* Tunings, by name, built when declared; an instrument holds its own
+       reference, so a channel keeps its table whatever the loader does
+       next. One that failed is remembered so that an instrument naming it
+       is not a second error for the same mistake. */
+    std::map<std::string, std::shared_ptr<const thTuning> > tunings_;
+    std::set<std::string> failedTunings_;
 
     /* Instruments, by name, as indices into the scheduler's table --
        which is where they live, because the piece owns them and the
