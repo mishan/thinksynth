@@ -140,10 +140,10 @@ double search (const Host &host,
 
     if (label)
     {
-        say(host, "%s\n%5s %9s %9s %9s %9s %6s\n", label, "gen", "best", "spectral",
-               "envelope", "noise", "sigma");
-        say(host, "%5d %9.3f %9.3f %9.3f %9.3f\n", 0, best, parts.spectral,
-               parts.envelope, parts.noise);
+        say(host, "%s\n%5s %9s %9s %9s %9s %10s %6s\n", label, "gen", "best", "spectral",
+               "envelope", "noise", "modulation", "sigma");
+        say(host, "%5d %9.3f %9.3f %9.3f %9.3f %10.3f\n", 0, best, parts.spectral,
+               parts.envelope, parts.noise, parts.modulation);
     }
 
     if (quantity.empty())
@@ -241,8 +241,8 @@ double search (const Host &host,
         if (label && (gen % 10 == 0 || gen == generations))
         {
             host.score(bestSource, &parts);
-            say(host, "%5d %9.3f %9.3f %9.3f %9.3f %6.2f\n", gen, best,
-                   parts.spectral, parts.envelope, parts.noise, sigma);
+            say(host, "%5d %9.3f %9.3f %9.3f %9.3f %10.3f %6.2f\n", gen, best,
+                   parts.spectral, parts.envelope, parts.noise, parts.modulation, sigma);
         }
     }
 
