@@ -56,7 +56,9 @@
  * T and K a breath of aspiration on the next vowel's formants before the
  * voicing starts. The formants head for the stop's locus during the
  * closure and leave it with the burst, and that movement is most of how
- * a B is told from a D.
+ * a B is told from a D. A voiced stop or fricative that ends a syllable
+ * has less voice than one that starts it, as English half devoices its
+ * finals: voiced through, a final Z or D is heard as less of a consonant.
  *
  * A MONO SLIDE onto the next syllable restarts the words without
  * restarting anything else: the resonators and the glide carry, so the
@@ -341,6 +343,38 @@ static bool velarLocus (const int *codes, int n, int i, float *f2, float *f3)
     return false;
 }
 
+/* A voiced stop's closure and burst, and a voiced fricative, where they
+   end a syllable. */
+#define FINAL_CLOSURE_AV 0.15f
+#define FINAL_BURST_AV   0.2f
+#define FINAL_FRIC_AV    0.35f
+
+/* Whether the phoneme at `i' ends its syllable: a vowel before it and
+   none after it, neither across a pause. */
+static bool endsSyllable (const int *codes, int n, int i)
+{
+    bool after = false;
+
+    for (int k = i - 1; k >= 0 && !after; k--)
+    {
+        const Phoneme &q = table[codes[k] - 1];
+
+        if (q.kind == PAUSE)
+            return false;
+        after = q.kind == VOWEL || q.kind == DIPHTHONG;
+    }
+    for (int k = i + 1; after && k < n; k++)
+    {
+        const Phoneme &q = table[codes[k] - 1];
+
+        if (q.kind == PAUSE)
+            break;
+        if (q.kind == VOWEL || q.kind == DIPHTHONG)
+            return false;
+    }
+    return after;
+}
+
 /* The last of `count' segments with frication in it, or -1. */
 static int lastFrication (const Segment *s, int count)
 {
@@ -388,6 +422,8 @@ static int segments (const int *codes, int n, Segment *out)
                     s->target[P_F2] = fmaxf(f2, 0.5f * (f2 + f3) - VELAR_PINCH_HZ);
                     s->target[P_F3] = fminf(f3, 0.5f * (f2 + f3) + VELAR_PINCH_HZ);
                 }
+                if (p.kind == FRICATIVE && p.av > 0 && endsSyllable(codes, n, i))
+                    s->target[P_AV] = FINAL_FRIC_AV;
                 s->dur = p.dur;
                 s->hold = hold;
                 s->sib = p.name[0] == 'S' || p.name[0] == 'Z';
@@ -426,7 +462,9 @@ static int segments (const int *codes, int n, Segment *out)
                 silence(s->target);
                 s->target[P_F2] = p.f2;
                 s->target[P_F3] = p.f3;
-                s->target[P_AV] = p.voiced ? p.av : 0;
+                const bool ends = p.kind == STOP && p.voiced && endsSyllable(codes, n, i);
+
+                s->target[P_AV] = ends ? FINAL_CLOSURE_AV : p.voiced ? p.av : 0;
                 s->target[P_F1] = p.voiced ? 200 : p.f1;
                 s->dur = p.dur;
                 s->hold = false;
@@ -447,7 +485,7 @@ static int segments (const int *codes, int n, Segment *out)
                 else
                 {
                     fromRow(p, b->target);
-                    b->target[P_AV] = p.voiced ? 0.3f : 0;
+                    b->target[P_AV] = ends ? FINAL_BURST_AV : p.voiced ? 0.3f : 0;
                     b->dur = (p.place == VELAR ? 25 : 10);
 
                     float f2, f3;
