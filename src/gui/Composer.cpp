@@ -124,7 +124,6 @@ Composer::Composer (thSynth *synth)
       shownRunning_(false), tempoGuard_(false)
 {
     selBox_ = NULL;
-    kbdBtn_ = NULL;
 
     /* No scheduler until start(): it runs a clock of its own from the
        moment it exists, and a program that never opens a piece has no use
@@ -152,13 +151,6 @@ Composer::Composer (thSynth *synth)
 
     status_ = manage(new Gtk::Label(""));
     status_->set_ellipsize(Pango::EllipsizeMode::END);
-
-    kbdBtn_ = manage(new Gtk::ToggleButton("Kbd input"));
-    kbdBtn_->set_tooltip_text("Feed the on-screen keyboard into "
-                              "chains with MIDI input, alongside "
-                              "hardware MIDI");
-    kbdBtn_->signal_toggled().connect(
-        sigc::mem_fun(*this, &Composer::onKbdToggle));
 
     buildActions();
 
@@ -394,8 +386,6 @@ Composer::~Composer (void)
     midiIdle_.disconnect();
     midiOnConn_.disconnect();
     midiOffConn_.disconnect();
-    kbdOnConn_.disconnect();
-    kbdOffConn_.disconnect();
 
     for (sigc::connection &c : playedConns_)
         c.disconnect();
@@ -2669,7 +2659,6 @@ Composer::buildActions (void)
     transport_->append(*rewindBtn_);
     transport_->append(*tempoLbl_);
     transport_->append(*tempoBtn_);
-    transport_->append(*kbdBtn_);
 }
 
 /* ---- the playing side ------------------------------------------------- */
@@ -2711,8 +2700,14 @@ Composer::onDrawTimer (void)
 void
 Composer::injectOn (int chan, float note, float veloc)
 {
+    keyOn(chan, note, veloc);
+}
+
+bool
+Composer::keyOn (int chan, float note, float veloc)
+{
     if (sched_ == NULL)
-        return;
+        return false;
 
     thcEvent ev = {};
 
@@ -2724,7 +2719,7 @@ Composer::injectOn (int chan, float note, float veloc)
     ev.u.note.velocity = (int)veloc;
     ev.u.note.duration = 0;
 
-    sched_->injectMidiEvent(ev);
+    return sched_->injectMidiEvent(ev);
 }
 
 void
@@ -2762,35 +2757,6 @@ Composer::playedCleared (void)
 {
     if (roll_ != NULL)
         roll_->endPlayed(sched_->now());
-}
-
-/* The on-screen keyboard as a performance input, if wished for: the
- * same two handlers, fed from the pair the on-screen keyboard emits. A
- * toggle rather than always-on because the keyboard is also the tool
- * for auditioning patches, and auditioning through an arpeggiator you
- * forgot about is a confusing five minutes. */
-void
-Composer::onKbdToggle (void)
-{
-    /* Guarded as well as fixed. This is a signal handler on a member
-       pointer, so it can be reached from anywhere the toolkit decides to
-       emit `toggled' -- including from set_active() during teardown --
-       and a crash is a poor way to find out. */
-    if (kbdBtn_ == NULL)
-        return;
-
-    if (kbdBtn_->get_active())
-    {
-        kbdOnConn_ = m_sigKbdNoteOn.connect(
-            sigc::mem_fun(*this, &Composer::injectOn));
-        kbdOffConn_ = m_sigKbdNoteOff.connect(
-            sigc::mem_fun(*this, &Composer::injectOff));
-    }
-    else
-    {
-        kbdOnConn_.disconnect();
-        kbdOffConn_.disconnect();
-    }
 }
 
 /* A cell of the arrangement: written into the work file, and poked into
@@ -3534,14 +3500,10 @@ void
 Composer::rebuildEditor (void)
 {
     /* The buttons below die with their row; forgetting that here left
-       setDirty poking freed widgets whenever the panel was hidden.
-     *
-     * kbdBtn_ is deliberately *not* in this list, and used to be. It
-       lives in the transport, which nothing here clears, so nulling it
-       forgot a widget that was still on screen and still connected --
-       and the next click on Kbd input reached onKbdToggle, which
-       dereferenced the null and took the program with it. A pointer
-       cleared here has to be one the loop below actually destroys. */
+       setDirty poking freed widgets whenever the panel was hidden. A
+       pointer cleared here has to be one the loop below actually destroys:
+       nulling one that lives on elsewhere forgets a widget still on screen
+       and still connected. */
     selBox_ = NULL;
     growthViews_.clear();
 

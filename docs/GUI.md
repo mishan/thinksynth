@@ -113,16 +113,17 @@ piece. Each press carries a counter (`pickSerial`) for this.
 
 ## 4. The keys
 
-The keys (on screen and the computer keyboard) play the current channel:
+The keys (on screen and the computer keyboard) play the current channel, and
+the hardware controller plays its channels the same way:
 
 - If the piece listens on that channel (`input midi`), the keys go into the
   piece, as a MIDI device would.
 - Otherwise they play the channel's instrument directly.
 - A note is released along the same route it was pressed on.
 
-So a key is never silent on a channel that has something on it. The browser
-page does this. The desktop plays the instrument directly and adds the piece
-on top only when **Kbd input** is on; that is **not done yet** (section 7).
+In patch mode the keys always play the instrument. A key the piece takes is
+heard only as the piece answers it: a chain that waits for its next tick,
+an arpeggiator say, is silent while the transport is stopped.
 
 ## 5. Tuning
 
@@ -178,7 +179,6 @@ these are the rules across panes.
 
 ## 7. Not done yet
 
-- Desktop: the keys follow section 4's rule, and Kbd input goes away.
 - Desktop: a piece the keys can't be heard in aims them where they can.
 - Desktop: a tuning answer is refused on the browser page's terms.
 - Both: the Keys pane as a short strip, with the device setup moved out of it.

@@ -182,13 +182,17 @@ KeyboardPanel::~KeyboardPanel (void)
 /* these are Keyboard widget-originated events */
 void KeyboardPanel::eventNoteOn (int chan, int note, float veloc)
 {
-    synth_->addNote(chan, note, veloc);
+    if (!route_.press(chan, note, veloc))
+        synth_->addNote(chan, note, veloc);
+
     m_sigKbdNoteOn(chan, note, veloc);
 }
 
 void KeyboardPanel::eventNoteOff (int chan, int note)
 {
-    synth_->delNote(chan, note);
+    if (!route_.release(chan, note))
+        synth_->delNote(chan, note);
+
     m_sigKbdNoteOff(chan, note);
 }
 

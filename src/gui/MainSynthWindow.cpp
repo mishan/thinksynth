@@ -391,6 +391,9 @@ void MainSynthWindow::buildPanes (void)
     /* The keys play the channel picked in Channels (selectChannel aims
        them). */
     kbPanel_ = manage(new KeyboardPanel(thSynth::instance()));
+
+    kbPanel_->route().set(sigc::mem_fun(*this, &MainSynthWindow::keyOn),
+                          sigc::mem_fun(*this, &MainSynthWindow::keyOff));
     patchSel_ = manage(new PatchSelPanel(thSynth::instance()));
     midiMap_ = manage(new MidiMap(thSynth::instance()));
     controller_ = manage(new ControllerPane());
@@ -2584,6 +2587,20 @@ sigc::signal<void (std::vector<thMidiRoute>)> &
 MainSynthWindow::signal_midi_routes (void)
 {
     return composer_->signal_midi_routes();
+}
+
+/* Into the piece where it listens on the channel, outside patch mode;
+   anywhere else a key plays the channel's instrument. */
+bool MainSynthWindow::keyOn (int chan, int note, float veloc)
+{
+    return mode_ != PATCH_MODE && composer_ != NULL &&
+           composer_->keyOn(chan, note, veloc);
+}
+
+void MainSynthWindow::keyOff (int chan, int note)
+{
+    if (composer_ != NULL)
+        composer_->keyOff(chan, note);
 }
 
 int MainSynthWindow::keyboardChannel (void) const

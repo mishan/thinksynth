@@ -56,6 +56,11 @@ public:
     /* The channel the keyboard plays, 0-based. */
     int keyboardChannel (void) const;
 
+    /* A key, from the keys or the controller, into the piece: whether it
+       took it (GUI.md 4). One it took is let go through keyOff. */
+    bool keyOn (int chan, int note, float veloc);
+    void keyOff (int chan, int note);
+
     /* The composer's piece routes, for live MIDI input to follow. */
     sigc::signal<void (std::vector<thMidiRoute>)> &signal_midi_routes (void);
 

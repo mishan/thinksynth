@@ -76,6 +76,12 @@ sigNoteOff   m_sigKbdNoteOff;
 
 /* A subclass, for the reason composercheck has one: what the window keeps
  * is its own business, and there is no call to widen it for a test. */
+/* The composer's scheduler, which the window does not hand out. */
+class ComposerPeek : public Composer {
+public:
+    using Composer::sched_;
+};
+
 class TestWindow : public MainSynthWindow {
 public:
     TestWindow (void) : MainSynthWindow(NULL) { }
@@ -1615,6 +1621,75 @@ run (const std::string &pluginPath, const std::string &dsp)
         win->chanList_.select_row(*rowFor(win, seq.trackChannel(2)));
         pump(4);
         checkAgree(win, seq.trackChannel(2), "a row in Channels");
+    }
+
+    /* The keys go into the piece on a channel it listens on, and play the
+       instrument anywhere else; a key is let go the way it was pressed,
+       whatever the window is in by then. scratch.gen's keys track (4)
+       takes `input midi', its bassline (3) does not. */
+    {
+        thcScheduler *sched = static_cast<ComposerPeek *>(win->composer_)->sched_;
+        Keyboard *keys = findUnder<Keyboard>(win->kbPanel_);
+        const int listening = seq.trackChannel(4);
+        const int deaf = seq.trackChannel(3);
+        int heard = 0;
+        bool sounded = false;
+        sigc::connection count = sched->sigDelivered.connect(
+            [&heard, sched] (const thcEvent &)
+            { if (sched->deliveringChain() >= 0) heard++; });
+
+        /* Pressed and released on `chan', in `mode', and what the piece
+           heard of it. */
+        auto play = [&] (int chan, bool between, const char *mode = "seq")
+        {
+            pickMode(win, mode);
+            win->selectChannel(chan);
+            pump(2);
+
+            const int before = heard;
+
+            keys->signal_note_on().emit(chan, 60, 100);
+            pump(2);
+
+            const int on = heard - before;
+
+            /* A window of sound, which is what takes a queued note on. */
+            thSynth::instance()->process();
+
+            const thMidiChan *mc = thSynth::instance()->getChannel(chan);
+
+            sounded = mc != NULL && mc->sounding();
+
+            if (between)
+                pickMode(win, "patch");
+
+            keys->signal_note_off().emit(chan, 60);
+            pump(2);
+
+            pickMode(win, "seq");
+
+            return std::make_pair(on, heard - before - on);
+        };
+
+        const std::pair<int, int> into = play(listening, false);
+        const std::pair<int, int> past = play(deaf, false);
+        const bool deafSounded = sounded;
+        const std::pair<int, int> held = play(listening, true);
+        const std::pair<int, int> patch = play(listening, false, "patch");
+        const bool patchSounded = sounded;
+
+        count.disconnect();
+
+        check(into.first > 0 && into.second > 0,
+              "a key on a channel the piece listens on goes into the piece, "
+              "press and release");
+        check(deafSounded && past.first == 0 && past.second == 0,
+              "...and on one it does not, past it, to the instrument");
+        check(held.first > 0 && held.second > 0,
+              "...and a key pressed into the piece is let go into it after "
+              "a trip to patch mode");
+        check(patchSounded && patch.first == 0 && patch.second == 0,
+              "...and in patch mode, on that same channel, to the instrument");
     }
 
     /* A sequence's channels are the person's, instruments and tuning
