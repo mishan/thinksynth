@@ -2444,6 +2444,9 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 
     const Box *box = hit(x, y);
 
+    if (box != NULL && button == 1)
+        sigPressed.emit(box->what);
+
     /* A section's block: the transport to where it begins, heard from
        there as if it had been played to it (thcScheduler::seek). */
     if (button == 1 && nPress == 1 && enlarged_.kind == Selection::NONE &&
@@ -2847,4 +2850,34 @@ ComposerCanvas::onDragEnd (double, double)
     dragDx_ = 0;
     dropAt_ = -1;
     requestRedraw();
+}
+
+int ComposerCanvas::channelOf (const thcGenEdit::Doc *doc, thcScheduler *sched,
+                               const Selection &sel)
+{
+    if (doc == NULL || sched == NULL || sel.chain >= doc->chains.size() ||
+        (sel.kind != Selection::CHAIN && sel.kind != Selection::STAGE &&
+         sel.kind != Selection::SINK))
+        return -1;
+
+    const thcChain *live = sched->chain(sel.chain);
+
+    if (live == NULL)
+        return -1;
+
+    int channel = -1;
+
+    /* The document's sinks and the live chain's are the same list in the
+       same order: the scheduler builds one from the other. */
+    if (sel.kind == Selection::SINK)
+    {
+        if (sel.index < live->sinks.size() && live->sinks[sel.index].isNotes())
+            channel = live->sinks[sel.index].channel;
+    }
+    else
+        for (size_t k = 0; k < live->sinks.size() && channel < 0; k++)
+            if (live->sinks[k].isNotes())
+                channel = live->sinks[k].channel;
+
+    return channel >= 0 && !sched->playsOverMidi(channel) ? channel : -1;
 }

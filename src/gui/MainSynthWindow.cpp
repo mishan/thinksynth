@@ -420,6 +420,15 @@ void MainSynthWindow::buildPanes (void)
     mln_panes_set_window_func(panes_->gobj(), &MainSynthWindow::makePaneWindow,
                               this, NULL);
 
+    /* Every pane that picks a channel makes it the current one, and
+       selectChannel tells every pane that shows it. */
+    composer_->signal_channel_picked().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::selectChannel));
+    composer_->sequencer().signal_picked().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::selectChannel));
+    kbPanel_->signal_channel_picked().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::selectChannel));
+
     /* A stage picked on the canvas is edited in Selection, so it comes to
        the front -- without the focus, which stays on the canvas. Unless it
        was closed: that is somebody saying they do not want it, and a click
@@ -2416,16 +2425,25 @@ void MainSynthWindow::selectChannel (int chan)
         if (row != NULL)
             chanList_.select_row(*row);
         else
+        {
+            /* BROWSE ignores unselecting; the arrows still browse after. */
+            chanList_.set_selection_mode(Gtk::SelectionMode::SINGLE);
             chanList_.unselect_all();
+            chanList_.set_selection_mode(Gtk::SelectionMode::BROWSE);
+        }
 
         selecting_ = false;
     }
 
     addChanBtn_.set_sensitive(firstFreeChannel() >= 0);
 
-    /* And the keys play the channel being looked at. */
+    /* And the keys play the channel being looked at, and the tracks on it
+       say so. */
     if (kbPanel_ != NULL)
         kbPanel_->setChannel(chan);
+
+    if (composer_ != NULL)
+        composer_->sequencer().setCurrentChannel(chan);
 
     if (panes_ != NULL && panes_->isVisible("nodeview"))
         ensureEditor(chan);

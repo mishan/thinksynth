@@ -2583,6 +2583,14 @@ runMidiOut (const std::string &pluginPath)
             "    stage seq gen::grid { steps = 4; rows = 1; "
             "cells = \"x.x.\"; };\n"
             "    sink { instrument = ext; };\n"
+            "};\n"
+            "instrument a { dsp \"organ0.dsp\"; };\n"
+            "instrument b { dsp \"organ0.dsp\"; };\n"
+            "chain fan {\n"
+            "    stage seq gen::grid { steps = 4; rows = 1; "
+            "cells = \"x...\"; };\n"
+            "    sink { instrument = a; };\n"
+            "    sink { instrument = b; };\n"
             "};\n");
 
     if (tmp.empty())
@@ -2615,6 +2623,56 @@ runMidiOut (const std::string &pluginPath)
         ok("an instrument whose port answers plays on the device");
     else
         fail("an instrument whose port answers plays on the device");
+
+    /* What picking each part of the piece makes the current channel: none
+       for a chain the engine does not sound, and a fan-out's own sink. */
+    {
+        std::vector<int> picked;
+        int chA = -1, chB = -1;
+        ComposerCanvas::Selection sel;
+
+        for (const thcInstrument &inst : win->sched_->instruments())
+            if (inst.name == "a")
+                chA = inst.channel;
+            else if (inst.name == "b")
+                chB = inst.channel;
+
+        sigc::connection c = win->signal_channel_picked().connect(
+            [&picked](int chan) { picked.push_back(chan); });
+
+        /* Pressed where a person presses: the top of each chain's first
+           stage box, clear of its picture and its handle. Twice on the
+           second chain, the second time on what is already selected. */
+        auto pressStage = [win](size_t chain)
+        {
+            CanvasRect r;
+
+            if (!win->canvas().stageRect(chain, 0, r))
+                return;
+
+            win->canvas().pressAt(r.x + r.w / 2.0, r.y + 4, 1, 1);
+            win->canvas().releaseAt(r.x + r.w / 2.0, r.y + 4, 1);
+        };
+
+        pressStage(0);
+        pressStage(1);
+        pressStage(1);
+        c.disconnect();
+
+        sel.kind = ComposerCanvas::Selection::SINK;
+        sel.chain = 1;
+        sel.index = 1;
+
+        const int bySink = ComposerCanvas::channelOf(&win->doc_, win->sched_, sel);
+
+        if (chA >= 0 && chB >= 0 && chA != chB && bySink == chB &&
+            picked == std::vector<int>({ chA, chA }))
+            ok("a press picks its chain's first notes channel, again when "
+               "pressed again; a sink picks its own; a chain on a device none");
+        else
+            fail("a press picks its chain's first notes channel, again when "
+                 "pressed again; a sink picks its own; a chain on a device none");
+    }
 
     win->setEditing(true);
     pump(10);

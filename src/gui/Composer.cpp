@@ -168,6 +168,8 @@ Composer::Composer (thSynth *synth)
     canvas_ = manage(new ComposerCanvasWidget());
     canvas_->sigSelection.connect(
         sigc::mem_fun(*this, &Composer::onCanvasSelection));
+    canvas_->sigPressed.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasPressed));
     canvas_->sigMoveStage.connect(
         sigc::mem_fun(*this, &Composer::onCanvasMoveStage));
     canvas_->sigParams.connect(
@@ -2872,6 +2874,18 @@ Composer::onCanvasSelection (const ComposerCanvas::Selection &sel)
         showSelection_.emit();
 }
 
+/* A press on the canvas picks the channel what it pressed plays on: a
+ * press, and not a change of selection, so a second press on the chain
+ * already selected picks it again after the keys moved elsewhere. */
+void
+Composer::onCanvasPressed (const ComposerCanvas::Selection &sel)
+{
+    const int channel = ComposerCanvas::channelOf(&doc_, sched_, sel);
+
+    if (channel >= 0)
+        channelPicked_.emit(channel);
+}
+
 /* A knob, selected on the canvas: its shape, and what it drives.
  *
  * The list is the wires in words, and it is where they are cut. Binding
@@ -5094,4 +5108,10 @@ Composer::buildAddChain (void)
     row->append(*chanSel);
     row->append(*addBtn);
     selBox_->append(*row);
+}
+
+ComposerCanvas &
+Composer::canvas (void)
+{
+    return *canvas_;
 }

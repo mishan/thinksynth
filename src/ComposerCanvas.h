@@ -106,11 +106,24 @@ public:
         }
     };
 
+    /* The engine channel `sel' plays on, which is what picking it makes
+       the current channel: a chain's or a stage's first notes sink, a
+       sink itself when it takes notes. -1 for anything else, and for a
+       channel played on a MIDI device, which the engine does not sound.
+       The one rule for every pane that picks a channel from a piece. */
+    static int channelOf (const thcGenEdit::Doc *doc, thcScheduler *sched,
+                          const Selection &sel);
+
     const Selection &selection (void) const { return sel_; }
     void select (const Selection &sel);
 
     /* Selection changed by a click (or by select()). */
     sigc::signal<void (const Selection &)> sigSelection;
+
+    /* A press on a box, whether or not it changed the selection: a
+       person's pick, which a press on what is already selected is too,
+       and which select() from code is not. */
+    sigc::signal<void (const Selection &)> sigPressed;
 
     /* A drag dropped stage `from' at position `to' in chain `chain'. */
     sigc::signal<void (size_t, int, int)> sigMoveStage;

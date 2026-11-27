@@ -93,7 +93,7 @@ public:
 
     size_t trackCount (void) const { return tracks_.size(); }
 
-    /* The channel track `i' is heard on, 0-15, or -1. */
+    /* The engine channel track `i' is heard on, or -1. */
     int trackChannel (size_t i) const
     {
         return i < tracks_.size() ? tracks_[i].channel : -1;
@@ -116,6 +116,19 @@ public:
        What a harness presses with, too. */
     bool key (size_t i, guint keyval, Gdk::ModifierType state);
 
+    /* Track `i' was clicked or keyed: the channel it plays on, when it
+       plays on one, is picked. What its click controller calls. */
+    void pick (size_t i);
+
+    /* The current channel, for the tracks on it to be marked: a pointer
+       before the channel number, and a sentence in the grid's description.
+       Kept, and marked again on every rebuild. */
+    void setCurrentChannel (int channel);
+
+    /* What a track's grid says of itself to a screen reader, marked or
+       not. */
+    static std::string describeTrack (bool current);
+    sigc::signal<void (int)> &signal_picked (void) { return picked_; }
     /* Track `i''s cells as the grid writes them, "" out of range. */
     std::string trackCells (size_t i) const;
 
@@ -135,12 +148,13 @@ protected:
         size_t chain;           /* the chain, in doc and scheduler order */
         size_t docStage;        /* the stage in the document            */
         int    liveStage;       /* and in the scheduler's list          */
-        int    channel;         /* 0-15, or -1 for a chain with no sink */
+        int    channel;         /* engine channel, or -1 for no sink   */
         std::string name;       /* the chain's                          */
         std::string dsp;        /* its instrument's graph, or empty     */
 
         Gtk::DrawingArea *area;
         Gtk::Label *what;
+        Gtk::Label *num;
         Gtk::Button *pick;      /* while choosing, for an instrument    */
 
         int rows;               /* what the height was last fitted to   */
@@ -150,6 +164,8 @@ protected:
     };
 
     thcStage *stageOf (const Track &t) const;
+    /* What key() does with a key, without the pick. */
+    bool useKey (size_t i, guint keyval, Gdk::ModifierType state);
 
     /* The height a track wants for `rows' rows of its grid. */
     static int heightFor (int rows);
@@ -178,10 +194,13 @@ protected:
     Gtk::Label hint_;
 
     bool choosing_ = false;
+    int current_ = -1;
+    void mark (size_t i);
     std::function<std::string (const std::string &)> title_;
 
     sigc::signal<void (size_t, size_t)> edited_;
     sigc::signal<void (size_t, size_t, std::string)> choose_;
+    sigc::signal<void (int)> picked_;
 };
 
 #endif /* SEQ_VIEW_H */

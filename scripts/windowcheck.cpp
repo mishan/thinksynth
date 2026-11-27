@@ -63,6 +63,8 @@
 #include "gui/NodeEditor.h"
 #include "gui/Panes.h"
 #include "gui/PanelView.h"
+#include "gui/KeyboardPanel.h"
+#include "gui/SeqView.h"
 
 /* The application-wide signals gthSignal.h declares, defined here because
  * main.cpp defines them there and this harness is not main.cpp. */
@@ -94,6 +96,8 @@ public:
     using MainSynthWindow::addChanBtn_;
     using MainSynthWindow::firstFreeChannel;
     using MainSynthWindow::onBrowseChosen;
+    using MainSynthWindow::kbPanel_;
+    using MainSynthWindow::keyboardChannel;
 
     /* The page's questions, answered here: what each would pick, and a
        count of the discard prompts with the last one's text. A held DSP
@@ -384,6 +388,68 @@ checkNumberBoxes (Gtk::Widget *root, const char *where)
     check(beside > 0 && wrong == 0,
           (std::string("a number box in ") + where +
            " has - and + only where there is no slider beside it").c_str());
+}
+
+/* Every pane agrees that `c' is the current channel: the window, Patch
+   params' page, the keys and what the HID controller plays, and Channels'
+   row (none for an empty channel). Says which disagreed. */
+static std::string
+disagrees (TestWindow *win, int c)
+{
+    std::string why;
+    Gtk::ListBoxRow *row = rowFor(win, c);
+
+    if (win->chan_ != c)
+        why += " window " + std::to_string(win->chan_);
+    if (std::string(win->paramStack_.get_visible_child_name()) !=
+        "ch" + std::to_string(c))
+        why += " page " + std::string(win->paramStack_.get_visible_child_name());
+    if (win->kbPanel_->channel() != c || win->keyboardChannel() != c)
+        why += " keys " + std::to_string(win->kbPanel_->channel());
+    if (win->chanList_.get_selected_row() != row)
+        why += " Channels";
+
+    /* The tracks on it are marked, in the heading and to a screen reader,
+       and no others. */
+    const SeqView &seq = win->composer_->sequencer();
+
+    for (size_t i = 0; i < seq.trackCount(); i++)
+    {
+        const bool on = seq.trackChannel(i) >= 0 && seq.trackChannel(i) == c;
+        Gtk::Widget *head = seq.trackArea(i)->get_parent()->get_first_child();
+        Gtk::Label *num = dynamic_cast<Gtk::Label *>(head->get_first_child());
+        const bool shown = num != NULL &&
+                           num->get_text().find("\xe2\x96\xb8") == 0;
+
+        if (shown != on ||
+            !described(seq.trackArea(i), SeqView::describeTrack(on).c_str()))
+            why += " track " + std::to_string(i + 1);
+    }
+
+    return why;
+}
+
+static void
+checkAgree (TestWindow *win, int c, const std::string &what)
+{
+    const std::string why = disagrees(win, c);
+
+    check(why.empty(), (what + ": every pane on channel " +
+                        std::to_string(c + 1) +
+                        (why.empty() ? "" : " (not:" + why + ")")).c_str());
+}
+
+/* The Keys stepper turned to channel `c' (0-based) as a person turns it:
+   through its spin button. */
+static void
+turnKeys (TestWindow *win, int c)
+{
+    Gtk::SpinButton *spin = findUnder<Gtk::SpinButton>(win->kbPanel_);
+
+    if (spin != NULL)
+        spin->set_value(c + 1);
+
+    pump(4);
 }
 
 /* That check, said: the first few offenders by name. */
@@ -1253,6 +1319,9 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(seq.trackChooser(0) != NULL && seq.trackDsp(3) == "ebass.dsp",
           "...each with a button for the graph that plays it");
 
+    check(win->chan_ == seq.trackChannel(4),
+          "...and the keys on the last track's channel");
+
     /* A track from the keys: its cursor walks to the last step, puts a
        note there, accents it, clears it, and holds a note a step longer
        and back; each lands in the grid and is said. The Rhodes, whose
@@ -1313,8 +1382,88 @@ run (const std::string &pluginPath, const std::string &dsp)
               "grid and aloud");
     }
 
-    check(win->chan_ == seq.trackChannel(4),
-          "...and the keys on the last track's channel");
+    /* One current channel, whichever pane picks it. */
+    {
+        const Gdk::ModifierType none = Gdk::ModifierType(0);
+        ComposerCanvas &canvas = win->composer_->canvas();
+        ComposerCanvas::Selection sel;
+
+        seq.key(1, GDK_KEY_Right, none);
+        pump(4);
+        checkAgree(win, seq.trackChannel(1), "a key on a track");
+
+        /* A press as the track's row hears it: its click gesture, which
+           is what a pointer reaches; windowcheck cannot make a pointer. */
+        {
+            Gtk::Widget *row = seq.trackArea(2) != NULL
+                ? seq.trackArea(2)->get_parent() : NULL;
+            GtkGesture *click = NULL;
+            GListModel *ctrls = row != NULL
+                ? gtk_widget_observe_controllers(row->gobj()) : NULL;
+
+            for (guint k = 0; ctrls != NULL && k < g_list_model_get_n_items(ctrls); k++)
+            {
+                GObject *c = G_OBJECT(g_list_model_get_item(ctrls, k));
+
+                if (GTK_IS_GESTURE_CLICK(c))
+                    click = GTK_GESTURE(c);
+
+                g_object_unref(c);
+            }
+
+            if (ctrls != NULL)
+                g_object_unref(ctrls);
+
+            if (click != NULL)
+                g_signal_emit_by_name(click, "pressed", 1, 4.0, 4.0);
+
+            pump(4);
+            checkAgree(win, seq.trackChannel(2), "a click on a track");
+        }
+
+        turnKeys(win, 9);
+        checkAgree(win, 9, "the Keys stepper, to an empty channel");
+
+        turnKeys(win, seq.trackChannel(0));
+        checkAgree(win, seq.trackChannel(0), "the Keys stepper");
+
+        /* A press, as the canvas reports one: composercheck presses
+           the canvas itself. */
+        sel.kind = ComposerCanvas::Selection::CHAIN;
+        sel.chain = 3;
+        canvas.sigPressed.emit(sel);
+        pump(4);
+        checkAgree(win, seq.trackChannel(3), "a chain on the canvas");
+
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = 1;
+        sel.index = 0;
+        canvas.select(sel);
+        canvas.sigPressed.emit(sel);
+        pump(4);
+        checkAgree(win, seq.trackChannel(1), "a stage on the canvas");
+
+        turnKeys(win, seq.trackChannel(0));
+        canvas.sigPressed.emit(sel);
+        pump(4);
+        checkAgree(win, seq.trackChannel(1),
+                   "the selected stage pressed again after the keys moved");
+
+        sel.kind = ComposerCanvas::Selection::SINK;
+        sel.chain = 4;
+        canvas.sigPressed.emit(sel);
+        pump(4);
+        checkAgree(win, seq.trackChannel(4), "a sink on the canvas");
+
+        sel.kind = ComposerCanvas::Selection::NONE;
+        canvas.select(sel);
+        pump(4);
+        checkAgree(win, seq.trackChannel(4), "nothing on the canvas keeps it");
+
+        win->chanList_.select_row(*rowFor(win, seq.trackChannel(2)));
+        pump(4);
+        checkAgree(win, seq.trackChannel(2), "a row in Channels");
+    }
 
     /* The bass track, chain 3, played by a kick: a graph that ignores the
        note gets a grid one row tall. */
@@ -1326,6 +1475,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(seq.trackDsp(3) == "kick909.dsp" && seq.trackArea(3) != NULL &&
           seq.trackArea(3)->get_content_height() == 26,
           "...and the track is a one-row strip after the reload");
+    checkAgree(win, win->chan_, "...and the current channel still marked");
 
     checkAccessible(win, "sequence mode");
 
