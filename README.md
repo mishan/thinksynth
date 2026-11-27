@@ -478,6 +478,7 @@ Documentation
 | [docs/NODES.md](docs/NODES.md) | every node's args: direction, default, range, units. Generated from the plugins |
 | [docs/AUDIO.md](docs/AUDIO.md) | the output stage: clamping, gain staging, arg initialisation, the harnesses |
 | [docs/NODE_EDITOR.md](docs/NODE_EDITOR.md) | the visual editor's model, behaviour and layout |
+| [docs/GUI.md](docs/GUI.md) | the two front ends: modes, panes, the current channel, the keys, tuning |
 | [docs/VISUALIZERS.md](docs/VISUALIZERS.md) | writing a visual module, and how probes work |
 | [docs/PORTING.md](docs/PORTING.md) | macOS and Windows: decisions, build system, CI, traps |
 | [docs/JAM.md](docs/JAM.md) | playing together in a browser: the plan, milestones and risks |
