@@ -864,12 +864,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             float t[P_COUNT];
             Segment first[MAX_SEGMENTS];
 
-            /* From silence, but with the frication's shape where the words
-               first want it, so a note that starts on an S starts on its
-               hiss rather than gliding to it. */
+            /* From silence, but with the mouth and the frication's shape
+               where the words first want them, so a note that starts on an
+               S starts on its hiss rather than gliding to it, and one that
+               starts on a vowel on its vowel: a glide in from a neutral
+               mouth is heard as a sound of its own, "A rod" as "The rod". */
             silence(t);
             segments(codes, n, first);
-            for (int q = P_HP; q <= P_B6; q++)
+            for (int q = P_F1; q <= P_B6; q++)
                 t[q] = first[0].target[q];
             memcpy(st + S_GLIDE, t, sizeof(t));
             st[S_SEEDLO] = 1;
