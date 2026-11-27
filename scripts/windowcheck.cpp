@@ -76,11 +76,15 @@ sigNoteOff   m_sigKbdNoteOff;
 
 /* A subclass, for the reason composercheck has one: what the window keeps
  * is its own business, and there is no call to widen it for a test. */
-/* The composer's scheduler, which the window does not hand out. */
-class ComposerPeek : public Composer {
-public:
-    using Composer::sched_;
-    using Composer::loadPiece;
+/* The composer's scheduler and its reload, which the window does not
+   hand out. */
+struct ComposerPeek {
+    static thcScheduler *sched (Composer *c) { return c->sched_; }
+    static void loadPiece (Composer *c) { c->loadPiece(); }
+    static std::string &heldPiece (Composer *c)
+    {
+        return c->held_[Composer::PIECE].text;
+    }
 };
 
 class TestWindow : public MainSynthWindow {
@@ -1667,7 +1671,7 @@ run (const std::string &pluginPath, const std::string &dsp)
        whatever the window is in by then. scratch.gen's keys track (4)
        takes `input midi', its bassline (3) does not. */
     {
-        thcScheduler *sched = static_cast<ComposerPeek *>(win->composer_)->sched_;
+        thcScheduler *sched = ComposerPeek::sched(win->composer_);
         Keyboard *keys = findUnder<Keyboard>(win->kbPanel_);
         const int listening = seq.trackChannel(4);
         const int deaf = seq.trackChannel(3);
@@ -2008,8 +2012,30 @@ run (const std::string &pluginPath, const std::string &dsp)
         checkAgree(win, 0, "a piece the keys reach nothing in aims them at a "
                            "channel it listens on");
 
+        /* ...and the piece parsed on the way back into piece mode, now
+           listening on channel 5 only, still does: the channel put back
+           for the mode does not undo it. */
+        {
+            win->setDesktopMode("seq");
+            pump(8);
+
+            std::string &held = ComposerPeek::heldPiece(win->composer_);
+            const std::string was = held;
+
+            for (const char *from : { "channel = 1;", "channel = 2;",
+                                      "channel = 3;" })
+                for (size_t at; (at = held.find(from)) != std::string::npos; )
+                    held.replace(at, strlen(from), "channel = 5;");
+
+            win->setDesktopMode("piece");
+            pump(8);
+            checkAgree(win, 4, "...and one parsed on the way back into piece "
+                               "mode, past the channel put back for it");
+            ComposerPeek::heldPiece(win->composer_) = was;
+        }
+
         turnKeys(win, 9);
-        static_cast<ComposerPeek *>(win->composer_)->loadPiece();
+        ComposerPeek::loadPiece(win->composer_);
         pump(8);
         checkAgree(win, 9, "...and a reload leaves one somebody picked there");
 

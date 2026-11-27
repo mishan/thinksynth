@@ -99,6 +99,10 @@ public:
     /* After each parse of the piece, its instruments on their channels. */
     sigc::signal<void ()> &signal_parsed (void) { return parsed_; }
 
+    /* windowcheck's way to the scheduler and the reload of the composer
+       the window made. */
+    friend struct ComposerPeek;
+
     /* Where instruments that name a MIDI port play; set before start(). */
     void setMidiOut (gthMidiOut *out) { midiOut_ = out; }
 

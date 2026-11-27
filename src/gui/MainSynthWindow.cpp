@@ -580,6 +580,19 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
 
     mode_ = mode;
 
+    /* Each mode's own channel: a pick in one is not a reason to move
+       another's. A mode not visited yet starts on the one it came from.
+       Before the document and the layout, whose parse and panes can aim
+       the keys: an aim has the last word over a channel put back. */
+    const std::map<string, int>::const_iterator was = modeChans_.find(mode);
+
+    if (was != modeChans_.end())
+    {
+        aiming_ = true;
+        selectChannel(was->second);
+        aiming_ = false;
+    }
+
     for (size_t i = 0; i < G_N_ELEMENTS(PIECE_PANES); i++)
         panes_->setAvailable(PIECE_PANES[i], inMode(PIECE_PANES[i], mode));
 
@@ -605,18 +618,6 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     composer_->sequencer().setChoosing(
         mode == SEQ_MODE,
         [this] (const string &dsp) { return dspTitle(dsp); });
-
-    /* Each mode's own channel: a pick in one is not a reason to move
-       another's. A mode not visited yet starts on the one it came from.
-       Before the layout, whose panes coming into view can aim the keys. */
-    const std::map<string, int>::const_iterator was = modeChans_.find(mode);
-
-    if (was != modeChans_.end())
-    {
-        aiming_ = true;
-        selectChannel(was->second);
-        aiming_ = false;
-    }
 
     panes_->setMode(mode);
     panes_->load(keptLayouts_[mode]);
