@@ -868,6 +868,74 @@ static void mutations (void)
         fail("only " + std::to_string(built) + " of 20000 damaged files built");
 }
 
+/* A tuning read from the files a person picks, and built: what both
+   front ends' Tuning menus do, from one place. */
+static void fromFiles (void)
+{
+    const std::string scl = "! x.scl\nJust major\n 7\n 9/8\n 5/4\n 4/3\n 3/2\n"
+                            " 5/3\n 15/8\n 2/1\n";
+    const std::string blank = "   \n 2\n 700.0\n 2/1\n";
+    const std::string kbm = "2\n0\n127\n60\n60\n261.6255653005986\n1\n0\nx\n";
+    std::string err;
+    int line;
+
+    struct Case {
+        const char *what;
+        bool keymap;
+        std::string text;
+        bool ok;
+        std::string name, scale, keymapValues;
+    };
+
+    const Case cases[] = {
+        { "a scale, named by its description", false, scl, true,
+          "Just major", "9/8 5/4 4/3 3/2 5/3 15/8 2/1", "" },
+        { "a scale with a blank description, named by its file", false, blank,
+          true, "picked", "700.0 2/1", "" },
+        { "a keymap, onto the scale already there", true, kbm, true,
+          "Just major", "9/8 5/4 4/3 3/2 5/3 15/8 2/1",
+          "2 0 127 60 60 261.6255653005986 1 0 x" },
+        { "a scale that will not read, changing nothing", false, "seven\n",
+          false, "Just major", "9/8 5/4 4/3 3/2 5/3 15/8 2/1", "" },
+        { "a keymap that will not read, changing nothing", true, "2\n0\n",
+          false, "Just major", "9/8 5/4 4/3 3/2 5/3 15/8 2/1", "" },
+    };
+
+    for (const Case &c : cases)
+    {
+        thTuningText t;
+
+        if (std::string(c.what).find("onto") != std::string::npos ||
+            !c.ok)
+            t = { "Just major", "9/8 5/4 4/3 3/2 5/3 15/8 2/1", "" };
+
+        const bool ok = t.read(c.keymap, c.text, "picked", err, line);
+
+        if (ok != c.ok || t.name != c.name || t.scale != c.scale ||
+            t.keymap != c.keymapValues)
+            fail(std::string("from files: ") + c.what + ": got " +
+                 (ok ? "ok" : "refused (" + err + ")") + " '" + t.name +
+                 "' '" + t.scale + "' '" + t.keymap + "'");
+    }
+
+    /* Built: 12-TET is no table; a keymap needs a scale; a scale builds. */
+    std::shared_ptr<const thTuning> out = std::make_shared<thTuning>();
+    const thTuningText none, orphan = { "", "", "2 0 127 60 60 261.6255653005986 1 0 x" };
+    const thTuningText just = { "Just major", "9/8 5/4 4/3 3/2 5/3 15/8 2/1", "" };
+
+    if (!none.build(out, err) || out != nullptr)
+        fail("from files: 12-TET builds no table");
+
+    out = nullptr;
+
+    if (orphan.build(out, err) || out != nullptr || err.empty())
+        fail("from files: a keymap with no scale is refused");
+
+    if (!just.build(out, err) || out == nullptr ||
+        std::fabs(out->pitch(64) - (60 + 12 * std::log2(3.0 / 2))) > 1e-9)
+        fail("from files: a scale builds its table: " + err);
+}
+
 int main (void)
 {
     known();
@@ -878,6 +946,7 @@ int main (void)
     pitches();
     byHand();
     mutations();
+    fromFiles();
 
     if (failures)
         fprintf(stderr, "tuningcheck: %d failures\n", failures);

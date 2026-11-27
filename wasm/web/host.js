@@ -409,6 +409,9 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'panelvalues':
             case 'patchstate':
             case 'patchcompose':
+            case 'tune':
+            case 'tuningof':
+            case 'pitchof':
             case 'settempo':
             case 'genparam':
             case 'genseed':
@@ -619,6 +622,18 @@ export async function createSynth (ctx, { windowlen = 128,
            in a browser one the application opens. */
         patchCompose: (channel, stamp) =>
             ask({ type: 'patchcompose', channel, stamp }),
+
+        /* The channel's tuning from the Tuning menu (worklet's tw_tune):
+           kind 0 12-TET, 1 a .scl's text, 2 a .kbm's, 3 no keymap. The
+           answer's `why' is empty, or what refused it. */
+        tune: (channel, dsp, kind, text = '', fallback = '') =>
+            ask({ type: 'tune', channel, dsp, kind, text, fallback }),
+
+        /* And what it is tuned to now: { name, scale, keymap }. */
+        tuningOf: (channel) => ask({ type: 'tuningof', channel }),
+
+        /* The note `key' plays at on the channel, for a harness. */
+        pitchOf: (channel, key) => ask({ type: 'pitchof', channel, key }),
 
         /* And that they were kept, under this name: the other half of the
            dirty flag the channel row draws. Told rather than asked -- a

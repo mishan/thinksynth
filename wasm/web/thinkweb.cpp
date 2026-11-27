@@ -4876,6 +4876,104 @@ EMSCRIPTEN_KEEPALIVE const char *tw_patch_json (int channel)
  * bytes and what it does with them is its own business. tw_patch_saved is
  * how it says it kept them.
  */
+/* A channel's tuning, from the page's Tuning menu: `kind' 0 for 12-TET,
+ * 1 a .scl's text, 2 a .kbm's, 3 the keymap dropped. The channel is
+ * retuned where it stands (thSynth::setTuning) and its patch records it --
+ * a new patch over `dsp' where the channel held a graph and no patch, a
+ * tuning being an edit. `fallback' names a scale whose description is
+ * blank. Empty, or why not, which changes nothing. */
+EMSCRIPTEN_KEEPALIVE const char *tw_tune (int channel, const char *dsp,
+                                         int kind, const char *text,
+                                         const char *fallback)
+{
+    static std::string why;
+
+    why.clear();
+
+    thPatchSet::Slot *slot = patches_.get(channel);
+    thTuningText t;
+    int line = 0;
+
+    if (slot != NULL)
+        t = { slot->doc.tuningName, slot->doc.tuningScale,
+              slot->doc.tuningKeymap };
+
+    if (kind == 0)
+        t = thTuningText();
+    else if (kind == 3)
+        t.keymap.clear();
+    else if (!t.read(kind == 2, text != NULL ? text : "",
+                     fallback != NULL ? fallback : "", why, line))
+    {
+        if (line > 0)
+            why = "line " + std::to_string(line) + ": " + why;
+
+        return why.c_str();
+    }
+
+    std::shared_ptr<const thTuning> built;
+
+    if (!t.build(built, why))
+        return why.c_str();
+
+    if (synth_ == NULL || !synth_->setTuning(channel, built))
+    {
+        why = "there is nothing on this channel";
+        return why.c_str();
+    }
+
+    if (slot == NULL)
+    {
+        thPatchDoc doc;
+
+        doc.dsp = dsp != NULL ? dsp : "";
+        doc.tuningName = t.name;
+        doc.tuningScale = t.scale;
+        doc.tuningKeymap = t.keymap;
+        patches_.put(channel, doc, std::string(), true);
+    }
+    else
+    {
+        slot->doc.tuningName = t.name;
+        slot->doc.tuningScale = t.scale;
+        slot->doc.tuningKeymap = t.keymap;
+        patches_.markDirty(channel);
+    }
+
+    return why.c_str();
+}
+
+/* The note key `key' plays at on the channel now, in 12-TET notes; -1
+   with nothing on it. What a harness asks of a retune rather than of the
+   text the patch keeps. */
+EMSCRIPTEN_KEEPALIVE double tw_pitch_of (int channel, double key)
+{
+    const thMidiChan *chan = synth_ != NULL ? synth_->getChannel(channel)
+                                            : NULL;
+
+    if (chan == NULL)
+        return -1;
+
+    return chan->tuning() != NULL ? chan->tuning()->pitch(key) : key;
+}
+
+/* What the channel's patch is tuned to, for the Tuning menu:
+   {"name", "scale", "keymap"}, empty strings for 12-TET or no patch. */
+EMSCRIPTEN_KEEPALIVE const char *tw_tuning_json (int channel)
+{
+    const thPatchSet::Slot *slot = patches_.get(channel);
+
+    patchJson_ = "{\"name\":";
+    jsonString(patchJson_, slot != NULL ? slot->doc.tuningName : "");
+    patchJson_ += ",\"scale\":";
+    jsonString(patchJson_, slot != NULL ? slot->doc.tuningScale : "");
+    patchJson_ += ",\"keymap\":";
+    jsonString(patchJson_, slot != NULL ? slot->doc.tuningKeymap : "");
+    patchJson_ += "}";
+
+    return patchJson_.c_str();
+}
+
 EMSCRIPTEN_KEEPALIVE const char *tw_patch_compose (int channel,
                                                    const char *stamp)
 {

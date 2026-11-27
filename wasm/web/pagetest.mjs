@@ -2398,6 +2398,37 @@ try
                                    pieceLoads, { timeout: 60000 });
         await page.evaluate(() => window.solo.settled());
 
+        /* A channel the piece filled has the piece's tuning, as it has the
+           piece's instrument: no Tuning to choose there. */
+        {
+            const theirs =
+                await page.evaluate(() => window.solo.piecesChannels());
+            const was = await page.inputValue('#paramchan');
+            const aim = (c) => page.evaluate((v) =>
+            {
+                const sel = document.getElementById('paramchan');
+
+                sel.value = v;
+                sel.dispatchEvent(new Event('change'));
+            }, c);
+
+            if (theirs.length > 0)
+            {
+                await aim(String(theirs[0]));
+                await page.evaluate(() => window.solo.settled());
+            }
+
+            check(theirs.length > 0 &&
+                  await page.textContent('#tuningnow') ===
+                      'Tuning: set by the piece' &&
+                  await page.$eval('#tuningscl', (b) => b.disabled),
+                  'a channel the piece filled has no Tuning to choose: ' +
+                  JSON.stringify(theirs));
+
+            await aim(was);
+            await page.evaluate(() => window.solo.settled());
+        }
+
         const lane = () => page.evaluate(() => window.solo.lane());
         const before = await lane();
         /* The whole statement, which runs over more than one line. */
@@ -2965,12 +2996,102 @@ try
 
         check(back.endsWith(`channel ${chan + 1}`),
               `a channel picked and unpicked at once leaves the panel on it: ${back}`);
-
         check(viaParams[0] === String(chan) && viaParams[1] === String(chan) &&
               viaKeys[0] === '11' && viaKeys[1] === '11' &&
               viaKeys[2] === viaKeys[3],
               'the keys and Patch params are one channel, moved from either, ' +
               `over the same list: ${JSON.stringify([viaParams, viaKeys])}`);
+    }
+
+    /* The channel's tuning, from the Tuning menu: a scale and a keyboard
+       map read from files the person picks, kept in the patch, and taken
+       off again. */
+    {
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const cents = Array.from({ length: 18 },
+                                 (_, i) => (1200 * (i + 1) / 19).toFixed(12));
+        const scl = `19-EDO test\n19\n${cents.join('\n')}\n2/1\n`;
+        const kbm = '2\n0\n127\n60\n60\n261.6255653005986\n1\n0\nx\n';
+        const shown = () => page.textContent('#tuningnow');
+        /* Until the row says something new: the answer comes from the
+           module, after the file has been read. */
+        const after = (was) => page.waitForFunction(
+            (w) => document.getElementById('tuningnow').textContent !== w,
+            was, { timeout: 15000 }).catch(() => {});
+        const of = async () =>
+        {
+            const t = await page.evaluate((c) => window.solo.tuningOf(c), chan);
+            const at = (key) => page.evaluate(
+                ([c, k]) => window.solo.pitchOf(c, k), [chan, key]);
+
+            return { ...t, k61: await at(61), k62: await at(62) };
+        };
+        const step = 12 / 19;
+        const near = (a, b) => Math.abs(a - b) < 1e-9;
+        const saved = () => page.evaluate((c) => window.solo.patchText(c), chan);
+        const pick = async (button, name, text) =>
+        {
+            const chooser = page.waitForEvent('filechooser');
+            const was = await shown();
+            const disabled = (id) => page.$eval(id, (b) => b.disabled);
+            const states = async () => [await disabled('#tuningkbm'),
+                                        await disabled('#tuningnokbm')];
+            const before = await states();
+
+            await page.click(button);
+            await (await chooser).setFiles({ name, mimeType: 'text/plain',
+                                             buffer: Buffer.from(text) });
+
+            if (button === '#tuningscl')
+                await after(was);
+            else
+                await page.waitForFunction(
+                    (b) => [document.getElementById('tuningkbm').disabled,
+                            document.getElementById('tuningnokbm').disabled]
+                        .join() !== b.join(),
+                    before, { timeout: 15000 }).catch(() => {});
+
+            await settle();
+        };
+
+        await pick('#tuningscl', 'edo19.scl', scl);
+
+        const scaled = { shown: await shown(), now: await of(),
+                         file: await saved() };
+
+        await pick('#tuningkbm', 'gaps.kbm', kbm);
+
+        const mapped = await of();
+
+        await page.click('#tuningnokbm');
+        await page.waitForFunction(
+            () => document.getElementById('tuningnokbm').disabled,
+            null, { timeout: 15000 }).catch(() => {});
+        await settle();
+
+        const unmapped = await of();
+        const named = await shown();
+
+        await page.click('#tuning12');
+        await after(named);
+        await settle();
+
+        const plain = { shown: await shown(), now: await of(),
+                        file: await saved() };
+
+        check(scaled.shown === 'Tuning: 19-EDO test' &&
+              scaled.now.scale !== '' && near(scaled.now.k61, 60 + step) &&
+              scaled.file.includes('tuning scale ') &&
+              mapped.keymap === '2 0 127 60 60 261.6255653005986 1 0 x' &&
+              mapped.k61 === 61 && near(mapped.k62, 60 + step) &&
+              unmapped.keymap === '' && near(unmapped.k61, 60 + step) &&
+              unmapped.scale === scaled.now.scale &&
+              plain.shown === 'Tuning: 12-TET' && plain.now.scale === '' &&
+              plain.now.k61 === 61 &&
+              !plain.file.includes('tuning'),
+              'the Tuning menu reads a scale and a keyboard map, keeps them ' +
+              `in the patch, and takes them off: ${JSON.stringify(
+                  [scaled.shown, mapped.keymap !== '', plain.shown])}`);
     }
 
     /* The first .patch the panel offers over this channel's graph, chosen.

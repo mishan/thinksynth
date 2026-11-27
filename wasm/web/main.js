@@ -3333,6 +3333,70 @@ async function pickPreset ()
     await aimByHand(channel, name || placed.get(channel)?.dsp || '');
 }
 
+/* Whether the open piece put its instrument on `channel': its tuning is
+   the piece's, as its instrument is. */
+function piecesChannel (channel)
+{
+    return composing() &&
+           (piece?.instruments ?? []).some((i) => i.channel === channel);
+}
+
+/* What a tuning chosen now is for: the channel, and what is on it. An
+   answer from a file chooser that comes back after any of it changed is
+   dropped. */
+function tuningFor (channel)
+{
+    return JSON.stringify([channel, aimed.get(channel) ?? null,
+                           placed.get(channel)?.patch ?? null,
+                           loaded[channel] ?? null, piece?.name ?? null,
+                           mode()]);
+}
+
+let tuningAsked = null;
+
+/* The Tuning row: what the channel is tuned to, and the four things to
+   do about it, greyed where they mean nothing. Not in patch or grow mode,
+   whose every reload of the graph is a new channel. */
+async function showTuning (channel)
+{
+    if (playsPatch())
+    {
+        $('tuningrow').hidden = true;
+        return;
+    }
+
+    const { tuning } = await synth.tuningOf(channel);
+    const tuned = tuning.scale !== '';
+    const theirs = piecesChannel(channel);
+
+    $('tuningnow').textContent = theirs
+        ? 'Tuning: set by the piece'
+        : `Tuning: ${tuned ? (tuning.name || 'a scale') : '12-TET'}`;
+    $('tuning12').disabled = theirs || !tuned;
+    $('tuningscl').disabled = theirs;
+    $('tuningkbm').disabled = theirs || !tuned;
+    $('tuningnokbm').disabled = theirs || tuning.keymap === '';
+    $('tuningrow').hidden = false;
+}
+
+/* One of the menu's four, on `channel', if it is still what it was. */
+async function tune (channel, kind, text = '', fallback = '', asked = null)
+{
+    if ((asked !== null && asked !== tuningFor(channel)) ||
+        piecesChannel(channel))
+        return;
+
+    const dsp = placed.get(channel)?.dsp ?? aimed.get(channel) ??
+                loaded[channel] ?? '';
+    const { why } = await synth.tune(channel, dsp, kind, text, fallback);
+
+    if (why !== '')
+        status(`The tuning was not changed: ${why}`, true);
+
+    showChannels();
+    paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
+}
+
 async function showParams ()
 {
     if (synth === null)
@@ -3354,9 +3418,12 @@ async function showParams ()
         $('params').replaceChildren();
         $('paramwhat').textContent =
             'Nothing on this channel yet; load an instrument.';
+        $('tuningrow').hidden = true;
 
         return;
     }
+
+    await showTuning(channel);
 
     const panel = JSON.parse(answer.json);
 
@@ -4410,6 +4477,13 @@ window.solo = {
     /* The page as it opened about the key channel: no mode chosen. */
     forgetKeyChoices: () => keysChosen.clear(),
 
+    /* A channel's tuning as the module holds it, the .patch a download
+       would write, and the channels the open piece filled. */
+    tuningOf: async (c) => (await synth.tuningOf(c)).tuning,
+    pitchOf: async (c, key) => (await synth.pitchOf(c, key)).pitch,
+    patchText: async (c) => (await synth.patchCompose(c, '')).text,
+    piecesChannels: () => (piece?.instruments ?? []).map((i) => i.channel),
+
     settled: async () =>
     {
         for (let was = null, drew = null, chose = null, ed = null, pd = null;
@@ -4965,6 +5039,38 @@ async function init ()
     $('paramchan').addEventListener('change', () =>
         pickChannel(paramChannel(), { chosen: true }));
     $('parampatch').addEventListener('change', pickPreset);
+
+    for (const [id, kind] of [['tuning12', 0], ['tuningscl', 1],
+                              ['tuningkbm', 2], ['tuningnokbm', 3]])
+        $(id).addEventListener('click', () =>
+        {
+            const channel = paramChannel();
+
+            if (kind === 1 || kind === 2)
+            {
+                tuningAsked = { channel, kind, at: tuningFor(channel) };
+                $('tuningfile').accept = kind === 1 ? '.scl' : '.kbm';
+                $('tuningfile').click();
+                return;
+            }
+
+            tune(channel, kind);
+        });
+
+    $('tuningfile').addEventListener('change', async () =>
+    {
+        const file = $('tuningfile').files[0];
+        const asked = tuningAsked;
+
+        $('tuningfile').value = '';
+        tuningAsked = null;
+
+        if (file === undefined || asked === null)
+            return;
+
+        await tune(asked.channel, asked.kind, await file.text(),
+                   file.name.replace(/\.[^.]*$/, ''), asked.at);
+    });
 
     /* And the composer's popover, on the same beat. It is a different panel
        over a different thing -- a stage's line in the .gen rather than an

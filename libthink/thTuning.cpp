@@ -660,3 +660,59 @@ bool thTuning::operator== (const thTuning &o) const
 
     return true;
 }
+
+bool thTuningText::read (bool keymap, const std::string &text,
+                         const std::string &fallback, std::string &err,
+                         int &errLine)
+{
+    errLine = 0;
+
+    if (keymap)
+    {
+        thKeymap m;
+
+        if (!m.parse(text, err, errLine))
+            return false;
+
+        this->keymap = m.values();
+        return true;
+    }
+
+    thScale s;
+
+    if (!s.parse(text, err, errLine))
+        return false;
+
+    name = s.description.find_first_not_of(" \t") == std::string::npos
+        ? fallback : s.description;
+    scale = s.values();
+    return true;
+}
+
+bool thTuningText::build (std::shared_ptr<const thTuning> &out,
+                          std::string &err) const
+{
+    if (empty())
+    {
+        if (!keymap.empty())
+        {
+            err = "a keyboard map needs a scale to map";
+            return false;
+        }
+
+        out = nullptr;
+        return true;
+    }
+
+    thScale s;
+    thKeymap m;
+    auto built = std::make_shared<thTuning>();
+
+    if (!s.parseValues(scale, name, err) ||
+        (!keymap.empty() && !m.parseValues(keymap, err)) ||
+        !built->build(s, m, err))
+        return false;
+
+    out = built;
+    return true;
+}

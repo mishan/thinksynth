@@ -329,6 +329,20 @@
     <label>Patch <select id="parampatch"></select></label>
   </div>
 
+  <!-- The channel's tuning: 12-TET, a Scala scale (.scl), a keyboard map
+       (.kbm). Saved with the patch; a piece's channel has the piece's.
+       Buttons and not a select of actions: arrowing through a select
+       would do each action on the way past. -->
+  <div class="row" id="tuningrow" role="group" aria-labelledby="tuningnow"
+       hidden>
+    <span id="tuningnow"></span>
+    <button id="tuning12">12-TET</button>
+    <button id="tuningscl">Scale (.scl)&hellip;</button>
+    <button id="tuningkbm">Keyboard map (.kbm)&hellip;</button>
+    <button id="tuningnokbm">No keyboard map</button>
+    <input type="file" id="tuningfile" accept=".scl,.kbm" hidden>
+  </div>
+
   <div id="params"></div>
 </details>
 
