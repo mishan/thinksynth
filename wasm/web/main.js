@@ -1294,14 +1294,17 @@ function showLatency ()
 
 /* ---- the patch ---- */
 
-async function loadPatch ()
+/* `keep': the text box's graph again -- Load, an edit on the canvas, a
+   grown graph -- whose tuning is the channel's and goes on. A patch chosen
+   from the menu, or patch mode entered, starts in 12-TET. */
+async function loadPatch (keep = false)
 {
     if (synth === null)
         return;
 
     /* As it is now: typing while an earlier load finishes is not loaded. */
     const text = $('dsp').value;
-    const ok = await quietly(() => synth.load(text, PATCH_CHANNEL, true));
+    const ok = await quietly(() => synth.load(text, PATCH_CHANNEL, keep));
 
     /* Patch mode has taken PATCH_CHANNEL, whatever was aimed there. So the
        aiming for it is forgotten rather than left to be shown as still
@@ -1367,7 +1370,7 @@ const grow = createGrow({
     setGraph: async (text) =>
     {
         $('dsp').value = text;
-        await loadPatch();
+        await loadPatch(true);
         nodeFileChanged($('patch').value);
     },
     hear: (text) => quietly(() => synth.load(text, PATCH_CHANNEL, true)),
@@ -3975,7 +3978,7 @@ const nodeFiles = {
                below -- the only thing watching in patch mode -- never
                hears an edit the canvas made. Told directly instead. */
             $('dsp').value = next;
-            loadPatch();
+            loadPatch(true);
             nodeFileChanged(name);
             return;
         }
@@ -4990,7 +4993,7 @@ async function init ()
     $('midioutdelay').addEventListener('change', () => video.delayed());
     $('mode').addEventListener('change', pickMode);
 
-    $('load').addEventListener('click', loadPatch);
+    $('load').addEventListener('click', () => loadPatch(true));
     $('patch').addEventListener('change', pickPatch);
 
     $('loadpiece').addEventListener('click', loadPiece);

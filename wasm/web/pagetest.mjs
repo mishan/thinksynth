@@ -3450,6 +3450,33 @@ try
                   'Tuning: 12-TET', null, { timeout: 15000 }).catch(() => {});
         await settle();
 
+        /* Another patch from the menu is another instrument: 12-TET. */
+        const again = page.waitForEvent('filechooser');
+
+        await page.click('#tuningscl');
+
+        await (await again).setFiles({ name: 'edo19.scl', mimeType: 'text/plain',
+                                       buffer: Buffer.from(scl) });
+        await settle();
+
+        const was = await page.$eval('#patch', (p) => p.value);
+        const other = await page.$eval('#patch', (p) =>
+            [...p.options].map((o) => o.value)
+                .find((v) => v !== '' && v !== p.value));
+
+        await page.selectOption('#patch', other);
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: 12-TET', null, { timeout: 15000 }).catch(() => {});
+        await settle();
+
+        const chosen = await at61();
+
+        await page.selectOption('#patch', was);
+        await settle();
+
+        check(chosen === 61,
+              `another patch chosen from the menu starts in 12-TET: ${chosen}`);
         check(shownAtFirst && near(tuned, 60 + 12 / 19) &&
               near(reloaded.pitch, 60 + 12 / 19) &&
               reloaded.shown === 'Tuning: 19-EDO patch' &&
