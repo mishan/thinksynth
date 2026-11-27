@@ -2186,6 +2186,9 @@ runExportMidi (const std::string &pluginPath)
         gthPatchManager::PatchFile *lowPatch = low != NULL
             ? gthPatchManager::instance()->getPatch(low->channel) : NULL;
 
+        check(low != NULL && win->tuningIsPieces(low->channel),
+              "a piece's channel has its tuning set by the piece");
+
         check(lowPatch != NULL && lowPatch->doc.tuningName == "just" &&
               lowPatch->doc.tuningScale == "9/8 5/4 4/3 3/2 5/3 15/8 2/1" &&
               lowPatch->doc.tuningKeymap.empty(),

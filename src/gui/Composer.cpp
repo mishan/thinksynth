@@ -1607,8 +1607,9 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
     gthPatchManager::PatchFile *have = pm->getPatch(inst.channel);
 
     /* Kept, the tuning's sound unchanged -- but its name or its spelling
-       may be new, and the patch says what the piece says. */
-    if (keep && have != NULL &&
+       may be new, and the patch says what the piece says. A sequence's
+       tuning is the person's, set from the strip, and stays. */
+    if (keep && have != NULL && which_ == PIECE &&
         (have->doc.tuningName != inst.tuningText.name ||
          have->doc.tuningScale != inst.tuningText.scale ||
          have->doc.tuningKeymap != inst.tuningText.keymap))
@@ -5135,6 +5136,12 @@ Composer::ownsChannel (int channel) const
             return patch != NULL && patch->generation == o.generation;
 
     return false;
+}
+
+bool
+Composer::tuningIsPieces (int channel) const
+{
+    return which_ == PIECE && ownsChannel(channel);
 }
 
 ComposerCanvas &

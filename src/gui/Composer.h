@@ -121,6 +121,11 @@ public:
        still as it put it: the piece's to set, not the patch strip's. */
     bool ownsChannel (int channel) const;
 
+    /* Whether `channel''s tuning is the open piece's to set: a channel a
+       piece filled, and not a sequence's, whose instruments -- and so
+       their tuning -- are the person's. */
+    bool tuningIsPieces (int channel) const;
+
     /* Something picked on the canvas plays on an engine channel: that
        channel, for the host to make current. */
     sigc::signal<void (int)> &signal_channel_picked (void)

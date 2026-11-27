@@ -1921,7 +1921,7 @@ void MainSynthWindow::setChannelTuning (int chan, const thTuningText &tuning)
     string err;
 
     /* A piece may have taken the channel while a chooser was open. */
-    if (composer_ != NULL && composer_->ownsChannel(chan))
+    if (composer_ != NULL && composer_->tuningIsPieces(chan))
         return;
 
     if (!gthPatchManager::instance()->setTuning(chan, tuning, err))
@@ -1932,7 +1932,7 @@ void MainSynthWindow::updateTuningOwned (void)
 {
     for (const auto &[chan, btn] : tuningBtns_)
     {
-        const bool piece = composer_ != NULL && composer_->ownsChannel(chan);
+        const bool piece = composer_ != NULL && composer_->tuningIsPieces(chan);
 
         btn->set_sensitive(!piece);
         btn->set_tooltip_text(piece ? "The piece sets this channel's tuning"
