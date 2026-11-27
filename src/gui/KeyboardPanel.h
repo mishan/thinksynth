@@ -39,6 +39,13 @@ public:
     /* The channel the keys play, 0-based. */
     int channel (void) const;
 
+    /* The person moved the channel here (0-based); setChannel does not
+       say so. */
+    sigc::signal<void (int)> &signal_channel_picked (void)
+    {
+        return channelPicked_;
+    }
+
 protected:
     void eventNoteOn (int chan, int note, float veloc);
     void eventNoteOff (int chan, int note);
@@ -63,6 +70,9 @@ protected:
     thSynth *synth_;
 private:
     std::mutex kbMutex_;
+
+    sigc::signal<void (int)> channelPicked_;
+    bool setting_ = false;
 
     Keyboard *keyboard_;
 

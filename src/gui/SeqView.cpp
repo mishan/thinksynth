@@ -25,6 +25,7 @@
 #include "thcScheduler.h"
 #include "gthPatchfile.h"
 #include "thcGenFile.h"
+#include "ComposerCanvas.h"
 #include "Access.h"
 #include "SeqView.h"
 
@@ -287,6 +288,18 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         row->append(*head);
         row->append(*t.area);
         list_.append(*row);
+
+        /* A click anywhere on the track picks its channel: the name, the
+           chooser, a cell. In the capture phase and on the press, and
+           never claiming it, so the button and the grid still get theirs
+           (a button claims the press, and nothing after it arrives). */
+        Glib::RefPtr<Gtk::GestureClick> click = Gtk::GestureClick::create();
+
+        click->set_button(0);
+        click->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+        click->signal_pressed().connect(
+            [this, i](int, double, double) { pick(i); });
+        row->add_controller(click);
     }
 
     refresh();
@@ -608,6 +621,17 @@ SeqView::gesture (size_t i, int button, int row, int from,
 bool
 SeqView::key (size_t i, guint keyval, Gdk::ModifierType state)
 {
+    if (!useKey(i, keyval, state))
+        return false;
+
+    pick(i);
+
+    return true;
+}
+
+bool
+SeqView::useKey (size_t i, guint keyval, Gdk::ModifierType state)
+{
     if (i >= tracks_.size() ||
         (state & (Gdk::ModifierType::ALT_MASK |
                   Gdk::ModifierType::CONTROL_MASK)) != Gdk::ModifierType(0))
@@ -736,4 +760,20 @@ SeqView::say (void)
           "you cover, and back to shorten it. Drag across empty cells to "
           "draw a run of notes, and use the other button to erase. What "
           "you draw goes into the piece, and Save keeps it.");
+}
+
+void SeqView::pick (size_t i)
+{
+    if (i >= tracks_.size())
+        return;
+
+    ComposerCanvas::Selection sel;
+
+    sel.kind = ComposerCanvas::Selection::CHAIN;
+    sel.chain = tracks_[i].chain;
+
+    const int channel = ComposerCanvas::channelOf(doc_, sched_, sel);
+
+    if (channel >= 0)
+        picked_.emit(channel);
 }

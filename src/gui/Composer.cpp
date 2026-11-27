@@ -2870,6 +2870,11 @@ Composer::onCanvasSelection (const ComposerCanvas::Selection &sel)
        thrown into an empty pane reads as the window losing its place. */
     if (sel.kind != ComposerCanvas::Selection::NONE)
         showSelection_.emit();
+
+    const int channel = ComposerCanvas::channelOf(&doc_, sched_, sel);
+
+    if (channel >= 0)
+        channelPicked_.emit(channel);
 }
 
 /* A knob, selected on the canvas: its shape, and what it drives.
@@ -5094,4 +5099,10 @@ Composer::buildAddChain (void)
     row->append(*chanSel);
     row->append(*addBtn);
     selBox_->append(*row);
+}
+
+ComposerCanvas &
+Composer::canvas (void)
+{
+    return *canvas_;
 }

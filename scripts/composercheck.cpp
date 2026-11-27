@@ -2583,6 +2583,14 @@ runMidiOut (const std::string &pluginPath)
             "    stage seq gen::grid { steps = 4; rows = 1; "
             "cells = \"x.x.\"; };\n"
             "    sink { instrument = ext; };\n"
+            "};\n"
+            "instrument a { dsp \"organ0.dsp\"; };\n"
+            "instrument b { dsp \"organ0.dsp\"; };\n"
+            "chain fan {\n"
+            "    stage seq gen::grid { steps = 4; rows = 1; "
+            "cells = \"x...\"; };\n"
+            "    sink { instrument = a; };\n"
+            "    sink { instrument = b; };\n"
             "};\n");
 
     if (tmp.empty())
@@ -2615,6 +2623,44 @@ runMidiOut (const std::string &pluginPath)
         ok("an instrument whose port answers plays on the device");
     else
         fail("an instrument whose port answers plays on the device");
+
+    /* What picking each part of the piece makes the current channel: none
+       for a chain the engine does not sound, and a fan-out's own sink. */
+    {
+        std::vector<int> picked;
+        int chA = -1, chB = -1;
+        ComposerCanvas::Selection sel;
+
+        for (const thcInstrument &inst : win->sched_->instruments())
+            if (inst.name == "a")
+                chA = inst.channel;
+            else if (inst.name == "b")
+                chB = inst.channel;
+
+        sigc::connection c = win->signal_channel_picked().connect(
+            [&picked](int chan) { picked.push_back(chan); });
+
+        sel.kind = ComposerCanvas::Selection::CHAIN;
+        sel.chain = 0;
+        win->canvas().select(sel);
+        sel.chain = 1;
+        win->canvas().select(sel);
+        sel.kind = ComposerCanvas::Selection::SINK;
+        sel.index = 1;
+        win->canvas().select(sel);
+        sel.kind = ComposerCanvas::Selection::KNOB;
+        sel.index = 0;
+        win->canvas().select(sel);
+        c.disconnect();
+
+        if (chA >= 0 && chB >= 0 && chA != chB &&
+            picked == std::vector<int>({ chA, chB }))
+            ok("a chain picks its first notes channel, a sink its own, and "
+               "a chain on a device none");
+        else
+            fail("a chain picks its first notes channel, a sink its own, and "
+                 "a chain on a device none");
+    }
 
     win->setEditing(true);
     pump(10);

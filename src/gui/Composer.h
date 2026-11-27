@@ -114,6 +114,16 @@ public:
        click on one asks for. */
     SeqView &sequencer (void) { return seq_; }
 
+    /* The canvas, for the host: what is selected on it. */
+    ComposerCanvas &canvas (void);
+
+    /* Something picked on the canvas plays on an engine channel: that
+       channel, for the host to make current. */
+    sigc::signal<void (int)> &signal_channel_picked (void)
+    {
+        return channelPicked_;
+    }
+
     /* The panes' content. The host parents them, and has to let them go
        before this is destroyed. */
     Gtk::Widget &canvasView (void) { return canvasScroll_; }
@@ -538,6 +548,7 @@ protected:
     bool canvasShown_ = false;
     bool seqShown_ = false;
     sigc::signal<void ()> showSelection_;
+    sigc::signal<void (int)> channelPicked_;
     sigc::signal<void ()> wanted_;
     sigc::signal<void ()> startedSig_;
     sigc::signal<void ()> fileCommand_;

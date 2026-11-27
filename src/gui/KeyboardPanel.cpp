@@ -160,8 +160,12 @@ void KeyboardPanel::keyboardResetKeys (void)
 
 void KeyboardPanel::setChannel (int chan)
 {
-    if (chan >= 0 && chan < synth_->channelCount())
-        chanVal_->set_value(chan + 1);
+    if (chan < 0 || chan >= synth_->channelCount())
+        return;
+
+    setting_ = true;
+    chanVal_->set_value(chan + 1);
+    setting_ = false;
 }
 
 int KeyboardPanel::channel (void) const
@@ -226,6 +230,10 @@ void KeyboardPanel::changeChannel (void)
     /* the keyboard widget takes the real channel value */
     keyboard_->SetChannel((int)chanVal_->get_value()-1);
     kbMutex_.unlock();
+
+    /* After the lock: whoever hears it may set the channel back here. */
+    if (!setting_)
+        channelPicked_.emit((int)chanVal_->get_value() - 1);
 }
 
 void KeyboardPanel::changeTranspose (void)
