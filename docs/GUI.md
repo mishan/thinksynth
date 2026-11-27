@@ -215,10 +215,11 @@ these are the rules across panes.
     modes the drill-in offers to edit a copy, which the person then owns; on
     a piece's channel there is no copy, since it would change the slot.
   - **The File list stays** for the piece's files that no channel plays yet.
-  Open: whether a reload carries a channel's unsaved Patch params values
-  across, or resets them to the file's and the patch's (to be checked on each
-  side); and whether patch mode stays a mode once this exists (for now it
-  does: growing and the one-channel patch layouts hang off it).
+  - **A reload keeps the channel's Patch params values**, saved or not, as
+    the patch's own overrides are kept; on each side, whether it does today
+    is to be checked.
+  - **Patch mode stays a mode**: growing and the one-channel patch layouts
+    hang off it.
 - Engine: on a channel the keys and the piece share, their notes can cut each
   other off.
 
