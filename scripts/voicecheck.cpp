@@ -827,6 +827,42 @@ int main (int argc, char **argv)
                      num(20 * log10(highOf[0])) + " dB");
         }
 
+        /* A voice from silence starts on its first sound's shape: IY's
+           2 kHz against its first kilohertz is, in its first 10 ms, within
+           2 dB of what it is held. A glide in from a neutral mouth is
+           heard as a sound of its own, an "A" as "The". */
+        if (writeFile(file, speakGraph("")))
+        {
+            thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+            const unsigned char iy[] = { 11, 0 };
+            vector<float> got;
+
+            if (synth.loadTree(file, 0, 100) == NULL)
+                fail("a graph on osc::speak loads", "");
+            else
+            {
+                synth.addNote(0, 45, 100, 1, NULL, iy);
+                listen(synth, windows / 4, got);
+
+                const size_t n = TH_DEFAULT_SAMPLES * 10 / 1000;
+                auto tilt = [&](size_t from) {
+                    double lo = 0, hi = 0;
+
+                    for (int k = 1; k * f0 < 1000; k++)
+                        lo += pow(harmonic(got, from, n, k * f0), 2);
+                    for (int k = (int)(1800 / f0) + 1; k * f0 < 2400; k++)
+                        hi += pow(harmonic(got, from, n, k * f0), 2);
+                    return 10 * log10(hi / lo);
+                };
+                const double start = tilt(0), held = tilt(TH_DEFAULT_SAMPLES / 5);
+
+                okOrFail(fabs(start - held) < 2,
+                         "osc::speak: a voice from silence starts on its first sound's shape",
+                         "IY's 2 kHz against its first kilohertz: first 10 ms " + num(start) +
+                         " dB, held " + num(held) + " dB");
+            }
+        }
+
         /* The vowel is held while the key is, and the consonant after it
            is said when the key comes up: AA S held for half a second is a
            plain AA, sample for sample, until the release, has plenty of
