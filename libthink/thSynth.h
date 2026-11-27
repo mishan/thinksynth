@@ -577,11 +577,20 @@ public:
 
     void disarmProbe (int slot);
 
+    /* The editor's hover: a NEWEST probe (thProbe::Mode) in TH_HOVER_SLOT,
+       which none of the eight take, re-aimed by each call. TH_HOVER_SLOT, or
+       -1 with `why' set, the slot then holding what it held: a caller checks
+       the probe's names before trusting a reading. disarmProbe(TH_HOVER_SLOT)
+       lets go of it, and a load on its channel does as it does to the
+       others. */
+    int armHover (int channum, const string &node, const string &arg,
+                  string &why);
+
     /* GUI thread: the GUI's own view, for the same reason getChannel() is.
        NULL for a slot that is not armed. */
     thProbe *probe (int slot) const
     {
-        if ((slot < 0) || (slot >= TH_MAX_PROBES))
+        if ((slot < 0) || (slot >= TH_PROBE_SLOTS))
             return NULL;
 
         return guiProbes_[slot];
@@ -613,6 +622,9 @@ private:
     /* Audio thread: retires whatever is in `probes_[slot]' and installs
        `probe' (which may be NULL). */
     void installProbe (int slot, thProbe *probe);
+
+    int armAt (int channum, const string &node, const string &arg,
+               string &why, bool hover);
 
     /* GUI thread: disarms every probe pointing at `channum'. Called before
        queueing a SET_CHANNEL, so that the disarm is applied first -- the queue
@@ -707,8 +719,8 @@ private:
        guiProbes_ only by the GUI. Both name the same object, and it is the
        audio thread's release of a slot -- through retired_ -- that says the
        GUI may destroy it. */
-    thProbe *probes_[TH_MAX_PROBES];     /* audio thread */
-    thProbe *guiProbes_[TH_MAX_PROBES];  /* the same probes -- GUI thread */
+    thProbe *probes_[TH_PROBE_SLOTS];     /* audio thread */
+    thProbe *guiProbes_[TH_PROBE_SLOTS];  /* the same probes -- GUI thread */
 
     int midiChannelCnt_;
     float *output_;
@@ -774,7 +786,7 @@ private:
     /* What process() hands each channel: its probes and its side. */
     struct ChannelJob
     {
-        thProbe *taps[TH_MAX_PROBES];
+        thProbe *taps[TH_PROBE_SLOTS];
         int ntaps;
         const float *side;
         int sidechannels;

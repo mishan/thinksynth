@@ -446,7 +446,7 @@ thSynth::thSynth (int windowlen, int samples, int channels)
     guiMaster_ = NULL;
     masterSaidSo_ = false;
 
-    for (int i = 0; i < TH_MAX_PROBES; i++)
+    for (int i = 0; i < TH_PROBE_SLOTS; i++)
     {
         probes_[i] = NULL;
         guiProbes_[i] = NULL;
@@ -512,7 +512,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples,
     guiMaster_ = NULL;
     masterSaidSo_ = false;
 
-    for (int i = 0; i < TH_MAX_PROBES; i++)
+    for (int i = 0; i < TH_PROBE_SLOTS; i++)
     {
         probes_[i] = NULL;
         guiProbes_[i] = NULL;
@@ -614,7 +614,7 @@ thSynth::~thSynth (void)
 
     collectRetired();
 
-    for (int i = 0; i < TH_MAX_PROBES; i++)
+    for (int i = 0; i < TH_PROBE_SLOTS; i++)
     {
         if (probes_[i])
             doomedProbes.push_back(probes_[i]);
@@ -826,7 +826,7 @@ void thSynth::recycleNote (thMidiNote *note)
    may be NULL. */
 void thSynth::installProbe (int slot, thProbe *probe)
 {
-    if (slot < 0 || slot >= TH_MAX_PROBES)
+    if (slot < 0 || slot >= TH_PROBE_SLOTS)
     {
         /* Cannot install it and must not leak it. */
         if (probe)
@@ -1033,6 +1033,18 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
 int thSynth::armProbe (int channum, const string &node, const string &arg,
                        string &why)
 {
+    return armAt(channum, node, arg, why, false);
+}
+
+int thSynth::armHover (int channum, const string &node, const string &arg,
+                       string &why)
+{
+    return armAt(channum, node, arg, why, true);
+}
+
+int thSynth::armAt (int channum, const string &node, const string &arg,
+                    string &why, bool hover)
+{
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
@@ -1122,9 +1134,9 @@ int thSynth::armProbe (int channum, const string &node, const string &arg,
     /* Retargeting an existing probe reuses its slot; otherwise take a free
        one. Matching on node and arg means arming the same point twice is
        idempotent rather than burning two of the eight. */
-    int slot = -1;
+    int slot = hover ? TH_HOVER_SLOT : -1;
 
-    for (int i = 0; i < TH_MAX_PROBES; i++)
+    for (int i = 0; slot < 0 && i < TH_MAX_PROBES; i++)
     {
         if (guiProbes_[i] && guiProbes_[i]->chan() == channum &&
             guiProbes_[i]->nodeName() == node && guiProbes_[i]->argName() == arg)
@@ -1158,7 +1170,8 @@ int thSynth::armProbe (int channum, const string &node, const string &arg,
     thProbe *probe = new thProbe(channum, chan->serial(), n->id(), argIndex,
                                  node, arg, (unsigned int)windowlen_,
                                  (unsigned int)windowlen_ *
-                                     TH_PROBE_RING_WINDOWS + 1);
+                                     TH_PROBE_RING_WINDOWS + 1,
+                                 hover ? thProbe::NEWEST : thProbe::SUM);
 
     thSynthCommand cmd;
 
@@ -1187,7 +1200,7 @@ void thSynth::disarmProbe (int slot)
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
-    if ((slot < 0) || (slot >= TH_MAX_PROBES) || (guiProbes_[slot] == NULL))
+    if ((slot < 0) || (slot >= TH_PROBE_SLOTS) || (guiProbes_[slot] == NULL))
         return;
 
     thSynthCommand cmd;
@@ -1208,7 +1221,7 @@ void thSynth::disarmProbe (int slot)
 /* GUI thread, with synthMutex_ held. */
 void thSynth::disarmProbesOn (int channum)
 {
-    for (int i = 0; i < TH_MAX_PROBES; i++)
+    for (int i = 0; i < TH_PROBE_SLOTS; i++)
     {
         if (guiProbes_[i] == NULL || guiProbes_[i]->chan() != channum)
             continue;
@@ -2833,7 +2846,7 @@ void thSynth::process (const float *add)
        would be lying about the signal. */
     int probeCount = 0;
 
-    for (int p = 0; p < TH_MAX_PROBES; p++)
+    for (int p = 0; p < TH_PROBE_SLOTS; p++)
     {
         if (probes_[p] == NULL)
             continue;
@@ -2873,10 +2886,10 @@ void thSynth::process (const float *add)
             continue;
 
         /* Gathered per channel, so thMidiChan is handed only the probes that
-           concern it and its note loops carry no test beyond the count. Eight
-           slots, so this is a fixed eight-iteration scan and not worth
+           concern it and its note loops carry no test beyond the count. Nine
+           slots, so this is a fixed nine-iteration scan and not worth
            caching. */
-        for (int p = 0; probeCount && p < TH_MAX_PROBES; p++)
+        for (int p = 0; probeCount && p < TH_PROBE_SLOTS; p++)
         {
             /* The serial is what makes a probe stop rather than start
                reading a different node when the patch on this channel is
@@ -3075,7 +3088,7 @@ void thSynth::process (const float *add)
        limiter: a probe reports the signal at a point inside the graph, and
        bending it by a master-stage decision made downstream would make the
        display disagree with the patch it is describing. */
-    for (int p = 0; p < TH_MAX_PROBES; p++)
+    for (int p = 0; p < TH_PROBE_SLOTS; p++)
     {
         if (probes_[p])
             probes_[p]->publish();

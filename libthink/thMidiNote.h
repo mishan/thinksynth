@@ -61,6 +61,11 @@ public:
        prototype it was copied from; 0 for none. See thMidiChan::recycle. */
     unsigned long channel (void) const { return channel_; }
     void setChannel (unsigned long serial) { channel_ = serial; }
+
+    /* When it was built, against the channel's other voices: larger is
+       newer. */
+    unsigned long born (void) const { return born_; }
+    void setBorn (unsigned long born) { born_ = born; }
     
     thSynthTree *synthTree (void) { return &synthTree_; }
     int id (void) const { return noteid_; }
@@ -135,6 +140,7 @@ private:
 
     thSynthTree synthTree_;
     unsigned long channel_;
+    unsigned long born_ = 0;
     int noteid_;
     /* The key as it was asked for, fraction and all; the graph hears its
        pitch in the channel's tuning (sounding). noteid_ is its integer
