@@ -606,7 +606,7 @@ function keysWhereTheySound ()
         !silentOn(keyChannel()))
         return;
 
-    $('keychan').value = String(to);
+    pickChannel(to);
 }
 
 function log (text)
@@ -690,6 +690,32 @@ function showAbout ()
 function keyChannel ()
 {
     return Number($('keychan').value);
+}
+
+/* The current channel: what the keys play and Patch params shows. The
+ * one place it is set, so the two selectors, the tracks and the panel
+ * cannot disagree. `chosen' when a person picked it, which a piece's load
+ * then leaves where it is. A patch, played or growing, is on channel 1
+ * and stays there.
+ *
+ * The panel's redraws are one chain, which settled() waits for, so two
+ * picks in a row draw in the order they were made. */
+function pickChannel (c, { chosen = false } = {})
+{
+    if (playsPatch())
+        return;
+
+    if (chosen)
+        keysChosen.add(keysMode);
+
+    /* Against what the panel shows, not the selectors: a mode's restore
+       moves the keys' selector without drawing the panel. */
+    if (c === keyChannel() && params?.channel === c)
+        return;
+
+    showKeyChannels(c);
+    showChannels();
+    paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
 }
 
 /* Where a controller's values go: a patch's own channel, else the keys'. */
@@ -2223,8 +2249,7 @@ const band = createBand({
         if (listens === undefined)
             return false;
 
-        showKeyChannels(listens);
-        $('keychan').dispatchEvent(new Event('change'));
+        pickChannel(listens, { chosen: true });
         $('play').click();
         return true;
     },
@@ -2765,6 +2790,7 @@ let quiet = Promise.resolve();
 /* The tail of a load: the panels it redraws, which are asked of the worklet
    and arrive after the load itself is done with. See loadPiece. */
 let drawn = Promise.resolve();
+let paramsDrawn = Promise.resolve();
 
 function quietly (what)
 {
@@ -3202,28 +3228,19 @@ async function aimByHand (channel, name)
    of its rows. */
 let params = null;
 
-/* Which channels have a panel worth offering.
- *
- * Patch mode has the one it plays. Piece mode has every channel the piece
- * touches, which is the row of them showChannels draws -- a person who has
- * just aimed a .patch at channel 4 is the person who wants its cutoff. */
-function paramChannels ()
-{
-    return playsPatch() ? [PATCH_CHANNEL] : touched();
-}
-
-/* The channel selector, kept to what is there, keeping its choice if that
-   channel is still among them. Numbered the way the rest of the page
+/* The channel selector: the keys' channels and the keys' choice, since
+   the two are one current channel (pickChannel); a patch's one channel
+   when a patch is what plays. Numbered the way the rest of the page
    numbers channels: the file's, from 1, not the engine's, from 0. */
 function fillParamChannels ()
 {
-    const want = Number($('paramchan').value);
-    const all = paramChannels();
+    const all = playsPatch() ? [PATCH_CHANNEL]
+              : [...$('keychan').options].map((o) => Number(o.value));
 
     $('paramchan').replaceChildren(
         ...all.map((c) => new Option(String(c + 1), String(c))));
 
-    $('paramchan').value = String(all.includes(want) ? want : (all[0] ?? 0));
+    $('paramchan').value = String(playsPatch() ? PATCH_CHANNEL : keyChannel());
 }
 
 function paramChannel ()
@@ -4364,21 +4381,26 @@ window.solo = {
        only once nothing has been added across an await and a frame. And
        `drawn' beside it, because the panels a load redraws are asked of the
        worklet and land after the load that quiet tracks is finished. */
+    /* The page as it opened about the key channel: no mode chosen. */
+    forgetKeyChoices: () => keysChosen.clear(),
+
     settled: async () =>
     {
-        for (let was = null, drew = null, chose = null, ed = null;
+        for (let was = null, drew = null, chose = null, ed = null, pd = null;
              was !== quiet || drew !== drawn || chose !== picking ||
-             ed !== editing; )
+             ed !== editing || pd !== paramsDrawn; )
         {
             was = quiet;
             drew = drawn;
             chose = picking;
             ed = editing;
+            pd = paramsDrawn;
 
             await picking;
             await quiet;
             await editing;
             await drawn.catch(() => {});
+            await paramsDrawn.catch(() => {});
             await new Promise((go) => requestAnimationFrame(go));
         }
 
@@ -4909,13 +4931,9 @@ async function init ()
        keys moves which line is there. Nothing is loaded by it: where the
        keys go and what a channel sounds like are two questions. */
     $('keychan').addEventListener('change', () =>
-    {
-        keysChosen.add(keysMode);
-        showChannels();
-        showParams();
-    });
-
-    $('paramchan').addEventListener('change', showParams);
+        pickChannel(keyChannel(), { chosen: true }));
+    $('paramchan').addEventListener('change', () =>
+        pickChannel(paramChannel(), { chosen: true }));
     $('parampatch').addEventListener('change', pickPreset);
 
     /* And the composer's popover, on the same beat. It is a different panel

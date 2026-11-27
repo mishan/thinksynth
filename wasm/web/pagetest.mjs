@@ -376,7 +376,11 @@ try
           !(await page.isDisabled('#midi')),
           'the microphone is offered once there is a synth');
 
-    /* Evolve is the composer's, which is being rebuilt. */
+    /* Evolve is the composer's, which is being rebuilt. On the page as it
+       comes to rest: a panel still being laid out is not what anyone
+       meets. */
+    await page.evaluate(() => window.solo.settled());
+
     const axe = await axeFindings(page, ['#evolve']);
 
     check(axe.length === 0, 'axe finds nothing wrong with the started page' +
@@ -2794,11 +2798,36 @@ try
 
     check(chan >= 0, `${AIMED_PIECE} left an instrument on a channel`);
 
-    await page.selectOption('#paramchan', String(chan));
+    await page.selectOption('#paramchan', { value: String(chan) });
     await page.waitForFunction(
         (c) => document.getElementById('paramwhat').textContent
                        .endsWith(`channel ${c + 1}`),
         chan, { timeout: 60000 });
+
+    /* One current channel: the keys and Patch params follow each other,
+       whichever is moved, and offer the same channels. */
+    {
+        const both = () => page.evaluate(() =>
+            [document.getElementById('keychan').value,
+             document.getElementById('paramchan').value,
+             [...document.getElementById('keychan').options].map((o) => o.value).join(),
+             [...document.getElementById('paramchan').options].map((o) => o.value).join()]);
+        const viaParams = await both();
+
+        await page.selectOption('#keychan', { value: '11' });
+        await page.evaluate(() => window.solo.settled());
+
+        const viaKeys = await both();
+
+        await page.selectOption('#paramchan', { value: String(chan) });
+        await page.evaluate(() => window.solo.settled());
+
+        check(viaParams[0] === String(chan) && viaParams[1] === String(chan) &&
+              viaKeys[0] === '11' && viaKeys[1] === '11' &&
+              viaKeys[2] === viaKeys[3],
+              'the keys and Patch params are one channel, moved from either, ' +
+              `over the same list: ${JSON.stringify([viaParams, viaKeys])}`);
+    }
 
     /* The first .patch the panel offers over this channel's graph, chosen.
      *
@@ -2968,6 +2997,7 @@ try
             await settled();
         };
         const status = () => page.$eval('#status', (e) => e.textContent);
+        await page.evaluate(() => window.solo.forgetKeyChoices());
         await page.selectOption('#mode', 'seq');
         await settled();
         await page.selectOption('#mode', 'piece');

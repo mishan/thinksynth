@@ -1164,6 +1164,10 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
  */
 #params { margin: 0.5rem 0; font-size: 0.9rem; }
 
+/* WCAG 2.2's minimum target: rows 0.3rem apart put a 16-pixel slider's
+   neighbors inside its 24 pixels. A touch screen's 44 is further down. */
+#knobs input, #params input { min-height: 24px; }
+
 /* One grid for the whole block, and each row a subgrid of it.
  *
  * Not a grid per row. A row that sizes its own name column starts its
