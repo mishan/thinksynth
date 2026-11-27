@@ -149,11 +149,11 @@ when there is one.
   example after an edited value. Choosing a different patch is a new
   instrument and starts in 12-TET, unless that patch has its own tuning. On
   the browser page, entering patch mode starts in 12-TET too.
-- **A late answer is refused.** On the browser page, if a file chooser is
-  answered after the channel, the patch, the mode or the piece changed under
-  it, or while a piece is loading, the tuning isn't applied. The desktop
-  checks only that the patch it was opened for is still loaded and still not
-  the piece's; it then tunes that channel even if another is current.
+- **A late answer is refused.** If a file chooser is answered after the
+  patch on the channel was replaced, or the current channel or the mode
+  changed (even and back again), the tuning isn't applied. The browser page
+  also refuses one answered while a piece loads; the desktop loads a piece
+  in one step on the GUI thread, so no answer can arrive during one.
 
 ## 6. Edits and Undo
 
@@ -180,7 +180,6 @@ these are the rules across panes.
 ## 7. Not done yet
 
 - Desktop: a piece the keys can't be heard in aims them where they can.
-- Desktop: a tuning answer is refused on the browser page's terms.
 - Both: the Keys pane as a short strip, with the device setup moved out of it.
 - Browser: Patch graph follows the current channel, as Patch params does,
   instead of its own File list.

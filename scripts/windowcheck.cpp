@@ -992,6 +992,44 @@ checkTuning (TestWindow *win, const std::string &dsp)
           "one");
     win->heldTuning = sigc::slot<void (std::string)>();
 
+    /* ...and so is one answered after the current channel or the mode
+       moved, even back again: it was asked of what was in view. */
+    {
+        const char *const acts[] = { "another channel and back",
+                                     "another mode and back" };
+
+        for (const char *act : acts)
+        {
+            win->selectChannel(2);
+            win->tuningAnswer = (dir / "edo19.scl").string();
+            win->holdTuning = true;
+            press(win, 2, "Open _scale (.scl)...");
+            pump(4);
+            win->holdTuning = false;
+
+            if (act == acts[0])
+            {
+                win->selectChannel(0);
+                win->selectChannel(2);
+            }
+            else
+            {
+                pickMode(win, "piece");
+                pickMode(win, "patch");
+            }
+
+            if (win->heldTuning)
+                win->heldTuning(win->tuningAnswer);
+
+            pump(4);
+
+            check(win->heldTuning && soundsAt(2, 61) == 61,
+                  (std::string("a scale chosen before ") + act +
+                   " is not taken").c_str());
+            win->heldTuning = sigc::slot<void (std::string)>();
+        }
+    }
+
     edit(2, "pw1", 0.42f);
     win->tuningAnswer = (dir / "edo19.scl").string();
     press(win, 2, "Open _scale (.scl)...");

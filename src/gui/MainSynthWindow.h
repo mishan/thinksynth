@@ -130,8 +130,8 @@ protected:
        Greyed on a channel the open piece filled, whose tuning is the
        piece's (updateTuningOwned). */
     void appendTuningControls (Gtk::Box *row, int chan);
-    void onTuningFile (int chan, unsigned generation, bool keymap,
-                       string path);
+    void onTuningFile (int chan, unsigned generation, unsigned view,
+                       bool keymap, string path);
     void setChannelTuning (int chan, const thTuningText &tuning);
     void updateTuningOwned (void);
 
@@ -230,6 +230,10 @@ protected:
 
     /* The current channel each mode had when it was left. */
     std::map<string, int> modeChans_;
+
+    /* Moved on each change of the current channel or the mode, so an
+       answer asked of one view knows it is late. */
+    unsigned views_ = 0;
 
     /* The layout, kept in panes.ini beside thinkrc: written a moment after
        the last change rather than on every step of a divider's drag, and

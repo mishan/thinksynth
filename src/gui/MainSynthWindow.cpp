@@ -574,6 +574,8 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     if (isMode(mode_))
         modeChans_[mode_] = chan_;
 
+    views_++;
+
     mode_ = mode;
 
     for (size_t i = 0; i < G_N_ELEMENTS(PIECE_PANES); i++)
@@ -1874,17 +1876,17 @@ void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
        dropped if another has been put on the channel since. */
     item("Open _scale (.scl)...", true, [this, chan]
     {
-        const unsigned gen = generationOf(chan);
+        const unsigned gen = generationOf(chan), view = views_;
 
-        askTuningFile(false, sigc::track_obj([this, chan, gen] (string p)
-                      { onTuningFile(chan, gen, false, p); }, *this));
+        askTuningFile(false, sigc::track_obj([this, chan, gen, view] (string p)
+                      { onTuningFile(chan, gen, view, false, p); }, *this));
     });
     item("Open _keyboard map (.kbm)...", !now.empty(), [this, chan]
     {
-        const unsigned gen = generationOf(chan);
+        const unsigned gen = generationOf(chan), view = views_;
 
-        askTuningFile(true, sigc::track_obj([this, chan, gen] (string p)
-                      { onTuningFile(chan, gen, true, p); }, *this));
+        askTuningFile(true, sigc::track_obj([this, chan, gen, view] (string p)
+                      { onTuningFile(chan, gen, view, true, p); }, *this));
     });
     item("_No keyboard map", !now.keymap.empty(), [this, chan, now]
     {
@@ -1900,14 +1902,16 @@ void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
 }
 
 /* A .scl or a .kbm read into the values form the patch keeps, the other
- * half of the tuning as it was. */
+ * half of the tuning as it was: unless the patch was replaced, or the
+ * current channel or the mode moved, since it was asked for. */
 void MainSynthWindow::onTuningFile (int chan, unsigned generation,
-                                    bool keymap, string path)
+                                    unsigned view, bool keymap, string path)
 {
     gthPatchManager::PatchFile *patch =
         gthPatchManager::instance()->getPatch(chan);
 
-    if (path.empty() || patch == NULL || patch->generation != generation)
+    if (path.empty() || patch == NULL || patch->generation != generation ||
+        view != views_)
         return;
 
     std::ifstream in(path);
@@ -2612,6 +2616,9 @@ void MainSynthWindow::selectChannel (int chan)
 {
     if (chan < 0 || chan >= (int)holders_.size())
         chan = 0;
+
+    if (chan != chan_)
+        views_++;
 
     chan_ = chan;
 
