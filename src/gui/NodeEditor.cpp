@@ -52,8 +52,8 @@ NodeEditor::NodeEditor (thSynth *synth)
     : Gtk::Box(Gtk::Orientation::VERTICAL),
       synth_(synth), tree_(NULL), channel_(-1), selStatus_(false),
       newBtn_("New..."),
-      saveBtn_("Save"), saveAsBtn_("Save As..."),
-      revertBtn_("Revert"),
+      saveBtn_("Save graph"), saveAsBtn_("Save As..."),
+      revertBtn_("Revert graph"),
       paletteWidth_(210), paramsWidth_(240), pendingParams_(-1),
       gestures_(0)
 {

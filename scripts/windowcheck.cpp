@@ -62,6 +62,7 @@
 #include "gui/NodeCanvasWidget.h"
 #include "gui/NodeEditor.h"
 #include "gui/Panes.h"
+#include "gui/PanelView.h"
 
 /* The application-wide signals gthSignal.h declares, defined here because
  * main.cpp defines them there and this harness is not main.cpp. */
@@ -346,6 +347,43 @@ described (Gtk::Widget *w, const char *want)
     g_free(diff);
 
     return same;
+}
+
+/* In every parameter panel showing under `root': a number box beside a
+   slider has no - and +, since the slider and the arrow keys step it; one
+   with no slider keeps them, its only way to step by pointer. */
+static void
+checkNumberBoxes (Gtk::Widget *root, const char *where)
+{
+    std::vector<PanelView *> panels;
+    std::vector<Gtk::SpinButton *> boxes;
+    int beside = 0, wrong = 0;
+
+    collectUnder<PanelView>(root, panels);
+
+    for (PanelView *p : panels)
+        if (p->get_mapped())
+            collectUnder<Gtk::SpinButton>(p, boxes);
+
+    for (Gtk::SpinButton *box : boxes)
+    {
+        bool slider = false, buttons = false;
+
+        for (Gtk::Widget *w = box->get_parent()->get_first_child(); w != NULL;
+             w = w->get_next_sibling())
+            slider = slider || dynamic_cast<Gtk::Scale *>(w) != NULL;
+
+        for (Gtk::Widget *c = box->get_first_child(); c != NULL;
+             c = c->get_next_sibling())
+            buttons = buttons || (GTK_IS_BUTTON(c->gobj()) && c->get_visible());
+
+        beside += slider;
+        wrong += slider == buttons;
+    }
+
+    check(beside > 0 && wrong == 0,
+          (std::string("a number box in ") + where +
+           " has - and + only where there is no slider beside it").c_str());
 }
 
 /* That check, said: the first few offenders by name. */
@@ -656,8 +694,11 @@ checkPatchPage (TestWindow *win, const std::string &dsp)
         { "Re_vert patch", true, false }, { "Re_vert patch", true, true },
         { "Re_vert patch", false, false }, { "Re_vert patch", false, true },
         { "Change _DSP...", false, false, true },
+        { "Change _DSP...", false, true, true },
         { "_Open patch...", false, false, true },
+        { "_Open patch...", false, true, true },
         { "Re_vert patch", false, false, true },
+        { "Re_vert patch", false, true, true },
     };
     const std::string copy = (dir / "copy.dsp").string();
 
@@ -918,6 +959,68 @@ run (const std::string &pluginPath, const std::string &dsp)
               "...and one with only a step to redo");
     }
 
+    /* An editor on another file -- as after its Save As -- with edits not
+       saved, held across a rebuild while its channel is not looked at:
+       back when it is, the channel still playing the patch it was editing;
+       not back once something else has been put on the channel. */
+    {
+        const std::filesystem::path copy =
+            std::filesystem::temp_directory_path() /
+            ("windowcheck-copy-" +
+             std::to_string(std::chrono::steady_clock::now()
+                                .time_since_epoch().count()) + ".dsp");
+
+        std::filesystem::copy_file(dsp, copy);
+
+        bool back = false, gone = false;
+
+        for (int replace = 0; replace < 2; replace++)
+        {
+            win->selectChannel(2);
+            pump(4);
+
+            NodeEditor *ed = win->editors_.count(2) ? win->editors_[2] : NULL;
+
+            if (ed != NULL)
+                ed->open(copy.string(), -1);
+
+            pump(4);
+
+            NodeCanvasWidget *c = ed != NULL ? findCanvas(ed) : NULL;
+
+            if (c != NULL && c->graph() != NULL && !c->graph()->boxes().empty())
+            {
+                const double x = c->graph()->boxes()[0].x + 6;
+                const double y = c->graph()->boxes()[0].y + 6;
+
+                c->onPressed(1, x, y);
+                c->onMotion(x + 40, y);
+                c->onReleased(1, x + 40, y);
+            }
+
+            const bool edited = ed != NULL && ed->dirty();
+
+            win->selectChannel(0);
+            patchMgr->newPatch(dsp, replace ? 2 : 5);
+            pump(4);
+            win->selectChannel(2);
+            pump(4);
+
+            NodeEditor *now = win->editors_.count(2) ? win->editors_[2] : NULL;
+
+            if (replace)
+                gone = edited && now != NULL && !now->dirty();
+            else
+                back = edited && now == ed && ed->dirty();
+        }
+
+        std::filesystem::remove(copy);
+
+        check(back, "a graph editor on another file comes back with its "
+                    "edits across a rebuild");
+        check(gone, "...and not over a patch put on its channel since");
+    }
+
     /* A graph with no patch file saved for it -- as every instrument a
        piece carries is -- goes by the graph's name. */
     {
@@ -960,6 +1063,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     checkPatchPage(win, dsp);
 
     checkAccessible(win, "patch mode");
+    checkNumberBoxes(win, "patch mode");
 
     {
         Keyboard *keys = findUnder<Keyboard>(win);
