@@ -98,6 +98,7 @@ public:
     using MainSynthWindow::onBrowseChosen;
     using MainSynthWindow::kbPanel_;
     using MainSynthWindow::keyboardChannel;
+    using MainSynthWindow::setChannelTuning;
 
     /* The page's questions, answered here: what each would pick, and a
        count of the discard prompts with the last one's text. A held DSP
@@ -121,6 +122,18 @@ public:
             held = chosen;
         else
             chosen(dspAnswer);
+    }
+
+    std::string tuningAnswer;
+    bool holdTuning = false;
+    sigc::slot<void (std::string)> heldTuning;
+
+    void askTuningFile (bool, sigc::slot<void (std::string)> chosen) override
+    {
+        if (holdTuning)
+            heldTuning = chosen;
+        else
+            chosen(tuningAnswer);
     }
 
     void askDiscard (const std::string &what,
@@ -849,6 +862,144 @@ checkPatchPage (TestWindow *win, const std::string &dsp)
     std::filesystem::remove_all(dir);
 }
 
+static std::string readAll (const std::string &path);
+
+/* The note key `key' sounds at on `chan', or -1 with no channel. */
+static double
+soundsAt (int chan, int key)
+{
+    thMidiChan *mc = thSynth::instance()->getChannel(chan);
+
+    if (mc == NULL)
+        return -1;
+
+    return mc->tuning() != NULL ? mc->tuning()->pitch(key) : key;
+}
+
+/* The tuning menu on a patch's strip: a scale and a keyboard map read
+   from files, taken off again, and one that will not build refused. On
+   channel 3 (index 2), its knob values kept through every change. */
+static void
+checkTuning (TestWindow *win, const std::string &dsp)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() /
+        ("windowcheck-tuning-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    const double step = 12.0 / 19;
+
+    std::filesystem::create_directories(dir);
+
+    {
+        std::ofstream scl(dir / "edo19.scl");
+
+        scl << "19-EDO test\n19\n";
+
+        /* snprintf, not <<: the stream takes the desktop's locale, and
+           "1,010.53" is not a number of cents. */
+        for (int i = 1; i < 19; i++)
+        {
+            char cents[32];
+
+            snprintf(cents, sizeof cents, "%.12f\n", 1200.0 * i / 19);
+            scl << cents;
+        }
+
+        scl << "2/1\n";
+    }
+
+    std::ofstream(dir / "gaps.kbm")
+        << "2\n0\n127\n60\n60\n261.6255653005986\n1\n0\nx\n";
+    std::ofstream(dir / "bad.scl") << "not a scale\nseven\n";
+
+    patchMgr->newPatch(dsp, 2);
+    pump(4);
+    edit(2, "pw1", 0.42f);
+    pump(4);
+
+    win->tuningAnswer = (dir / "edo19.scl").string();
+
+    const unsigned loaded = patchMgr->getPatch(2)->generation;
+    const bool opened = press(win, 2, "Open _scale (.scl)...");
+
+    pump(4);
+
+    check(opened && stripSays(win, 2, "Tuning: 19-EDO test") &&
+          std::fabs(soundsAt(2, 61) - (60 + step)) < 1e-9 &&
+          argValue(2, "pw1") == 0.42f && patchMgr->isDirty(2),
+          "a scale opened from the strip tunes its channel and keeps its "
+          "values");
+    check(patchMgr->getPatch(2)->generation == loaded,
+          "...on the channel as it stands, not a reload of it");
+
+    const std::string saved = (dir / "tuned.patch").string();
+
+    patchMgr->savePatch(saved, 2);
+    check(readAll(saved).find("tuning scale ") != std::string::npos,
+          "...and is saved with the patch");
+
+    win->tuningAnswer = (dir / "gaps.kbm").string();
+    press(win, 2, "Open _keyboard map (.kbm)...");
+    pump(4);
+
+    const double mapped = soundsAt(2, 61);
+
+    press(win, 2, "_No keyboard map");
+    pump(4);
+
+    check(mapped == 61 && std::fabs(soundsAt(2, 61) - (60 + step)) < 1e-9,
+          "a keyboard map leaves out the keys it names, and goes again");
+
+    const unsigned before = patchMgr->getPatch(2)->generation;
+
+    win->tuningAnswer = (dir / "bad.scl").string();
+    press(win, 2, "Open _scale (.scl)...");
+    pump(4);
+
+    std::string err;
+    const bool took = patchMgr->setTuning(2, { "odd", "100.0 abc", "" }, err);
+
+    check(!took && !err.empty() &&
+          patchMgr->getPatch(2)->generation == before &&
+          std::fabs(soundsAt(2, 61) - (60 + step)) < 1e-9,
+          "a scale that will not read, or values that will not build, "
+          "change nothing");
+
+    /* An answer for a patch since replaced on the channel is dropped. */
+    win->tuningAnswer = (dir / "edo19.scl").string();
+    win->holdTuning = true;
+    press(win, 2, "Open _scale (.scl)...");
+    pump(4);
+    win->holdTuning = false;
+    patchMgr->newPatch(dsp, 2);
+    pump(4);
+
+    if (win->heldTuning)
+        win->heldTuning(win->tuningAnswer);
+
+    pump(4);
+
+    check(win->heldTuning && soundsAt(2, 61) == 61 &&
+          patchMgr->getPatch(2)->doc.tuningScale.empty(),
+          "a scale chosen for a patch since replaced is not put on the new "
+          "one");
+    win->heldTuning = sigc::slot<void (std::string)>();
+
+    edit(2, "pw1", 0.42f);
+    win->tuningAnswer = (dir / "edo19.scl").string();
+    press(win, 2, "Open _scale (.scl)...");
+    pump(4);
+    press(win, 2, "_12-TET");
+    pump(4);
+
+    check(soundsAt(2, 61) == 61 && stripSays(win, 2, "Tuning: 12-TET") &&
+          argValue(2, "pw1") == 0.42f,
+          "12-TET puts the channel back, values and all");
+
+    std::filesystem::remove_all(dir);
+}
+
 static std::string
 readAll (const std::string &path)
 {
@@ -1127,6 +1278,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     }
 
     checkPatchPage(win, dsp);
+    checkTuning(win, dsp);
 
     checkAccessible(win, "patch mode");
     checkNumberBoxes(win, "patch mode");
@@ -1463,6 +1615,56 @@ run (const std::string &pluginPath, const std::string &dsp)
         win->chanList_.select_row(*rowFor(win, seq.trackChannel(2)));
         pump(4);
         checkAgree(win, seq.trackChannel(2), "a row in Channels");
+    }
+
+    /* The tuning of a channel the piece filled is the piece's. */
+    {
+        pump(4);
+
+        Gtk::Widget *page = pageFor(win, seq.trackChannel(4));
+        std::vector<Gtk::MenuButton *> menus;
+        Gtk::MenuButton *tuning = NULL;
+
+        if (page != NULL)
+            collectUnder<Gtk::MenuButton>(page, menus);
+
+        for (Gtk::MenuButton *m : menus)
+            if (labelsUnder(m).rfind("Tuning:", 0) == 0)
+                tuning = m;
+
+        check(tuning != NULL && !tuning->is_sensitive(),
+              "a channel the piece filled has its tuning greyed");
+
+        /* A tuning arriving for it anyway -- a chooser opened before the
+           piece took the channel -- changes nothing. */
+        const int owned = seq.trackChannel(4);
+
+        win->setChannelTuning(owned, { "late", "100.0 200.0 1200.0", "" });
+        pump(4);
+
+        gthPatchManager::PatchFile *op =
+            gthPatchManager::instance()->getPatch(owned);
+
+        check(op != NULL && op->doc.tuningScale.empty() &&
+              soundsAt(owned, 61) == 61,
+              "...and a tuning that arrives for it anyway is not taken");
+
+        /* And one loaded by hand has it live. */
+        Gtk::Widget *mine = pageFor(win, 0);
+        Gtk::MenuButton *live = NULL;
+
+        menus.clear();
+
+        if (mine != NULL)
+            collectUnder<Gtk::MenuButton>(mine, menus);
+
+        for (Gtk::MenuButton *m : menus)
+            if (labelsUnder(m).rfind("Tuning:", 0) == 0)
+                live = m;
+
+        check(live != NULL && live->is_sensitive() &&
+              !win->composer_->ownsChannel(0),
+              "...and a channel loaded by hand has it live");
     }
 
     /* The bass track, chain 3, played by a kick: a graph that ignores the

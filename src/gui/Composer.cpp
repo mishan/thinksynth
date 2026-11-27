@@ -1597,13 +1597,27 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
                 keep = true;
     }
 
-    if (!keep && !pm->newPatch(inst.dsp, inst.channel, inst.tuning))
+    if (!keep &&
+        !pm->newPatch(inst.dsp, inst.channel, inst.tuning, inst.tuningText))
     {
         why = "'" + inst.dsp + "' did not load";
         return false;
     }
 
     gthPatchManager::PatchFile *have = pm->getPatch(inst.channel);
+
+    /* Kept, the tuning's sound unchanged -- but its name or its spelling
+       may be new, and the patch says what the piece says. */
+    if (keep && have != NULL &&
+        (have->doc.tuningName != inst.tuningText.name ||
+         have->doc.tuningScale != inst.tuningText.scale ||
+         have->doc.tuningKeymap != inst.tuningText.keymap))
+    {
+        have->doc.tuningName = inst.tuningText.name;
+        have->doc.tuningScale = inst.tuningText.scale;
+        have->doc.tuningKeymap = inst.tuningText.keymap;
+        pm->markDirty(inst.channel);
+    }
     Owned o;
 
     o.channel = inst.channel;
@@ -5108,6 +5122,19 @@ Composer::buildAddChain (void)
     row->append(*chanSel);
     row->append(*addBtn);
     selBox_->append(*row);
+}
+
+bool
+Composer::ownsChannel (int channel) const
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(channel);
+
+    for (const Owned &o : ownedChannels_)
+        if (o.channel == channel)
+            return patch != NULL && patch->generation == o.generation;
+
+    return false;
 }
 
 ComposerCanvas &

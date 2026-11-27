@@ -121,6 +121,15 @@ protected:
        and the buttons that change that. */
     void appendEffectControls (Gtk::Box *row, int chan);
 
+    /* The tuning's menu in the strip: 12-TET, a scale, a keyboard map.
+       Greyed on a channel the open piece filled, whose tuning is the
+       piece's (updateTuningOwned). */
+    void appendTuningControls (Gtk::Box *row, int chan);
+    void onTuningFile (int chan, unsigned generation, bool keymap,
+                       string path);
+    void setChannelTuning (int chan, const thTuningText &tuning);
+    void updateTuningOwned (void);
+
     /* The effect's own chanargs, under a heading, or NULL when it has none.
        A panel of their own because an effect's `@a' and an instrument's
        are two different numbers. */
@@ -272,6 +281,7 @@ protected:
     virtual void askPatchFile (sigc::slot<void (string)> chosen);
     virtual void askDsp (int chan, sigc::slot<void (string)> chosen);
     virtual void askDiscard (const string &what, sigc::slot<void ()> discard);
+    virtual void askTuningFile (bool keymap, sigc::slot<void (string)> chosen);
 
     /* Names an action, gives it something to do, and optionally a key.
      *
@@ -382,6 +392,9 @@ protected:
      * dropped in populate() so a session's worth of reloads does not leave a
      * subscription behind for every page that ever existed. */
     std::map<int, Gtk::Scale *> ampScales_;
+
+    /* Each page's tuning menu, for whether the piece owns its channel. */
+    std::map<int, Gtk::MenuButton *> tuningBtns_;
     std::vector<sigc::connection> ampConns_;
     std::vector<sigc::connection> saveConns_;
 

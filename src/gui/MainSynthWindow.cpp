@@ -28,6 +28,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iterator>
 #include <memory>
 #include <system_error>
 #include <signal.h>
@@ -1740,10 +1743,28 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     if (patch == NULL)
         return strip;
 
-    Gtk::Box *sound = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+    /* Amplitude, the effect and the tuning, each a group that wraps to
+       the next line when the pane is too narrow for all three -- which
+       the parameters' pane usually is. */
+    Gtk::FlowBox *sound = manage(new Gtk::FlowBox);
+    Gtk::Box *ampGroup = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+    Gtk::Box *fxGroup = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+    Gtk::Box *tuneGroup = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
-    sound->set_spacing(6);
+    sound->set_selection_mode(Gtk::SelectionMode::NONE);
+    sound->set_max_children_per_line(3);
+    sound->set_column_spacing(12);
+    sound->set_row_spacing(6);
     strip->append(*sound);
+
+    for (Gtk::Box *group : { ampGroup, fxGroup, tuneGroup })
+    {
+        group->set_spacing(6);
+        sound->append(*group);
+
+        /* One Tab stop for what is in it, not one for its cell too. */
+        group->get_parent()->set_focusable(false);
+    }
 
     thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
 
@@ -1778,15 +1799,195 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
         ampScales_[chan] = ampScale;
 
-        sound->append(*ampLbl);
-        sound->append(*ampScale);
-        sound->append(*manage(new Gtk::Separator(
-                                  Gtk::Orientation::VERTICAL)));
+        ampGroup->append(*ampLbl);
+        ampGroup->append(*ampScale);
     }
 
-    appendEffectControls(sound, chan);
+    appendEffectControls(fxGroup, chan);
+    appendTuningControls(tuneGroup, chan);
 
     return strip;
+}
+
+static unsigned generationOf (int chan);
+
+void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+
+    if (patch == NULL)
+        return;
+
+    const thPatchDoc &doc = patch->doc;
+    const thTuningText now = { doc.tuningName, doc.tuningScale,
+                               doc.tuningKeymap };
+    Gtk::MenuButton *btn = manage(new Gtk::MenuButton);
+    Gtk::Popover *menu = manage(new Gtk::Popover);
+    Gtk::Box *items = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+
+    Gtk::Label *what = manage(new Gtk::Label(
+        "Tuning: " + (now.empty() ? string("12-TET")
+                      : now.name.empty() ? string("a scale") : now.name)));
+
+    what->set_ellipsize(Pango::EllipsizeMode::END);
+    what->set_max_width_chars(28);
+    btn->set_child(*what);
+    btn->set_popover(*menu);
+    menu->set_child(*items);
+
+    /* Each out of the click, as a save is: a new tuning rebuilds every
+       page, this menu's with it. */
+    auto item = [this, items, menu, chan] (const char *label, bool live,
+                                           std::function<void ()> act)
+    {
+        Gtk::Button *b = manage(new Gtk::Button(label, true));
+
+        b->add_css_class("flat");
+        b->set_has_frame(false);
+        b->set_sensitive(live);
+        b->signal_clicked().connect([this, menu, act]
+        {
+            menu->popdown();
+            Glib::signal_idle().connect_once(sigc::track_obj(act, *this));
+        });
+        items->append(*b);
+    };
+
+    item("_12-TET", !now.empty(),
+         [this, chan] { setChannelTuning(chan, thTuningText()); });
+    /* Each answer is for the patch the chooser was opened over, and is
+       dropped if another has been put on the channel since. */
+    item("Open _scale (.scl)...", true, [this, chan]
+    {
+        const unsigned gen = generationOf(chan);
+
+        askTuningFile(false, sigc::track_obj([this, chan, gen] (string p)
+                      { onTuningFile(chan, gen, false, p); }, *this));
+    });
+    item("Open _keyboard map (.kbm)...", !now.empty(), [this, chan]
+    {
+        const unsigned gen = generationOf(chan);
+
+        askTuningFile(true, sigc::track_obj([this, chan, gen] (string p)
+                      { onTuningFile(chan, gen, true, p); }, *this));
+    });
+    item("_No keyboard map", !now.keymap.empty(), [this, chan, now]
+    {
+        thTuningText t = now;
+
+        t.keymap.clear();
+        setChannelTuning(chan, t);
+    });
+
+    tuningBtns_[chan] = btn;
+    row->append(*btn);
+    updateTuningOwned();
+}
+
+/* A .scl or a .kbm read into the values form the patch keeps, the other
+ * half of the tuning as it was. */
+void MainSynthWindow::onTuningFile (int chan, unsigned generation,
+                                    bool keymap, string path)
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+
+    if (path.empty() || patch == NULL || patch->generation != generation)
+        return;
+
+    std::ifstream in(path);
+    const string text((std::istreambuf_iterator<char>(in)),
+                      std::istreambuf_iterator<char>());
+    thTuningText t = { patch->doc.tuningName, patch->doc.tuningScale,
+                       patch->doc.tuningKeymap };
+    string err;
+    int line = 0;
+
+    if (keymap)
+    {
+        thKeymap m;
+
+        if (!m.parse(text, err, line))
+        {
+            showError(this, "Could not read that keyboard map",
+                      path + ", line " + std::to_string(line) + ":\n\n" + err);
+            return;
+        }
+
+        t.keymap = m.values();
+    }
+    else
+    {
+        thScale s;
+
+        if (!s.parse(text, err, line))
+        {
+            showError(this, "Could not read that scale",
+                      path + ", line " + std::to_string(line) + ":\n\n" + err);
+            return;
+        }
+
+        const bool blank = s.description.find_first_not_of(" \t") ==
+                           string::npos;
+
+        t.name = blank ? std::filesystem::path(path).stem().string()
+                       : s.description;
+        t.scale = s.values();
+    }
+
+    setChannelTuning(chan, t);
+}
+
+void MainSynthWindow::setChannelTuning (int chan, const thTuningText &tuning)
+{
+    string err;
+
+    /* A piece may have taken the channel while a chooser was open. */
+    if (composer_ != NULL && composer_->ownsChannel(chan))
+        return;
+
+    if (!gthPatchManager::instance()->setTuning(chan, tuning, err))
+        showError(this, "Could not use that tuning", err);
+}
+
+void MainSynthWindow::updateTuningOwned (void)
+{
+    for (const auto &[chan, btn] : tuningBtns_)
+    {
+        const bool piece = composer_ != NULL && composer_->ownsChannel(chan);
+
+        btn->set_sensitive(!piece);
+        btn->set_tooltip_text(piece ? "The piece sets this channel's tuning"
+                                    : "The scale this channel's keys play");
+    }
+}
+
+void MainSynthWindow::askTuningFile (bool keymap,
+                                     sigc::slot<void (string)> chosen)
+{
+    Gtk::FileChooserDialog *dlg = new Gtk::FileChooserDialog(
+        *this, keymap ? "thinksynth - Keyboard Map" : "thinksynth - Scale",
+        Gtk::FileChooser::Action::OPEN);
+    Glib::RefPtr<Gtk::FileFilter> filter = Gtk::FileFilter::create();
+
+    filter->set_name(keymap ? "Keyboard maps (.kbm)" : "Scala scales (.scl)");
+    filter->add_pattern(keymap ? "*.kbm" : "*.scl");
+    dlg->add_filter(filter);
+    dlg->set_modal(true);
+    dlg->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    dlg->add_button("_Open", Gtk::ResponseType::OK);
+
+    dlg->signal_response().connect([dlg, chosen] (int response)
+    {
+        const string picked = response == Gtk::ResponseType::OK
+                              ? chosenPath(*dlg) : string();
+
+        closeDialog(dlg);
+        chosen(picked);
+    });
+
+    dlg->present();
 }
 
 /* Looked up rather than captured: the arg belongs to the thMidiChan, and
@@ -2118,6 +2319,7 @@ void MainSynthWindow::populate (void)
     ampConns_.clear();
     saveConns_.clear();
     ampScales_.clear();
+    tuningBtns_.clear();
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
     int numPatches = patchMgr->numPatches();
@@ -2237,6 +2439,11 @@ void MainSynthWindow::onPatchesChanged (void)
     populate();
 
     selectChannel(chan_);
+
+    /* Once the change is done: a piece records which channels it filled
+       after the load that rebuilt these pages. */
+    Glib::signal_idle().connect_once(
+        sigc::track_obj([this] { updateTuningOwned(); }, *this));
 }
 
 void MainSynthWindow::onPatchLoadError (const char* failure)

@@ -80,7 +80,8 @@ string gthPatchManager::resolvePatch (const string &patchName)
 }
 
 bool gthPatchManager::newPatch (const string &dspName, int chan,
-                                std::shared_ptr<const thTuning> tuning)
+                                std::shared_ptr<const thTuning> tuning,
+                                const thTuningText &text)
 {
     if ((chan < 0) || (chan >= patches_.count()))
         return false;
@@ -120,6 +121,9 @@ bool gthPatchManager::newPatch (const string &dspName, int chan,
     thPatchDoc doc;
 
     doc.dsp = dspName;
+    doc.tuningName = text.name;
+    doc.tuningScale = text.scale;
+    doc.tuningKeymap = text.keymap;
 
     /* A patch that has only just been given a DSP has been changed by
        definition: there is no file holding what is on screen. So: dirty,
@@ -133,6 +137,58 @@ bool gthPatchManager::newPatch (const string &dspName, int chan,
 }
 
 /* See the header. */
+bool gthPatchManager::setTuning (int chan, const thTuningText &tuning,
+                                 string &err)
+{
+    PatchFile *patch = patches_.get(chan);
+
+    if (patch == NULL)
+    {
+        err = "there is no patch on this channel";
+        return false;
+    }
+
+    if (tuning.empty() && !tuning.keymap.empty())
+    {
+        err = "a keyboard map needs a scale to map";
+        return false;
+    }
+
+    std::shared_ptr<thTuning> built;
+
+    if (!tuning.empty())
+    {
+        thScale scale;
+        thKeymap keymap;
+
+        built = std::make_shared<thTuning>();
+
+        if (!scale.parseValues(tuning.scale, tuning.name, err) ||
+            (!tuning.keymap.empty() && !keymap.parseValues(tuning.keymap, err)) ||
+            !built->build(scale, keymap, err))
+            return false;
+    }
+
+    /* On the channel as it is: no rebuild, so its values, its MIDI
+       mappings, its effect's tail and its notes all go on; a held key
+       finishes at the pitch it began at. */
+    if (!thSynth::instance()->setTuning(chan, built))
+    {
+        err = "there is no patch on this channel";
+        return false;
+    }
+
+    patch->doc.tuningName = tuning.name;
+    patch->doc.tuningScale = tuning.scale;
+    patch->doc.tuningKeymap = tuning.keymap;
+    patches_.markDirty(chan);
+
+    /* The strip says which tuning, and is drawn from the document. */
+    patches_.emitChanged();
+
+    return true;
+}
+
 bool gthPatchManager::setEffect (int chan, const string &effectName,
                                  int side)
 {

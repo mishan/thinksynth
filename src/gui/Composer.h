@@ -117,6 +117,10 @@ public:
     /* The canvas, for the host: what is selected on it. */
     ComposerCanvas &canvas (void);
 
+    /* Whether `channel' holds an instrument the open piece put there,
+       still as it put it: the piece's to set, not the patch strip's. */
+    bool ownsChannel (int channel) const;
+
     /* Something picked on the canvas plays on an engine channel: that
        channel, for the host to make current. */
     sigc::signal<void (int)> &signal_channel_picked (void)

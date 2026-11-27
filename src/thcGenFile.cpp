@@ -987,6 +987,9 @@ thcGenLoader::parseTuning (void)
 
     failedTunings_.erase(nameTok.text);
     tunings_[nameTok.text] = tuning;
+    tuningTexts_[nameTok.text] = { nameTok.text, scale.text,
+                                   keymap.kind == Token::STRING ? keymap.text
+                                                                : "" };
 
     return true;
 }
@@ -2383,6 +2386,7 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
             }
 
             inst.tuning = found->second;
+            inst.tuningText = tuningTexts_[v.text];
 
             if (!expectPunct(';'))
                 return false;

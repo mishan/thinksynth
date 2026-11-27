@@ -95,6 +95,15 @@ struct THINK_API thKeymap {
     bool parseValues (const std::string &values, std::string &err);
 };
 
+/* A tuning in the values form a piece and a patch both write: its name,
+   the scale's values and the keymap's, empty for none. What a tuning is
+   read from and saved as; thTuning is what it builds. */
+struct THINK_API thTuningText {
+    std::string name, scale, keymap;
+
+    bool empty (void) const { return scale.empty(); }
+};
+
 class THINK_API thTuning {
 public:
     static constexpr int KEYS = 128;

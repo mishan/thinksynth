@@ -1247,6 +1247,20 @@ void thSynth::drainCommands (void)
         applyCommand(cmd);
 }
 
+bool thSynth::setTuning (int chan, std::shared_ptr<const thTuning> tuning)
+{
+    if (chan < 0 || chan >= midiChannelCnt_)
+        return false;
+
+    std::lock_guard<std::mutex> lock(synthMutex_);
+
+    if (guiChannels_[chan] == NULL)
+        return false;
+
+    guiChannels_[chan]->setTuning(std::move(tuning));
+    return true;
+}
+
 bool thSynth::removeChan (int channum)
 {
     if ((channum < 0) || (channum >= midiChannelCnt_))

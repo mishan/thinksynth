@@ -166,10 +166,19 @@ public:
     }
     void setSharesState (bool shares) { sharesState_ = shares; }
 
-    /* What the channel's keys sound at, or none for 12-TET. Set before the
-       channel is published and fixed for its life: the audio thread reads
-       the table and nothing writes it, so no change crosses threads. */
-    void setTuning (std::shared_ptr<const thTuning> tuning) { tuning_ = std::move(tuning); }
+    /* What the channel's next notes sound at, or none for 12-TET. GUI
+       thread, which is where notes are built (buildNote) and the only
+       place this is read. A note keeps the table it was built with, so a
+       held key finishes at the pitch it began at, and every table the
+       channel has had is kept as long as the channel: a note playing on
+       the audio thread may still point at any of them. */
+    void setTuning (std::shared_ptr<const thTuning> tuning)
+    {
+        if (tuning_)
+            pastTunings_.push_back(std::move(tuning_));
+
+        tuning_ = std::move(tuning);
+    }
     const thTuning *tuning (void) const { return tuning_.get(); }
 
     /* ---- either, with care ---- */
@@ -508,6 +517,7 @@ private:
     string message_;
     string effectMessage_;
     std::shared_ptr<const thTuning> tuning_;
+    std::vector<std::shared_ptr<const thTuning> > pastTunings_;
     std::atomic<unsigned long> *nonFinite_;
 
     /* A diverging graph goes non-finite on every window of every note, so

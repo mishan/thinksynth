@@ -58,8 +58,8 @@ public:
        notes after play this one; a caller wanting a clean slate, as a
        render that starts over does, calls removeChan first.
 
-       `tuning', if any, is what the channel's keys sound at (thTuning):
-       fixed for the channel's life, so a new tuning is a new channel. */
+       `tuning', if any, is what the channel's keys sound at (thTuning);
+       setTuning changes it on the channel as it stands. */
     thSynthTree *loadTree(const string &filename, int channum, float amp,
                           std::shared_ptr<const thTuning> tuning = nullptr);
     thSynthTree *loadTree(FILE *input);
@@ -521,6 +521,11 @@ public:
 
     /* GUI thread. Deliberately the GUI's view: the audio thread's array is
        written by the audio thread and must not be read from here. */
+    /* Retunes channel `chan' from its next note on (NULL: 12-TET); a held
+       note keeps the tuning it began with. GUI thread. False for a channel
+       with nothing on it. */
+    bool setTuning (int chan, std::shared_ptr<const thTuning> tuning);
+
     thMidiChan *getChannel (int chan) const
     {
         if ((chan < midiChannelCnt_) && (chan >= 0))

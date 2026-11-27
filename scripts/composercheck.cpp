@@ -2182,6 +2182,16 @@ runExportMidi (const std::string &pluginPath)
 
         pump(10);
 
+        const thcInstrument *low = win->sched_->instrument("low");
+        gthPatchManager::PatchFile *lowPatch = low != NULL
+            ? gthPatchManager::instance()->getPatch(low->channel) : NULL;
+
+        check(lowPatch != NULL && lowPatch->doc.tuningName == "just" &&
+              lowPatch->doc.tuningScale == "9/8 5/4 4/3 3/2 5/3 15/8 2/1" &&
+              lowPatch->doc.tuningKeymap.empty(),
+              "a tuned instrument's patch records its tuning, to show and "
+              "to save");
+
         const thcInstrument *pad = win->sched_->instrument("pad");
         const int ch = pad != NULL ? pad->channel : -1;
         const bool swapped = pad != NULL &&
@@ -2198,6 +2208,48 @@ runExportMidi (const std::string &pluginPath)
 
         if (!swapped)
             printf("      swap: %s\n", why.c_str());
+
+        /* The tuning renamed, its pitches the same: the instrument is kept,
+           and its patch takes the new name and is changed, so a Save writes
+           it. Reloaded as it was, a saved patch stays clean. */
+        if (low != NULL)
+        {
+            gthPatchManager *pm = gthPatchManager::instance();
+            const int lch = low->channel;
+
+            pm->savePatch(tmp + "/low.patch", lch);
+            win->structuralReload();
+            pump(10);
+
+            const bool clean = !pm->isDirty(lch);
+            std::string text = readFile(win->workPath_);
+
+            for (const char *from : { "tuning just", "tuning = just" })
+            {
+                const std::string f = from;
+                const size_t at = text.find(f);
+
+                if (at != std::string::npos)
+                    text.replace(at, f.size(), f.substr(0, f.size() - 4) +
+                                                   "lower");
+            }
+
+            {
+                std::ofstream out(win->workPath_.c_str(), std::ios::trunc);
+
+                out << text;
+            }
+
+            win->structuralReload();
+            pump(10);
+
+            gthPatchManager::PatchFile *after = pm->getPatch(lch);
+
+            check(clean && after != NULL &&
+                  after->doc.tuningName == "lower" && pm->isDirty(lch),
+                  "a tuning renamed in the piece renames it in the patch, "
+                  "changed; one reloaded as it was stays saved");
+        }
 
         delete win;
 

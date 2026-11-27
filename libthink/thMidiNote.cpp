@@ -140,6 +140,12 @@ void thMidiNote::takeSay (thMidiNote *from)
         memcpy(to->values(), was->values(), TH_NOTE_SAY * sizeof(float));
 }
 
+void thMidiNote::retune (float note, const thTuning *tuning)
+{
+    tuning_ = tuning;
+    retune(note);
+}
+
 void thMidiNote::retune (float note)
 {
     thNode *ionode = synthTree_.IONode();
