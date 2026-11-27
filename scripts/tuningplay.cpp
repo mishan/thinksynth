@@ -256,6 +256,41 @@ int main (int argc, char **argv)
         expect(synth, "swap: the next key plays the new channel's", 61);
     }
 
+    /* Retuned live: a held key goes on at the pitch it began at, the next
+       key plays the new tuning, and the table the held key was built with
+       is still there when it is let go (ASan sees to that). */
+    {
+        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        synth.loadTreeText("live", graph(false), 0, 100, tuning(edo19(), ""));
+        synth.addNote(0, 61, 100);
+        run(synth, SETTLE, NULL);
+
+        if (!synth.setTuning(0, nullptr))
+            fail("a live retune was refused");
+
+        run(synth, 2, NULL);
+        expect(synth, "live: the held key keeps its tuning", 60 + step);
+
+        /* Bent, it is pitched again, from the table it was built with. */
+        synth.bendNote(0, 61, 0.5f);
+        run(synth, 2, NULL);
+        expect(synth, "live: and bent, still its own tuning", 60 + step + 0.5);
+
+        synth.delNote(0, 61);
+        run(synth, SETTLE * 2, NULL);
+        synth.addNote(0, 61, 100);
+        run(synth, SETTLE, NULL);
+        expect(synth, "live: the next key plays the new tuning", 61);
+        synth.delNote(0, 61);
+        run(synth, SETTLE * 2, NULL);
+
+        synth.setTuning(0, tuning(edo19(), ""));
+        synth.addNote(0, 61, 100);
+        run(synth, SETTLE, NULL);
+        expect(synth, "live: and back again", 60 + step);
+    }
+
     /* A mono voice moved to another key is moved to that key's pitch. */
     {
         thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);

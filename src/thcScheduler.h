@@ -42,7 +42,7 @@
 
 class thSynth;
 class thArg;
-class thTuning;
+#include "thTuning.h"
 class thcPlugin;
 
 /* The host side of the composer framework: one object, living in src/
@@ -409,8 +409,10 @@ struct thcInstrument
 
     int channel;                /* engine channel; -1 unallocated */
 
-    /* `tuning = NAME;': what the channel's keys sound at, or none. */
+    /* `tuning = NAME;': what the channel's keys sound at, or none; and
+       the same as text, for the patch the channel is then given. */
     std::shared_ptr<const thTuning> tuning;
+    thTuningText tuningText;
 
     thcInstrument (void)
         : sideChannel(-1), midiChannel(-1), midiProgram(-1), channel(-1) {}

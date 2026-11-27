@@ -39,7 +39,7 @@
 
 class thArg;
 class thMidiChan;
-class thTuning;
+#include "thTuning.h"
 
 class gthPatchManager
 {
@@ -50,9 +50,15 @@ public:
     static gthPatchManager *instance (void);
 
     /* `tuning', if any, is what the channel's keys sound at; a piece's
-       instrument hands its own. */
+       instrument hands its own, and `text', what the patch records of it. */
     bool newPatch (const string &dspName, int chan,
-                   std::shared_ptr<const thTuning> tuning = nullptr);
+                   std::shared_ptr<const thTuning> tuning = nullptr,
+                   const thTuningText &text = thTuningText());
+
+    /* Retunes the channel's patch to `tuning' (empty: 12-TET) where it
+       stands, from its next note on, and marks it changed. False, with
+       `err', for a tuning that will not build, which changes nothing. */
+    bool setTuning (int chan, const thTuningText &tuning, string &err);
     bool loadPatch (const string & filename, int chan);
     bool savePatch (const string &filename, int chan);
     bool unloadPatch (int chan);

@@ -30,7 +30,7 @@
 #include "thLexer.h"
 #include "thWords.h"
 
-class thTuning;
+#include "thTuning.h"
 
 class thArg;
 class thcPlugin;
@@ -293,6 +293,7 @@ private:
        next. One that failed is remembered so that an instrument naming it
        is not a second error for the same mistake. */
     std::map<std::string, std::shared_ptr<const thTuning> > tunings_;
+    std::map<std::string, thTuningText> tuningTexts_;
     std::set<std::string> failedTunings_;
 
     /* Instruments, by name, as indices into the scheduler's table --

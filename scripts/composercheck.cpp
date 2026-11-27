@@ -2182,6 +2182,16 @@ runExportMidi (const std::string &pluginPath)
 
         pump(10);
 
+        const thcInstrument *low = win->sched_->instrument("low");
+        gthPatchManager::PatchFile *lowPatch = low != NULL
+            ? gthPatchManager::instance()->getPatch(low->channel) : NULL;
+
+        check(lowPatch != NULL && lowPatch->doc.tuningName == "just" &&
+              lowPatch->doc.tuningScale == "9/8 5/4 4/3 3/2 5/3 15/8 2/1" &&
+              lowPatch->doc.tuningKeymap.empty(),
+              "a tuned instrument's patch records its tuning, to show and "
+              "to save");
+
         const thcInstrument *pad = win->sched_->instrument("pad");
         const int ch = pad != NULL ? pad->channel : -1;
         const bool swapped = pad != NULL &&
