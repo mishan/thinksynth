@@ -45,6 +45,7 @@
  */
 
 #include <climits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -98,10 +99,25 @@ struct THINK_API thKeymap {
 /* A tuning in the values form a piece and a patch both write: its name,
    the scale's values and the keymap's, empty for none. What a tuning is
    read from and saved as; thTuning is what it builds. */
+class thTuning;
+
 struct THINK_API thTuningText {
     std::string name, scale, keymap;
 
     bool empty (void) const { return scale.empty(); }
+
+    /* `text', a .scl (`keymap' false) or a .kbm, read in place of this
+       tuning's scale or keymap. A scale's name is its description, or
+       `fallback' -- the file's own name -- where that is blank. False,
+       with `err' and the file's `errLine', for one that will not read,
+       which changes nothing. */
+    bool read (bool keymap, const std::string &text,
+               const std::string &fallback, std::string &err, int &errLine);
+
+    /* The table it builds into `out', or NULL for 12-TET. False, with
+       `err', for values that will not build or a keymap with no scale,
+       which leaves `out' alone. */
+    bool build (std::shared_ptr<const thTuning> &out, std::string &err) const;
 };
 
 class THINK_API thTuning {
@@ -124,6 +140,11 @@ public:
     double pitch (double key) const;
 
     bool operator== (const thTuning &o) const;
+
+    /* What it was built from, as a patch or a piece writes it, where it
+       was built from that (thTuningText::build): what a shell shows of a
+       channel's tuning, and keeps through a reload of its graph. */
+    thTuningText text;
 
 private:
     bool mapped_[KEYS];

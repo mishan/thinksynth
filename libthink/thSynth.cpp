@@ -1261,6 +1261,17 @@ bool thSynth::setTuning (int chan, std::shared_ptr<const thTuning> tuning)
     return true;
 }
 
+std::shared_ptr<const thTuning> thSynth::getTuning (int chan)
+{
+    if (chan < 0 || chan >= midiChannelCnt_)
+        return nullptr;
+
+    std::lock_guard<std::mutex> lock(synthMutex_);
+
+    return guiChannels_[chan] != NULL ? guiChannels_[chan]->sharedTuning()
+                                      : nullptr;
+}
+
 bool thSynth::removeChan (int channum)
 {
     if ((channum < 0) || (channum >= midiChannelCnt_))

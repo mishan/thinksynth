@@ -180,6 +180,7 @@ public:
         tuning_ = std::move(tuning);
     }
     const thTuning *tuning (void) const { return tuning_.get(); }
+    std::shared_ptr<const thTuning> sharedTuning (void) const { return tuning_; }
 
     /* ---- either, with care ---- */
 

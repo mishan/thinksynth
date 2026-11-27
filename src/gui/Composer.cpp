@@ -1597,8 +1597,24 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
                 keep = true;
     }
 
+    /* A sequence's tuning is the person's, set from the strip: an
+       instrument rebuilt over the same graph -- its values edited -- keeps
+       the one its channel has, where the sequence declares none. */
+    std::shared_ptr<const thTuning> tuning = inst.tuning;
+    thTuningText tuningText = inst.tuningText;
+    gthPatchManager::PatchFile *before = pm->getPatch(inst.channel);
+
+    if (!keep && which_ == SEQUENCE && !inst.tuning && before != NULL &&
+        before->doc.dsp == inst.dsp)
+    {
+        tuning = synth_->getTuning(inst.channel);
+
+        if (tuning)
+            tuningText = tuning->text;
+    }
+
     if (!keep &&
-        !pm->newPatch(inst.dsp, inst.channel, inst.tuning, inst.tuningText))
+        !pm->newPatch(inst.dsp, inst.channel, tuning, tuningText))
     {
         why = "'" + inst.dsp + "' did not load";
         return false;
@@ -1607,8 +1623,9 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
     gthPatchManager::PatchFile *have = pm->getPatch(inst.channel);
 
     /* Kept, the tuning's sound unchanged -- but its name or its spelling
-       may be new, and the patch says what the piece says. */
-    if (keep && have != NULL &&
+       may be new, and the patch says what the piece says. A sequence's
+       tuning is the person's, set from the strip, and stays. */
+    if (keep && have != NULL && which_ == PIECE &&
         (have->doc.tuningName != inst.tuningText.name ||
          have->doc.tuningScale != inst.tuningText.scale ||
          have->doc.tuningKeymap != inst.tuningText.keymap))
@@ -5135,6 +5152,12 @@ Composer::ownsChannel (int channel) const
             return patch != NULL && patch->generation == o.generation;
 
     return false;
+}
+
+bool
+Composer::tuningIsPieces (int channel) const
+{
+    return which_ == PIECE && ownsChannel(channel);
 }
 
 ComposerCanvas &

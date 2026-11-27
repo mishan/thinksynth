@@ -148,26 +148,10 @@ bool gthPatchManager::setTuning (int chan, const thTuningText &tuning,
         return false;
     }
 
-    if (tuning.empty() && !tuning.keymap.empty())
-    {
-        err = "a keyboard map needs a scale to map";
+    std::shared_ptr<const thTuning> built;
+
+    if (!tuning.build(built, err))
         return false;
-    }
-
-    std::shared_ptr<thTuning> built;
-
-    if (!tuning.empty())
-    {
-        thScale scale;
-        thKeymap keymap;
-
-        built = std::make_shared<thTuning>();
-
-        if (!scale.parseValues(tuning.scale, tuning.name, err) ||
-            (!tuning.keymap.empty() && !keymap.parseValues(tuning.keymap, err)) ||
-            !built->build(scale, keymap, err))
-            return false;
-    }
 
     /* On the channel as it is: no rebuild, so its values, its MIDI
        mappings, its effect's tail and its notes all go on; a held key

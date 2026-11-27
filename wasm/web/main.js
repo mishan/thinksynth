@@ -1294,14 +1294,17 @@ function showLatency ()
 
 /* ---- the patch ---- */
 
-async function loadPatch ()
+/* `keep': the text box's graph again -- Load, an edit on the canvas, a
+   grown graph -- whose tuning is the channel's and goes on. A patch chosen
+   from the menu, or patch mode entered, starts in 12-TET. */
+async function loadPatch (keep = false)
 {
     if (synth === null)
         return;
 
     /* As it is now: typing while an earlier load finishes is not loaded. */
     const text = $('dsp').value;
-    const ok = await quietly(() => synth.load(text));
+    const ok = await quietly(() => synth.load(text, PATCH_CHANNEL, keep));
 
     /* Patch mode has taken PATCH_CHANNEL, whatever was aimed there. So the
        aiming for it is forgotten rather than left to be shown as still
@@ -1367,10 +1370,10 @@ const grow = createGrow({
     setGraph: async (text) =>
     {
         $('dsp').value = text;
-        await loadPatch();
+        await loadPatch(true);
         nodeFileChanged($('patch').value);
     },
-    hear: (text) => quietly(() => synth.load(text)),
+    hear: (text) => quietly(() => synth.load(text, PATCH_CHANNEL, true)),
     targets: () => playableDsps(),
     targetText: async (name) =>
         dspTexts[name] ?? (await fetch(`dsp/${name}`)).text(),
@@ -1587,7 +1590,7 @@ async function edited (m)
     /* A sink the edit added may name a channel nothing is on yet. */
     const aiming = await patch.aim(
         synth, m.sinks, mode() === 'seq'
-            ? new Map([...sequenceVoices(), ...aimed]) : aimed);
+            ? new Map([...sequenceVoices(), ...aimed]) : aimed, placedNames());
 
     placed = aiming.placed;
     aiming.failed.forEach(log);
@@ -2407,6 +2410,11 @@ async function loadPiece ()
        the last load's channels -- see fitTracks. */
     loading++;
 
+    /* A chooser's answer is for the piece before this one: from here on
+       it is stale, and while the load runs it is refused outright -- the
+       engine has the new piece before `piece' does. */
+    pickSerial++;
+
     let it;
 
     try
@@ -2432,7 +2440,7 @@ async function loadPiece ()
                 aiming = await patch.aim(
                     synth, loaded.sinks,
                     mode() === 'seq' ? new Map([...sequenceVoices(), ...aimed])
-                                     : aimed);
+                                     : aimed, placedNames());
 
             return loaded;
         });
@@ -3333,6 +3341,69 @@ async function pickPreset ()
     await aimByHand(channel, name || placed.get(channel)?.dsp || '');
 }
 
+/* Whether the open piece put its instrument on `channel': its tuning is
+   the piece's, as its instrument is. */
+function piecesChannel (channel)
+{
+    return composing() &&
+           (piece?.instruments ?? []).some((i) => i.channel === channel);
+}
+
+/* What a tuning chosen now is for: the channel, and what is on it. An
+   answer from a file chooser that comes back after any of it changed is
+   dropped. */
+function tuningFor (channel)
+{
+    return JSON.stringify([channel, aimed.get(channel) ?? null,
+                           placed.get(channel)?.patch ?? null,
+                           loaded[channel] ?? null, pickSerial, mode()]);
+}
+
+let tuningAsked = null;
+
+/* What the page last placed on each channel, by the name it was placed
+   under: what a piece's re-aiming puts back keeping its tuning. */
+function placedNames ()
+{
+    return new Map([...placed].map(([c, p]) => [c, p.patch || p.dsp]));
+}
+
+/* The Tuning row: what the channel is tuned to, and the four things to
+   do about it, greyed where they mean nothing. */
+async function showTuning (channel)
+{
+    const { tuning } = await synth.tuningOf(channel);
+    const tuned = tuning.scale !== '';
+    const theirs = piecesChannel(channel);
+
+    $('tuningnow').textContent = theirs
+        ? 'Tuning: set by the piece'
+        : `Tuning: ${tuned ? (tuning.name || 'a scale') : '12-TET'}`;
+    $('tuning12').disabled = theirs || !tuned;
+    $('tuningscl').disabled = theirs;
+    $('tuningkbm').disabled = theirs || !tuned;
+    $('tuningnokbm').disabled = theirs || tuning.keymap === '';
+    $('tuningrow').hidden = false;
+}
+
+/* One of the menu's four, on `channel', if it is still what it was. */
+async function tune (channel, kind, text = '', fallback = '', asked = null)
+{
+    if ((asked !== null && asked !== tuningFor(channel)) ||
+        piecesChannel(channel) || loading > 0)
+        return;
+
+    const dsp = placed.get(channel)?.dsp ?? aimed.get(channel) ??
+                loaded[channel] ?? '';
+    const { why } = await synth.tune(channel, dsp, kind, text, fallback);
+
+    if (why !== '')
+        status(`The tuning was not changed: ${why}`, true);
+
+    showChannels();
+    paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
+}
+
 async function showParams ()
 {
     if (synth === null)
@@ -3354,9 +3425,12 @@ async function showParams ()
         $('params').replaceChildren();
         $('paramwhat').textContent =
             'Nothing on this channel yet; load an instrument.';
+        $('tuningrow').hidden = true;
 
         return;
     }
+
+    await showTuning(channel);
 
     const panel = JSON.parse(answer.json);
 
@@ -3915,7 +3989,7 @@ const nodeFiles = {
                below -- the only thing watching in patch mode -- never
                hears an edit the canvas made. Told directly instead. */
             $('dsp').value = next;
-            loadPatch();
+            loadPatch(true);
             nodeFileChanged(name);
             return;
         }
@@ -4409,6 +4483,13 @@ window.solo = {
        worklet and land after the load that quiet tracks is finished. */
     /* The page as it opened about the key channel: no mode chosen. */
     forgetKeyChoices: () => keysChosen.clear(),
+
+    /* A channel's tuning as the module holds it, the .patch a download
+       would write, and the channels the open piece filled. */
+    tuningOf: async (c) => (await synth.tuningOf(c)).tuning,
+    pitchOf: async (c, key) => (await synth.pitchOf(c, key)).pitch,
+    patchText: async (c) => (await synth.patchCompose(c, '')).text,
+    piecesChannels: () => (piece?.instruments ?? []).map((i) => i.channel),
 
     settled: async () =>
     {
@@ -4923,7 +5004,7 @@ async function init ()
     $('midioutdelay').addEventListener('change', () => video.delayed());
     $('mode').addEventListener('change', pickMode);
 
-    $('load').addEventListener('click', loadPatch);
+    $('load').addEventListener('click', () => loadPatch(true));
     $('patch').addEventListener('change', pickPatch);
 
     $('loadpiece').addEventListener('click', loadPiece);
@@ -4965,6 +5046,38 @@ async function init ()
     $('paramchan').addEventListener('change', () =>
         pickChannel(paramChannel(), { chosen: true }));
     $('parampatch').addEventListener('change', pickPreset);
+
+    for (const [id, kind] of [['tuning12', 0], ['tuningscl', 1],
+                              ['tuningkbm', 2], ['tuningnokbm', 3]])
+        $(id).addEventListener('click', () =>
+        {
+            const channel = paramChannel();
+
+            if (kind === 1 || kind === 2)
+            {
+                tuningAsked = { channel, kind, at: tuningFor(channel) };
+                $('tuningfile').accept = kind === 1 ? '.scl' : '.kbm';
+                $('tuningfile').click();
+                return;
+            }
+
+            tune(channel, kind);
+        });
+
+    $('tuningfile').addEventListener('change', async () =>
+    {
+        const file = $('tuningfile').files[0];
+        const asked = tuningAsked;
+
+        $('tuningfile').value = '';
+        tuningAsked = null;
+
+        if (file === undefined || asked === null)
+            return;
+
+        await tune(asked.channel, asked.kind, await file.text(),
+                   file.name.replace(/\.[^.]*$/, ''), asked.at);
+    });
 
     /* And the composer's popover, on the same beat. It is a different panel
        over a different thing -- a stage's line in the .gen rather than an

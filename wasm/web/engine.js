@@ -69,8 +69,9 @@ export function apply (M, m, host = NOWHERE)
     switch (m.type)
     {
         case 'load':
-            loaded(m.id, M.ccall('tw_load', 'number', ['number', 'string'],
-                                 [m.channel, m.text]) !== 0);
+            loaded(m.id, M.ccall('tw_load', 'number',
+                                 ['number', 'string', 'number'],
+                                 [m.channel, m.text, m.keep ? 1 : 0]) !== 0);
             return true;
 
         case 'instrument':
@@ -125,8 +126,9 @@ export function apply (M, m, host = NOWHERE)
                something that has read the file knows it. */
         {
             const ok = M.ccall('tw_patch_apply', 'number',
-                               ['number', 'string', 'string'],
-                               [m.channel, m.text, m.name ?? '']) !== 0;
+                               ['number', 'string', 'string', 'number'],
+                               [m.channel, m.text, m.name ?? '',
+                                m.keep ? 1 : 0]) !== 0;
 
             patched(m.id, ok,
                     M.ccall('tw_patch_why', 'string', [], []),

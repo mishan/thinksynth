@@ -409,6 +409,9 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'panelvalues':
             case 'patchstate':
             case 'patchcompose':
+            case 'tune':
+            case 'tuningof':
+            case 'pitchof':
             case 'settempo':
             case 'genparam':
             case 'genseed':
@@ -547,7 +550,10 @@ export async function createSynth (ctx, { windowlen = 128,
         /* Resolves true if the .dsp parsed. The channel is the caller's:
            a piece that routes `input midi' to a channel it declares no
            instrument for needs something put there to sound. */
-        load: (text, channel = 0) => ask({ type: 'load', text, channel }),
+        /* `keep': the channel's tuning goes on, the same instrument again
+           (patch mode's Load, a grown graph). */
+        load: (text, channel = 0, keep = false) =>
+            ask({ type: 'load', text, channel, keep }),
 
         /* A .dsp under the name a piece's `instrument { dsp = ... }' will
            ask for. A worklet cannot fetch, so the page hands these over. */
@@ -597,8 +603,8 @@ export async function createSynth (ctx, { windowlen = 128,
            The .dsp it names is not sent: the page has already handed every
            shipped graph to instrument() above, which is where a patch's
            `dsp' line is resolved from. */
-        patch: (channel, text, name = '') =>
-            ask({ type: 'patch', channel, text, name }),
+        patch: (channel, text, name = '', keep = false) =>
+            ask({ type: 'patch', channel, text, name, keep }),
 
         /* What is on a channel now: the document, the name it was given,
            and whether it has been edited since. Resolves to `{ json }',
@@ -619,6 +625,18 @@ export async function createSynth (ctx, { windowlen = 128,
            in a browser one the application opens. */
         patchCompose: (channel, stamp) =>
             ask({ type: 'patchcompose', channel, stamp }),
+
+        /* The channel's tuning from the Tuning menu (worklet's tw_tune):
+           kind 0 12-TET, 1 a .scl's text, 2 a .kbm's, 3 no keymap. The
+           answer's `why' is empty, or what refused it. */
+        tune: (channel, dsp, kind, text = '', fallback = '') =>
+            ask({ type: 'tune', channel, dsp, kind, text, fallback }),
+
+        /* And what it is tuned to now: { name, scale, keymap }. */
+        tuningOf: (channel) => ask({ type: 'tuningof', channel }),
+
+        /* The note `key' plays at on the channel, for a harness. */
+        pitchOf: (channel, key) => ask({ type: 'pitchof', channel, key }),
 
         /* And that they were kept, under this name: the other half of the
            dirty flag the channel row draws. Told rather than asked -- a

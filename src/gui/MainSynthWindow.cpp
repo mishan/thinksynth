@@ -1904,36 +1904,13 @@ void MainSynthWindow::onTuningFile (int chan, unsigned generation,
     string err;
     int line = 0;
 
-    if (keymap)
+    if (!t.read(keymap, text, std::filesystem::path(path).stem().string(),
+                err, line))
     {
-        thKeymap m;
-
-        if (!m.parse(text, err, line))
-        {
-            showError(this, "Could not read that keyboard map",
-                      path + ", line " + std::to_string(line) + ":\n\n" + err);
-            return;
-        }
-
-        t.keymap = m.values();
-    }
-    else
-    {
-        thScale s;
-
-        if (!s.parse(text, err, line))
-        {
-            showError(this, "Could not read that scale",
-                      path + ", line " + std::to_string(line) + ":\n\n" + err);
-            return;
-        }
-
-        const bool blank = s.description.find_first_not_of(" \t") ==
-                           string::npos;
-
-        t.name = blank ? std::filesystem::path(path).stem().string()
-                       : s.description;
-        t.scale = s.values();
+        showError(this, keymap ? "Could not read that keyboard map"
+                               : "Could not read that scale",
+                  path + ", line " + std::to_string(line) + ":\n\n" + err);
+        return;
     }
 
     setChannelTuning(chan, t);
@@ -1944,7 +1921,7 @@ void MainSynthWindow::setChannelTuning (int chan, const thTuningText &tuning)
     string err;
 
     /* A piece may have taken the channel while a chooser was open. */
-    if (composer_ != NULL && composer_->ownsChannel(chan))
+    if (composer_ != NULL && composer_->tuningIsPieces(chan))
         return;
 
     if (!gthPatchManager::instance()->setTuning(chan, tuning, err))
@@ -1955,7 +1932,7 @@ void MainSynthWindow::updateTuningOwned (void)
 {
     for (const auto &[chan, btn] : tuningBtns_)
     {
-        const bool piece = composer_ != NULL && composer_->ownsChannel(chan);
+        const bool piece = composer_ != NULL && composer_->tuningIsPieces(chan);
 
         btn->set_sensitive(!piece);
         btn->set_tooltip_text(piece ? "The piece sets this channel's tuning"

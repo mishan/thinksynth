@@ -639,6 +639,42 @@ class ThinkProcessor extends AudioWorkletProcessor
          * the one that sounds and therefore the one whose values are the
          * ones worth writing down.
          */
+        if (m.type === 'tune')
+        {
+            this.port.postMessage({
+                type: 'tune', id: m.id,
+                why: this.M.ccall('tw_tune', 'string',
+                                  ['number', 'string', 'number', 'string',
+                                   'string'],
+                                  [m.channel, m.dsp ?? '', m.kind,
+                                   m.text ?? '', m.fallback ?? '']),
+            });
+
+            return;
+        }
+
+        if (m.type === 'pitchof')
+        {
+            this.port.postMessage({
+                type: 'pitchof', id: m.id,
+                pitch: this.M.ccall('tw_pitch_of', 'number',
+                                    ['number', 'number'], [m.channel, m.key]),
+            });
+
+            return;
+        }
+
+        if (m.type === 'tuningof')
+        {
+            this.port.postMessage({
+                type: 'tuningof', id: m.id,
+                tuning: JSON.parse(this.M.ccall('tw_tuning_json', 'string',
+                                                ['number'], [m.channel])),
+            });
+
+            return;
+        }
+
         if (m.type === 'patchcompose')
         {
             this.port.postMessage({

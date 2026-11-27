@@ -133,9 +133,9 @@ export function index ()
  * a patch calls itself is an `info title' line, and only something that has
  * read the file knows it.
  */
-export async function load (synth, channel, name)
+export async function load (synth, channel, name, keep = false)
 {
-    const r = await synth.patch(channel, await patchText(name), name);
+    const r = await synth.patch(channel, await patchText(name), name, keep);
 
     if (!r.ok)
         throw new Error(`${name}: ${r.why}`);
@@ -168,14 +168,14 @@ export async function load (synth, channel, name)
  * generation of its own -- nothing was read onto the channel -- and its
  * title is its filename, which is what the graph menu calls it too.
  */
-export async function place (synth, channel, name)
+export async function place (synth, channel, name, keep = false)
 {
     if (!name.endsWith('.dsp'))
-        return load(synth, channel, name);
+        return load(synth, channel, name, keep);
 
     const text = await graphText(name);
 
-    if (!await synth.load(text, channel))
+    if (!await synth.load(text, channel, keep))
         throw new Error(`${name}: it did not parse`);
 
     return { patch: '', dsp: name, generation: 0,
@@ -223,7 +223,8 @@ export function graphText (name)
  * Resolves to what went where, so a caller can draw it, and to the
  * failures, so a caller can say them.
  */
-export async function aim (synth, channels, chosen = new Map())
+export async function aim (synth, channels, chosen = new Map(),
+                           holding = new Map())
 {
     const placed = new Map();
     const failed = [];
@@ -242,7 +243,11 @@ export async function aim (synth, channels, chosen = new Map())
 
         try
         {
-            placed.set(channel, await place(synth, channel, name));
+            /* The name the channel already has, put back: a tuning the
+               person set on it goes on (`holding', what the page last
+               placed where). */
+            placed.set(channel, await place(synth, channel, name,
+                                            holding.get(channel) === name));
 
             if (fallback !== null)
                 synth.chanarg(channel, 'amp', fallback.amp);

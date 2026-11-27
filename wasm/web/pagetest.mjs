@@ -658,6 +658,55 @@ try
               `a key on a track says no channel the keys have left: ${later}`);
     }
 
+    /* A tuning set on a sequence's channel stays when the sequence is
+       reloaded and its channels aimed again. */
+    {
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const at61 = () => page.evaluate(() => window.solo.pitchOf(4, 61));
+        const chooser = page.waitForEvent('filechooser');
+
+        await page.evaluate(() =>
+        {
+            document.getElementById('paramview').open = true;
+        });
+        await page.selectOption('#paramchan', { value: '4' });
+        await settle();
+        await page.click('#tuningscl');
+        await (await chooser).setFiles({
+            name: 'half.scl', mimeType: 'text/plain',
+            buffer: Buffer.from('half sharp\n2\n150.0\n2/1\n') });
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: half sharp', null, { timeout: 15000 })
+            .catch(() => {});
+        await settle();
+
+        const tuned = await at61();
+        const loads = await page.evaluate(() => window.solo.pieces());
+
+        /* The sequence's text loaded again, a comment added: a reload
+           that aims every channel again. */
+        await page.evaluate(() =>
+        {
+            const gen = document.getElementById('gen');
+
+            gen.value += '\n# again\n';
+            gen.dispatchEvent(new Event('input'));
+            document.getElementById('loadpiece').click();
+        });
+        await page.waitForFunction((n) => window.solo.pieces() > n, loads,
+                                   { timeout: 30000 }).catch(() => {});
+        await settle();
+
+        const after = await at61();
+        await page.$eval('#tuning12', (b) => b.click());
+        await settle();
+
+        check(tuned === 61.5 && after === 61.5,
+              'a tuning on a sequence\'s channel stays through a reload that ' +
+              `aims its channels again: ${tuned} ${after}`);
+    }
+
     await page.selectOption('#tracks .track:nth-child(4) select.trackpick',
                             'kick909.dsp');
     await page.evaluate(() => window.solo.settled());
@@ -2398,6 +2447,37 @@ try
                                    pieceLoads, { timeout: 60000 });
         await page.evaluate(() => window.solo.settled());
 
+        /* A channel the piece filled has the piece's tuning, as it has the
+           piece's instrument: no Tuning to choose there. */
+        {
+            const theirs =
+                await page.evaluate(() => window.solo.piecesChannels());
+            const was = await page.inputValue('#paramchan');
+            const aim = (c) => page.evaluate((v) =>
+            {
+                const sel = document.getElementById('paramchan');
+
+                sel.value = v;
+                sel.dispatchEvent(new Event('change'));
+            }, c);
+
+            if (theirs.length > 0)
+            {
+                await aim(String(theirs[0]));
+                await page.evaluate(() => window.solo.settled());
+            }
+
+            check(theirs.length > 0 &&
+                  await page.textContent('#tuningnow') ===
+                      'Tuning: set by the piece' &&
+                  await page.$eval('#tuningscl', (b) => b.disabled),
+                  'a channel the piece filled has no Tuning to choose: ' +
+                  JSON.stringify(theirs));
+
+            await aim(was);
+            await page.evaluate(() => window.solo.settled());
+        }
+
         const lane = () => page.evaluate(() => window.solo.lane());
         const before = await lane();
         /* The whole statement, which runs over more than one line. */
@@ -2965,12 +3045,138 @@ try
 
         check(back.endsWith(`channel ${chan + 1}`),
               `a channel picked and unpicked at once leaves the panel on it: ${back}`);
-
         check(viaParams[0] === String(chan) && viaParams[1] === String(chan) &&
               viaKeys[0] === '11' && viaKeys[1] === '11' &&
               viaKeys[2] === viaKeys[3],
               'the keys and Patch params are one channel, moved from either, ' +
               `over the same list: ${JSON.stringify([viaParams, viaKeys])}`);
+    }
+
+    /* The channel's tuning, from the Tuning menu: a scale and a keyboard
+       map read from files the person picks, kept in the patch, and taken
+       off again. */
+    {
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const cents = Array.from({ length: 18 },
+                                 (_, i) => (1200 * (i + 1) / 19).toFixed(12));
+        const scl = `19-EDO test\n19\n${cents.join('\n')}\n2/1\n`;
+        const kbm = '2\n0\n127\n60\n60\n261.6255653005986\n1\n0\nx\n';
+        const shown = () => page.textContent('#tuningnow');
+        /* Until the row says something new: the answer comes from the
+           module, after the file has been read. */
+        const after = (was) => page.waitForFunction(
+            (w) => document.getElementById('tuningnow').textContent !== w,
+            was, { timeout: 15000 }).catch(() => {});
+        const of = async () =>
+        {
+            const t = await page.evaluate((c) => window.solo.tuningOf(c), chan);
+            const at = (key) => page.evaluate(
+                ([c, k]) => window.solo.pitchOf(c, k), [chan, key]);
+
+            return { ...t, k61: await at(61), k62: await at(62) };
+        };
+        const step = 12 / 19;
+        const near = (a, b) => Math.abs(a - b) < 1e-9;
+        const saved = () => page.evaluate((c) => window.solo.patchText(c), chan);
+        const pick = async (button, name, text) =>
+        {
+            const chooser = page.waitForEvent('filechooser');
+            const was = await shown();
+            const disabled = (id) => page.$eval(id, (b) => b.disabled);
+            const states = async () => [await disabled('#tuningkbm'),
+                                        await disabled('#tuningnokbm')];
+            const before = await states();
+
+            await page.click(button);
+            await (await chooser).setFiles({ name, mimeType: 'text/plain',
+                                             buffer: Buffer.from(text) });
+
+            if (button === '#tuningscl')
+                await after(was);
+            else
+                await page.waitForFunction(
+                    (b) => [document.getElementById('tuningkbm').disabled,
+                            document.getElementById('tuningnokbm').disabled]
+                        .join() !== b.join(),
+                    before, { timeout: 15000 }).catch(() => {});
+
+            await settle();
+        };
+
+        await pick('#tuningscl', 'edo19.scl', scl);
+
+        const scaled = { shown: await shown(), now: await of(),
+                         file: await saved() };
+
+        await pick('#tuningkbm', 'gaps.kbm', kbm);
+
+        const mapped = await of();
+
+        await page.click('#tuningnokbm');
+        await page.waitForFunction(
+            () => document.getElementById('tuningnokbm').disabled,
+            null, { timeout: 15000 }).catch(() => {});
+        await settle();
+
+        const unmapped = await of();
+        const named = await shown();
+
+        await page.click('#tuning12');
+        await after(named);
+        await settle();
+
+        const plain = { shown: await shown(), now: await of(),
+                        file: await saved() };
+
+        /* A scale chosen while the piece is loading again is refused:
+           the engine has the new piece before the page does. */
+        {
+            const chooser = page.waitForEvent('filechooser');
+
+            await page.click('#tuningscl');
+
+            const open = await chooser;
+
+            await page.evaluate(() => window.solo.holdAim());
+            await page.evaluate(() =>
+            {
+                const gen = document.getElementById('gen');
+
+                gen.value += '\n# again\n';
+                gen.dispatchEvent(new Event('input'));
+                document.getElementById('loadpiece').click();
+            });
+            await page.waitForFunction(() => window.solo.aimHeld(), null,
+                                       { timeout: 30000 }).catch(() => {});
+
+            const held = await page.evaluate(() => window.solo.aimHeld());
+
+            await open.setFiles({ name: 'edo19.scl', mimeType: 'text/plain',
+                                  buffer: Buffer.from(scl) });
+            await new Promise((r) => setTimeout(r, 500));
+            await page.evaluate(() => window.solo.releaseAim());
+            await settle();
+
+            const during = await of();
+
+            check(held && during.scale === '' && during.k61 === 61,
+                  'a scale chosen while the piece loads again is not taken: ' +
+                  JSON.stringify([held, during.scale, during.k61]));
+        }
+
+        check(scaled.shown === 'Tuning: 19-EDO test' &&
+              scaled.now.scale !== '' && near(scaled.now.k61, 60 + step) &&
+              scaled.file.includes('tuning scale ') &&
+              mapped.keymap === '2 0 127 60 60 261.6255653005986 1 0 x' &&
+              mapped.k61 === 61 && near(mapped.k62, 60 + step) &&
+              unmapped.keymap === '' && near(unmapped.k61, 60 + step) &&
+              unmapped.scale === scaled.now.scale &&
+              plain.shown === 'Tuning: 12-TET' && plain.now.scale === '' &&
+              plain.now.k61 === 61 &&
+              !plain.file.includes('tuning'),
+              'the Tuning menu reads a scale and a keyboard map, keeps them ' +
+              `in the patch, and takes them off: ${JSON.stringify(
+                  [scaled.shown, mapped.keymap !== '', plain.shown])}`);
     }
 
     /* The first .patch the panel offers over this channel's graph, chosen.
@@ -3276,6 +3482,96 @@ try
 
     await page.waitForFunction(() => window.solo.node()?.boxes > 0,
                                null, { timeout: 60000 });
+
+    /* Patch mode's channel tuned from the Tuning row, and kept through a
+       reload of the text box's graph, which is the same instrument again;
+       12-TET puts it back. */
+    {
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const cents = Array.from({ length: 18 },
+                                 (_, i) => (1200 * (i + 1) / 19).toFixed(12));
+        const scl = `19-EDO patch\n19\n${cents.join('\n')}\n2/1\n`;
+        const at61 = () => page.evaluate(() => window.solo.pitchOf(0, 61));
+        const near = (a, b) => Math.abs(a - b) < 1e-9;
+        const chooser = page.waitForEvent('filechooser');
+
+        await page.evaluate(() =>
+        {
+            document.getElementById('paramview').open = true;
+        });
+        await settle();
+
+        const shownAtFirst = !(await page.$eval('#tuningrow', (r) => r.hidden));
+
+        await page.click('#tuningscl');
+        await (await chooser).setFiles({ name: 'edo19.scl', mimeType: 'text/plain',
+                                         buffer: Buffer.from(scl) });
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: 19-EDO patch', null, { timeout: 15000 })
+            .catch(() => {});
+        await settle();
+
+        const tuned = await at61();
+
+        await page.evaluate(() =>
+        {
+            const box = document.getElementById('dsp');
+
+            box.value += '\n';
+            box.dispatchEvent(new Event('input'));
+        });
+        await page.click('#load');
+        await settle();
+
+        const reloaded = { pitch: await at61(),
+                           shown: await page.textContent('#tuningnow') };
+
+        /* A DOM click, which a greyed button ignores, so a tuning the
+           Load lost fails the check below rather than a wait here. */
+        await page.$eval('#tuning12', (b) => b.click());
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: 12-TET', null, { timeout: 15000 }).catch(() => {});
+        await settle();
+
+        /* Read now: choosing another patch below starts in 12-TET too. */
+        const reset = await at61();
+
+        /* Another patch from the menu is another instrument: 12-TET. */
+        const again = page.waitForEvent('filechooser');
+
+        await page.click('#tuningscl');
+
+        await (await again).setFiles({ name: 'edo19.scl', mimeType: 'text/plain',
+                                       buffer: Buffer.from(scl) });
+        await settle();
+
+        const was = await page.$eval('#patch', (p) => p.value);
+        const other = await page.$eval('#patch', (p) =>
+            [...p.options].map((o) => o.value)
+                .find((v) => v !== '' && v !== p.value));
+
+        await page.selectOption('#patch', other);
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: 12-TET', null, { timeout: 15000 }).catch(() => {});
+        await settle();
+
+        const chosen = await at61();
+
+        await page.selectOption('#patch', was);
+        await settle();
+
+        check(chosen === 61,
+              `another patch chosen from the menu starts in 12-TET: ${chosen}`);
+        check(shownAtFirst && near(tuned, 60 + 12 / 19) &&
+              near(reloaded.pitch, 60 + 12 / 19) &&
+              reloaded.shown === 'Tuning: 19-EDO patch' && reset === 61,
+              'patch mode\'s channel keeps its tuning through a Load of its ' +
+              `graph, and 12-TET puts it back: ${JSON.stringify(
+                  [shownAtFirst, tuned, reloaded])}`);
+    }
 
     /* A patch opens fitted when that shrinks it little and at 1:1 when
        it would not: bd10 fits at about 0.87 here, amb01 at about half.

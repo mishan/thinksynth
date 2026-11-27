@@ -1617,11 +1617,14 @@ run (const std::string &pluginPath, const std::string &dsp)
         checkAgree(win, seq.trackChannel(2), "a row in Channels");
     }
 
-    /* The tuning of a channel the piece filled is the piece's. */
+    /* A sequence's channels are the person's, instruments and tuning
+       alike: the menu is live on a track's channel, a tuning taken there
+       is kept through a reload of the sequence, and 12-TET puts it back. */
     {
         pump(4);
 
-        Gtk::Widget *page = pageFor(win, seq.trackChannel(4));
+        const int track = seq.trackChannel(4);
+        Gtk::Widget *page = pageFor(win, track);
         std::vector<Gtk::MenuButton *> menus;
         Gtk::MenuButton *tuning = NULL;
 
@@ -1632,39 +1635,30 @@ run (const std::string &pluginPath, const std::string &dsp)
             if (labelsUnder(m).rfind("Tuning:", 0) == 0)
                 tuning = m;
 
-        check(tuning != NULL && !tuning->is_sensitive(),
-              "a channel the piece filled has its tuning greyed");
+        /* Read now: a retune rebuilds the pages, this button with them. */
+        const bool live = tuning != NULL && tuning->is_sensitive();
 
-        /* A tuning arriving for it anyway -- a chooser opened before the
-           piece took the channel -- changes nothing. */
-        const int owned = seq.trackChannel(4);
-
-        win->setChannelTuning(owned, { "late", "100.0 200.0 1200.0", "" });
+        win->setChannelTuning(track, { "seq19", "150.0 1200.0", "" });
         pump(4);
 
-        gthPatchManager::PatchFile *op =
-            gthPatchManager::instance()->getPatch(owned);
+        const double tuned = soundsAt(track, 61);
 
-        check(op != NULL && op->doc.tuningScale.empty() &&
-              soundsAt(owned, 61) == 61,
-              "...and a tuning that arrives for it anyway is not taken");
+        /* A reload of the sequence, through the track chooser: the bass
+           track given the graph it already plays. */
+        win->composer_->setTrackInstrument(3, 0, seq.trackDsp(3), true);
+        pump(8);
 
-        /* And one loaded by hand has it live. */
-        Gtk::Widget *mine = pageFor(win, 0);
-        Gtk::MenuButton *live = NULL;
+        gthPatchManager::PatchFile *after =
+            gthPatchManager::instance()->getPatch(track);
 
-        menus.clear();
+        check(live && std::fabs(tuned - 61.5) < 1e-9 &&
+              std::fabs(soundsAt(track, 61) - tuned) < 1e-9 &&
+              after != NULL && after->doc.tuningName == "seq19",
+              "a sequence's channel has its tuning live, kept through a "
+              "reload");
 
-        if (mine != NULL)
-            collectUnder<Gtk::MenuButton>(mine, menus);
-
-        for (Gtk::MenuButton *m : menus)
-            if (labelsUnder(m).rfind("Tuning:", 0) == 0)
-                live = m;
-
-        check(live != NULL && live->is_sensitive() &&
-              !win->composer_->ownsChannel(0),
-              "...and a channel loaded by hand has it live");
+        win->setChannelTuning(track, thTuningText());
+        pump(4);
     }
 
     /* The bass track, chain 3, played by a kick: a graph that ignores the

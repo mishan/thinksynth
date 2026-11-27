@@ -526,6 +526,10 @@ public:
        with nothing on it. */
     bool setTuning (int chan, std::shared_ptr<const thTuning> tuning);
 
+    /* What the channel's next notes sound at, NULL for 12-TET or no
+       channel. GUI thread. */
+    std::shared_ptr<const thTuning> getTuning (int chan);
+
     thMidiChan *getChannel (int chan) const
     {
         if ((chan < midiChannelCnt_) && (chan >= 0))
