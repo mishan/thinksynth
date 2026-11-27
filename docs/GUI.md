@@ -193,8 +193,8 @@ these are the rules across panes.
     editing the instrument's own file;
   - one `.dsp` on several channels: a value moved live reaches only the
     attached channel, and a structural edit reloads every channel playing the
-    file, cutting their notes while a piece plays (and for every peer in a
-    room);
+    file (held notes finish on the graph they started on, `thMidiChan::drain`;
+    in a room, for every peer);
   - history: the desktop's starts over when another file is opened, so moving
     between channels would discard Undo each time; it needs one per file, as
     the browser page has, and the browser page's drill-in from piece mode
