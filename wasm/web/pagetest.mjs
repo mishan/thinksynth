@@ -607,6 +607,16 @@ try
         const settle = () => page.evaluate(() => window.solo.settled());
         const tracks = await page.$$('#tracks .track');
 
+        /* A press on another track's menu picks its channel and leaves the
+           menu where it was, to open. */
+        const menu = await page.$('#tracks .track:nth-child(2) select.trackpick');
+
+        await menu.dispatchEvent('pointerdown');
+        await settle();
+
+        check(await menu.evaluate((m) => m.isConnected),
+              'a press on a track\'s menu leaves the menu in place');
+
         await tracks[1].dispatchEvent('pointerdown');
         await settle();
 
@@ -2932,6 +2942,29 @@ try
 
         await page.selectOption('#paramchan', { value: String(chan) });
         await page.evaluate(() => window.solo.settled());
+
+        /* Away and straight back, before the first redraw lands: the
+           panel ends on the channel the keys are on. */
+        await page.evaluate(async (c) =>
+        {
+            const keys = document.getElementById('keychan');
+
+            keys.value = '11';
+            keys.dispatchEvent(new Event('change'));
+
+            /* Its redraw under way, asking the module, and not yet back. */
+            await Promise.resolve();
+            await Promise.resolve();
+
+            keys.value = String(c);
+            keys.dispatchEvent(new Event('change'));
+        }, chan);
+        await page.evaluate(() => window.solo.settled());
+
+        const back = await page.textContent('#paramwhat');
+
+        check(back.endsWith(`channel ${chan + 1}`),
+              `a channel picked and unpicked at once leaves the panel on it: ${back}`);
 
         check(viaParams[0] === String(chan) && viaParams[1] === String(chan) &&
               viaKeys[0] === '11' && viaKeys[1] === '11' &&

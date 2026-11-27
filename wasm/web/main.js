@@ -687,8 +687,8 @@ function showAbout ()
     $('about').hidden = !composing() || $('about').textContent === '';
 }
 
-/* Counted on every pick and mode change: what a pick answered later is
-   checked against. */
+/* Counted on every pick, mode change and piece replaced: what a canvas
+   press answered later is checked against. */
 let pickSerial = 0;
 
 function keyChannel ()
@@ -719,11 +719,12 @@ function pickChannel (c, { chosen = false, canvas = false } = {})
 
     /* Against what the panel shows, not the selectors: a mode's restore
        moves the keys' selector without drawing the panel. */
-    if (c === keyChannel() && params?.channel === c)
+    if (c === keyChannel() && params?.channel === c && paramsWanted === c)
         return;
 
     showKeyChannels(c);
-    showChannels();
+    showChannels({ tracks: false });
+    paramsWanted = c;
     paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
 }
 
@@ -1580,6 +1581,7 @@ async function edited (m)
     }
 
     piece = m;
+    pickSerial++;
     followRoutes();
 
     /* A sink the edit added may name a channel nothing is on yet. */
@@ -2441,6 +2443,7 @@ async function loadPiece ()
     }
 
     piece = it.errors.length === 0 ? it : null;
+    pickSerial++;
     followRoutes();
     placed = aiming.placed;
 
@@ -2801,6 +2804,9 @@ let quiet = Promise.resolve();
 let drawn = Promise.resolve();
 let paramsDrawn = Promise.resolve();
 
+/* The channel the last queued redraw of the panel is for. */
+let paramsWanted = null;
+
 function quietly (what)
 {
     const run = quiet.then(async () =>
@@ -2933,7 +2939,7 @@ function showKeyChannels (keep = null)
    piece aimed itself has nothing to choose -- taking its instrument away
    would be the page overriding the piece, which is the wrong way round --
    so it says which instrument it is holding and stops there. */
-function showChannels ()
+function showChannels ({ tracks = true } = {})
 {
     const box = $('channels');
 
@@ -3012,8 +3018,10 @@ function showChannels ()
     showEdited();
 
     /* The tracks name their channels' instruments, and this is every
-       place that can change. */
-    seq?.refresh();
+       place that can change -- but not a pick, which changes no
+       instrument and may come from a press on a track's own menu. */
+    if (tracks)
+        seq?.refresh();
 }
 
 /* One channel's patch, downloaded.
@@ -4580,6 +4588,7 @@ async function pickMode ()
     {
         synth.transport('stop');
         piece = null;
+        pickSerial++;
         followRoutes();
         placed = new Map();
         showChannels();
