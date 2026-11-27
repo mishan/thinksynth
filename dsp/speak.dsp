@@ -27,9 +27,9 @@
 #
 # `Sibilance' is S, Z, SH and ZH against the rest, in decibels. At 0 they
 # are as loud as in speech, which over a held vowel is a hiss on top of
-# the voice; 12 down, the words are clearer, not only quieter: of twenty
-# test sentences a speech recognizer heard 15% of the words spoken
-# rather than 10%, and 37% sung rather than 30%.
+# the voice; 6 down, the words are clearer: of a hundred and fifty test
+# sentences a speech recognizer heard 75% of the words spoken, against
+# 73% at 0 and at 12 down, and 80% sung, against 77% and 79%.
 
 name "Speak";
 author "Misha Nasledov";
@@ -78,7 +78,7 @@ category "Synths";
     @level.max = 1;
     @level.label = "Level";
 
-    @sibilance = -12;
+    @sibilance = -6;
     @sibilance.widget = 1;
     @sibilance.min = -24;
     @sibilance.max = 0;

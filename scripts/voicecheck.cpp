@@ -1018,6 +1018,53 @@ int main (int argc, char **argv)
             }
         }
 
+        /* A VOICED CONSONANT THAT ENDS A SYLLABLE is said with less voice
+           than one that starts it, as English half devoices its finals:
+           under 500 Hz, from 15 to 45 ms in, AA Z's Z and AA D's closure
+           are quieter than Z AA's and D AA's, and both are voiced. */
+        {
+            const struct { const char *name; unsigned char code; } finals[] =
+                { { "Z", 38 }, { "D", 18 } };
+
+            for (const auto &c : finals)
+            {
+                const unsigned char onset[] = { c.code, 1, 0 }, coda[] = { 1, c.code, 0 };
+                const size_t ms = TH_DEFAULT_SAMPLES / 1000;
+                vector<float> first, held, after;
+                thSynth a(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES),
+                        b(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+                if (!writeFile(file, speakGraph("")) ||
+                    a.loadTree(file, 0, 100) == NULL || b.loadTree(file, 0, 100) == NULL)
+                {
+                    fail("a graph on osc::speak loads", "");
+                    break;
+                }
+                a.addNote(0, 45, 100, 1, NULL, onset);
+                listen(a, windows / 4, first);
+                b.addNote(0, 45, 100, 1, NULL, coda);
+                listen(b, windows / 4, held);
+                b.delNote(0, 45);
+                listen(b, windows / 4, after);
+
+                auto voice = [&](const vector<float> &v) {
+                    double e = 0;
+
+                    for (double hz = f0; hz < 500; hz += f0)
+                        e += pow(harmonic(v, 15 * ms, 30 * ms, hz), 2);
+                    return 10 * log10(e > 0 ? e : 1e-30);
+                };
+                const double vowel = voice(vector<float>(held.end() - 60 * ms, held.end()));
+                const double starts = voice(first), ends = voice(after);
+
+                okOrFail(starts > vowel - 30 && ends > vowel - 30 && ends < starts - 2,
+                         string("osc::speak: a ") + c.name +
+                         " that ends a syllable is voiced, less than one that starts it",
+                         "under 500 Hz, against the vowel: starting " + num(starts - vowel) +
+                         " dB, ending " + num(ends - vowel) + " dB");
+            }
+        }
+
         /* THE SIBILANTS' SPECTRA. Real speech (Jongman, Wayland and Wong,
            JASA 2000, twenty speakers) puts an S's spectral mean about
            6.1 kHz and an SH's about 4.2, each a band kilohertz wide with
