@@ -408,6 +408,23 @@ disagrees (TestWindow *win, int c)
     if (win->chanList_.get_selected_row() != row)
         why += " Channels";
 
+    /* The tracks on it are marked, in the heading and to a screen reader,
+       and no others. */
+    const SeqView &seq = win->composer_->sequencer();
+
+    for (size_t i = 0; i < seq.trackCount(); i++)
+    {
+        const bool on = seq.trackChannel(i) >= 0 && seq.trackChannel(i) == c;
+        Gtk::Widget *head = seq.trackArea(i)->get_parent()->get_first_child();
+        Gtk::Label *num = dynamic_cast<Gtk::Label *>(head->get_first_child());
+        const bool shown = num != NULL &&
+                           num->get_text().find("\xe2\x96\xb8") == 0;
+
+        if (shown != on ||
+            !described(seq.trackArea(i), SeqView::describeTrack(on).c_str()))
+            why += " track " + std::to_string(i + 1);
+    }
+
     return why;
 }
 
@@ -1448,6 +1465,7 @@ run (const std::string &pluginPath, const std::string &dsp)
     check(seq.trackDsp(3) == "kick909.dsp" && seq.trackArea(3) != NULL &&
           seq.trackArea(3)->get_content_height() == 26,
           "...and the track is a one-row strip after the reload");
+    checkAgree(win, win->chan_, "...and the current channel still marked");
 
     checkAccessible(win, "sequence mode");
 

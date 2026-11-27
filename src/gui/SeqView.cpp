@@ -153,12 +153,11 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         Gtk::Box *head = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
 
         /* The file's numbering, 1-16, which is what Channels says. */
-        Gtk::Label *num = manage(new Gtk::Label(
-            t.channel >= 0 ? std::to_string(t.channel + 1) : "-"));
+        Gtk::Label *num = t.num = manage(new Gtk::Label);
 
         num->add_css_class("dim-label");
         num->add_css_class("monospace");
-        num->set_width_chars(2);
+        num->set_width_chars(3);
         num->set_xalign(1);
         num->set_valign(Gtk::Align::START);
 
@@ -209,13 +208,7 @@ SeqView::setPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         t.area->set_focusable(true);
         t.area->property_accessible_role() = Gtk::Accessible::Role::GROUP;
         nameAs(*t.area, "Track " + std::to_string(i + 1) + ": " + t.name);
-        gtk_accessible_update_property(
-            GTK_ACCESSIBLE(t.area->gobj()),
-            GTK_ACCESSIBLE_PROPERTY_DESCRIPTION,
-            "Arrows move between cells, Home and End along the row. Enter "
-            "or Space puts a note in a cell, accents it, or clears it; "
-            "Delete erases it. Shift with Right or Left holds a note a step "
-            "longer or shorter.", -1);
+        mark(i);
 
         Glib::RefPtr<Gtk::EventControllerKey> keys =
             Gtk::EventControllerKey::create();
@@ -760,6 +753,44 @@ SeqView::say (void)
           "you cover, and back to shorten it. Drag across empty cells to "
           "draw a run of notes, and use the other button to erase. What "
           "you draw goes into the piece, and Save keeps it.");
+}
+
+std::string SeqView::describeTrack (bool current)
+{
+    return std::string(current ? "The keys play this track's channel. "
+                               : "") +
+           "Arrows move between cells, Home and End along the row. Enter "
+           "or Space puts a note in a cell, accents it, or clears it; "
+           "Delete erases it. Shift with Right or Left holds a note a step "
+           "longer or shorter.";
+}
+
+void SeqView::setCurrentChannel (int channel)
+{
+    current_ = channel;
+
+    for (size_t i = 0; i < tracks_.size(); i++)
+        mark(i);
+}
+
+/* The file's numbering, 1-16, which is what Channels says; a pointer, not
+   only a color, before the current one's. */
+void SeqView::mark (size_t i)
+{
+    Track &t = tracks_[i];
+    const bool on = t.channel >= 0 && t.channel == current_;
+
+    t.num->set_text(t.channel < 0 ? std::string("-")
+                    : (on ? "\xe2\x96\xb8" : "") + std::to_string(t.channel + 1));
+
+    if (on)
+        t.num->remove_css_class("dim-label");
+    else
+        t.num->add_css_class("dim-label");
+
+    gtk_accessible_update_property(
+        GTK_ACCESSIBLE(t.area->gobj()), GTK_ACCESSIBLE_PROPERTY_DESCRIPTION,
+        describeTrack(on).c_str(), -1);
 }
 
 void SeqView::pick (size_t i)

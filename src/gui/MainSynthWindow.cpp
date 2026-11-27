@@ -2437,9 +2437,13 @@ void MainSynthWindow::selectChannel (int chan)
 
     addChanBtn_.set_sensitive(firstFreeChannel() >= 0);
 
-    /* And the keys play the channel being looked at. */
+    /* And the keys play the channel being looked at, and the tracks on it
+       say so. */
     if (kbPanel_ != NULL)
         kbPanel_->setChannel(chan);
+
+    if (composer_ != NULL)
+        composer_->sequencer().setCurrentChannel(chan);
 
     if (panes_ != NULL && panes_->isVisible("nodeview"))
         ensureEditor(chan);

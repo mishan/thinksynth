@@ -119,6 +119,15 @@ public:
     /* Track `i' was clicked or keyed: the channel it plays on, when it
        plays on one, is picked. What its click controller calls. */
     void pick (size_t i);
+
+    /* The current channel, for the tracks on it to be marked: a pointer
+       before the channel number, and a sentence in the grid's description.
+       Kept, and marked again on every rebuild. */
+    void setCurrentChannel (int channel);
+
+    /* What a track's grid says of itself to a screen reader, marked or
+       not. */
+    static std::string describeTrack (bool current);
     sigc::signal<void (int)> &signal_picked (void) { return picked_; }
     /* Track `i''s cells as the grid writes them, "" out of range. */
     std::string trackCells (size_t i) const;
@@ -145,6 +154,7 @@ protected:
 
         Gtk::DrawingArea *area;
         Gtk::Label *what;
+        Gtk::Label *num;
         Gtk::Button *pick;      /* while choosing, for an instrument    */
 
         int rows;               /* what the height was last fitted to   */
@@ -184,6 +194,8 @@ protected:
     Gtk::Label hint_;
 
     bool choosing_ = false;
+    int current_ = -1;
+    void mark (size_t i);
     std::function<std::string (const std::string &)> title_;
 
     sigc::signal<void (size_t, size_t)> edited_;
