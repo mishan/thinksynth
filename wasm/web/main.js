@@ -578,10 +578,8 @@ let loaded = [];
 let holding = [];
 
 /* The modes somebody chose the key channel in this session, which a
-   piece's load then leaves alone; and the channel the page last said was
-   silent, so that it says so once. */
+   piece's load then leaves alone. */
 const keysChosen = new Set();
-let saidSilent = null;
 
 async function readLoaded ()
 {
@@ -609,7 +607,6 @@ function keysWhereTheySound ()
         return;
 
     $('keychan').value = String(to);
-    saidSilent = null;
 }
 
 function log (text)
@@ -708,7 +705,7 @@ function bendChannel (note)
 {
     const held = sounding.get(note);
 
-    return held === undefined || held.piece ? null : PATCH_CHANNEL;
+    return held === undefined || held.piece ? null : held.channel;
 }
 
 /* A MIDI knob, onto each control it is mapped to. */
@@ -753,23 +750,11 @@ function press (note, velocity = VELOCITY, from = null)
         return;
     }
 
-    const piecing = composing();
-    const channel = keyChannel();
-
-    if (silentOn(channel) && saidSilent !== channel)
-    {
-        const listens = piece.listens ?? [];
-
-        saidSilent = channel;
-        status(listens.length === 0
-            ? `${piece.name || 'This piece'} does not take keys: the keys ` +
-              'are silent while it plays.'
-            : `The piece does not listen on channel ${channel + 1}, so the ` +
-              'keys there are silent: it listens on ' +
-              listens.map((c) => c + 1).join(', ') +
-              `. Choose ${listens.length === 1 ? 'it' : 'one of them'} as ` +
-              'the key channel.', true);
-    }
+    /* Into the piece where it listens on the channel; anywhere else the
+       keys play the channel's instrument, so they are never silent where
+       something is. */
+    const channel = playsPatch() ? PATCH_CHANNEL : keyChannel();
+    const piecing = composing() && !silentOn(channel);
 
     sounding.set(note, { count: 1, midi: from === 'midi' ? 1 : 0,
                          camera: from === 'camera' ? 1 : 0,
@@ -780,7 +765,7 @@ function press (note, velocity = VELOCITY, from = null)
     if (piecing)
         holdOn(channel, note, velocity);
     else
-        synth.noteOn(note, velocity);
+        synth.noteOn(note, velocity, -1, channel);
 
     keyboard?.hold(note, true);
 }
@@ -812,7 +797,7 @@ function release (note, from = null)
     if (held.piece)
         holdOff(held.channel, note);
     else
-        synth.noteOff(note);
+        synth.noteOff(note, -1, held.channel);
 
     keyboard?.hold(note, false);
 }
@@ -3182,7 +3167,6 @@ async function aimByHand (channel, name)
         aimed.set(channel, name);
         placed.set(channel, what);
         await readLoaded();
-        saidSilent = null;
         status(`${what.title} on channel ${channel + 1}. Play.`);
 
         /* And every menu that says what is on a channel, since a choice
@@ -4927,7 +4911,6 @@ async function init ()
     $('keychan').addEventListener('change', () =>
     {
         keysChosen.add(keysMode);
-        saidSilent = null;
         showChannels();
         showParams();
     });

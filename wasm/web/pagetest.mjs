@@ -2968,18 +2968,6 @@ try
             await settled();
         };
         const status = () => page.$eval('#status', (e) => e.textContent);
-        const play = async () =>
-        {
-            await page.evaluate(() =>
-            {
-                document.activeElement?.blur();
-                document.getElementById('status').textContent = '';
-            });
-            await page.keyboard.press('z');
-            await settled();
-            return status();
-        };
-
         await page.selectOption('#mode', 'seq');
         await settled();
         await page.selectOption('#mode', 'piece');
@@ -2995,15 +2983,42 @@ try
               'keys nobody chose, on channel 10, which Hands does not listen ' +
               `on, go to its first at its load: ${(await keys()) + 1}`);
 
+        /* A key held: the route it took, and anything said. */
+        const hold = async () =>
+        {
+            await page.evaluate(() =>
+            {
+                document.activeElement?.blur();
+                document.getElementById('status').textContent = '';
+            });
+            await page.keyboard.down('z');
+            await settled();
+
+            const held = await page.evaluate(() => window.solo.sounding());
+            const said = await status();
+
+            await page.keyboard.up('z');
+            await settled();
+            return { held, said };
+        };
+
         await aim(9);
 
-        const first = await play();
-        const again = await play();
+        const off = await hold();
 
-        check(first.startsWith('The piece does not listen on channel 10') &&
-              first.includes('1, 2, 3') && again === '',
-              `keys aimed at a channel the piece does not listen on are said ` +
-              `to be silent, once: ${first}`);
+        await aim(0);
+
+        const on = await hold();
+
+        check(off.held.length === 1 && off.held[0].piece === false &&
+              off.held[0].channel === 9 && off.said === '' &&
+              on.held.length === 1 && on.held[0].piece === true &&
+              on.held[0].channel === 0,
+              'keys on a channel the piece does not listen on play its ' +
+              'instrument, and on one it does go into the piece: ' +
+              JSON.stringify([off, on]));
+
+        await aim(9);
 
         await load('hands.gen');
 
@@ -3021,13 +3036,15 @@ try
         const row = await page.$eval(
             `#channels select[aria-label="Channel ${left + 1}"]`,
             (sel) => sel.selectedOptions[0].textContent);
-        const none = await play();
+        const none = await hold();
 
         check(left > 0 && row === `${engine[left]}, as it was`,
               `channel ${left + 1}, which the sequence left ${engine[left]} ` +
               `on, is named for it under Airports: ${row}`);
-        check(none.startsWith('Airports does not take keys'),
-              `and a key under Airports says it takes none: ${none}`);
+        check(none.held.length === 1 && none.held[0].piece === false &&
+              none.held[0].channel === left && none.said === '',
+              'and a key under Airports, which takes none, plays what is ' +
+              `on the channel: ${JSON.stringify(none)}`);
 
         await aim(0);
 
