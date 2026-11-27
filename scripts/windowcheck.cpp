@@ -1427,9 +1427,11 @@ run (const std::string &pluginPath, const std::string &dsp)
         turnKeys(win, seq.trackChannel(0));
         checkAgree(win, seq.trackChannel(0), "the Keys stepper");
 
+        /* A press, as the canvas reports one: composercheck presses
+           the canvas itself. */
         sel.kind = ComposerCanvas::Selection::CHAIN;
         sel.chain = 3;
-        canvas.select(sel);
+        canvas.sigPressed.emit(sel);
         pump(4);
         checkAgree(win, seq.trackChannel(3), "a chain on the canvas");
 
@@ -1437,12 +1439,19 @@ run (const std::string &pluginPath, const std::string &dsp)
         sel.chain = 1;
         sel.index = 0;
         canvas.select(sel);
+        canvas.sigPressed.emit(sel);
         pump(4);
         checkAgree(win, seq.trackChannel(1), "a stage on the canvas");
 
+        turnKeys(win, seq.trackChannel(0));
+        canvas.sigPressed.emit(sel);
+        pump(4);
+        checkAgree(win, seq.trackChannel(1),
+                   "the selected stage pressed again after the keys moved");
+
         sel.kind = ComposerCanvas::Selection::SINK;
         sel.chain = 4;
-        canvas.select(sel);
+        canvas.sigPressed.emit(sel);
         pump(4);
         checkAgree(win, seq.trackChannel(4), "a sink on the canvas");
 

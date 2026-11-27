@@ -2444,6 +2444,9 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 
     const Box *box = hit(x, y);
 
+    if (box != NULL && button == 1)
+        sigPressed.emit(box->what);
+
     /* A section's block: the transport to where it begins, heard from
        there as if it had been played to it (thcScheduler::seek). */
     if (button == 1 && nPress == 1 && enlarged_.kind == Selection::NONE &&

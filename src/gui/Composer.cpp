@@ -168,6 +168,8 @@ Composer::Composer (thSynth *synth)
     canvas_ = manage(new ComposerCanvasWidget());
     canvas_->sigSelection.connect(
         sigc::mem_fun(*this, &Composer::onCanvasSelection));
+    canvas_->sigPressed.connect(
+        sigc::mem_fun(*this, &Composer::onCanvasPressed));
     canvas_->sigMoveStage.connect(
         sigc::mem_fun(*this, &Composer::onCanvasMoveStage));
     canvas_->sigParams.connect(
@@ -2870,7 +2872,14 @@ Composer::onCanvasSelection (const ComposerCanvas::Selection &sel)
        thrown into an empty pane reads as the window losing its place. */
     if (sel.kind != ComposerCanvas::Selection::NONE)
         showSelection_.emit();
+}
 
+/* A press on the canvas picks the channel what it pressed plays on: a
+ * press, and not a change of selection, so a second press on the chain
+ * already selected picks it again after the keys moved elsewhere. */
+void
+Composer::onCanvasPressed (const ComposerCanvas::Selection &sel)
+{
     const int channel = ComposerCanvas::channelOf(&doc_, sched_, sel);
 
     if (channel >= 0)

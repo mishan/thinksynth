@@ -120,6 +120,11 @@ public:
     /* Selection changed by a click (or by select()). */
     sigc::signal<void (const Selection &)> sigSelection;
 
+    /* A press on a box, whether or not it changed the selection: a
+       person's pick, which a press on what is already selected is too,
+       and which select() from code is not. */
+    sigc::signal<void (const Selection &)> sigPressed;
+
     /* A drag dropped stage `from' at position `to' in chain `chain'. */
     sigc::signal<void (size_t, int, int)> sigMoveStage;
 

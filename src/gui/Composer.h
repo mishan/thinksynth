@@ -411,6 +411,7 @@ protected:
 
     /* Canvas callbacks. */
     void onCanvasSelection (const ComposerCanvas::Selection &sel);
+    void onCanvasPressed (const ComposerCanvas::Selection &sel);
     void onCanvasMoveStage (size_t chain, int from, int to);
     void onCanvasParams (size_t chain, size_t stage, CanvasRect at);
     void buildKnobSelection (size_t ki);
