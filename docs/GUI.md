@@ -101,10 +101,11 @@ canvas or palette (the editor is attached to a channel; it never picks one).
 Every track on the current channel is marked with a pointer before its channel
 number, and its accessible description says so.
 
-On the browser page each mode remembers its own current channel, so a choice
-made in sequence mode is still there after a visit to piece mode. Patch and
-growing stay on channel 1. On the desktop there is one current channel across
-all modes; that is **not done yet** (section 7).
+Each mode remembers its own current channel, so a choice made in sequence
+mode is still there after a visit to piece mode. On the browser page patch
+and growing stay on channel 1; on the desktop patch mode has Channels and
+keeps whichever was picked there, and a mode not visited yet starts on the
+channel of the mode it was entered from.
 
 A canvas pick that arrives late (the browser page asks the engine in a worker)
 is dropped if the person picked again since, changed mode or loaded another
@@ -177,7 +178,6 @@ these are the rules across panes.
 
 ## 7. Not done yet
 
-- Desktop: one current channel per mode, as on the browser page.
 - Desktop: the keys follow section 4's rule, and Kbd input goes away.
 - Desktop: a piece the keys can't be heard in aims them where they can.
 - Desktop: a tuning answer is refused on the browser page's terms.

@@ -223,6 +223,9 @@ protected:
     void aimKeysAtSequence (void);
     bool keysAimed_ = false;
 
+    /* The current channel each mode had when it was left. */
+    std::map<string, int> modeChans_;
+
     /* The layout, kept in panes.ini beside thinkrc: written a moment after
        the last change rather than on every step of a divider's drag, and
        at the end. */

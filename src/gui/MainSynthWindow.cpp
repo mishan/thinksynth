@@ -568,6 +568,9 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     if (mode == mode_)
         return;
 
+    if (isMode(mode_))
+        modeChans_[mode_] = chan_;
+
     mode_ = mode;
 
     for (size_t i = 0; i < G_N_ELEMENTS(PIECE_PANES); i++)
@@ -595,6 +598,14 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     composer_->sequencer().setChoosing(
         mode == SEQ_MODE,
         [this] (const string &dsp) { return dspTitle(dsp); });
+
+    /* Each mode's own channel: a pick in one is not a reason to move
+       another's. A mode not visited yet starts on the one it came from.
+       Before the layout, whose panes coming into view can aim the keys. */
+    const std::map<string, int>::const_iterator was = modeChans_.find(mode);
+
+    if (was != modeChans_.end())
+        selectChannel(was->second);
 
     panes_->setMode(mode);
     panes_->load(keptLayouts_[mode]);

@@ -1707,14 +1707,17 @@ run (const std::string &pluginPath, const std::string &dsp)
           "the Sequencer's tick in patch mode goes to sequence mode");
 
     /* The keys went to the last track the first time; a channel picked
-       after that is somebody's, and stays through a trip elsewhere. */
+       after that is somebody's, and stays through a trip elsewhere --
+       where another picked is that mode's own. */
     win->selectChannel(0);
     pickMode(win, "piece");
+    turnKeys(win, 6);
     pickMode(win, "seq");
-
-    check(win->chan_ == 0,
-          "...and a channel picked there is kept through a trip to "
-          "another mode");
+    checkAgree(win, 0, "a channel picked in sequence mode, back from piece "
+                       "mode with another picked there");
+    pickMode(win, "piece");
+    checkAgree(win, 6, "...and piece mode's own, back in piece mode");
+    pickMode(win, "seq");
 
     /* A change to sequence mode's layout, for the section that keeps
        them. */
