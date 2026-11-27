@@ -401,7 +401,8 @@ disagrees (TestWindow *win, int c)
 
     if (win->chan_ != c)
         why += " window " + std::to_string(win->chan_);
-    if (win->paramStack_.get_visible_child_name() != "ch" + std::to_string(c))
+    if (std::string(win->paramStack_.get_visible_child_name()) !=
+        "ch" + std::to_string(c))
         why += " page " + std::string(win->paramStack_.get_visible_child_name());
     if (win->kbPanel_->channel() != c || win->keyboardChannel() != c)
         why += " keys " + std::to_string(win->kbPanel_->channel());
