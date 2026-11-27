@@ -2217,6 +2217,46 @@ try
               '...and the piece\'s text says it');
     }
 
+    /* A press on a stage makes its chain's channel current, the keys and
+       Patch params both; pressed again after the keys moved elsewhere,
+       it does again. The answer comes back from the mirror. */
+    {
+        const at = await page.evaluate(() => window.solo.stageAt(1, 0));
+        const chans = () => page.evaluate(() =>
+            [document.getElementById('keychan').value,
+             document.getElementById('paramchan').value]);
+        const aim = async (v) =>
+        {
+            await page.selectOption('#keychan', { value: v });
+            await page.evaluate(() => window.solo.settled());
+        };
+        const press = async (from) =>
+        {
+            const where = await scroller();
+
+            await page.mouse.click(where.x + at[0] + at[2] / 2,
+                                   where.y + at[1] + 4);
+            await page.waitForFunction(
+                (v) => document.getElementById('keychan').value !== v,
+                from, { timeout: 10000 }).catch(() => {});
+            await page.evaluate(() => window.solo.settled());
+            return chans();
+        };
+
+        await aim('12');
+
+        const first = await press('12');
+
+        await aim('13');
+
+        const again = await press('13');
+
+        check(at[0] >= 0 && first[0] !== '12' && first[0] === first[1] &&
+              again[0] === first[0] && again[1] === first[0],
+              'a press on a stage makes its channel current, and again on ' +
+              `a second press: ${JSON.stringify([first, again])}`);
+    }
+
     /* A wire from the knob's port onto the first stage of the second
        chain asks which param; the answer is a binding written into the
        text. */

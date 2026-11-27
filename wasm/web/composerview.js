@@ -43,14 +43,19 @@ export function createComposerView ({ root = document, toMirror,
                                       onGesture, onParamEdit, onMix,
                                       onKnob, onMove, onSection, onFreeze,
                                       onSeek, onGrowBack, onKeep,
+                                      pickSerial = () => 0,
+                                      onPick = () => {},
                                       keepMix = false })
 {
     const $ = (id) => root.getElementById(id);
 
+    /* A press carries which pick the page was on, so a channel the mirror
+       answers with after the page has moved on is dropped. */
     const view = createCanvasView({
         scroller: $('composerscroll'),
         canvas: $('composer'),
-        send: toMirror,
+        send: (m) => toMirror(m.type === 'press' ? { ...m, pick: pickSerial() }
+                                                 : m),
     });
 
     /* The chains by name, as the last piece reported them, and -- where
@@ -357,6 +362,10 @@ export function createComposerView ({ root = document, toMirror,
                in. What happens to it is the page's. */
             case 'input':
                 onGesture(m);
+                return true;
+
+            case 'picked':
+                onPick(m.channel, m.pick);
                 return true;
 
             /* A chain's M or S was pressed. What it becomes is the

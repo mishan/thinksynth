@@ -687,6 +687,10 @@ function showAbout ()
     $('about').hidden = !composing() || $('about').textContent === '';
 }
 
+/* Counted on every pick and mode change: what a pick answered later is
+   checked against. */
+let pickSerial = 0;
+
 function keyChannel ()
 {
     return Number($('keychan').value);
@@ -702,6 +706,8 @@ function keyChannel ()
  * picks in a row draw in the order they were made. */
 function pickChannel (c, { chosen = false } = {})
 {
+    pickSerial++;
+
     if (playsPatch())
         return;
 
@@ -4081,6 +4087,12 @@ function showComposer (on)
        its time -- because that is the one path a piece is composed
        from. */
     composer ??= createComposerView({
+        pickSerial: () => pickSerial,
+        onPick: (c, at) =>
+        {
+            if (at === pickSerial)
+                pickChannel(c, { chosen: true });
+        },
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => synth?.input({ ...g, at: -1 }),
 
@@ -4482,6 +4494,8 @@ let keysMode = null;
 
 function keysFor (which)
 {
+    pickSerial++;
+
     if (keysMode in keyChans)
         keyChans[keysMode] = keyChannel();
 
