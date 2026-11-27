@@ -186,21 +186,39 @@ these are the rules across panes.
   instead of its own File list.
 - Browser: no stepper buttons on a parameter's number box.
 - Both: the patch editor (graph, params, the header strip) opened for the
-  current channel from any mode, instead of from patch mode only. Before that,
-  it needs rules for:
-  - a piece's channel: Change DSP and Open replace what the `.gen` declares,
-    so they refuse there as tuning does; editing the `.dsp` the piece names is
-    editing the instrument's own file;
-  - one `.dsp` on several channels: a value moved live reaches only the
-    attached channel, and a structural edit reloads every channel playing the
-    file (held notes finish on the graph they started on, `thMidiChan::drain`;
-    in a room, for every peer);
-  - history: the desktop's starts over when another file is opened, so moving
-    between channels would discard Undo each time; it needs one per file, as
-    the browser page has, and the browser page's drill-in from piece mode
-    keeps piece mode's history for a name patch mode also uses;
-  - a channel playing a shipped patch, which the browser page can't edit
-    without copying it into its own files first.
+  current channel from any mode, instead of from patch mode only. Decided:
+  - **One action**, Edit instrument, on anything with a channel (a Channels
+    row, a track, a canvas chain, the keys). It picks the channel through the
+    one writer and brings Patch params and Patch graph into view where they
+    are. A pane the mode's layout has no place for opens, the first time, in
+    a slot the layout data names. No temporary layout and no mode switch: the
+    piece keeps playing.
+  - **Three owners.** Which `.dsp` is on a channel is the piece's on its
+    channels, so Change DSP and Open refuse there ("set by the piece"), and
+    the person's in sequence and patch modes. The `.dsp` text is the file's,
+    editable from any mode. Patch params values are the channel's.
+  - **An edit reaches every channel playing the file.** A control or value
+    moved in the graph goes live on each channel whose slot names that file
+    (compared as resolved paths, since a slot keeps the name as written),
+    except a channel whose patch sets that arg itself; that one keeps its
+    value and the graph's header says so. The header names every channel the
+    file is on.
+  - **A structural edit reloads at once**, on every channel playing the file,
+    in any mode. Held notes finish on the graph they started on
+    (`thMidiChan::drain`), so there is no wait for a bar line. The browser
+    page reloads only in patch mode today; piece and sequence modes need the
+    same reload after the file is written. In a room every peer reloads when
+    the shared text changes.
+  - **History per mode and file** on both sides, so moving between channels
+    never discards Undo.
+  - **A file the page can't edit** (a shipped patch): in patch and sequence
+    modes the drill-in offers to edit a copy, which the person then owns; on
+    a piece's channel there is no copy, since it would change the slot.
+  - **The File list stays** for the piece's files that no channel plays yet.
+  Open: whether a reload carries a channel's unsaved Patch params values
+  across, or resets them to the file's and the patch's as it does now; and
+  whether patch mode stays a mode once this exists (for now it does: growing
+  and the one-channel patch layouts hang off it).
 - Engine: on a channel the keys and the piece share, their notes can cut each
   other off.
 
