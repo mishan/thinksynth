@@ -4723,7 +4723,7 @@ static std::string patchJson_;
  * from nowhere a name would mean anything.
  */
 EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text,
-                                         const char *name)
+                                         const char *name, int keep)
 {
     patchWhy_.clear();
 
@@ -4737,6 +4737,21 @@ EMSCRIPTEN_KEEPALIVE int tw_patch_apply (int channel, const char *text,
 
     if (!thPatchParse(text, doc, patchWhy_))
         return 0;
+
+    /* `keep': the patch the channel already had, put back by a piece's
+       reload; a tuning the person set on it goes on, where the file
+       names none. */
+    if (keep && doc.tuningScale.empty() && synth_ != NULL)
+    {
+        const std::shared_ptr<const thTuning> now = synth_->getTuning(channel);
+
+        if (now != NULL)
+        {
+            doc.tuningName = now->text.name;
+            doc.tuningScale = now->text.scale;
+            doc.tuningKeymap = now->text.keymap;
+        }
+    }
 
     const thPatchApplied got = thPatchApply(synth_, channel, doc);
 

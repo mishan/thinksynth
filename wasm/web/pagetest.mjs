@@ -658,6 +658,55 @@ try
               `a key on a track says no channel the keys have left: ${later}`);
     }
 
+    /* A tuning set on a sequence's channel stays when the sequence is
+       reloaded and its channels aimed again. */
+    {
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const at61 = () => page.evaluate(() => window.solo.pitchOf(4, 61));
+        const chooser = page.waitForEvent('filechooser');
+
+        await page.evaluate(() =>
+        {
+            document.getElementById('paramview').open = true;
+        });
+        await page.selectOption('#paramchan', { value: '4' });
+        await settle();
+        await page.click('#tuningscl');
+        await (await chooser).setFiles({
+            name: 'half.scl', mimeType: 'text/plain',
+            buffer: Buffer.from('half sharp\n2\n150.0\n2/1\n') });
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: half sharp', null, { timeout: 15000 })
+            .catch(() => {});
+        await settle();
+
+        const tuned = await at61();
+        const loads = await page.evaluate(() => window.solo.pieces());
+
+        /* The sequence's text loaded again, a comment added: a reload
+           that aims every channel again. */
+        await page.evaluate(() =>
+        {
+            const gen = document.getElementById('gen');
+
+            gen.value += '\n# again\n';
+            gen.dispatchEvent(new Event('input'));
+            document.getElementById('loadpiece').click();
+        });
+        await page.waitForFunction((n) => window.solo.pieces() > n, loads,
+                                   { timeout: 30000 }).catch(() => {});
+        await settle();
+
+        const after = await at61();
+        await page.$eval('#tuning12', (b) => b.click());
+        await settle();
+
+        check(tuned === 61.5 && after === 61.5,
+              'a tuning on a sequence\'s channel stays through a reload that ' +
+              `aims its channels again: ${tuned} ${after}`);
+    }
+
     await page.selectOption('#tracks .track:nth-child(4) select.trackpick',
                             'kick909.dsp');
     await page.evaluate(() => window.solo.settled());

@@ -603,8 +603,8 @@ export async function createSynth (ctx, { windowlen = 128,
            The .dsp it names is not sent: the page has already handed every
            shipped graph to instrument() above, which is where a patch's
            `dsp' line is resolved from. */
-        patch: (channel, text, name = '') =>
-            ask({ type: 'patch', channel, text, name }),
+        patch: (channel, text, name = '', keep = false) =>
+            ask({ type: 'patch', channel, text, name, keep }),
 
         /* What is on a channel now: the document, the name it was given,
            and whether it has been edited since. Resolves to `{ json }',

@@ -1590,7 +1590,7 @@ async function edited (m)
     /* A sink the edit added may name a channel nothing is on yet. */
     const aiming = await patch.aim(
         synth, m.sinks, mode() === 'seq'
-            ? new Map([...sequenceVoices(), ...aimed]) : aimed);
+            ? new Map([...sequenceVoices(), ...aimed]) : aimed, placedNames());
 
     placed = aiming.placed;
     aiming.failed.forEach(log);
@@ -2435,7 +2435,7 @@ async function loadPiece ()
                 aiming = await patch.aim(
                     synth, loaded.sinks,
                     mode() === 'seq' ? new Map([...sequenceVoices(), ...aimed])
-                                     : aimed);
+                                     : aimed, placedNames());
 
             return loaded;
         });
@@ -3351,11 +3351,17 @@ function tuningFor (channel)
 {
     return JSON.stringify([channel, aimed.get(channel) ?? null,
                            placed.get(channel)?.patch ?? null,
-                           loaded[channel] ?? null, piece?.name ?? null,
-                           mode()]);
+                           loaded[channel] ?? null, pickSerial, mode()]);
 }
 
 let tuningAsked = null;
+
+/* What the page last placed on each channel, by the name it was placed
+   under: what a piece's re-aiming puts back keeping its tuning. */
+function placedNames ()
+{
+    return new Map([...placed].map(([c, p]) => [c, p.patch || p.dsp]));
+}
 
 /* The Tuning row: what the channel is tuned to, and the four things to
    do about it, greyed where they mean nothing. */

@@ -2902,6 +2902,54 @@ runDocuments (const std::string &pluginPath)
     check(win->saveAct_->get_enabled() && !win->dirty_,
           "...so Save is offered, and goes to Save As");
 
+    /* A tuning set on a sequence's channel from the strip stays when its
+       instrument's values are edited, the graph the same. The text is put
+       back after, for what follows. */
+    {
+        const thcInstrument *lead = win->sched_->instrument("lead");
+        const int ch = lead != NULL ? lead->channel : -1;
+        const std::string was = readAll(win->workPath_);
+        const std::string from = "instrument lead { dsp \"ebass.dsp\"; };";
+        std::string text = was;
+        std::string err;
+
+        gthPatchManager::instance()->setTuning(
+            ch, { "seqtest", "150.0 1200.0", "" }, err);
+
+        const size_t at = text.find(from);
+
+        if (at != std::string::npos)
+            text.replace(at, from.size(),
+                         "instrument lead { dsp \"ebass.dsp\"; amp = 50; };");
+
+        auto write = [win] (const std::string &t)
+        {
+            std::ofstream out(win->workPath_.c_str(), std::ios::trunc);
+
+            out << t;
+        };
+
+        write(text);
+        win->structuralReload();
+        pump(8);
+
+        const thMidiChan *mc = ch >= 0 ? synth.getChannel(ch) : NULL;
+        gthPatchManager::PatchFile *p = gthPatchManager::instance()->getPatch(ch);
+
+        check(at != std::string::npos && err.empty() && mc != NULL &&
+              mc->tuning() != NULL &&
+              std::fabs(mc->tuning()->pitch(61) - 61.5) < 1e-9 &&
+              p != NULL && p->doc.tuningName == "seqtest",
+              "a sequence instrument rebuilt over its graph keeps the tuning "
+              "set on its channel");
+
+        write(was);
+        win->structuralReload();
+        gthPatchManager::instance()->setTuning(ch, thTuningText(), err);
+        pump(8);
+        win->dirty_ = false;
+    }
+
     /* A gesture off the end of the drum's grid, whose file spells its
        pattern with a bar line the grid does not hand back. */
     if (Gtk::DrawingArea *drum = seq.trackArea(0))
