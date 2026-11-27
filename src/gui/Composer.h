@@ -93,6 +93,12 @@ public:
     bool keyOn (int chan, float note, float veloc);
     void keyOff (int chan, float note) { injectOff(chan, note); }
 
+    /* Whether a chain takes `input midi' on `channel'. */
+    bool listensOn (int channel) const;
+
+    /* After each parse of the piece, its instruments on their channels. */
+    sigc::signal<void ()> &signal_parsed (void) { return parsed_; }
+
     /* Where instruments that name a MIDI port play; set before start(). */
     void setMidiOut (gthMidiOut *out) { midiOut_ = out; }
 
@@ -570,6 +576,7 @@ protected:
     sigc::signal<void ()> fileCommand_;
     sigc::signal<void (std::string)> chooseEffect_;
     sigc::signal<void (std::vector<thMidiRoute>)> midiRoutes_;
+    sigc::signal<void ()> parsed_;
 
     /* The document up, and what the other one was left holding: its file,
        its work text and whether that had unsaved edits. `held' false for

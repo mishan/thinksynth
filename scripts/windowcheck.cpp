@@ -80,6 +80,7 @@ sigNoteOff   m_sigKbdNoteOff;
 class ComposerPeek : public Composer {
 public:
     using Composer::sched_;
+    using Composer::loadPiece;
 };
 
 class TestWindow : public MainSynthWindow {
@@ -1979,6 +1980,44 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     win->setDesktopMode("patch");
     pump(4);
+
+    /* A piece loaded where the keys reach nothing aims them at a channel
+       it listens on, until somebody picks one in piece mode. hands.gen
+       listens on its first three channels and nothing else. */
+    delete win;
+    pump(4);
+
+    {
+        const std::string gens = Glib::getenv("THINK_GEN_PATH");
+        const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() /
+            ("windowcheck-hands-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+
+        std::filesystem::create_directories(dir);
+        std::filesystem::copy_file(std::filesystem::path(gens) / "hands.gen",
+                                   dir / "airports.gen");
+        Glib::setenv("THINK_GEN_PATH", dir.string());
+
+        win = new TestWindow;
+        win->set_visible(true);
+        pump(8);
+        win->selectChannel(9);
+        win->setDesktopMode("piece");
+        pump(8);
+        checkAgree(win, 0, "a piece the keys reach nothing in aims them at a "
+                           "channel it listens on");
+
+        turnKeys(win, 9);
+        static_cast<ComposerPeek *>(win->composer_)->loadPiece();
+        pump(8);
+        checkAgree(win, 9, "...and a reload leaves one somebody picked there");
+
+        win->setDesktopMode("patch");
+        pump(4);
+        Glib::setenv("THINK_GEN_PATH", gens);
+        std::filesystem::remove_all(dir);
+    }
 
     /* ...and a kept layout that is no layout is the first one. */
     delete win;

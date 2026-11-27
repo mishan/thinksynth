@@ -93,7 +93,7 @@ pick.
 | A press on a sequencer track, or a key its grid uses | that track's notes channel, from `ComposerCanvas::channelOf` |
 | A press on a canvas chain, stage or notes sink | its notes channel from the same rule; nothing for an instrument that plays over MIDI out |
 | A sequence loaded | the last track's channel; this pick doesn't count as the person's own choice |
-| A piece loaded where the keys can't be heard (browser page only) | a channel the piece listens on; not the person's choice either |
+| A piece loaded that doesn't listen on the keys' channel, in a mode nobody picked a channel in | the first channel it listens on; not the person's choice either |
 
 These never change it: focus, incoming MIDI, playback, the HID controller, a
 rebuild, a canvas knob, a room peer's edit, a press on Patch graph's own
@@ -151,9 +151,10 @@ when there is one.
   the browser page, entering patch mode starts in 12-TET too.
 - **A late answer is refused.** If a file chooser is answered after the
   patch on the channel was replaced, or the current channel or the mode
-  changed (even and back again), the tuning isn't applied. The browser page
-  also refuses one answered while a piece loads; the desktop loads a piece
-  in one step on the GUI thread, so no answer can arrive during one.
+  changed (even there and back again), the tuning isn't applied. The
+  browser page also refuses one answered after the piece was replaced or
+  while one loads; the desktop loads a piece in one step on the GUI thread,
+  so no answer can arrive during one.
 
 ## 6. Edits and Undo
 
@@ -179,7 +180,6 @@ these are the rules across panes.
 
 ## 7. Not done yet
 
-- Desktop: a piece the keys can't be heard in aims them where they can.
 - Both: the Keys pane as a short strip, with the device setup moved out of it.
 - Browser: Patch graph follows the current channel, as Patch params does,
   instead of its own File list.

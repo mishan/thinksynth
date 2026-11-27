@@ -430,6 +430,8 @@ void MainSynthWindow::buildPanes (void)
        selectChannel tells every pane that shows it. */
     composer_->signal_channel_picked().connect(
         sigc::mem_fun(*this, &MainSynthWindow::selectChannel));
+    composer_->signal_parsed().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::aimKeysAtPiece));
     composer_->sequencer().signal_picked().connect(
         sigc::mem_fun(*this, &MainSynthWindow::selectChannel));
     kbPanel_->signal_channel_picked().connect(
@@ -610,7 +612,11 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     const std::map<string, int>::const_iterator was = modeChans_.find(mode);
 
     if (was != modeChans_.end())
+    {
+        aiming_ = true;
         selectChannel(was->second);
+        aiming_ = false;
+    }
 
     panes_->setMode(mode);
     panes_->load(keptLayouts_[mode]);
@@ -653,7 +659,25 @@ void MainSynthWindow::aimKeysAtSequence (void)
         return;
 
     keysAimed_ = true;
+    aiming_ = true;
     selectChannel(seq.trackChannel(n - 1));
+    aiming_ = false;
+}
+
+void MainSynthWindow::aimKeysAtPiece (void)
+{
+    if (mode_ != PIECE_MODE || chosen_.count(mode_) || tearingDown_ ||
+        composer_ == NULL || composer_->listensOn(chan_))
+        return;
+
+    for (int c = 0; c < (int)holders_.size(); c++)
+        if (composer_->listensOn(c))
+        {
+            aiming_ = true;
+            selectChannel(c);
+            aiming_ = false;
+            return;
+        }
 }
 
 void MainSynthWindow::onPaneShown (const string &id, bool visible)
@@ -2433,7 +2457,9 @@ void MainSynthWindow::onPatchesChanged (void)
 
     populate();
 
+    aiming_ = true;
     selectChannel(chan_);
+    aiming_ = false;
 
     /* Once the change is done: a piece records which channels it filled
        after the load that rebuilt these pages. */
@@ -2619,6 +2645,9 @@ void MainSynthWindow::selectChannel (int chan)
 
     if (chan != chan_)
         views_++;
+
+    if (!aiming_ && isMode(mode_))
+        chosen_.insert(mode_);
 
     chan_ = chan;
 

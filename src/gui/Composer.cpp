@@ -1961,6 +1961,33 @@ Composer::parseWork (void)
     seq_.setPiece(&doc_, sched_);
     rebuildEditor();
     updateTransportButtons();
+    parsed_.emit();
+}
+
+/* As the browser page asks it (thinkweb.cpp listensOn): a chain with no
+   sink of its own listens everywhere. */
+bool
+Composer::listensOn (int channel) const
+{
+    if (sched_ == NULL)
+        return false;
+
+    for (size_t i = 0; i < sched_->chainCount(); i++)
+    {
+        const thcChain *c = sched_->chain(i);
+
+        if (!c->inputMidi)
+            continue;
+
+        if (c->sinks.empty())
+            return true;
+
+        for (size_t k = 0; k < c->sinks.size(); k++)
+            if (c->sinks[k].channel == channel)
+                return true;
+    }
+
+    return false;
 }
 
 void

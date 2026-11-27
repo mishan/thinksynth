@@ -20,6 +20,7 @@
 #define MAIN_SYNTH_WINDOW_H
 
 #include <memory>
+#include <set>
 #include <vector>
 
 #include "thMidiRoutes.h"
@@ -227,6 +228,15 @@ protected:
     /* The keys to the sequence's last track, the first time it has one. */
     void aimKeysAtSequence (void);
     bool keysAimed_ = false;
+
+    /* The keys to a channel a piece listens on, where they reach nothing
+       and nobody has picked one in piece mode. */
+    void aimKeysAtPiece (void);
+
+    /* The modes somebody picked a channel in; and set around a pick that
+       is the window's, not theirs. */
+    std::set<string> chosen_;
+    bool aiming_ = false;
 
     /* The current channel each mode had when it was left. */
     std::map<string, int> modeChans_;
