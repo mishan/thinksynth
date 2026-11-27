@@ -173,6 +173,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen,
                                                           : TH_POOL_MAX;
     pool_.reserve(poolmax_);
     restarts_ = 0;
+    born_ = 0;
 
     output_ = new float[thOutputSamples(channels_, windowlength_)];
     memset(output_, 0,
@@ -497,6 +498,7 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
         if (voice->restart(modnode_, note, velocity, level, aux, say, tuning_.get()))
         {
             restarts_++;
+            voice->setBorn(++born_);
             voice->synthTree()->prepare(true);
             return voice;
         }
@@ -508,6 +510,7 @@ thMidiNote *thMidiChan::buildNote (float note, float velocity, float level,
                                        say, tuning_.get());
 
     voice->setChannel(serial_);
+    voice->setBorn(++born_);
 
     voice->synthTree()->reserveWindow(windowlength_);
     voice->synthTree()->prepare(true);
@@ -1497,7 +1500,7 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
        key came up would be wrong in the most visible way available. */
     for (int p = 0; p < nprobes; p++)
     {
-        probes[p]->accumulate(tree);
+        probes[p]->accumulate(tree, note->born());
     }
 
     /* Before the non-finite guard, so a voice that went bad still says

@@ -472,6 +472,7 @@ private:
     std::vector<thMidiNote *> pool_;
     size_t poolmax_;
     unsigned long restarts_;
+    unsigned long born_;    /* the last voice's thMidiNote::born */
     int notecount_, notecount_decay_;  /* keeping track of polyphony this way
                                         for now */
 

@@ -59,11 +59,18 @@ class thSynthTree;
  */
 class THINK_API thProbe {
 public:
+    /* SUM is a probe's panel: every voice, added. NEWEST is the editor's
+       hover: one voice's value, the most recently started one, since a sum
+       of three notes' pitches is no note's pitch. It publishes a Reading
+       rather than samples. */
+    enum Mode { SUM, NEWEST };
+
     /* windowlen is the synth's; ringsamples is the depth of the handoff.
        Allocating is the caller's job to do on the GUI thread. */
     thProbe (int chan, unsigned long chanSerial, int nodeId, int argIndex,
              const string &nodeName, const string &argName,
-             unsigned int windowlen, unsigned int ringsamples);
+             unsigned int windowlen, unsigned int ringsamples,
+             Mode mode = SUM);
 
     ~thProbe (void);
 
@@ -75,8 +82,9 @@ public:
     /* Add this voice's contribution. A tree that does not contain the node --
        the copy constructor only walks what is reachable from the ionode, so an
        unreachable node leaves a hole -- contributes nothing, which is not an
-       error. */
-    void accumulate (thSynthTree *tree);
+       error. `born' orders the voices by when they started (thMidiNote::born),
+       which is how NEWEST tells which one to keep. */
+    void accumulate (thSynthTree *tree, unsigned long born);
 
     /* Hand the window over. Called once per window, after every voice, and
        unconditionally: a channel with nothing sounding publishes silence,
@@ -89,6 +97,17 @@ public:
     unsigned int read (float *out, unsigned int n) { return ring_.read(out, n); }
     unsigned int readable (void) const { return ring_.readable(); }
     bool empty (void) const { return ring_.empty(); }
+
+    /* A NEWEST probe's last window: the newest voice's last sample and the
+       window's lowest and highest, how many voices reached the node, and how
+       many more were passed over for running compiled (accumulate). */
+    struct Reading {
+        float last, lo, hi;
+        int voices, compiled;
+    };
+
+    /* False until a window has been published, or while one is. */
+    bool reading (Reading &r) const;
 
     /* Samples the audio thread had to throw away because this was not being
        drained. Monotonic. */
@@ -126,8 +145,20 @@ private:
     string nodeName_;   /* GUI thread only */
     string argName_;    /* GUI thread only */
 
+    Mode mode_;
+
     unsigned int windowlen_;
     float *accum_;
+
+    /* Audio thread: this window's voices so far, those passed over, and the
+       start of the one in accum_. */
+    int voices_, compiled_;
+    unsigned long newest_;
+
+    /* NEWEST's Reading, behind a sequence count: odd while it is written. */
+    std::atomic<unsigned long> seq_;
+    std::atomic<float> last_, lo_, hi_;
+    std::atomic<int> heard_, skipped_;
 
     thSampleRing ring_;
 
@@ -141,6 +172,11 @@ private:
  * walk and nothing to allocate, and eight is already more displays than fit
  * usefully on one canvas. */
 #define TH_MAX_PROBES 8
+
+/* And one past them for the editor's hover, so a hover takes none of the
+   eight and never fails for want of a slot. */
+#define TH_HOVER_SLOT TH_MAX_PROBES
+#define TH_PROBE_SLOTS (TH_MAX_PROBES + 1)
 
 /* How deep the handoff is, in windows. At 44100 and a 1024-sample window a
    60fps consumer drains roughly one window and a half per frame, so eight is

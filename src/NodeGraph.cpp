@@ -1971,6 +1971,23 @@ int NodeGraph::boxAt (double x, double y) const
     return -1;
 }
 
+bool NodeGraph::tapAt (int box, int port, string &node, string &arg) const
+{
+    if (box < 0 || box >= (int)boxes_.size())
+        return false;
+
+    const Box &b = boxes_[box];
+
+    if (port < 0 || port >= (int)b.ports.size() || b.isControl ||
+        b.isProbe || (b.isExpr && b.ports[port].isInput))
+        return false;
+
+    node = b.name;
+    arg = b.ports[port].name;
+
+    return true;
+}
+
 void NodeGraph::portPos (int box, int port, double &x, double &y) const
 {
     x = y = 0;

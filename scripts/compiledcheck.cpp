@@ -447,6 +447,61 @@ main (int argc, char **argv)
         report(name, why);
     }
 
+    /* A hover passes over a voice already running compiled, which writes
+       none of its nodes' args, and reads the next, which runs on its
+       nodes. */
+    {
+        thSynth synth(plugins, AUDIO_WINDOW, 48000);
+        string node, arg, why;
+
+        synth.loadTree((dsp + "rhodes.dsp").c_str(), 0, MIDIVALMAX);
+
+        const thSynthTree::NodeMap &nodes = synth.getChannel(0)->modnode()->nodes();
+
+        for (auto n = nodes.begin(); arg.empty() && n != nodes.end(); ++n)
+        {
+            const thPlugin *plug = n->second ? n->second->plugin() : NULL;
+
+            for (int i = 0; arg.empty() && plug && i < plug->argCount(); i++)
+                if (plug->getArgDir(i) == thPlugin::ARG_OUT)
+                {
+                    node = n->first;
+                    arg = plug->getArgName(i);
+                }
+        }
+
+        thProbe::Reading before = { 0, 0, 0, -1, -1 }, after = before;
+
+        synth.addNote(0, 60, 100);
+        synth.process();
+
+        const unsigned long compiled = thSynthTree::windowsRun(true);
+
+        synth.armHover(0, node, arg, why);
+        synth.process();
+        synth.probe(TH_HOVER_SLOT)->reading(before);
+        synth.addNote(0, 64, 100);
+        synth.process();
+        synth.probe(TH_HOVER_SLOT)->reading(after);
+
+        const thArg *a = synth.getChannel(0)->getNote(64)->synthTree()
+                             ->findNode(node)->getArg(arg);
+
+        report("a hover on rhodes.dsp's " + node + "." + arg +
+               " passes over the compiled voice and reads the next",
+               thSynthTree::windowsRun(true) == compiled ? "nothing ran compiled"
+               : before.voices != 0 || before.compiled != 1 ?
+                   "before: " + std::to_string(before.voices) + " voices, " +
+                   std::to_string(before.compiled) + " compiled"
+               : after.voices != 1 || after.compiled != 1 ?
+                   "after: " + std::to_string(after.voices) + " voices, " +
+                   std::to_string(after.compiled) + " compiled"
+               : after.last != (*a)[AUDIO_WINDOW - 1] ?
+                   "read " + std::to_string(after.last) + ", not " +
+                   std::to_string((*a)[AUDIO_WINDOW - 1])
+               : "");
+    }
+
     /* What falls back. */
     expect("rings.dsp compiles on a raster", "compiled", ranAs(plugins, rings, 160, 120));
     expect("rings.dsp with one number changed runs on its nodes", "on its nodes",

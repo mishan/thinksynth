@@ -65,6 +65,11 @@
  * being idempotent, a reload disarming what pointed at the old tree, and a
  * ring nobody drains counting its drops instead of lying.
  *
+ * The editor's hover (thSynth::armHover) is held to the newest voice's tree
+ * on every port NodeGraph::tapAt names, and once each: it arms with the eight
+ * taken, reads no voices before a note, follows a re-struck key and a voice
+ * from the pool, and is disarmed by a reload.
+ *
  *   cmake --build build
  *   ./build/scripts/dspprobe -p build/plugins/ dsp/ts1.dsp
  */
@@ -76,6 +81,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include "think.h"
@@ -482,6 +489,171 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
     return r;
 }
 
+/* ---- the hover, on every port the canvas would hover ----
+ *
+ * NodeGraph::tapAt names what a hover on a port reads; each one is armed,
+ * the notes struck so that the newest voice is neither the first nor the
+ * last the channel runs (it runs them in key order), and the reading
+ * compared against that voice's own tree, looked up by name. */
+
+struct HoverResult { int ports; int bad; };
+
+HoverResult checkHover (const string &pluginPath, const char *file,
+                        bool quiet)
+{
+    HoverResult r = { 0, 0 };
+    vector<PortRef> taps;
+
+    {
+        thSynth look(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        thSynthTree *tree = look.parseTree(file);
+
+        if (tree == NULL)
+            return r;
+
+        if (tree->takesInput())
+        {
+            delete tree;
+            return r;
+        }
+
+        NodeGraph g;
+
+        g.build(tree);
+        delete tree;
+
+        for (size_t b = 0; b < g.boxes().size(); b++)
+        {
+            for (size_t k = 0; k < g.boxes()[b].ports.size(); k++)
+            {
+                PortRef t;
+
+                if (!g.tapAt((int)b, (int)k, t.arm, t.port))
+                    continue;
+
+                t.ref = g.boxes()[b].isExpr ? g.boxes()[b].exprOutNode
+                                            : t.arm;
+                taps.push_back(t);
+            }
+        }
+    }
+
+    for (size_t p = 0; p < taps.size(); p++)
+    {
+        const PortRef &t = taps[p];
+
+        srand(1);
+
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(file, 0, 100) == NULL)
+            return r;
+
+        string why;
+
+        if (synth.armHover(0, t.arm, t.port, why) != TH_HOVER_SLOT)
+        {
+            printf("FAIL  %s: cannot hover %s.%s -- %s\n", file,
+                   t.arm.c_str(), t.port.c_str(), why.c_str());
+            r.bad++;
+            checks++;
+            failures++;
+            continue;
+        }
+
+        r.ports++;
+
+        /* As many as the channel holds, so none is stolen: a stolen voice
+           still sounds, and the reference below cannot see it. */
+        const int voices = chokes(synth, 0) ? 1 : voicesFor(synth, 0);
+
+        vector<int> order;
+
+        for (int n = 0; n < voices; n++)
+            order.push_back(n);
+
+        if (voices == 3)
+            order = { 0, 2, 1 };
+
+        for (int n : order)
+            synth.addNote(0, (float)NOTES[n], 100);
+
+        synth.process();
+
+        thMidiChan *c = synth.getChannel(0);
+        thProbe *probe = synth.probe(TH_HOVER_SLOT);
+        thProbe::Reading got;
+
+        if (probe == NULL || !probe->reading(got))
+        {
+            printf("FAIL  %s: hover on %s.%s read nothing\n", file,
+                   t.arm.c_str(), t.port.c_str());
+            r.bad++;
+            checks++;
+            failures++;
+            continue;
+        }
+
+        /* The newest is the last struck; the voices, those whose tree has
+           the arg, as the tap counts them. */
+        const thArg *newest = NULL;
+        int heard = 0;
+
+        for (int n = 0; c != NULL && n < voices; n++)
+        {
+            thMidiNote *note = c->getNote(NOTES[n]);
+            thNode *nd = note ? note->synthTree()->findNode(t.ref) : NULL;
+            const thArg *a = nd ? nd->getArg(t.port) : NULL;
+
+            if (a == NULL)
+                continue;
+
+            heard++;
+
+            if (n == order.back())
+                newest = a;
+        }
+
+        const int windowlen = synth.getWindowlen();
+        float last = 0, lo = 0, hi = 0;
+
+        if (newest != NULL)
+        {
+            last = lo = hi = (*newest)[windowlen - 1];
+
+            for (int i = 0; i < windowlen; i++)
+            {
+                lo = std::min(lo, (*newest)[i]);
+                hi = std::max(hi, (*newest)[i]);
+            }
+        }
+
+        /* The last sample bitwise, as the sweep above compares. The range by
+           value: which of -0 and +0 a window's minimum is depends on where
+           the scan starts. */
+        auto equal = [] (float x, float y)
+        {
+            return x == y || (std::isnan(x) && std::isnan(y));
+        };
+        const bool same = got.voices == heard &&
+            memcmp(&got.last, &last, sizeof(float)) == 0 &&
+            equal(got.lo, lo) && equal(got.hi, hi);
+
+        ok(same, "%s: hover on %s.%s read %g (%g to %g) of %d voices, "
+           "wanted %g (%g to %g) of %d", file, t.arm.c_str(), t.port.c_str(),
+           (double)got.last, (double)got.lo, (double)got.hi, got.voices,
+           (double)last, (double)lo, (double)hi, heard);
+
+        if (!same)
+            r.bad++;
+        else if (!quiet)
+            printf("ok    %-28s hover %s.%s\n", file, t.arm.c_str(),
+                   t.port.c_str());
+    }
+
+    return r;
+}
+
 /* ---- the properties that need saying once, not per file ---- */
 
 /* A tree whose plugin declares state, so the refusal has something to refuse.
@@ -715,6 +887,19 @@ void properties (const string &pluginPath, const char *file)
             ok(armed == TH_MAX_PROBES,
                "%d distinct points arm and the rest are refused (got %d)",
                TH_MAX_PROBES, armed);
+
+            const int hover = s.armHover(0, ports[0].arm, ports[0].port, why);
+            int still = 0;
+
+            for (int i = 0; i < TH_MAX_PROBES; i++)
+                if (s.probe(i) != NULL && s.probe(i)->nodeName() == ports[i].arm &&
+                    s.probe(i)->argName() == ports[i].port)
+                    still++;
+
+            ok(hover == TH_HOVER_SLOT && still == TH_MAX_PROBES,
+               "a hover arms with every slot taken (%d) and moves none of "
+               "the %d (%d still where they were)", hover, TH_MAX_PROBES,
+               still);
         }
 
         thSynth s2(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
@@ -818,6 +1003,92 @@ void properties (const string &pluginPath, const char *file)
         }
     }
 
+    /* -- the hover reads the newest voice --
+     *
+     * ionode.note is each voice's key and ionode.velocity its velocity, so
+     * they name which voice was read. Struck 67, 64, 60, the newest is the
+     * one the channel runs first; then 64 again, softer, which leaves the old
+     * 64 decaying and the new one newest. */
+    {
+        thSynth s(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        s.loadTree(file, 0, 100);
+
+        string why;
+        const int slot = s.armHover(0, "ionode", "note", why);
+        thProbe::Reading r = { -1, -1, -1, -1, -1 };
+
+        ok(slot == TH_HOVER_SLOT, "a hover on ionode.note arms: %s",
+           why.c_str());
+
+        s.process();
+
+        const bool silent = s.probe(TH_HOVER_SLOT) != NULL &&
+                            s.probe(TH_HOVER_SLOT)->reading(r);
+
+        ok(silent && r.voices == 0,
+           "with nothing sounding a hover reads no voices (%d)", r.voices);
+
+        for (int n = NUM_NOTES - 1; n >= 0; n--)
+            s.addNote(0, (float)NOTES[n], 100);
+
+        s.process();
+        s.probe(TH_HOVER_SLOT)->reading(r);
+
+        ok(r.last == NOTES[0] && r.lo == NOTES[0] && r.hi == NOTES[0] &&
+           r.voices == NUM_NOTES,
+           "the newest of %d voices, %d, is the one read: %g of %d",
+           NUM_NOTES, NOTES[0], (double)r.last, r.voices);
+
+        const float soft = 50;
+
+        s.addNote(0, (float)NOTES[1], soft);
+        s.armHover(0, "ionode", "velocity", why);
+        s.process();
+        s.probe(TH_HOVER_SLOT)->reading(r);
+
+        ok(r.last == soft * TH_MAX / MIDIVALMAX && r.voices == NUM_NOTES + 1,
+           "a re-struck %d is newest, its old voice still counted: velocity "
+           "%g of %d", NOTES[1], (double)r.last, r.voices);
+    }
+
+    /* -- a voice from the pool is as new as any --
+     *
+     * 67 and 64 struck, 67 let go until its voice is retired, then 60: the
+     * channel builds it from 67's old voice, which has to be newer than 64.
+     * On a graph of its own, whose release ends. */
+    {
+        thSynth s(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        s.loadTreeText("short", "node env env::adsr { a = 1 ms; d = 1 ms; "
+                       "s = 0.5; r = 1 ms; trigger = ionode->trigger; };\n"
+                       "node ionode { channels = 1; out0 = env->out; "
+                       "play = env->play; };\nio ionode;\n", 0, 100);
+        s.setVoicePool(true);
+
+        string why;
+        thProbe::Reading r = { -1, -1, -1, -1, -1 };
+
+        s.addNote(0, (float)NOTES[2], 100);
+        s.addNote(0, (float)NOTES[1], 100);
+        s.process();
+        s.delNote(0, (float)NOTES[2]);
+
+        for (int w = 0; w < 16 && s.getChannel(0)->getNote(NOTES[2]); w++)
+            s.process();
+
+        s.addNote(0, (float)NOTES[0], 100);
+        s.armHover(0, "ionode", "note", why);
+        s.process();
+        s.probe(TH_HOVER_SLOT)->reading(r);
+
+        ok(s.getChannel(0)->restarts() > 0 && r.voices == 2 &&
+           r.last == NOTES[0],
+           "%d, from the pool (%lu restarts), is newer than %d: read %g of "
+           "%d voices", NOTES[0], s.getChannel(0)->restarts(), NOTES[1],
+           (double)r.last, r.voices);
+    }
+
     /* -- a reload disarms what pointed at the old tree -- */
     {
         thSynth s(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
@@ -843,13 +1114,18 @@ void properties (const string &pluginPath, const char *file)
 
             ok(slot >= 0, "armed before the reload: %s", why.c_str());
 
+            const int hover = s.armHover(0, ports[0].arm, ports[0].port, why);
+
+            ok(hover == TH_HOVER_SLOT, "hovered before the reload: %s",
+               why.c_str());
+
             s.process();
             s.loadTree(file, 0, 100);   /* same file, new tree */
             s.process();
 
-            ok(s.probe(slot) == NULL,
-               "loading a patch disarms the probes that pointed at the old "
-               "tree");
+            ok(s.probe(slot) == NULL && s.probe(TH_HOVER_SLOT) == NULL,
+               "loading a patch disarms the probes and the hover that pointed "
+               "at the old tree");
         }
     }
 
@@ -937,6 +1213,7 @@ int main (int argc, char **argv)
         pluginPath += '/';
 
     int files = 0, skipped = 0, ports = 0, matched = 0, silent = 0;
+    int hovered = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -947,6 +1224,8 @@ int main (int argc, char **argv)
             skipped++;
             continue;
         }
+
+        hovered += checkHover(pluginPath, argv[f], quiet).ports;
 
         files++;
         ports += r.ports;
@@ -975,6 +1254,7 @@ int main (int argc, char **argv)
     printf("\n%d files, %d skipped (would not load)\n", files, skipped);
     printf("  %d output ports probed: %d carried signal, %d were silent\n",
            ports, matched, silent);
+    printf("  %d ports hovered\n", hovered);
     printf("  %d checks, %d failed\n", checks, failures);
 
     return failures;

@@ -462,6 +462,11 @@ public:
     /* Absolute position of a port's handle. */
     void portPos (int box, int port, double &x, double &y) const;
 
+    /* What a hover on a port reads, as thSynth::armHover names it. False
+       where no node has that arg: a control, a probe's panel, and an
+       expression's inputs, which are leaves of its text. */
+    bool tapAt (int box, int port, string &node, string &arg) const;
+
     /* Whether a wire from one port to another is allowed, with a sentence
        saying why not.
 
