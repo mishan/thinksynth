@@ -1608,11 +1608,15 @@ Composer::loadInstrument (const thcInstrument &inst, std::string &why)
 
     /* Kept, the tuning's sound unchanged -- but its name or its spelling
        may be new, and the patch says what the piece says. */
-    if (keep && have != NULL)
+    if (keep && have != NULL &&
+        (have->doc.tuningName != inst.tuningText.name ||
+         have->doc.tuningScale != inst.tuningText.scale ||
+         have->doc.tuningKeymap != inst.tuningText.keymap))
     {
         have->doc.tuningName = inst.tuningText.name;
         have->doc.tuningScale = inst.tuningText.scale;
         have->doc.tuningKeymap = inst.tuningText.keymap;
+        pm->markDirty(inst.channel);
     }
     Owned o;
 

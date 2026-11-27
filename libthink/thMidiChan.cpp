@@ -746,7 +746,7 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
                frequency inside the graph is what turns that move into a
                glide. */
             notes_.remove(voice);
-            voice->retune(midinote->note());
+            voice->retune(midinote->note(), midinote->tuning());
             voice->setLevel(midinote->level());
             voice->takeSay(midinote);
             keyNote(voice);

@@ -291,6 +291,20 @@ int main (int argc, char **argv)
         expect(synth, "live: and back again", 60 + step);
     }
 
+    /* Mono, retuned with a key held: the next key slides the held voice
+       to that key in the new tuning, the one it was pressed under. */
+    {
+        thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+        synth.loadTreeText("monolive", graph(true), 0, 100, tuning(edo19(), ""));
+        synth.addNote(0, 60, 100);
+        run(synth, SETTLE, NULL);
+        synth.setTuning(0, nullptr);
+        synth.addNote(0, 62, 100);
+        run(synth, SETTLE, NULL);
+        expect(synth, "mono live: the slid key plays the new tuning", 62);
+    }
+
     /* A mono voice moved to another key is moved to that key's pitch. */
     {
         thSynth synth(plugins, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);

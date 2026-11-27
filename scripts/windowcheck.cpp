@@ -125,10 +125,15 @@ public:
     }
 
     std::string tuningAnswer;
+    bool holdTuning = false;
+    sigc::slot<void (std::string)> heldTuning;
 
     void askTuningFile (bool, sigc::slot<void (std::string)> chosen) override
     {
-        chosen(tuningAnswer);
+        if (holdTuning)
+            heldTuning = chosen;
+        else
+            chosen(tuningAnswer);
     }
 
     void askDiscard (const std::string &what,
@@ -961,6 +966,30 @@ checkTuning (TestWindow *win, const std::string &dsp)
           "a scale that will not read, or values that will not build, "
           "change nothing");
 
+    /* An answer for a patch since replaced on the channel is dropped. */
+    win->tuningAnswer = (dir / "edo19.scl").string();
+    win->holdTuning = true;
+    press(win, 2, "Open _scale (.scl)...");
+    pump(4);
+    win->holdTuning = false;
+    patchMgr->newPatch(dsp, 2);
+    pump(4);
+
+    if (win->heldTuning)
+        win->heldTuning(win->tuningAnswer);
+
+    pump(4);
+
+    check(win->heldTuning && soundsAt(2, 61) == 61 &&
+          patchMgr->getPatch(2)->doc.tuningScale.empty(),
+          "a scale chosen for a patch since replaced is not put on the new "
+          "one");
+    win->heldTuning = sigc::slot<void (std::string)>();
+
+    edit(2, "pw1", 0.42f);
+    win->tuningAnswer = (dir / "edo19.scl").string();
+    press(win, 2, "Open _scale (.scl)...");
+    pump(4);
     press(win, 2, "_12-TET");
     pump(4);
 

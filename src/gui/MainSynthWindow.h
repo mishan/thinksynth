@@ -125,7 +125,8 @@ protected:
        Greyed on a channel the open piece filled, whose tuning is the
        piece's (updateTuningOwned). */
     void appendTuningControls (Gtk::Box *row, int chan);
-    void onTuningFile (int chan, bool keymap, string path);
+    void onTuningFile (int chan, unsigned generation, bool keymap,
+                       string path);
     void setChannelTuning (int chan, const thTuningText &tuning);
     void updateTuningOwned (void);
 

@@ -87,6 +87,12 @@ public:
      * is already one long, which returns the buffer it has. */
     void retune (float note);
 
+    /* The same, for a key pressed under `tuning': a mono voice slid to a
+       new key takes the table that key was built with, so a slide after
+       the channel was retuned lands in the new tuning. */
+    void retune (float note, const thTuning *tuning);
+    const thTuning *tuning (void) const { return tuning_; }
+
     /* Audio thread. This voice's own expression while it sounds: what < 0
        bends it `value' semitones from the note it was played at, until a
        retune to another key; what = N sets auxN, if the graph reads it. Unlike a

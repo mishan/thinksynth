@@ -1809,6 +1809,8 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     return strip;
 }
 
+static unsigned generationOf (int chan);
+
 void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
 {
     gthPatchManager::PatchFile *patch =
@@ -1854,15 +1856,21 @@ void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
 
     item("_12-TET", !now.empty(),
          [this, chan] { setChannelTuning(chan, thTuningText()); });
+    /* Each answer is for the patch the chooser was opened over, and is
+       dropped if another has been put on the channel since. */
     item("Open _scale (.scl)...", true, [this, chan]
     {
-        askTuningFile(false, [this, chan] (string p)
-                      { onTuningFile(chan, false, p); });
+        const unsigned gen = generationOf(chan);
+
+        askTuningFile(false, sigc::track_obj([this, chan, gen] (string p)
+                      { onTuningFile(chan, gen, false, p); }, *this));
     });
     item("Open _keyboard map (.kbm)...", !now.empty(), [this, chan]
     {
-        askTuningFile(true, [this, chan] (string p)
-                      { onTuningFile(chan, true, p); });
+        const unsigned gen = generationOf(chan);
+
+        askTuningFile(true, sigc::track_obj([this, chan, gen] (string p)
+                      { onTuningFile(chan, gen, true, p); }, *this));
     });
     item("_No keyboard map", !now.keymap.empty(), [this, chan, now]
     {
@@ -1879,12 +1887,13 @@ void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
 
 /* A .scl or a .kbm read into the values form the patch keeps, the other
  * half of the tuning as it was. */
-void MainSynthWindow::onTuningFile (int chan, bool keymap, string path)
+void MainSynthWindow::onTuningFile (int chan, unsigned generation,
+                                    bool keymap, string path)
 {
     gthPatchManager::PatchFile *patch =
         gthPatchManager::instance()->getPatch(chan);
 
-    if (path.empty() || patch == NULL)
+    if (path.empty() || patch == NULL || patch->generation != generation)
         return;
 
     std::ifstream in(path);
