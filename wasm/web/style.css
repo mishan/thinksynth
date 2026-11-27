@@ -654,6 +654,10 @@ details { margin: 0.8em 0; }
 
 .trackhead .what { color: var(--dim); font-size: 0.9em; }
 
+/* The current channel's tracks: the number at full strength, after the
+   pointer seqview puts before it. */
+.trackhead .chan.current { color: inherit; }
+
 /* What plays this track. Narrow enough that four of them down a pane do
    not read as a form, wide enough for a drawer's name and a patch's. */
 .trackpick { max-width: 18em; font-size: 0.9em; }
@@ -1163,6 +1167,10 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
  * a narrow window gets one column rather than sliders squeezed to a nub.
  */
 #params { margin: 0.5rem 0; font-size: 0.9rem; }
+
+/* WCAG 2.2's minimum target: rows 0.3rem apart put a 16-pixel slider's
+   neighbors inside its 24 pixels. A touch screen's 44 is further down. */
+#knobs input, #params input { min-height: 24px; }
 
 /* One grid for the whole block, and each row a subgrid of it.
  *

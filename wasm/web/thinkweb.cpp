@@ -2090,6 +2090,10 @@ struct CanvasInput
 
 std::vector<CanvasInput> canvasInputs_;
 
+/* The channel the last press on the canvas picked (ComposerCanvas::
+   channelOf), for tw_canvas_picked to hand over once; -1 for none. */
+int canvasPicked_ = -1;
+
 /* The M and S presses on chain boxes, waiting the same way: which chain,
    solo rather than mute, and what the flag is asked to become. */
 struct CanvasMix
@@ -4999,6 +5003,32 @@ EMSCRIPTEN_KEEPALIVE int tw_chain_channel (int chain)
     return -1;
 }
 
+/* The channel picking the chain makes current: ComposerCanvas::channelOf,
+   the desktop's rule too, so a track picked on either is the same
+   channel. Unlike tw_chain_channel, -1 for a chain played on a MIDI
+   device, which no engine channel sounds. */
+EMSCRIPTEN_KEEPALIVE int tw_pick_channel (int chain)
+{
+    if (chain < 0)
+        return -1;
+
+    ComposerCanvas::Selection sel;
+
+    sel.kind = ComposerCanvas::Selection::CHAIN;
+    sel.chain = (size_t)chain;
+
+    return ComposerCanvas::channelOf(sched_, sel);
+}
+
+/* The channel the last press on the canvas picked, once, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_picked (void)
+{
+    const int c = canvasPicked_;
+
+    canvasPicked_ = -1;
+    return c;
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
 {
     if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
@@ -5160,6 +5190,12 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                 canvasBind_.w = at.w;
                 canvasBind_.h = at.h;
                 canvasBind_.wanted = true;
+            });
+
+        canvas_->sigPressed.connect(
+            [](const ComposerCanvas::Selection &sel)
+            {
+                canvasPicked_ = ComposerCanvas::channelOf(sched_, sel);
             });
 
         canvas_->sigInput.connect(

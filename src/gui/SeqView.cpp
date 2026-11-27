@@ -803,7 +803,7 @@ void SeqView::pick (size_t i)
     sel.kind = ComposerCanvas::Selection::CHAIN;
     sel.chain = tracks_[i].chain;
 
-    const int channel = ComposerCanvas::channelOf(doc_, sched_, sel);
+    const int channel = ComposerCanvas::channelOf(sched_, sel);
 
     if (channel >= 0)
         picked_.emit(channel);

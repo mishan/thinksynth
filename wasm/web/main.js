@@ -578,10 +578,8 @@ let loaded = [];
 let holding = [];
 
 /* The modes somebody chose the key channel in this session, which a
-   piece's load then leaves alone; and the channel the page last said was
-   silent, so that it says so once. */
+   piece's load then leaves alone. */
 const keysChosen = new Set();
-let saidSilent = null;
 
 async function readLoaded ()
 {
@@ -608,8 +606,7 @@ function keysWhereTheySound ()
         !silentOn(keyChannel()))
         return;
 
-    $('keychan').value = String(to);
-    saidSilent = null;
+    pickChannel(to);
 }
 
 function log (text)
@@ -690,9 +687,45 @@ function showAbout ()
     $('about').hidden = !composing() || $('about').textContent === '';
 }
 
+/* Counted on every pick, mode change and piece replaced: what a canvas
+   press answered later is checked against. */
+let pickSerial = 0;
+
 function keyChannel ()
 {
     return Number($('keychan').value);
+}
+
+/* The current channel: what the keys play and Patch params shows. The
+ * one place it is set, so the two selectors, the tracks and the panel
+ * cannot disagree. `chosen' when a person picked it, which a piece's load
+ * then leaves where it is. A patch, played or growing, is on channel 1
+ * and stays there.
+ *
+ * The panel's redraws are one chain, which settled() waits for, so two
+ * picks in a row draw in the order they were made. */
+function pickChannel (c, { chosen = false, canvas = false } = {})
+{
+    /* A canvas answer counts no picks: two presses before the first is
+       answered both stand, the later one last. */
+    if (!canvas)
+        pickSerial++;
+
+    if (playsPatch())
+        return;
+
+    if (chosen)
+        keysChosen.add(keysMode);
+
+    /* Against what the panel shows, not the selectors: a mode's restore
+       moves the keys' selector without drawing the panel. */
+    if (c === keyChannel() && params?.channel === c && paramsWanted === c)
+        return;
+
+    showKeyChannels(c);
+    showChannels({ tracks: false });
+    paramsWanted = c;
+    paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
 }
 
 /* Where a controller's values go: a patch's own channel, else the keys'. */
@@ -708,7 +741,7 @@ function bendChannel (note)
 {
     const held = sounding.get(note);
 
-    return held === undefined || held.piece ? null : PATCH_CHANNEL;
+    return held === undefined || held.piece ? null : held.channel;
 }
 
 /* A MIDI knob, onto each control it is mapped to. */
@@ -753,23 +786,11 @@ function press (note, velocity = VELOCITY, from = null)
         return;
     }
 
-    const piecing = composing();
-    const channel = keyChannel();
-
-    if (silentOn(channel) && saidSilent !== channel)
-    {
-        const listens = piece.listens ?? [];
-
-        saidSilent = channel;
-        status(listens.length === 0
-            ? `${piece.name || 'This piece'} does not take keys: the keys ` +
-              'are silent while it plays.'
-            : `The piece does not listen on channel ${channel + 1}, so the ` +
-              'keys there are silent: it listens on ' +
-              listens.map((c) => c + 1).join(', ') +
-              `. Choose ${listens.length === 1 ? 'it' : 'one of them'} as ` +
-              'the key channel.', true);
-    }
+    /* Into the piece where it listens on the channel; anywhere else the
+       keys play the channel's instrument, so they are never silent where
+       something is. */
+    const channel = playsPatch() ? PATCH_CHANNEL : keyChannel();
+    const piecing = composing() && !silentOn(channel);
 
     sounding.set(note, { count: 1, midi: from === 'midi' ? 1 : 0,
                          camera: from === 'camera' ? 1 : 0,
@@ -780,7 +801,7 @@ function press (note, velocity = VELOCITY, from = null)
     if (piecing)
         holdOn(channel, note, velocity);
     else
-        synth.noteOn(note, velocity);
+        synth.noteOn(note, velocity, -1, channel);
 
     keyboard?.hold(note, true);
 }
@@ -812,7 +833,7 @@ function release (note, from = null)
     if (held.piece)
         holdOff(held.channel, note);
     else
-        synth.noteOff(note);
+        synth.noteOff(note, -1, held.channel);
 
     keyboard?.hold(note, false);
 }
@@ -1560,6 +1581,7 @@ async function edited (m)
     }
 
     piece = m;
+    pickSerial++;
     followRoutes();
 
     /* A sink the edit added may name a channel nothing is on yet. */
@@ -2238,8 +2260,7 @@ const band = createBand({
         if (listens === undefined)
             return false;
 
-        showKeyChannels(listens);
-        $('keychan').dispatchEvent(new Event('change'));
+        pickChannel(listens, { chosen: true });
         $('play').click();
         return true;
     },
@@ -2422,6 +2443,7 @@ async function loadPiece ()
     }
 
     piece = it.errors.length === 0 ? it : null;
+    pickSerial++;
     followRoutes();
     placed = aiming.placed;
 
@@ -2780,6 +2802,10 @@ let quiet = Promise.resolve();
 /* The tail of a load: the panels it redraws, which are asked of the worklet
    and arrive after the load itself is done with. See loadPiece. */
 let drawn = Promise.resolve();
+let paramsDrawn = Promise.resolve();
+
+/* The channel the last queued redraw of the panel is for. */
+let paramsWanted = null;
 
 function quietly (what)
 {
@@ -2906,13 +2932,14 @@ function showKeyChannels (keep = null)
         sel.replaceChildren(...want.map((c) => new Option(String(c + 1), c)));
 
     sel.value = String(was);
+    seq?.setCurrent(was);
 }
 
 /* One line per channel: its number, and what is on it. A channel the
    piece aimed itself has nothing to choose -- taking its instrument away
    would be the page overriding the piece, which is the wrong way round --
    so it says which instrument it is holding and stops there. */
-function showChannels ()
+function showChannels ({ tracks = true } = {})
 {
     const box = $('channels');
 
@@ -2991,8 +3018,10 @@ function showChannels ()
     showEdited();
 
     /* The tracks name their channels' instruments, and this is every
-       place that can change. */
-    seq?.refresh();
+       place that can change -- but not a pick, which changes no
+       instrument and may come from a press on a track's own menu. */
+    if (tracks)
+        seq?.refresh();
 }
 
 /* One channel's patch, downloaded.
@@ -3182,7 +3211,6 @@ async function aimByHand (channel, name)
         aimed.set(channel, name);
         placed.set(channel, what);
         await readLoaded();
-        saidSilent = null;
         status(`${what.title} on channel ${channel + 1}. Play.`);
 
         /* And every menu that says what is on a channel, since a choice
@@ -3218,28 +3246,19 @@ async function aimByHand (channel, name)
    of its rows. */
 let params = null;
 
-/* Which channels have a panel worth offering.
- *
- * Patch mode has the one it plays. Piece mode has every channel the piece
- * touches, which is the row of them showChannels draws -- a person who has
- * just aimed a .patch at channel 4 is the person who wants its cutoff. */
-function paramChannels ()
-{
-    return playsPatch() ? [PATCH_CHANNEL] : touched();
-}
-
-/* The channel selector, kept to what is there, keeping its choice if that
-   channel is still among them. Numbered the way the rest of the page
+/* The channel selector: the keys' channels and the keys' choice, since
+   the two are one current channel (pickChannel); a patch's one channel
+   when a patch is what plays. Numbered the way the rest of the page
    numbers channels: the file's, from 1, not the engine's, from 0. */
 function fillParamChannels ()
 {
-    const want = Number($('paramchan').value);
-    const all = paramChannels();
+    const all = playsPatch() ? [PATCH_CHANNEL]
+              : [...$('keychan').options].map((o) => Number(o.value));
 
     $('paramchan').replaceChildren(
         ...all.map((c) => new Option(String(c + 1), String(c))));
 
-    $('paramchan').value = String(all.includes(want) ? want : (all[0] ?? 0));
+    $('paramchan').value = String(playsPatch() ? PATCH_CHANNEL : keyChannel());
 }
 
 function paramChannel ()
@@ -4079,6 +4098,12 @@ function showComposer (on)
        its time -- because that is the one path a piece is composed
        from. */
     composer ??= createComposerView({
+        pickSerial: () => pickSerial,
+        onPick: (c, at) =>
+        {
+            if (at === pickSerial)
+                pickChannel(c, { chosen: true, canvas: true });
+        },
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => synth?.input({ ...g, at: -1 }),
 
@@ -4244,6 +4269,7 @@ function showSeq (on)
     seq ??= createSeqView({
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => synth?.input({ ...g, at: -1 }),
+        onPick: (c) => pickChannel(c, { chosen: true }),
         describeChannel,
 
         /* The same menu the channels list draws, on the track it is
@@ -4294,6 +4320,7 @@ window.solo = {
     pieces: () => composer?.pieces() ?? 0,
     knobAt: (name) => composer?.knobAt(name),
     stageAt: (chain, stage) => composer?.stageAt(chain, stage),
+    picksOf: (chain) => seq?.picksOf(chain) ?? -1,
     activity: () => composer?.activity(),
     canvasLayout: (arrow) => composer?.layout(arrow),
     lane: () => composer?.lane(),
@@ -4380,21 +4407,26 @@ window.solo = {
        only once nothing has been added across an await and a frame. And
        `drawn' beside it, because the panels a load redraws are asked of the
        worklet and land after the load that quiet tracks is finished. */
+    /* The page as it opened about the key channel: no mode chosen. */
+    forgetKeyChoices: () => keysChosen.clear(),
+
     settled: async () =>
     {
-        for (let was = null, drew = null, chose = null, ed = null;
+        for (let was = null, drew = null, chose = null, ed = null, pd = null;
              was !== quiet || drew !== drawn || chose !== picking ||
-             ed !== editing; )
+             ed !== editing || pd !== paramsDrawn; )
         {
             was = quiet;
             drew = drawn;
             chose = picking;
             ed = editing;
+            pd = paramsDrawn;
 
             await picking;
             await quiet;
             await editing;
             await drawn.catch(() => {});
+            await paramsDrawn.catch(() => {});
             await new Promise((go) => requestAnimationFrame(go));
         }
 
@@ -4474,6 +4506,8 @@ let keysMode = null;
 
 function keysFor (which)
 {
+    pickSerial++;
+
     if (keysMode in keyChans)
         keyChans[keysMode] = keyChannel();
 
@@ -4554,6 +4588,7 @@ async function pickMode ()
     {
         synth.transport('stop');
         piece = null;
+        pickSerial++;
         followRoutes();
         placed = new Map();
         showChannels();
@@ -4813,7 +4848,8 @@ async function init ()
                 synth?.hid({ kind: 4, channel, note, aux, t: value, frame: -1 });
         },
         hint: () => playsPatch() ? ''
-            : '; in a piece it plays plain notes, which only a patch bends',
+            : '; in a piece, notes the piece listens for go into it, where '
+              + 'nothing bends them',
         pane: {
             root: $('camerapane'), rows: $('camerarows'), problem: $('cameraformproblem'),
             learn: $('cameralearn'), profile: $('cameraprofile'), apply: $('cameraapply'),
@@ -4925,14 +4961,9 @@ async function init ()
        keys moves which line is there. Nothing is loaded by it: where the
        keys go and what a channel sounds like are two questions. */
     $('keychan').addEventListener('change', () =>
-    {
-        keysChosen.add(keysMode);
-        saidSilent = null;
-        showChannels();
-        showParams();
-    });
-
-    $('paramchan').addEventListener('change', showParams);
+        pickChannel(keyChannel(), { chosen: true }));
+    $('paramchan').addEventListener('change', () =>
+        pickChannel(paramChannel(), { chosen: true }));
     $('parampatch').addEventListener('change', pickPreset);
 
     /* And the composer's popover, on the same beat. It is a different panel

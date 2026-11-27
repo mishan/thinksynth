@@ -2852,10 +2852,9 @@ ComposerCanvas::onDragEnd (double, double)
     requestRedraw();
 }
 
-int ComposerCanvas::channelOf (const thcGenEdit::Doc *doc, thcScheduler *sched,
-                               const Selection &sel)
+int ComposerCanvas::channelOf (thcScheduler *sched, const Selection &sel)
 {
-    if (doc == NULL || sched == NULL || sel.chain >= doc->chains.size() ||
+    if (sched == NULL ||
         (sel.kind != Selection::CHAIN && sel.kind != Selection::STAGE &&
          sel.kind != Selection::SINK))
         return -1;

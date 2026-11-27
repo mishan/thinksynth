@@ -2880,7 +2880,7 @@ Composer::onCanvasSelection (const ComposerCanvas::Selection &sel)
 void
 Composer::onCanvasPressed (const ComposerCanvas::Selection &sel)
 {
-    const int channel = ComposerCanvas::channelOf(&doc_, sched_, sel);
+    const int channel = ComposerCanvas::channelOf(sched_, sel);
 
     if (channel >= 0)
         channelPicked_.emit(channel);

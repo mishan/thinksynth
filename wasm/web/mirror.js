@@ -159,6 +159,8 @@ function chainsNow ()
                and has to say what plays it. -1 for a chain that only
                writes knobs. */
             channel: M._tw_chain_channel(c),
+            /* And the channel picking it makes current (pickChannel). */
+            picks: M._tw_pick_channel(c),
             stages,
         });
     }
@@ -851,9 +853,19 @@ function act (m)
         /* The pointer. The canvas decides what it landed on; whatever it
            wants sent goes back as a gesture to be stamped. */
         case 'press':
+        {
             M._tw_canvas_press(m.x, m.y, m.button ?? 1, m.nPress ?? 1);
             sendGestures();
+
+            /* What it landed on plays on a channel: the page's to make
+               current, if nothing else has been picked since it pressed
+               (`pick'). */
+            const channel = M._tw_canvas_picked();
+
+            if (channel >= 0)
+                post({ type: 'picked', channel, pick: m.pick });
             break;
+        }
 
         case 'motion':
             M._tw_canvas_motion(m.x, m.y);

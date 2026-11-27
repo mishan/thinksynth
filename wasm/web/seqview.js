@@ -214,6 +214,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                                  describeChannel = () => '',
                                  chooserFor = () => null,
                                  onMeasure = () => {},
+                                 onPick = () => {},
                                  leadMs = () => 0 })
 {
     const $ = (id) => root.getElementById(id);
@@ -241,6 +242,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     /* One per grid stage in the piece, in the piece's own order. */
     let tracks = [];
+    let picksByChain = new Map();
     let visible = false;
     let frameId = null;
 
@@ -285,6 +287,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
                     out.push({ chain: chain.chain, stage: stage.stage,
                                name: chain.name, label: stage.label,
                                channel: chain.channel,
+                               picks: chain.picks ?? -1,
                                rows: 1, rowsParam: -1,
                                steps: 16, grid: [[]], pitches: [null],
                                cursor: { r: 0, s: 0 },
@@ -297,6 +300,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     const build = (chains) =>
     {
+        picksByChain = new Map((chains ?? []).map((c) => [c.chain, c.picks]));
+
         for (const track of tracks)
             track.drop?.();
 
@@ -314,10 +319,10 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             head.className = 'row trackhead';
 
             /* The file's numbering, 1-16, which is what the channels
-               list and the keys' selector say. */
+               list and the keys' selector say; a pointer, not only a
+               color, before the current channel's (mark). */
             num.className = 'chan';
-            num.textContent = track.channel >= 0
-                ? String(track.channel + 1) : '-';
+            track.num = num;
 
             what.className = 'what';
 
@@ -336,7 +341,15 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             canvas.setAttribute('role', 'application');
             canvas.ariaLabel = `Track ${tracks.indexOf(track) + 1}: ` +
                                track.name;
-            canvas.setAttribute('aria-describedby', help.id);
+            /* What it says of itself: whether the keys play its channel,
+               then how its keys go. */
+            const said = document.createElement('span');
+
+            said.id = `trackis${tracks.indexOf(track)}`;
+            said.hidden = true;
+            track.said = said;
+            head.append(said);
+            canvas.setAttribute('aria-describedby', `${said.id} ${help.id}`);
 
             /* The cell the keys are on, drawn over the picture while the
                track has the focus. */
@@ -355,6 +368,12 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
             listen(track);
             keys(track);
+            markCurrent(track);
+
+            /* A press anywhere on the track picks its channel: the name,
+               the menu, a cell. Captured, so the grid and the menu still
+               get theirs. */
+            row.addEventListener('pointerdown', () => pick(track), true);
 
             row.append(head, frame);
             box.append(row);
@@ -487,10 +506,11 @@ export function createSeqView ({ root = document, toMirror, onGesture,
         const pitch = track.pitches[r];
         const n = c === 'x' || c === 'X' ? held(row, s) : 1;
 
-        told.textContent =
+        told.textContent = moved +
             `${pitch === null ? `row ${r + 1}` : spoken(pitch)}, ` +
             `step ${s + 1}: ${SAID[c] ?? 'empty'}` +
             (n > 1 ? `, held ${n} steps` : '');
+        moved = '';
     };
 
     const place = (track) =>
@@ -502,6 +522,33 @@ export function createSeqView ({ root = document, toMirror, onGesture,
         Object.assign(track.mark.style, {
             left: `${s * w}px`, top: `${r * h}px`,
             width: `${w}px`, height: `${h}px` });
+    };
+
+    /* ---- the current channel ---- */
+
+    let current = -1;
+
+    /* The keys' move, for the next thing a track's keys say to start
+       with: the key that moved them says its cell straight after. */
+    let moved = '';
+
+    const pick = (track) =>
+    {
+        if (track.picks >= 0)
+            onPick(track.picks);
+    };
+
+    const markCurrent = (track) =>
+    {
+        const on = track.picks >= 0 && track.picks === current;
+        const pointer = document.createElement('span');
+
+        pointer.textContent = on ? '\u25b8' : '';
+        pointer.setAttribute('aria-hidden', 'true');
+        track.num.replaceChildren(pointer, track.channel >= 0
+            ? String(track.channel + 1) : '-');
+        track.num.classList.toggle('current', on);
+        track.said.textContent = on ? "The keys play this track's channel." : '';
     };
 
     const keys = (track) =>
@@ -587,6 +634,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
         }
 
         e.preventDefault();
+        pick(track);
         place(track);
         tell(track);
     });
@@ -763,6 +811,29 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     return {
         fromMirror,
+
+        /* The channel pressing chain `chain' picks, as the mirror said. */
+        picksOf: (chain) => picksByChain.get(chain) ?? -1,
+
+        /* The current channel: the tracks on it marked, kept for every
+           rebuild. Said when it moved while a track has the keys, since a
+           description is read only on focus. */
+        setCurrent (c)
+        {
+            if (c === current)
+                return;
+
+            current = c;
+            tracks.forEach(markCurrent);
+
+            /* Said only while a track has the keys; a move made anywhere
+               else leaves nothing for a track to say later. */
+            moved = tracks.some((t) => t.canvas === document.activeElement)
+                ? `The keys play channel ${c + 1}. ` : '';
+
+            if (moved !== '')
+                told.textContent = moved;
+        },
 
         /* A pane nobody is looking at asks for no frames, which is the
            whole reason a tiler pays for itself rather than costing. */

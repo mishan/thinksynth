@@ -376,7 +376,11 @@ try
           !(await page.isDisabled('#midi')),
           'the microphone is offered once there is a synth');
 
-    /* Evolve is the composer's, which is being rebuilt. */
+    /* Evolve is the composer's, which is being rebuilt. On the page as it
+       comes to rest: a panel still being laid out is not what anyone
+       meets. */
+    await page.evaluate(() => window.solo.settled());
+
     const axe = await axeFindings(page, ['#evolve']);
 
     check(axe.length === 0, 'axe finds nothing wrong with the started page' +
@@ -574,6 +578,85 @@ try
 
     check(await settle(0, 1) === 1,
           'the kick track, which ignores the note, opens one row tall');
+
+    /* ---- the current channel, from a track ---- */
+
+    /* A press on a track, or a key its grid uses, makes its channel the
+       current one: the keys, Patch params, and exactly the tracks on it
+       marked, in the heading and in what the track says of itself. */
+    {
+        const state = () => page.evaluate(() =>
+        {
+            const tracks = [...document.querySelectorAll('#tracks .track')]
+                .map((t) =>
+                {
+                    const n = t.querySelector('.chan');
+
+                    return { chan: Number(n.textContent.replace('▸', '')) - 1,
+                             pointer: n.textContent.startsWith('▸'),
+                             said: t.querySelector('[id^="trackis"]')?.textContent ?? '' };
+                });
+
+            return { keys: Number(document.getElementById('keychan').value),
+                     params: Number(document.getElementById('paramchan').value),
+                     tracks };
+        });
+        const agree = (st, c) => st.keys === c && st.params === c &&
+            st.tracks.every((t) => t.pointer === (t.chan === c) &&
+                                   (t.said !== '') === (t.chan === c));
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const tracks = await page.$$('#tracks .track');
+
+        /* A press on another track's menu picks its channel and leaves the
+           menu where it was, to open. */
+        const menu = await page.$('#tracks .track:nth-child(2) select.trackpick');
+
+        await menu.dispatchEvent('pointerdown');
+        await settle();
+
+        check(await menu.evaluate((m) => m.isConnected),
+              'a press on a track\'s menu leaves the menu in place');
+
+        await tracks[1].dispatchEvent('pointerdown');
+        await settle();
+
+        const byPress = await state();
+
+        await page.focus('#tracks .track:nth-child(3) canvas');
+        await page.keyboard.press('ArrowRight');
+        await settle();
+
+        const byKey = await state();
+        const told = await page.textContent('#seqview [role="status"]');
+
+        check(agree(byPress, byPress.tracks[1].chan) &&
+              agree(byKey, byKey.tracks[2].chan) &&
+              told.includes(`channel ${byKey.tracks[2].chan + 1}`),
+              'a press on a track or a key in it makes its channel current, ' +
+              `marked and said: ${JSON.stringify([byPress, byKey, told])}`);
+
+        /* A press on another track while one has the keys: a move with
+           no cell said after it. */
+        await page.focus('#tracks .track:nth-child(3) canvas');
+        await tracks[1].dispatchEvent('pointerdown');
+        await settle();
+        await page.evaluate(() => document.activeElement?.blur());
+        await page.selectOption('#keychan', { value: '4' });
+        await settle();
+
+        /* The keys moved with no track in focus: a key on the track
+           already on channel 5 says its cell, and no channel the keys
+           left. */
+        await page.focus('#tracks .track:nth-child(5) canvas');
+        await page.keyboard.press('ArrowRight');
+        await settle();
+
+        const later = await page.textContent('#seqview [role="status"]');
+
+        check(!later.includes('The keys play channel') ||
+              later.includes('The keys play channel 5.'),
+              `a key on a track says no channel the keys have left: ${later}`);
+    }
 
     await page.selectOption('#tracks .track:nth-child(4) select.trackpick',
                             'kick909.dsp');
@@ -2163,6 +2246,48 @@ try
               '...and the piece\'s text says it');
     }
 
+    /* A press on a stage makes its chain's channel current, the keys and
+       Patch params both; pressed again after the keys moved elsewhere,
+       it does again. The answer comes back from the mirror. */
+    {
+        const at = await page.evaluate(() => window.solo.stageAt(1, 0));
+        const want = String(await page.evaluate(() => window.solo.picksOf(1)));
+        const chans = () => page.evaluate(() =>
+            [document.getElementById('keychan').value,
+             document.getElementById('paramchan').value]);
+        const aim = async (v) =>
+        {
+            await page.selectOption('#keychan', { value: v });
+            await page.evaluate(() => window.solo.settled());
+        };
+        const press = async (from) =>
+        {
+            const where = await scroller();
+
+            await page.mouse.click(where.x + at[0] + at[2] / 2,
+                                   where.y + at[1] + 4);
+            await page.waitForFunction(
+                (v) => document.getElementById('keychan').value !== v,
+                from, { timeout: 10000 }).catch(() => {});
+            await page.evaluate(() => window.solo.settled());
+            return chans();
+        };
+
+        await aim('12');
+
+        const first = await press('12');
+
+        await aim('13');
+
+        const again = await press('13');
+
+        check(at[0] >= 0 && want !== '-1' &&
+              first[0] === want && first[1] === want &&
+              again[0] === want && again[1] === want,
+              'a press on a stage makes its chain\'s channel current, and ' +
+              `again on a second press: ${want} ${JSON.stringify([first, again])}`);
+    }
+
     /* A wire from the knob's port onto the first stage of the second
        chain asks which param; the answer is a binding written into the
        text. */
@@ -2794,11 +2919,59 @@ try
 
     check(chan >= 0, `${AIMED_PIECE} left an instrument on a channel`);
 
-    await page.selectOption('#paramchan', String(chan));
+    await page.selectOption('#paramchan', { value: String(chan) });
     await page.waitForFunction(
         (c) => document.getElementById('paramwhat').textContent
                        .endsWith(`channel ${c + 1}`),
         chan, { timeout: 60000 });
+
+    /* One current channel: the keys and Patch params follow each other,
+       whichever is moved, and offer the same channels. */
+    {
+        const both = () => page.evaluate(() =>
+            [document.getElementById('keychan').value,
+             document.getElementById('paramchan').value,
+             [...document.getElementById('keychan').options].map((o) => o.value).join(),
+             [...document.getElementById('paramchan').options].map((o) => o.value).join()]);
+        const viaParams = await both();
+
+        await page.selectOption('#keychan', { value: '11' });
+        await page.evaluate(() => window.solo.settled());
+
+        const viaKeys = await both();
+
+        await page.selectOption('#paramchan', { value: String(chan) });
+        await page.evaluate(() => window.solo.settled());
+
+        /* Away and straight back, before the first redraw lands: the
+           panel ends on the channel the keys are on. */
+        await page.evaluate(async (c) =>
+        {
+            const keys = document.getElementById('keychan');
+
+            keys.value = '11';
+            keys.dispatchEvent(new Event('change'));
+
+            /* Its redraw under way, asking the module, and not yet back. */
+            await Promise.resolve();
+            await Promise.resolve();
+
+            keys.value = String(c);
+            keys.dispatchEvent(new Event('change'));
+        }, chan);
+        await page.evaluate(() => window.solo.settled());
+
+        const back = await page.textContent('#paramwhat');
+
+        check(back.endsWith(`channel ${chan + 1}`),
+              `a channel picked and unpicked at once leaves the panel on it: ${back}`);
+
+        check(viaParams[0] === String(chan) && viaParams[1] === String(chan) &&
+              viaKeys[0] === '11' && viaKeys[1] === '11' &&
+              viaKeys[2] === viaKeys[3],
+              'the keys and Patch params are one channel, moved from either, ' +
+              `over the same list: ${JSON.stringify([viaParams, viaKeys])}`);
+    }
 
     /* The first .patch the panel offers over this channel's graph, chosen.
      *
@@ -2968,18 +3141,7 @@ try
             await settled();
         };
         const status = () => page.$eval('#status', (e) => e.textContent);
-        const play = async () =>
-        {
-            await page.evaluate(() =>
-            {
-                document.activeElement?.blur();
-                document.getElementById('status').textContent = '';
-            });
-            await page.keyboard.press('z');
-            await settled();
-            return status();
-        };
-
+        await page.evaluate(() => window.solo.forgetKeyChoices());
         await page.selectOption('#mode', 'seq');
         await settled();
         await page.selectOption('#mode', 'piece');
@@ -2995,15 +3157,42 @@ try
               'keys nobody chose, on channel 10, which Hands does not listen ' +
               `on, go to its first at its load: ${(await keys()) + 1}`);
 
+        /* A key held: the route it took, and anything said. */
+        const hold = async () =>
+        {
+            await page.evaluate(() =>
+            {
+                document.activeElement?.blur();
+                document.getElementById('status').textContent = '';
+            });
+            await page.keyboard.down('z');
+            await settled();
+
+            const held = await page.evaluate(() => window.solo.sounding());
+            const said = await status();
+
+            await page.keyboard.up('z');
+            await settled();
+            return { held, said };
+        };
+
         await aim(9);
 
-        const first = await play();
-        const again = await play();
+        const off = await hold();
 
-        check(first.startsWith('The piece does not listen on channel 10') &&
-              first.includes('1, 2, 3') && again === '',
-              `keys aimed at a channel the piece does not listen on are said ` +
-              `to be silent, once: ${first}`);
+        await aim(0);
+
+        const on = await hold();
+
+        check(off.held.length === 1 && off.held[0].piece === false &&
+              off.held[0].channel === 9 && off.said === '' &&
+              on.held.length === 1 && on.held[0].piece === true &&
+              on.held[0].channel === 0,
+              'keys on a channel the piece does not listen on play its ' +
+              'instrument, and on one it does go into the piece: ' +
+              JSON.stringify([off, on]));
+
+        await aim(9);
 
         await load('hands.gen');
 
@@ -3021,13 +3210,15 @@ try
         const row = await page.$eval(
             `#channels select[aria-label="Channel ${left + 1}"]`,
             (sel) => sel.selectedOptions[0].textContent);
-        const none = await play();
+        const none = await hold();
 
         check(left > 0 && row === `${engine[left]}, as it was`,
               `channel ${left + 1}, which the sequence left ${engine[left]} ` +
               `on, is named for it under Airports: ${row}`);
-        check(none.startsWith('Airports does not take keys'),
-              `and a key under Airports says it takes none: ${none}`);
+        check(none.held.length === 1 && none.held[0].piece === false &&
+              none.held[0].channel === left && none.said === '',
+              'and a key under Airports, which takes none, plays what is ' +
+              `on the channel: ${JSON.stringify(none)}`);
 
         await aim(0);
 
