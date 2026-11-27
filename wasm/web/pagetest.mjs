@@ -3128,6 +3128,42 @@ try
         const plain = { shown: await shown(), now: await of(),
                         file: await saved() };
 
+        /* A scale chosen while the piece is loading again is refused:
+           the engine has the new piece before the page does. */
+        {
+            const chooser = page.waitForEvent('filechooser');
+
+            await page.click('#tuningscl');
+
+            const open = await chooser;
+
+            await page.evaluate(() => window.solo.holdAim());
+            await page.evaluate(() =>
+            {
+                const gen = document.getElementById('gen');
+
+                gen.value += '\n# again\n';
+                gen.dispatchEvent(new Event('input'));
+                document.getElementById('loadpiece').click();
+            });
+            await page.waitForFunction(() => window.solo.aimHeld(), null,
+                                       { timeout: 30000 }).catch(() => {});
+
+            const held = await page.evaluate(() => window.solo.aimHeld());
+
+            await open.setFiles({ name: 'edo19.scl', mimeType: 'text/plain',
+                                  buffer: Buffer.from(scl) });
+            await new Promise((r) => setTimeout(r, 500));
+            await page.evaluate(() => window.solo.releaseAim());
+            await settle();
+
+            const during = await of();
+
+            check(held && during.scale === '' && during.k61 === 61,
+                  'a scale chosen while the piece loads again is not taken: ' +
+                  JSON.stringify([held, during.scale, during.k61]));
+        }
+
         check(scaled.shown === 'Tuning: 19-EDO test' &&
               scaled.now.scale !== '' && near(scaled.now.k61, 60 + step) &&
               scaled.file.includes('tuning scale ') &&
@@ -3499,6 +3535,9 @@ try
                   'Tuning: 12-TET', null, { timeout: 15000 }).catch(() => {});
         await settle();
 
+        /* Read now: choosing another patch below starts in 12-TET too. */
+        const reset = await at61();
+
         /* Another patch from the menu is another instrument: 12-TET. */
         const again = page.waitForEvent('filechooser');
 
@@ -3528,8 +3567,7 @@ try
               `another patch chosen from the menu starts in 12-TET: ${chosen}`);
         check(shownAtFirst && near(tuned, 60 + 12 / 19) &&
               near(reloaded.pitch, 60 + 12 / 19) &&
-              reloaded.shown === 'Tuning: 19-EDO patch' &&
-              await at61() === 61,
+              reloaded.shown === 'Tuning: 19-EDO patch' && reset === 61,
               'patch mode\'s channel keeps its tuning through a Load of its ' +
               `graph, and 12-TET puts it back: ${JSON.stringify(
                   [shownAtFirst, tuned, reloaded])}`);

@@ -2410,6 +2410,11 @@ async function loadPiece ()
        the last load's channels -- see fitTracks. */
     loading++;
 
+    /* A chooser's answer is for the piece before this one: from here on
+       it is stale, and while the load runs it is refused outright -- the
+       engine has the new piece before `piece' does. */
+    pickSerial++;
+
     let it;
 
     try
@@ -3385,7 +3390,7 @@ async function showTuning (channel)
 async function tune (channel, kind, text = '', fallback = '', asked = null)
 {
     if ((asked !== null && asked !== tuningFor(channel)) ||
-        piecesChannel(channel))
+        piecesChannel(channel) || loading > 0)
         return;
 
     const dsp = placed.get(channel)?.dsp ?? aimed.get(channel) ??
