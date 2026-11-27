@@ -1301,7 +1301,7 @@ async function loadPatch ()
 
     /* As it is now: typing while an earlier load finishes is not loaded. */
     const text = $('dsp').value;
-    const ok = await quietly(() => synth.load(text));
+    const ok = await quietly(() => synth.load(text, PATCH_CHANNEL, true));
 
     /* Patch mode has taken PATCH_CHANNEL, whatever was aimed there. So the
        aiming for it is forgotten rather than left to be shown as still
@@ -1370,7 +1370,7 @@ const grow = createGrow({
         await loadPatch();
         nodeFileChanged($('patch').value);
     },
-    hear: (text) => quietly(() => synth.load(text)),
+    hear: (text) => quietly(() => synth.load(text, PATCH_CHANNEL, true)),
     targets: () => playableDsps(),
     targetText: async (name) =>
         dspTexts[name] ?? (await fetch(`dsp/${name}`)).text(),
@@ -3355,16 +3355,9 @@ function tuningFor (channel)
 let tuningAsked = null;
 
 /* The Tuning row: what the channel is tuned to, and the four things to
-   do about it, greyed where they mean nothing. Not in patch or grow mode,
-   whose every reload of the graph is a new channel. */
+   do about it, greyed where they mean nothing. */
 async function showTuning (channel)
 {
-    if (playsPatch())
-    {
-        $('tuningrow').hidden = true;
-        return;
-    }
-
     const { tuning } = await synth.tuningOf(channel);
     const tuned = tuning.scale !== '';
     const theirs = piecesChannel(channel);

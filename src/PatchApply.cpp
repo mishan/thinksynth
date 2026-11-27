@@ -74,17 +74,12 @@ thPatchApplied thPatchApply (thSynth *synth, int channel,
 
     if (!doc.tuningScale.empty())
     {
-        thScale scale;
-        thKeymap keymap;
-        auto built = std::make_shared<thTuning>();
+        const thTuningText text = { doc.tuningName, doc.tuningScale,
+                                    doc.tuningKeymap };
         string err;
 
-        if (!scale.parseValues(doc.tuningScale, doc.tuningName, err) ||
-            (!doc.tuningKeymap.empty() && !keymap.parseValues(doc.tuningKeymap, err)) ||
-            !built->build(scale, keymap, err))
+        if (!text.build(tuning, err))
             out.complaints.push_back("tuning: " + err + "; played untuned");
-        else
-            tuning = built;
     }
 
     /* The graph, first and on its own: everything below sets values on the

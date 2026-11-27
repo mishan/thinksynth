@@ -69,8 +69,9 @@ export function apply (M, m, host = NOWHERE)
     switch (m.type)
     {
         case 'load':
-            loaded(m.id, M.ccall('tw_load', 'number', ['number', 'string'],
-                                 [m.channel, m.text]) !== 0);
+            loaded(m.id, M.ccall('tw_load', 'number',
+                                 ['number', 'string', 'number'],
+                                 [m.channel, m.text, m.keep ? 1 : 0]) !== 0);
             return true;
 
         case 'instrument':

@@ -713,6 +713,7 @@ bool thTuningText::build (std::shared_ptr<const thTuning> &out,
         !built->build(s, m, err))
         return false;
 
+    built->text = *this;
     out = built;
     return true;
 }

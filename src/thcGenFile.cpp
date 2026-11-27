@@ -985,11 +985,11 @@ thcGenLoader::parseTuning (void)
         return false;
     }
 
+    tuning->text = { nameTok.text, scale.text,
+                     keymap.kind == Token::STRING ? keymap.text : "" };
     failedTunings_.erase(nameTok.text);
     tunings_[nameTok.text] = tuning;
-    tuningTexts_[nameTok.text] = { nameTok.text, scale.text,
-                                   keymap.kind == Token::STRING ? keymap.text
-                                                                : "" };
+    tuningTexts_[nameTok.text] = tuning->text;
 
     return true;
 }

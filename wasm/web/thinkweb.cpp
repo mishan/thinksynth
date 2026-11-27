@@ -3790,10 +3790,17 @@ static thPatchSet patches_(TH_ENGINE_CHANNELS);
  * hand. That is the desktop's Patch Selector, and on the page it is this.
  * Aiming one at a channel a piece's instrument is already on replaces it,
  * here as there. */
-EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
+EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text, int keep)
 {
     if (!writeFile(TW_PATCH_FILE, text))
         return 0;
+
+    /* `keep': the same instrument again -- patch mode's text box loaded,
+       a grown graph heard -- whose tuning is the channel's, not the
+       graph's, and goes on. Anything else on the channel starts in
+       12-TET, as a graph chosen afresh does. */
+    std::shared_ptr<const thTuning> tuning =
+        keep && synth_ != NULL ? synth_->getTuning(channel) : nullptr;
 
     /* The queue is left alone. It used to be cleared here, when it held
        nothing but notes for the patch being replaced; now it also holds
@@ -3806,7 +3813,7 @@ EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
     /* At the level the Patch Selector loads one at, on MIDI's 0..127 --
        gthPatchfile.cpp says why that level is where it is. */
     if (synth_->loadTree(TW_PATCH_FILE, channel,
-                         TH_DEFAULT_CHAN_AMP) == NULL)
+                         TH_DEFAULT_CHAN_AMP, tuning) == NULL)
         return 0;
 
     /* And the channel is not holding a patch any more.
@@ -4891,12 +4898,10 @@ EMSCRIPTEN_KEEPALIVE const char *tw_tune (int channel, const char *dsp,
     why.clear();
 
     thPatchSet::Slot *slot = patches_.get(channel);
-    thTuningText t;
+    const std::shared_ptr<const thTuning> now =
+        synth_ != NULL ? synth_->getTuning(channel) : nullptr;
+    thTuningText t = now != NULL ? now->text : thTuningText();
     int line = 0;
-
-    if (slot != NULL)
-        t = { slot->doc.tuningName, slot->doc.tuningScale,
-              slot->doc.tuningKeymap };
 
     if (kind == 0)
         t = thTuningText();
@@ -4921,6 +4926,11 @@ EMSCRIPTEN_KEEPALIVE const char *tw_tune (int channel, const char *dsp,
         why = "there is nothing on this channel";
         return why.c_str();
     }
+
+    /* No patch, and no graph to make one over: patch mode's channel, whose
+       graph is the text box's. The channel is retuned and that is all. */
+    if (slot == NULL && (dsp == NULL || *dsp == '\0'))
+        return why.c_str();
 
     if (slot == NULL)
     {
@@ -4957,18 +4967,21 @@ EMSCRIPTEN_KEEPALIVE double tw_pitch_of (int channel, double key)
     return chan->tuning() != NULL ? chan->tuning()->pitch(key) : key;
 }
 
-/* What the channel's patch is tuned to, for the Tuning menu:
-   {"name", "scale", "keymap"}, empty strings for 12-TET or no patch. */
+/* What the channel is tuned to, for the Tuning menu: {"name", "scale",
+   "keymap"}, empty strings for 12-TET or nothing there. The channel's own,
+   so a piece's instrument and a patch say alike. */
 EMSCRIPTEN_KEEPALIVE const char *tw_tuning_json (int channel)
 {
-    const thPatchSet::Slot *slot = patches_.get(channel);
+    const std::shared_ptr<const thTuning> now =
+        synth_ != NULL ? synth_->getTuning(channel) : nullptr;
+    const thTuningText t = now != NULL ? now->text : thTuningText();
 
     patchJson_ = "{\"name\":";
-    jsonString(patchJson_, slot != NULL ? slot->doc.tuningName : "");
+    jsonString(patchJson_, t.name);
     patchJson_ += ",\"scale\":";
-    jsonString(patchJson_, slot != NULL ? slot->doc.tuningScale : "");
+    jsonString(patchJson_, t.scale);
     patchJson_ += ",\"keymap\":";
-    jsonString(patchJson_, slot != NULL ? slot->doc.tuningKeymap : "");
+    jsonString(patchJson_, t.keymap);
     patchJson_ += "}";
 
     return patchJson_.c_str();

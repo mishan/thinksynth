@@ -3398,6 +3398,67 @@ try
     await page.waitForFunction(() => window.solo.node()?.boxes > 0,
                                null, { timeout: 60000 });
 
+    /* Patch mode's channel tuned from the Tuning row, and kept through a
+       reload of the text box's graph, which is the same instrument again;
+       12-TET puts it back. */
+    {
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const cents = Array.from({ length: 18 },
+                                 (_, i) => (1200 * (i + 1) / 19).toFixed(12));
+        const scl = `19-EDO patch\n19\n${cents.join('\n')}\n2/1\n`;
+        const at61 = () => page.evaluate(() => window.solo.pitchOf(0, 61));
+        const near = (a, b) => Math.abs(a - b) < 1e-9;
+        const chooser = page.waitForEvent('filechooser');
+
+        await page.evaluate(() =>
+        {
+            document.getElementById('paramview').open = true;
+        });
+        await settle();
+
+        const shownAtFirst = !(await page.$eval('#tuningrow', (r) => r.hidden));
+
+        await page.click('#tuningscl');
+        await (await chooser).setFiles({ name: 'edo19.scl', mimeType: 'text/plain',
+                                         buffer: Buffer.from(scl) });
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: 19-EDO patch', null, { timeout: 15000 })
+            .catch(() => {});
+        await settle();
+
+        const tuned = await at61();
+
+        await page.evaluate(() =>
+        {
+            const box = document.getElementById('dsp');
+
+            box.value += '\n';
+            box.dispatchEvent(new Event('input'));
+        });
+        await page.click('#load');
+        await settle();
+
+        const reloaded = { pitch: await at61(),
+                           shown: await page.textContent('#tuningnow') };
+
+        /* A DOM click, which a greyed button ignores, so a tuning the
+           Load lost fails the check below rather than a wait here. */
+        await page.$eval('#tuning12', (b) => b.click());
+        await page.waitForFunction(
+            () => document.getElementById('tuningnow').textContent ===
+                  'Tuning: 12-TET', null, { timeout: 15000 }).catch(() => {});
+        await settle();
+
+        check(shownAtFirst && near(tuned, 60 + 12 / 19) &&
+              near(reloaded.pitch, 60 + 12 / 19) &&
+              reloaded.shown === 'Tuning: 19-EDO patch' &&
+              await at61() === 61,
+              'patch mode\'s channel keeps its tuning through a Load of its ' +
+              `graph, and 12-TET puts it back: ${JSON.stringify(
+                  [shownAtFirst, tuned, reloaded])}`);
+    }
+
     /* A patch opens fitted when that shrinks it little and at 1:1 when
        it would not: bd10 fits at about 0.87 here, amb01 at about half.
        Each against what Fit gives it after. */

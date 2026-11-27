@@ -141,6 +141,11 @@ public:
 
     bool operator== (const thTuning &o) const;
 
+    /* What it was built from, as a patch or a piece writes it, where it
+       was built from that (thTuningText::build): what a shell shows of a
+       channel's tuning, and keeps through a reload of its graph. */
+    thTuningText text;
+
 private:
     bool mapped_[KEYS];
     double note_[KEYS];

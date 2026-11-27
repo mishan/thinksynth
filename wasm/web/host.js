@@ -550,7 +550,10 @@ export async function createSynth (ctx, { windowlen = 128,
         /* Resolves true if the .dsp parsed. The channel is the caller's:
            a piece that routes `input midi' to a channel it declares no
            instrument for needs something put there to sound. */
-        load: (text, channel = 0) => ask({ type: 'load', text, channel }),
+        /* `keep': the channel's tuning goes on, the same instrument again
+           (patch mode's Load, a grown graph). */
+        load: (text, channel = 0, keep = false) =>
+            ask({ type: 'load', text, channel, keep }),
 
         /* A .dsp under the name a piece's `instrument { dsp = ... }' will
            ask for. A worklet cannot fetch, so the page hands these over. */
