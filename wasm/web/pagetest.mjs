@@ -625,8 +625,27 @@ try
               'a press on a track or a key in it makes its channel current, ' +
               `marked and said: ${JSON.stringify([byPress, byKey, told])}`);
 
+        /* A press on another track while one has the keys: a move with
+           no cell said after it. */
+        await page.focus('#tracks .track:nth-child(3) canvas');
+        await tracks[1].dispatchEvent('pointerdown');
+        await settle();
+        await page.evaluate(() => document.activeElement?.blur());
         await page.selectOption('#keychan', { value: '4' });
         await settle();
+
+        /* The keys moved with no track in focus: a key on the track
+           already on channel 5 says its cell, and no channel the keys
+           left. */
+        await page.focus('#tracks .track:nth-child(5) canvas');
+        await page.keyboard.press('ArrowRight');
+        await settle();
+
+        const later = await page.textContent('#seqview [role="status"]');
+
+        check(!later.includes('The keys play channel') ||
+              later.includes('The keys play channel 5.'),
+              `a key on a track says no channel the keys have left: ${later}`);
     }
 
     await page.selectOption('#tracks .track:nth-child(4) select.trackpick',
@@ -2222,6 +2241,7 @@ try
        it does again. The answer comes back from the mirror. */
     {
         const at = await page.evaluate(() => window.solo.stageAt(1, 0));
+        const want = String(await page.evaluate(() => window.solo.picksOf(1)));
         const chans = () => page.evaluate(() =>
             [document.getElementById('keychan').value,
              document.getElementById('paramchan').value]);
@@ -2251,10 +2271,11 @@ try
 
         const again = await press('13');
 
-        check(at[0] >= 0 && first[0] !== '12' && first[0] === first[1] &&
-              again[0] === first[0] && again[1] === first[0],
-              'a press on a stage makes its channel current, and again on ' +
-              `a second press: ${JSON.stringify([first, again])}`);
+        check(at[0] >= 0 && want !== '-1' &&
+              first[0] === want && first[1] === want &&
+              again[0] === want && again[1] === want,
+              'a press on a stage makes its chain\'s channel current, and ' +
+              `again on a second press: ${want} ${JSON.stringify([first, again])}`);
     }
 
     /* A wire from the knob's port onto the first stage of the second

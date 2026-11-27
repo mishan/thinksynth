@@ -704,9 +704,12 @@ function keyChannel ()
  *
  * The panel's redraws are one chain, which settled() waits for, so two
  * picks in a row draw in the order they were made. */
-function pickChannel (c, { chosen = false } = {})
+function pickChannel (c, { chosen = false, canvas = false } = {})
 {
-    pickSerial++;
+    /* A canvas answer counts no picks: two presses before the first is
+       answered both stand, the later one last. */
+    if (!canvas)
+        pickSerial++;
 
     if (playsPatch())
         return;
@@ -4091,7 +4094,7 @@ function showComposer (on)
         onPick: (c, at) =>
         {
             if (at === pickSerial)
-                pickChannel(c, { chosen: true });
+                pickChannel(c, { chosen: true, canvas: true });
         },
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => synth?.input({ ...g, at: -1 }),
@@ -4309,6 +4312,7 @@ window.solo = {
     pieces: () => composer?.pieces() ?? 0,
     knobAt: (name) => composer?.knobAt(name),
     stageAt: (chain, stage) => composer?.stageAt(chain, stage),
+    picksOf: (chain) => seq?.picksOf(chain) ?? -1,
     activity: () => composer?.activity(),
     canvasLayout: (arrow) => composer?.layout(arrow),
     lane: () => composer?.lane(),
@@ -4835,7 +4839,8 @@ async function init ()
                 synth?.hid({ kind: 4, channel, note, aux, t: value, frame: -1 });
         },
         hint: () => playsPatch() ? ''
-            : '; in a piece it plays plain notes, which only a patch bends',
+            : '; in a piece, notes the piece listens for go into it, where '
+              + 'nothing bends them',
         pane: {
             root: $('camerapane'), rows: $('camerarows'), problem: $('cameraformproblem'),
             learn: $('cameralearn'), profile: $('cameraprofile'), apply: $('cameraapply'),

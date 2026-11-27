@@ -242,6 +242,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     /* One per grid stage in the piece, in the piece's own order. */
     let tracks = [];
+    let picksByChain = new Map();
     let visible = false;
     let frameId = null;
 
@@ -299,6 +300,8 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     const build = (chains) =>
     {
+        picksByChain = new Map((chains ?? []).map((c) => [c.chain, c.picks]));
+
         for (const track of tracks)
             track.drop?.();
 
@@ -537,7 +540,7 @@ export function createSeqView ({ root = document, toMirror, onGesture,
 
     const markCurrent = (track) =>
     {
-        const on = track.channel >= 0 && track.channel === current;
+        const on = track.picks >= 0 && track.picks === current;
         const pointer = document.createElement('span');
 
         pointer.textContent = on ? '\u25b8' : '';
@@ -809,6 +812,9 @@ export function createSeqView ({ root = document, toMirror, onGesture,
     return {
         fromMirror,
 
+        /* The channel pressing chain `chain' picks, as the mirror said. */
+        picksOf: (chain) => picksByChain.get(chain) ?? -1,
+
         /* The current channel: the tracks on it marked, kept for every
            rebuild. Said when it moved while a track has the keys, since a
            description is read only on focus. */
@@ -820,11 +826,13 @@ export function createSeqView ({ root = document, toMirror, onGesture,
             current = c;
             tracks.forEach(markCurrent);
 
-            if (tracks.some((t) => t.canvas === document.activeElement))
-            {
-                moved = `The keys play channel ${c + 1}. `;
+            /* Said only while a track has the keys; a move made anywhere
+               else leaves nothing for a track to say later. */
+            moved = tracks.some((t) => t.canvas === document.activeElement)
+                ? `The keys play channel ${c + 1}. ` : '';
+
+            if (moved !== '')
                 told.textContent = moved;
-            }
         },
 
         /* A pane nobody is looking at asks for no frames, which is the
