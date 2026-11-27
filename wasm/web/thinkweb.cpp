@@ -4999,6 +4999,23 @@ EMSCRIPTEN_KEEPALIVE int tw_chain_channel (int chain)
     return -1;
 }
 
+/* The channel picking the chain makes current: ComposerCanvas::channelOf,
+   the desktop's rule too, so a track picked on either is the same
+   channel. Unlike tw_chain_channel, -1 for a chain played on a MIDI
+   device, which no engine channel sounds. */
+EMSCRIPTEN_KEEPALIVE int tw_pick_channel (int chain)
+{
+    if (chain < 0)
+        return -1;
+
+    ComposerCanvas::Selection sel;
+
+    sel.kind = ComposerCanvas::Selection::CHAIN;
+    sel.chain = (size_t)chain;
+
+    return ComposerCanvas::channelOf(sched_, sel);
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
 {
     if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())

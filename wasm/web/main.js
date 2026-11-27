@@ -2917,6 +2917,7 @@ function showKeyChannels (keep = null)
         sel.replaceChildren(...want.map((c) => new Option(String(c + 1), c)));
 
     sel.value = String(was);
+    seq?.setCurrent(was);
 }
 
 /* One line per channel: its number, and what is on it. A channel the
@@ -4245,6 +4246,7 @@ function showSeq (on)
     seq ??= createSeqView({
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => synth?.input({ ...g, at: -1 }),
+        onPick: (c) => pickChannel(c, { chosen: true }),
         describeChannel,
 
         /* The same menu the channels list draws, on the track it is

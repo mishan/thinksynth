@@ -2663,7 +2663,7 @@ runMidiOut (const std::string &pluginPath)
         sel.chain = 1;
         sel.index = 1;
 
-        const int bySink = ComposerCanvas::channelOf(&win->doc_, win->sched_, sel);
+        const int bySink = ComposerCanvas::channelOf(win->sched_, sel);
 
         if (chA >= 0 && chB >= 0 && chA != chB && bySink == chB &&
             picked == std::vector<int>({ chA, chA }))

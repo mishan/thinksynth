@@ -111,8 +111,7 @@ public:
        sink itself when it takes notes. -1 for anything else, and for a
        channel played on a MIDI device, which the engine does not sound.
        The one rule for every pane that picks a channel from a piece. */
-    static int channelOf (const thcGenEdit::Doc *doc, thcScheduler *sched,
-                          const Selection &sel);
+    static int channelOf (thcScheduler *sched, const Selection &sel);
 
     const Selection &selection (void) const { return sel_; }
     void select (const Selection &sel);

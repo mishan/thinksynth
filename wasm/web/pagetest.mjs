@@ -579,6 +579,56 @@ try
     check(await settle(0, 1) === 1,
           'the kick track, which ignores the note, opens one row tall');
 
+    /* ---- the current channel, from a track ---- */
+
+    /* A press on a track, or a key its grid uses, makes its channel the
+       current one: the keys, Patch params, and exactly the tracks on it
+       marked, in the heading and in what the track says of itself. */
+    {
+        const state = () => page.evaluate(() =>
+        {
+            const tracks = [...document.querySelectorAll('#tracks .track')]
+                .map((t) =>
+                {
+                    const n = t.querySelector('.chan');
+
+                    return { chan: Number(n.textContent.replace('▸', '')) - 1,
+                             pointer: n.textContent.startsWith('▸'),
+                             said: t.querySelector('[id^="trackis"]')?.textContent ?? '' };
+                });
+
+            return { keys: Number(document.getElementById('keychan').value),
+                     params: Number(document.getElementById('paramchan').value),
+                     tracks };
+        });
+        const agree = (st, c) => st.keys === c && st.params === c &&
+            st.tracks.every((t) => t.pointer === (t.chan === c) &&
+                                   (t.said !== '') === (t.chan === c));
+        const settle = () => page.evaluate(() => window.solo.settled());
+        const tracks = await page.$$('#tracks .track');
+
+        await tracks[1].dispatchEvent('pointerdown');
+        await settle();
+
+        const byPress = await state();
+
+        await page.focus('#tracks .track:nth-child(3) canvas');
+        await page.keyboard.press('ArrowRight');
+        await settle();
+
+        const byKey = await state();
+        const told = await page.textContent('#seqview [role="status"]');
+
+        check(agree(byPress, byPress.tracks[1].chan) &&
+              agree(byKey, byKey.tracks[2].chan) &&
+              told.includes(`channel ${byKey.tracks[2].chan + 1}`),
+              'a press on a track or a key in it makes its channel current, ' +
+              `marked and said: ${JSON.stringify([byPress, byKey, told])}`);
+
+        await page.selectOption('#keychan', { value: '4' });
+        await settle();
+    }
+
     await page.selectOption('#tracks .track:nth-child(4) select.trackpick',
                             'kick909.dsp');
     await page.evaluate(() => window.solo.settled());

@@ -159,6 +159,8 @@ function chainsNow ()
                and has to say what plays it. -1 for a chain that only
                writes knobs. */
             channel: M._tw_chain_channel(c),
+            /* And the channel picking it makes current (pickChannel). */
+            picks: M._tw_pick_channel(c),
             stages,
         });
     }
