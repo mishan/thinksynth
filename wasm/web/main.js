@@ -735,7 +735,7 @@ function pickChannel (c, { chosen = false, canvas = false } = {})
     showKeyChannels(c);
     showChannels({ tracks: false });
     session.draw(sessionGrid, c);
-    nodesFollow();
+    nodesFollow(chosen);
     paramsWanted = c;
     paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
 }
@@ -3712,6 +3712,7 @@ async function start ()
                                              ({ names: loaded,
                                                 holding } = m);
                                              showChannels();
+                                             nodesFollow();
                                          },
                                          onRecorded: (m) =>
                                              takes.recorded(m),
@@ -4274,7 +4275,8 @@ function nodeChannel ()
            -1;
 }
 
-/* The graph of the current channel's instrument, where the page has its
+/* The graph of the current channel's instrument -- the one it holds now,
+   which a swap changes while the piece plays -- where the page has its
    file; the File list picks among the rest, and a file picked there stays
    until the channel or its instrument changes, or the channel is picked
    again (`again'). */
@@ -4285,9 +4287,12 @@ function nodesFollow (again = false)
     if (nodes === null)
         return;
 
-    const dsp = playsPatch() ? undefined : piece?.instruments?.find(
-        (i) => i.channel === keyChannel())?.dsp;
-    const now = `${keyChannel()} ${dsp}`;
+    const declared = piece?.instruments?.find(
+        (i) => i.channel === keyChannel());
+    const inst = piece?.instruments?.find(
+        (i) => i.name === holding[keyChannel()]) ?? declared;
+    const dsp = playsPatch() ? undefined : inst?.dsp;
+    const now = `${keyChannel()} ${inst?.name} ${dsp}`;
     const moved = again || now !== nodesFollowed;
 
     nodesFollowed = now;

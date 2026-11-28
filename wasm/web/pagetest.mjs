@@ -3765,7 +3765,7 @@ try
             document.getElementById('gen').value = [
                 'name "Swaps";',
                 'instrument voice { dsp "amb01.dsp"; };',
-                'instrument bell { dsp "amb01.dsp"; a = 6 ms; };',
+                'instrument bell { dsp "organ0.dsp"; };',
                 'chain swapping {',
                 '    stage m gen::swap { instruments = "voice,bell"; ' +
                     'every = 1 s; order = 0; };',
@@ -3777,6 +3777,15 @@ try
         page.off('dialog', yes);
 
         const before = await own();
+        const keysWere = await page.inputValue('#keychan');
+
+        /* The keys on voice's channel, so the graph follows what is on it. */
+        await page.selectOption('#paramchan', { value: String(
+            (await page.evaluate(() => window.solo.instruments()))
+                .find((i) => i.name === 'voice').channel) });
+        await settled();
+
+        const graphBefore = await page.inputValue('#nodefile');
 
         await page.click('#play');
 
@@ -3785,12 +3794,20 @@ try
                 ?.textContent.startsWith('bell'), null, { timeout: 10000 })
             .then(() => true, () => false);
 
+        const graphAfter = await page.inputValue('#nodefile');
+
         await page.click('#stop');
         await settled();
 
         check(before === 'voice, the piece\'s' && swapped,
               'a swap while the piece plays is named on its channel\'s row: ' +
               `${before}, then ${await own()}`);
+        check(graphBefore === 'amb01.dsp' && graphAfter === 'organ0.dsp',
+              'and Patch graph follows it to the instrument now there: ' +
+              `${graphBefore}, then ${graphAfter}`);
+
+        await page.selectOption('#paramchan', { value: keysWere });
+        await settled();
     }
 
     /* ---- the instrument as a graph ---- */
