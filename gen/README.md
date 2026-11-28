@@ -22,7 +22,7 @@ Uncategorized. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) § 7a.
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
 `attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
 `anthem.gen`, `acetate.gen`, `boombox.gen`, `outrun.gen`, `nightdrive.gen`, `transmission.gen`, `pearl.gen`,
-`riviera.gen`, `cumulus.gen`, `kodachrome.gen`, `lighthouse.gen`, `lantern.gen`, `tide.gen`, `scratch.gen`, `seq.gen`, `cloud.gen`, `thaw.gen` and `free.gen` need nothing
+`riviera.gen`, `cumulus.gen`, `kodachrome.gen`, `lighthouse.gen`, `lantern.gen`, `tide.gen`, `scratch.gen`, `seq.gen`, `cloud.gen`, `thaw.gen`, `winds.gen` and `free.gen` need nothing
 else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
@@ -155,6 +155,7 @@ typo in it.
 | [`bloom.gen`](bloom.gen) | **Genetic algorithms over timbre.** `gen::breed` searches the corridor the piece's own presets declare. A component neither preset names cannot be invented, which is the reach limit stated as arithmetic. |
 | [`cloud.gen`](cloud.gen) | **A recording as a texture.** `cloud.dsp` holds the tree's own orchestra hit and ride cymbal as grain clouds (`osc::grain`) sustained for as long as a note is down, three `eno_line` loops of long notes hold chords of them, and two `gen::walk`s move where in the recordings the grains come from and lean the cloud from the hit to the ride. Under it `bed.dsp`, three colors of noise through wandering bands; once a minute, when `xform::chance` allows, a singing bowl. Every channel is in one `fx/space.dsp` on the mix by its `send`. Ten minutes, arranged in seconds. |
 | [`thaw.gen`](thaw.gen) | **The spectral nodes, one part each.** Chords of `frost.dsp`, a bell whose strike `fft::freeze` catches sixty milliseconds in and holds as a pad, go through `fx/sieve.dsp`: open at first, then thinned until only their strongest partials whistle (Sieve), then inverted so the notes are taken out and the shimmer between them is left (Hollow). A tune on `rhodes.dsp` through `fx/freeze.dsp`, which a `gen::steps` row on `fx.freeze` turns on for the last bar of every four, stops on an instant and hangs there. Plucks through `fx/blur.dsp` swell and linger into a wash in Smear. A second rhodes plays the tune through `fx/shift.dsp` a fifth up with its formants kept (Fifth), then with every partial moved 97 Hz more, so its harmonics are no longer harmonic (Ring). Six knobs, Shimmer, Smear, Thin, Hollow, Shadow and Ring, are set by each section. |
+| [`winds.gen`](winds.gen) | **Instruments that are blown.** `flute.dsp` is `osc::jet`, an air jet across a waveguide bore; `clarinet.dsp` and `sax.dsp` are `osc::reed`, a reed into a bore. Each patch only breathes, so a note speaks when the air passes the threshold and chokes off under it. The flute's tune in a five-in-eight rhythm, a clarinet part `xform::counterpoint` puts under it every other time round, a growling saxophone bass. Seeded. |
 
 ## Pieces
 

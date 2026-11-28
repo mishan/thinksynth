@@ -1,0 +1,62 @@
+# winds.gen -- a woodwind trio blown, not drawn.
+#
+# No oscillator here makes a wave. flute.dsp is osc::jet, an air jet
+# across a waveguide bore; clarinet.dsp and sax.dsp are osc::reed, a
+# reed at the middle of its bore and nearer the mouthpiece. Each patch
+# only breathes into its model, and the tone is what the model makes of
+# the breath: a note speaks when the air passes the threshold and chokes
+# off when it falls under it.
+#
+# The flute has the tune, a written line read in a five-in-eight rhythm,
+# so it lands differently each time round. The clarinet hears the same
+# line and xform::counterpoint puts a first-species part under it, in G
+# major, every other time round. The saxophone holds the bass, a long
+# note a bar, and growls a little.
+#
+# The humanize rolls dice; the seed is pinned, so it plays the same twice
+# and the browser renders it against the desktop (wasm/compare.mjs).
+
+name "Winds";
+author "Misha Nasledov";
+description "A flute, a clarinet and a saxophone, each a waveguide played by its breath.";
+category "Timbre as material";
+
+seed 1811;
+tempo 76;
+
+scale gmaj "G3 A3 B3 C4 D4 E4 F#4";
+
+instrument flute { dsp "flute.dsp"; amp = -2 dB; };
+instrument clar  { dsp "clarinet.dsp"; amp = -4 dB; };
+instrument sax   { dsp "sax.dsp"; amp = -9 dB; growl = 0.2; vibrato = 10; };
+
+chain tune {
+    stage src gen::euclid {
+        steps = 8; fills = 5; rotate = 0;
+        notes = "G5 A5 B5 D6 B5 A5 G5 E5 D5 E5 G5 A5 B5 A5 F#5 G5";
+        period = 0.5 beats; hold = 0.45 beats; vel = 88;
+    };
+    stage h xform::humanize { time = 0.01 s; vel = 6; };
+    sink { instrument = flute; };
+};
+
+chain under {
+    stage src gen::euclid {
+        steps = 8; fills = 5; rotate = 0;
+        notes = "G4 A4 B4 D5 B4 A4 G4 E4 D4 E4 G4 A4 B4 A4 F#4 G4";
+        period = 0.5 beats; hold = 0.45 beats; vel = 76;
+    };
+    stage k xform::counterpoint { scale = gmaj; below = 1; taper = 0.85; pass = 0; };
+    stage f xform::form { pattern = ".x"; bar = 16 beats; mode = 0; };
+    stage h xform::humanize { time = 0.01 s; vel = 6; };
+    sink { instrument = clar; };
+};
+
+chain bass {
+    stage src gen::euclid {
+        steps = 1; fills = 1; rotate = 0;
+        notes = "G2 E2 C3 D3";
+        period = 4 beats; hold = 3.6 beats; vel = 80;
+    };
+    sink { instrument = sax; };
+};
