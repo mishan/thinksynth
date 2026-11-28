@@ -292,6 +292,8 @@ AD Envelope Generator
 | `d` | in | Decay; when it ends, so does the note |  |  | samples |  |
 | `p` | in | Peak level | 1 | 0 to 1 | full scale |  |
 | `reset` | in | Start again from the attack |  | 0 to 1 |  |  |
+| `loop` | in | Above 0, the attack again at the end of the decay, for as long as it stays up; a voice whose play is this never ends while it does |  | 0 to 1 |  |  |
+| `cycle` | out | 1 on the last sample of a cycle a loop starts again after |  | 0 to 1 |  |  |
 
 ### env::adsfr
 

@@ -2147,6 +2147,155 @@ static void checkLpg (const string &pluginPath)
                  "filt::lpg: one sample at a time and five hundred agree");
 }
 
+/* env::ad with `a', `d' and `loop', the last a number, or wired from
+   `gate': another env::ad, a = 0 and d = 1000, whose `play' is 1 for its
+   first thousand samples -- `loop' up and then down -- or, through 1 -
+   play, down and then up. */
+static vector<NodeSpec> adLoopGraph (float a, float d, float loop,
+                                     int wired = 0)
+{
+    NodeSpec env;
+
+    env.name = "env";
+    env.spelling = "env/ad";
+    env.values.push_back(Value{ "a", a });
+    env.values.push_back(Value{ "d", d });
+
+    if (wired == 0)
+    {
+        env.values.push_back(Value{ "loop", loop });
+        return { env };
+    }
+
+    NodeSpec gate, flip;
+
+    gate.name = "gate";
+    gate.spelling = "env/ad";
+    gate.values.push_back(Value{ "a", 0 });
+    gate.values.push_back(Value{ "d", 1000 });
+    flip.name = "flip";
+    flip.spelling = "math/sub";
+    flip.values.push_back(Value{ "in0", 1 });
+    flip.wires.push_back(Wire{ "in1", "gate", "play" });
+    env.wires.push_back(wired > 0 ? Wire{ "loop", "gate", "play" }
+                                  : Wire{ "loop", "flip", "out" });
+
+    return { gate, flip, env };
+}
+
+static void checkAdLoop (const string &pluginPath)
+{
+    auto play = [&] (const vector<NodeSpec> &spec, unsigned n,
+                     vector< vector<float> > &got)
+    {
+        vector<Watch> watch = { Watch{ "env", "out" }, Watch{ "env", "play" },
+                                Watch{ "env", "cycle" } };
+        string why;
+
+        if (!render(pluginPath, spec, watch, 256, n, got, why))
+        {
+            fail("env::ad renders", why);
+            return false;
+        }
+
+        return true;
+    };
+    auto cycles = [] (const vector<float> &c)
+    {
+        vector<size_t> at;
+
+        for (size_t i = 0; i < c.size(); i++)
+            if (c[i] > 0)
+                at.push_back(i);
+
+        return at;
+    };
+
+    /* `loop' 0 is the node as it was: no `loop' at all, sample for
+       sample, and `cycle' never. */
+    {
+        vector< vector<float> > with, without;
+        vector<NodeSpec> plain = adLoopGraph(100, 300, 0);
+
+        plain[0].values.pop_back();
+
+        const bool rendered = play(adLoopGraph(100, 300, 0), 2000, with) &&
+                              play(plain, 2000, without);
+
+        okOrFail(rendered && with[0] == without[0] && with[1] == without[1] &&
+                 cycles(with[2]).empty(),
+                 "env::ad: `loop' 0 is the envelope as it was", "");
+    }
+
+    /* Looping: a cycle of a + d samples, over and over, `cycle' on the last
+       sample of each, and `play' never down. */
+    {
+        vector< vector<float> > got;
+
+        if (play(adLoopGraph(100, 300, 1), 2000, got))
+        {
+            bool same = true;
+
+            for (size_t i = 0; i + 400 < got[0].size() && same; i++)
+                same = got[0][i] == got[0][i + 400];
+
+            const vector<size_t> at = cycles(got[2]);
+
+            okOrFail(same && at.size() == 5 && at[0] == 399 && at[4] == 1999 &&
+                     peak(got[1], 0) == 1 &&
+                     *std::min_element(got[1].begin(), got[1].end()) == 1,
+                     "env::ad: looping, a cycle of a + d, `cycle' on its last "
+                     "sample, `play' up throughout",
+                     num((double)at.size()) + " cycles, the first at " +
+                     (at.empty() ? string("none") : num((double)at[0])));
+        }
+    }
+
+    /* Raised after it has finished, it starts again at once; taken down
+       mid-cycle, that cycle finishes and no more. */
+    {
+        vector< vector<float> > up, down;
+
+        if (play(adLoopGraph(100, 300, 0, -1), 2000, up) &&
+            play(adLoopGraph(100, 300, 0, 1), 2000, down))
+        {
+            const vector<size_t> atUp = cycles(up[2]), atDown = cycles(down[2]);
+            double after = 0;
+
+            for (size_t i = 1201; i < down[0].size(); i++)
+                after = fmax(after, down[0][i]);
+
+            okOrFail(up[0][1050] > 0 && !atUp.empty() && atUp[0] == 1399 &&
+                     atDown.size() == 2 && atDown[1] == 799 && after == 0 &&
+                     down[1][down[1].size() - 1] == 0,
+                     "env::ad: a loop raised after the end starts it again; "
+                     "taken down, the cycle under way is the last",
+                     "raised: first cycle at " +
+                     (atUp.empty() ? string("none") : num((double)atUp[0])) +
+                     "; down: " + num((double)atDown.size()) + " cycles");
+        }
+    }
+
+    /* Times of none: a cycle is two samples at the least. */
+    {
+        vector< vector<float> > got;
+
+        if (play(adLoopGraph(0, 0, 1), 1000, got))
+        {
+            const vector<size_t> at = cycles(got[2]);
+
+            okOrFail(!at.empty() && at.size() <= 500 && allFinite(got[0]),
+                     "env::ad: looping with times of none, a cycle every two "
+                     "samples at the most",
+                     num((double)at.size()) + " in a thousand");
+        }
+    }
+
+    windowsAgree(pluginPath, adLoopGraph(100, 300, 1), "env", "out",
+                 "env::ad: looping, one sample at a time and five hundred "
+                 "agree");
+}
+
 static void checkChorus (const string &pluginPath)
 {
     /* A whole second of a 441 Hz sine and a 3 Hz sweep: both are a whole
@@ -13980,6 +14129,7 @@ int main (int argc, char **argv)
     checkSvf(pluginPath);
     checkFold(pluginPath);
     checkLpg(pluginPath);
+    checkAdLoop(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);

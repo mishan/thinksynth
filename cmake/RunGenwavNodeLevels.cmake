@@ -71,7 +71,8 @@ string(REGEX MATCHALL "not run" unrun "${said}")
 list(LENGTH silent silent)
 list(LENGTH unrun unrun)
 
-# lfo has two outputs, out and sync.
-if(NOT silent EQUAL 1 OR NOT unrun EQUAL 2)
-  message(FATAL_ERROR "${silent} outputs called silent and ${unrun} not run; 1 and 2 were expected")
+# lfo has two outputs, out and sync, not run; silent are muted's out and
+# idx's `cycle', an env::ad that does not loop.
+if(NOT silent EQUAL 2 OR NOT unrun EQUAL 2)
+  message(FATAL_ERROR "${silent} outputs called silent and ${unrun} not run; 2 and 2 were expected")
 endif()
