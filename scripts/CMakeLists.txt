@@ -460,6 +460,10 @@ think_harness(statecheck)
 # layout each claims, on malformed files, and on files of changed bytes.
 think_harness(wavcheck)
 
+# Where osc::sample's `cut = 1' finds the hits: recordings made with hits at
+# known frames, the principles over random ones, and the shipped break.
+think_harness(samplehitscheck)
+
 # The .gen and .dsp readers, and what a room does with what they read, on
 # changed copies of every shipped file.
 think_harness(parsecheck COMPOSERHOST)
@@ -1268,6 +1272,7 @@ set_tests_properties(tuningplay PROPERTIES
 add_test(NAME soundfeatcheck
          COMMAND soundfeatcheck ${PROJECT_BINARY_DIR}/plugins/ ${PROJECT_SOURCE_DIR}/dsp)
 add_test(NAME wavcheck COMMAND wavcheck "${PROJECT_BINARY_DIR}/wavcheck")
+add_test(NAME samplehitscheck COMMAND samplehitscheck "${PROJECT_SOURCE_DIR}/dsp")
 # A second normally; a chunk length read as a backwards seek is a loop, and
 # this makes it a failure in half a minute rather than ten.
 set_tests_properties(wavcheck PROPERTIES TIMEOUT 30)

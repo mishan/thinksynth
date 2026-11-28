@@ -85,6 +85,14 @@
  * its beginning; both fade over 2 ms at each end, since a cut falls
  * mid-wave. `loop' and `xfade' are for a whole file played forward.
  *
+ * `cut = 1' CUTS IT AT ITS HITS instead (osc/samplehits.h): found once,
+ * when the file is read, each with a strength, so `sensitivity' chooses
+ * among them at every trigger -- turned up, it only ever adds slices -- and
+ * `slices' keeps the strongest that many. `cut = 2' cuts at the frames
+ * `cuts' lists, in the file's own frames, for cuts written out by hand or
+ * by scripts/samplecuts. Either way a slice starts on its attack, so it is
+ * not faded in, and it is a one-shot even when it is the whole file.
+ *
  * THE FILE IS READ ONCE PER SYNTH, not once per voice -- sixteen voices
  * of a kit share one copy of the kick, read at load. See osc/sampleslot.h.
  */
@@ -110,9 +118,9 @@
 enum {IN_FILE, IN_FILE2, IN_FILE3, IN_FREQ, IN_ROOT, IN_START, IN_LOOP,
       IN_TRIGGER, IN_SELECT, IN_SPLIT1, IN_SPLIT2, IN_ALTERNATE,
       OUT_ARG, OUT_PLAY, INOUT_STATE, IN_XFADE, IN_SLICES, IN_SLICE,
-      IN_REVERSE};
+      IN_REVERSE, IN_CUT, IN_SENSITIVITY, IN_CUTS};
 
-std::atomic<int> args[IN_REVERSE + 1];
+std::atomic<int> args[IN_CUTS + 1];
 
 static const char desc[] = "Sample Player (a wav at a voice's pitch)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
@@ -149,6 +157,11 @@ void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
         if (file != NULL && (k == 0 || !file->text().empty()))
             thSamplePrime(node->plugin(), file->text(), samples);
     }
+
+    const thArg *cuts = mod->getArg(node, args[IN_CUTS]);
+
+    if (cuts != NULL && !cuts->text().empty())
+        thSamplePrimeCuts(node->plugin(), cuts->text());
 }
 
 int module_init (thPlugin *plugin)
@@ -233,7 +246,8 @@ int module_init (thPlugin *plugin)
 
     /* [0] the playhead, [1] the last trigger, [2] the chosen layer, [3] the
        note a zone was chosen for, [4] and [5] the first frame and one past
-       the last of what is playing, [6] 1 forward or -1 back. */
+       the last of what is playing, [6] 1 forward or -1 back, [7] the `cut'
+       it was chosen by. */
     args[INOUT_STATE] = plugin->regArg("state", thPlugin::ARG_STATE);
 
     /* Registered last, so every arg above keeps the index it had. */
@@ -244,8 +258,9 @@ int module_init (thPlugin *plugin)
 
     args[IN_SLICES] = plugin->regArg("slices", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_SLICES],
-                       "How many equal parts the file is cut into; 0 plays "
-                       "it whole");
+                       "How many equal parts the file is cut into, 0 plays "
+                       "it whole; with `cut = 1', how many of the strongest "
+                       "hits, 0 all of them");
     plugin->setArgRange(args[IN_SLICES], 0, 256);
     plugin->setArgStep(args[IN_SLICES], 1);
     args[IN_SLICE] = plugin->regArg("slice", thPlugin::ARG_IN);
@@ -258,6 +273,23 @@ int module_init (thPlugin *plugin)
                        "Above 0, play from the end back, as a one-shot");
     plugin->setArgRange(args[IN_REVERSE], 0, 1);
 
+    args[IN_CUT] = plugin->regArg("cut", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUT],
+                       "Where slices start: 0 equal parts, 1 at the hits the "
+                       "file has, 2 at the frames `cuts' lists");
+    plugin->setArgRange(args[IN_CUT], 0, 2);
+    plugin->setArgStep(args[IN_CUT], 1);
+    args[IN_SENSITIVITY] = plugin->regArg("sensitivity", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SENSITIVITY],
+                       "With `cut = 1', how faint a hit still starts a "
+                       "slice: 0 none, 1 every one found");
+    plugin->setArgRange(args[IN_SENSITIVITY], 0, 1);
+    plugin->setArgDefault(args[IN_SENSITIVITY], 0.5f);
+    args[IN_CUTS] = plugin->regArg("cuts", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTS],
+                       "With `cut = 2', where slices start: frames of the "
+                       "file as recorded, `0 10912 22140'");
+
     return 0;
 }
 
@@ -269,7 +301,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_file, *in_file2, *in_file3, *in_freq, *in_root;
     thArg *in_start, *in_loop, *in_trigger, *in_select, *in_split1;
     thArg *in_split2, *in_alternate, *in_xfade;
-    thArg *in_slices, *in_slice, *in_reverse;
+    thArg *in_slices, *in_slice, *in_reverse, *in_cut, *in_sensitivity;
+    thArg *in_cuts;
     thArg *out_arg, *out_play;
     thArg *inout_state;
     unsigned int i;
@@ -292,6 +325,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_slices = mod->getArg(node, args[IN_SLICES]);
     in_slice = mod->getArg(node, args[IN_SLICE]);
     in_reverse = mod->getArg(node, args[IN_REVERSE]);
+    in_cut = mod->getArg(node, args[IN_CUT]);
+    in_sensitivity = mod->getArg(node, args[IN_SENSITIVITY]);
+    in_cuts = mod->getArg(node, args[IN_CUTS]);
 
     inout_state = mod->getArg(node, args[INOUT_STATE]);
 
@@ -309,8 +345,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float lo = (*inout_state)[4];
     float hi = (*inout_state)[5];
     float dir = (*inout_state)[6] < 0 ? -1.0f : 1.0f;
+    int cut = (int)thClampArg((*inout_state)[7], 0, 2);
 
-    state = inout_state->allocate(7);
+    state = inout_state->allocate(8);
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
@@ -379,10 +416,31 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         {
             const int n = (int)thClampArg((*in_slices)[i], 0, 256);
 
+            cut = (int)thClampArg((*in_cut)[i], 0, 2);
             lo = 0;
             hi = (float)len;
 
-            if (n > 0)
+            if (cut > 0)
+            {
+                const thSampleCuts *cuts = cut == 2 && !in_cuts->text().empty()
+                    ? thSampleCutsGet(node->plugin(), in_cuts->text()) : NULL;
+                const double sens = thClampArg((*in_sensitivity)[i], 0, 1);
+                size_t a = 0, b = len;
+                const size_t count = thSampleSlices(*smp, cuts, cut, sens, n,
+                                                    (size_t)-1, a, b);
+
+                if (count > 0)
+                {
+                    const float pick = thClampArg((*in_slice)[i], -1e6f, 1e6f);
+                    const long k = (((long)floorf(pick) % (long)count) +
+                                    (long)count) % (long)count;
+
+                    thSampleSlices(*smp, cuts, cut, sens, n, (size_t)k, a, b);
+                    lo = (float)a;
+                    hi = (float)b;
+                }
+            }
+            else if (n > 0)
             {
                 const float pick = thClampArg((*in_slice)[i], -1e6f, 1e6f);
                 const int k = (((int)floorf(pick) % n) + n) % n;
@@ -413,7 +471,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             at = fminf(at, hi - 1);
         }
 
-        const bool whole = dir > 0 && lo == 0 && hi == (float)len;
+        /* A slice at the hits, or at listed frames, is a one-shot even
+           when it is the whole file. */
+        const bool whole = dir > 0 && lo == 0 && hi == (float)len && cut == 0;
         const float loop = whole ? thClampArg((*in_loop)[i], 0, (float)len)
                                  : 0;
         const float root = zoneRoot > 0 ? (float)zoneRoot : (*in_root)[i];
@@ -474,11 +534,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
 
             /* A slice or a reversed file starts and stops wherever the cut
-               falls, mid-wave, so it fades over 2 ms at each end. */
+               falls, mid-wave, so it fades over 2 ms at each end -- but
+               for the start of a slice cut at a hit, or where somebody
+               put one, which is where the attack begins: a fade there
+               would take the attack the cut was placed to keep. */
             if (!whole)
             {
                 const float edgeLen = 0.002f * samples;
-                const float from = dir > 0 ? at - lo + 1 : hi - at;
+                const float from = cut > 0 && dir > 0 ? edgeLen
+                                 : dir > 0 ? at - lo + 1 : hi - at;
                 const float left = dir > 0 ? hi - at : at - lo + 1;
 
                 v *= fminf(1, fminf(from, left) / edgeLen);
@@ -498,6 +562,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     state[4] = lo;
     state[5] = hi;
     state[6] = dir;
+    state[7] = (float)cut;
 
     return 0;
 }

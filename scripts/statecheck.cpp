@@ -79,6 +79,7 @@
 #include "thUtil.h"
 
 #include "think.h"
+#include "../plugins/osc/samplehits.h"
 
 using std::string;
 using std::vector;
@@ -8825,6 +8826,229 @@ static void checkSample (const string &pluginPath)
                  got[1][0] == 1 && got[1][2] == 0,
                  "osc::sample: a slice shorter than a frame plays one and "
                  "stops, reading nothing outside the file", why);
+    }
+
+    /* ---- slices at the hits, and at listed frames ---- */
+
+    /* Four bursts from silence at known frames. Where each slice plays
+       from is the detector's (samplehitscheck holds it to the bursts);
+       what is checked here is that the node plays exactly that: from its
+       first frame with no fade-in, to the next cut with the fade-out, and
+       stops there. */
+    {
+        const int len = 32000;
+        const int at[] = { 2000, 9000, 15500, 26000 };
+        const float amp[] = { 0.8f, 0.3f, 0.6f, 0.5f };
+        vector<float> hits(len, 0), heard(len);
+        uint32_t lcg = 7;
+
+        for (int b = 0; b < 4; b++)
+            for (int i = at[b]; i < len && i < at[b] + 3000; i++)
+            {
+                lcg = lcg * 1664525u + 1013904223u;
+                hits[i] = amp[b] * expf(-(float)(i - at[b]) / 900.0f) *
+                          ((float)(lcg >> 8) / (float)(1u << 23) - 1.0f);
+            }
+
+        for (int i = 0; i < len; i++)
+        {
+            const double v = hits[i] * 32767.0;
+
+            heard[i] = (float)((double)(int)(v < 0 ? v - 0.5 : v + 0.5) /
+                               32768.0);
+        }
+
+        thSampleHits found;
+
+        thSampleFindHits(heard.data(), heard.size(), TH_DEFAULT_SAMPLES,
+                         found);
+
+        if (!writeWav(dir + "/samples/hits.wav", hits, TH_DEFAULT_SAMPLES) ||
+            found.hits.size() != 4 || found.leadIn)
+            fail("osc::sample: could not plant four hits to slice",
+                 num((double)found.hits.size()));
+        else
+        {
+            const size_t h[] = { found.hits[0].frame, found.hits[1].frame,
+                                 found.hits[2].frame, found.hits[3].frame };
+            /* The two strongest, in time: the first and third bursts. */
+            const struct { float cut, slices, sens, slice, reverse;
+                           const char *cuts; size_t lo, hi;
+                           const char *what; } cases[] = {
+                { 1, 0, 0.5f, 0, 0, "", h[0], h[1],
+                  "`cut = 1' plays the first hit to the second" },
+                { 1, 0, 0.5f, 3, 0, "", h[3], (size_t)len,
+                  "...the last to the end of the file" },
+                { 1, 0, 0.5f, -1, 0, "", h[3], (size_t)len,
+                  "...`slice = -1' wraps to the last" },
+                { 1, 2, 0.5f, 1, 0, "", h[2], (size_t)len,
+                  "...`slices = 2' keeps the two strongest" },
+                { 1, 0, 0.0f, 0, 0, "", 0, (size_t)len,
+                  "...at sensitivity 0, none: the whole file, once" },
+                { 2, 0, 0.5f, 0, 0, "9000 2000 2000 junk", 2000, 9000,
+                  "`cut = 2' plays the frames listed, sorted, each once" },
+                { 2, 0, 0.5f, -1, 0, "2000 9000 999999999", 9000,
+                  (size_t)len, "...one past the end left out" },
+                { 2, 0, 0.5f, 0, 0, "", 0, (size_t)len,
+                  "...and with none listed, the whole file, once" },
+                { 1, 0, 0.5f, 1, 1, "", h[1], h[2],
+                  "a slice at the hits, reversed" },
+            };
+
+            for (const auto &c : cases)
+            {
+                vector<NodeSpec> spec = sampleGraph("hits.wav", 440, 440,
+                                                    100, 0);
+                vector<Watch> watch;
+                vector< vector<float> > got;
+                string why;
+
+                spec[0].values.push_back(Value{ "cut", c.cut });
+                spec[0].values.push_back(Value{ "slices", c.slices });
+                spec[0].values.push_back(Value{ "sensitivity", c.sens });
+                spec[0].values.push_back(Value{ "slice", c.slice });
+                spec[0].values.push_back(Value{ "reverse", c.reverse });
+                spec[0].values.push_back(Value{ "trigger", 1 });
+
+                if (c.cuts[0] != 0)
+                    spec[0].texts.push_back(Text{ "cuts", c.cuts });
+
+                watch.push_back(Watch{ "smp", "out" });
+                watch.push_back(Watch{ "smp", "play" });
+
+                if (!render(pluginPath, spec, watch, 256, len + 300, got,
+                            why))
+                {
+                    fail("osc::sample renders", why);
+                    continue;
+                }
+
+                const int n = (int)(c.hi - c.lo);
+                const int edge = (int)ceil(0.002 * TH_DEFAULT_SAMPLES) + 1;
+                const bool back = c.reverse > 0;
+                bool same = got[1][n - 1] == 1 && got[1][n] == 0;
+                string detail = same ? "" : "it did not stop after " +
+                                            num((double)n) + " frames";
+
+                /* Forward, from frame 0 itself: no fade-in. */
+                for (int i = back ? edge : 0; i < n - edge && same; i++)
+                {
+                    const size_t from = back ? c.hi - 1 - i : c.lo + i;
+
+                    if (got[0][i] != heard[from])
+                    {
+                        same = false;
+                        detail = "frame " + num((double)i) + ": " +
+                                 num(got[0][i]) + " against " +
+                                 num(heard[from]);
+                    }
+                }
+
+                okOrFail(same, string("osc::sample: ") + c.what, detail);
+            }
+
+            /* Sound before the first hit is a slice of its own, the first:
+               a low tone, too slow to be a hit, then a burst. */
+            {
+                vector<float> lead(hits);
+
+                for (int i = 0; i < at[0]; i++)
+                    lead[i] = 0.05f * sinf((float)i * 0.01f);
+
+                vector<NodeSpec> spec = sampleGraph("leadin.wav", 440, 440,
+                                                    0, 0);
+                vector<Watch> watch;
+                vector< vector<float> > got;
+                string why;
+                size_t played = 0;
+
+                spec[0].values.push_back(Value{ "cut", 1 });
+                spec[0].values.push_back(Value{ "slice", 0 });
+                spec[0].values.push_back(Value{ "trigger", 1 });
+                watch.push_back(Watch{ "smp", "play" });
+
+                const bool rendered =
+                    writeWav(dir + "/samples/leadin.wav", lead,
+                             TH_DEFAULT_SAMPLES) &&
+                    render(pluginPath, spec, watch, 256, len, got, why);
+
+                for (size_t i = 0; rendered && i < got[0].size(); i++)
+                    played += got[0][i] > 0;
+
+                okOrFail(rendered && played > 0 && played <= h[0] + 50 &&
+                         played + 300 >= h[0],
+                         "osc::sample: sound before the first hit plays as "
+                         "the first slice, up to that hit",
+                         num((double)played) + " frames, the hit at " +
+                         num((double)h[0]));
+            }
+
+            /* Two listed frames of a 96 kHz file that land on one engine
+               frame at 44.1 kHz are one cut, not a slice with nothing in
+               it. */
+            {
+                vector<NodeSpec> spec = sampleGraph("fast.wav", 440, 440, 0,
+                                                    0);
+                vector<Watch> watch;
+                vector< vector<float> > got;
+                string why;
+                size_t played = 0;
+
+                spec[0].values.push_back(Value{ "cut", 2 });
+                spec[0].values.push_back(Value{ "slice", 1 });
+                spec[0].values.push_back(Value{ "trigger", 1 });
+                spec[0].texts.push_back(Text{ "cuts", "1000 1001 5000" });
+                watch.push_back(Watch{ "smp", "play" });
+
+                const bool rendered =
+                    writeWav(dir + "/samples/fast.wav", hits, 96000) &&
+                    render(pluginPath, spec, watch, 256, 20000, got, why);
+
+                for (size_t i = 0; rendered && i < got[0].size(); i++)
+                    played += got[0][i] > 0;
+
+                const size_t from = thSampleEngineFrame(5000,
+                                                        TH_DEFAULT_SAMPLES,
+                                                        96000);
+                const size_t to = thSampleEngineFrame(len, TH_DEFAULT_SAMPLES,
+                                                      96000);
+
+                okOrFail(rendered && played + 2 >= to - from &&
+                         played <= to - from + 2,
+                         "osc::sample: two cuts on one engine frame are one",
+                         num((double)played) + " frames, not " +
+                         num((double)(to - from)));
+            }
+
+            /* In an engine at another rate, the same cut: the first engine
+               frame at or past the file's. */
+            vector<NodeSpec> spec = sampleGraph("hits.wav", 440, 440, 0, 0);
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+
+            spec[0].values.push_back(Value{ "cut", 1 });
+            spec[0].values.push_back(Value{ "slice", 1 });
+            spec[0].values.push_back(Value{ "trigger", 1 });
+            watch.push_back(Watch{ "smp", "play" });
+
+            const size_t lo = thSampleEngineFrame(h[1], 48000,
+                                                  TH_DEFAULT_SAMPLES);
+            const size_t hi = thSampleEngineFrame(h[2], 48000,
+                                                  TH_DEFAULT_SAMPLES);
+            const bool rendered = render(pluginPath, spec, watch, 256,
+                                         40000, got, why, 48000);
+            size_t played = 0;
+
+            for (size_t i = 0; rendered && i < got[0].size(); i++)
+                played += got[0][i] > 0;
+
+            okOrFail(rendered && played == hi - lo,
+                     "osc::sample: a slice at the hits, in an engine at "
+                     "48 kHz, is the same stretch of a 44.1 kHz file",
+                     num((double)played) + " frames, not " +
+                     num((double)(hi - lo)));
+        }
     }
 
     /* ---- frame for frame at freq = root ---- */
