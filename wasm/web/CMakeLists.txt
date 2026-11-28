@@ -410,7 +410,7 @@ set(SITE_SOURCES index.html jam.html phone.html phonebench.html style.css main.j
                 actions.js phone.js phonepad.js phonepane.js phonebench.js profileform.js pair.js mesh.js
                 ear.js evolve.js evolveui.js
                 growui.js bandchords.js bandideas.js bandkey.js bandview.js canvasview.js composerview.js
-                seqview.js nodeview.js rollview.js tapediff.js offline.js
+                seqview.js sessionview.js nodeview.js rollview.js tapediff.js offline.js
                 layouts.js packs.js takes.js history.js manifest.json
                 silent.js horizon.js lookahead.js thinksynth.js)
 set(SITE_OUTPUTS "")

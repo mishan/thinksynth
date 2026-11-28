@@ -619,6 +619,57 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
+        /* The session grid: the form of a text given, an edit made to
+         * it, a click's level, and the model let go of for another piece
+         * (thinkweb.cpp, tw_session_*). */
+        if (m.type === 'session')
+        {
+            this.port.postMessage({
+                type: 'session', id: m.id,
+                grid: JSON.parse(this.M.ccall('tw_session_json', 'string',
+                    ['string', 'number', 'number'],
+                    [m.text, m.playing, m.cued])),
+            });
+
+            return;
+        }
+
+        if (m.type === 'sessionedit')
+        {
+            const e = m.edit;
+
+            this.port.postMessage({
+                type: 'sessionedit', id: m.id,
+                ...JSON.parse(this.M.ccall('tw_session_edit', 'string',
+                    ['string', 'number', 'string', 'string', 'string',
+                     'string', 'string', 'number', 'number', 'number'],
+                    [m.text, e.kind, e.section ?? '', e.row ?? '',
+                     e.name ?? '', e.length ?? '', e.after ?? '',
+                     e.value ?? 1, e.set === false ? 0 : 1,
+                     m.confirmed ? 1 : 0])),
+            });
+
+            return;
+        }
+
+        if (m.type === 'sessiontoggle')
+        {
+            this.port.postMessage({
+                type: 'sessiontoggle', id: m.id,
+                value: this.M.ccall('tw_session_toggle', 'number',
+                                    ['string', 'string', 'string'],
+                                    [m.text, m.section, m.chain]),
+            });
+
+            return;
+        }
+
+        if (m.type === 'sessionforget')
+        {
+            this.M._tw_session_forget();
+            return;
+        }
+
         if (m.type === 'settempo')
         {
             this.port.postMessage({

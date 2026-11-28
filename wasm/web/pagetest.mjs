@@ -1691,6 +1691,260 @@ try
           await page.textContent('#midi') === 'MIDI in',
           'and closing MIDI in lets go of it');
 
+    /* ---- the session grid ----
+     *
+     * The piece's form read from its text: a column per section, a row
+     * per chain and knob. A chain's cell turned off and back on comes
+     * back at its level; typed values and a knob's value taken out go
+     * into the text; a row's name makes its channel current. Playing, a
+     * heading cues its section for the end of the one playing, with
+     * Shift for the next bar, said when it starts; stopped, it goes
+     * there. Muting the chain a cue knob follows asks first. */
+    {
+        const modeWas = await page.$eval('#mode', (e) => e.value);
+
+        await page.selectOption('#mode', 'piece');
+        await page.evaluate(() => window.solo.settled());
+
+        const was = await page.$eval('#gen', (e) => e.value);
+        const keysWere = await page.$eval('#keychan', (e) => e.value);
+        const load = async (text) =>
+        {
+            await page.evaluate((t) =>
+            {
+                document.getElementById('gen').value = t;
+            }, text);
+            await page.click('#loadpiece');
+            await page.evaluate(() => window.solo.settled());
+        };
+        const settled = () => page.evaluate(() => window.solo.settled());
+        const gen = () => page.evaluate(() => window.solo.genText());
+        const line = async (name) =>
+            (await gen()).match(new RegExp(`^section ${name} .*$`, 'm'))?.[0];
+        const cell = (r, c) => `#sessiongrid [data-r="${r}"][data-c="${c}"]`;
+        const grid = () => page.$eval('#sessiongrid', (g) =>
+            g.querySelector('caption').textContent + ' | ' +
+            [...g.querySelectorAll('tr')].map((tr) =>
+                [...tr.children].map((c) => c.textContent).join(' '))
+                .join(' | '));
+        const kick = 'chain kick { stage g gen::euclid { steps = 4; ' +
+                     'fills = 4; notes = "C2"; period = 0.5 s; ' +
+                     'hold = 0.1 s; }; sink { channel = 3; }; };\n';
+
+        await load('tempo 120;\n@k = 0.5;\n' +
+                   'section intro 3 bars { kick = 0.75; @k = 0.25; };\n' +
+                   'section verse 1 bars { };\n' +
+                   'section chorus 1 bars hold { };\nsection end;\n' + kick);
+
+        const read = await grid();
+
+        check(read === 'Ends after chorus |  intro3 bars verse1 bars ' +
+                       'chorus1 bars, hold | kick 0.75 1 1 | @k 0.25  ',
+              `the session grid reads the piece's form: ${read}`);
+
+        await page.click(cell(1, 1));
+        await settled();
+
+        const off = await line('intro');
+
+        await page.click(cell(1, 1));
+        await settled();
+
+        const on = await line('intro');
+
+        check(/kick = 0;/.test(off) && /kick = 0\.75;/.test(on),
+              `a chain's cell turned off comes back at its level: ${off} ` +
+              `then ${on}`);
+
+        await page.click(cell(2, 2));
+        await page.keyboard.type('0.6');
+        await page.keyboard.press('Enter');
+        await settled();
+        await page.focus(cell(2, 1));
+        await page.keyboard.press('Delete');
+        await settled();
+        await page.focus(cell(1, 3));
+        await page.keyboard.press('Enter');
+        await page.keyboard.type('1.2');
+        await page.keyboard.press('Enter');
+        await settled();
+
+        const typed = [await line('intro'), await line('verse'),
+                       await line('chorus')];
+
+        check(!/@k/.test(typed[0]) && /\{ @k = 0\.6; \}/.test(typed[1]) &&
+              /kick = 1\.2;/.test(typed[2]),
+              'a value typed into a cell, and a knob\'s taken out with ' +
+              `Delete, go into the text: ${JSON.stringify(typed)}`);
+
+        /* Arrows from the knob's first cell: up to the chain, right to
+           its next section; one cell in the tab order. */
+        await page.focus(cell(2, 1));
+        await page.keyboard.press('ArrowUp');
+        await page.keyboard.press('ArrowRight');
+
+        const moved = await page.evaluate(() =>
+            [document.activeElement.dataset.r, document.activeElement.dataset.c,
+             document.querySelectorAll('#sessiongrid [tabindex="0"]').length]
+                .join(','));
+
+        check(moved === '1,2,1',
+              `the arrows move between the grid's cells: ${moved}`);
+
+        await page.click(cell(2, 0));
+        await settled();
+
+        const knobKeys = await page.$eval('#keychan', (e) => e.value);
+
+        await page.click(cell(1, 0));
+        await settled();
+
+        const picked = await page.$eval('#keychan', (e) => e.value);
+        const marked = await page.textContent(cell(1, 0));
+
+        check(knobKeys === keysWere && picked === '2' && marked === '▸ kick',
+              'a chain\'s name makes its channel current, and a knob\'s ' +
+              `does not: ${JSON.stringify({ knobKeys, picked, marked })}`);
+
+        /* Stopped, a heading goes there; playing, chorus cued for the end
+           of intro's three bars, at 6 s, and with Shift for the next bar
+           line after the click: 2 s a bar. */
+        await page.click(cell(0, 2));
+        await settled();
+
+        const seeked = await page.waitForFunction(
+            () => window.solo.transport()?.section === 1, null,
+            { polling: 20, timeout: 5000 }).then(() => 1, () => -1);
+        const lands = async (shift) =>
+        {
+            await page.click('#rewind');
+            await page.waitForFunction(
+                () => (window.solo.transport()?.now ?? 1) < 0.2, null,
+                { polling: 20, timeout: 10000 });
+            await page.click('#play');
+            await page.waitForFunction(
+                () => (window.solo.transport()?.now ?? 0) > 0.3, null,
+                { polling: 20, timeout: 10000 });
+            const clicked = await page.evaluate(
+                () => window.solo.transport().now);
+
+            await page.click(cell(0, 3), { modifiers: shift ? ['Shift'] : [] });
+
+            const cued = await page.waitForFunction(
+                () => window.solo.transport()?.sectionCued === 2, null,
+                { polling: 20, timeout: 5000 }).then(() => true, () => false);
+            const shown = await page.waitForFunction(
+                () => document.querySelector('#sessiongrid th.cued') !== null,
+                null, { timeout: 5000 }).then(() => true, () => false);
+            const at = await page.waitForFunction(() =>
+            {
+                const t = window.solo.transport();
+
+                return t?.section === 2 ? t.now : false;
+            }, null, { polling: 20, timeout: 10000 })
+                .then((h) => h.jsonValue(), () => -1);
+
+            await page.waitForFunction(() => /chorus starts/.test(
+                document.getElementById('sessionsaid').textContent),
+                null, { timeout: 5000 }).catch(() => {});
+
+            const said = await page.textContent('#sessionsaid');
+
+            await page.click('#stop');
+            await settled();
+
+            return { cued, shown, at: +at.toFixed(1), said,
+                     bar: Math.ceil(clicked / 2) * 2 };
+        };
+        const end = await lands(false);
+        const bar = await lands(true);
+
+        check(seeked === 1 && end.cued && end.shown && end.at >= 5.9 &&
+              end.at < 6.5 && bar.cued && bar.at >= bar.bar - 0.1 &&
+              bar.at < bar.bar + 0.5 && bar.bar < 6 &&
+              end.said === 'chorus starts',
+              'a heading cues its section, for the end of the one playing ' +
+              'or with Shift the next bar, and stopped goes there: ' +
+              JSON.stringify({ seeked, end, bar }));
+
+        /* A value typed while the piece plays on into the next section,
+           which marks the headings again: it goes in on Enter. */
+        await page.click('#rewind');
+        await page.waitForFunction(
+            () => (window.solo.transport()?.now ?? 1) < 0.2, null,
+            { polling: 20, timeout: 10000 });
+        await page.click('#play');
+        await page.click(cell(2, 3));
+        await page.keyboard.type('0.4');
+        await page.waitForFunction(
+            () => window.solo.transport()?.section === 1, null,
+            { polling: 20, timeout: 10000 });
+        await page.keyboard.press('Enter');
+        await settled();
+        await page.click('#stop');
+        await settled();
+
+        const across = await line('chorus');
+
+        check(/@k = 0\.4;/.test(across ?? ''),
+              `a value typed as the sections change goes in: ${across}`);
+
+        /* With `cue @act': muting the chain that writes it asks; no
+           leaves the piece as it was, yes mutes it. */
+        await load('tempo 120;\n@act = 0;\n' +
+                   'section a 1 bars { };\nsection b 1 bars { };\n' +
+                   'chain conductor { stage g gen::euclid { steps = 4; ' +
+                   'fills = 1; notes = "C2"; period = 0.5 s; ' +
+                   'hold = 0.1 s; }; sink { knob = @act; }; };\n' +
+                   kick + 'cue @act 1 bars;\n');
+
+        const asked = [];
+        const answer = (yes) => (d) =>
+        {
+            asked.push(d.message());
+            return yes ? d.accept() : d.dismiss();
+        };
+        let reply = answer(false);
+        const dialog = (d) => reply(d);
+
+        let kept, muted;
+
+        page.on('dialog', dialog);
+
+        try
+        {
+            await page.click(cell(1, 1));
+            await settled();
+            kept = await line('a');
+            reply = answer(true);
+            await page.click(cell(1, 1));
+            await settled();
+            muted = await line('a');
+        }
+        finally
+        {
+            page.off('dialog', dialog);
+        }
+
+        check(asked.length === 2 && /@act/.test(asked[0]) &&
+              kept === 'section a 1 bars { };' &&
+              /conductor = 0;/.test(muted),
+              'muting the chain a cue knob follows asks first: ' +
+              JSON.stringify({ asked, kept, muted }));
+
+        const findings = (await axeFindings(page, ['#evolve']))
+            .filter((f) => /session/.test(f));
+
+        check(findings.length === 0,
+              `the session grid has no accessibility findings: ${findings}`);
+
+        await page.click('#rewind');
+        await load(was);
+        await page.selectOption('#keychan', keysWere);
+        await page.selectOption('#mode', modeWas);
+        await settled();
+    }
+
     /* ---- a camera ---- */
 
     const cameraHolds = (note) => page.waitForFunction(

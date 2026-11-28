@@ -104,6 +104,7 @@
 #include "RollCanvas.h"
 #include "thcFreeze.h"
 #include "thcGenEdit.h"
+#include "SessionModel.h"
 
 #include "ArgPanel.h"
 #include "DspCatalog.h"
@@ -7466,6 +7467,187 @@ EMSCRIPTEN_KEEPALIVE const char *tw_gen_set_section (const char *text,
             return thcGenEdit::setSectionLevel(path, section, chain, level,
                                                why);
         });
+}
+
+/* ---- the session grid (sessionview.js) ----
+ *
+ * The piece's form as SessionModel reads it from a text given, and its
+ * edits made to that text. One model for the piece the page has, so a
+ * cell clicked off comes back at its level; tw_session_forget when the
+ * page loads another.
+ */
+static SessionModel session_;
+static std::string sessionJson_;
+
+static const char *const SESSION_SCRATCH = "/session.gen";
+
+EMSCRIPTEN_KEEPALIVE void tw_session_forget (void)
+{
+    session_ = SessionModel();
+}
+
+/* `text' as a grid, with `playing' and `cued' the scheduler's section
+ * indices, -1 for none: {ok, why} and, read, its columns, rows, ending,
+ * loopTo and cueKnob. A chain's row carries the channel picking it makes
+ * current (ComposerCanvas::channelOf), right while `text' is the piece
+ * playing. */
+EMSCRIPTEN_KEEPALIVE const char *tw_session_json (const char *text,
+                                                  int playing, int cued)
+{
+    thSession grid;
+    std::string why;
+    std::string &o = sessionJson_;
+
+    o = "{\"ok\":";
+
+    if (text == NULL || !writeFile(SESSION_SCRATCH, text) ||
+        !session_.build(SESSION_SCRATCH, playing, cued, grid, why))
+    {
+        remove(SESSION_SCRATCH);
+        o += "false,\"why\":";
+        jsonString(o, why);
+        o += '}';
+        return o.c_str();
+    }
+
+    remove(SESSION_SCRATCH);
+    o += "true,\"ending\":";
+    jsonString(o, grid.ending == thSession::ENDS ? "ends"
+                : grid.ending == thSession::LOOPS ? "loops" : "cycles");
+    o += ",\"loopTo\":";
+    jsonString(o, grid.loopTo);
+    o += ",\"cueKnob\":";
+    jsonString(o, grid.cueKnob);
+    o += ",\"columns\":[";
+
+    for (size_t i = 0; i < grid.columns.size(); i++)
+    {
+        const thSession::Column &c = grid.columns[i];
+
+        o += i ? ",{\"name\":" : "{\"name\":";
+        jsonString(o, c.name);
+        o += ",\"length\":";
+        jsonString(o, c.length);
+        o += c.hold ? ",\"hold\":true" : ",\"hold\":false";
+        o += c.playing ? ",\"playing\":true" : ",\"playing\":false";
+        o += c.cued ? ",\"cued\":true}" : ",\"cued\":false}";
+    }
+
+    o += "],\"rows\":[";
+
+    for (size_t i = 0; i < grid.rows.size(); i++)
+    {
+        const thSession::Row &r = grid.rows[i];
+        int channel = -1;
+
+        if (!r.knob)
+        {
+            ComposerCanvas::Selection sel;
+
+            sel.kind = ComposerCanvas::Selection::CHAIN;
+            sel.chain = i;
+            channel = sched_ != NULL ? ComposerCanvas::channelOf(sched_, sel)
+                                     : -1;
+        }
+
+        o += i ? ",{\"name\":" : "{\"name\":";
+        jsonString(o, r.name);
+        o += r.knob ? ",\"knob\":true" : ",\"knob\":false";
+        o += r.notes ? ",\"notes\":true" : ",\"notes\":false";
+        o += r.cues ? ",\"cues\":true" : ",\"cues\":false";
+        o += ",\"channel\":";
+        jsonInt(o, channel);
+        o += ",\"cells\":[";
+
+        for (size_t k = 0; k < r.cells.size(); k++)
+        {
+            if (k)
+                o += ',';
+
+            if (r.cells[k].written)
+                jsonNumber(o, r.cells[k].value);
+            else
+                o += "null";
+        }
+
+        o += "]}";
+    }
+
+    o += "]}";
+    return o.c_str();
+}
+
+/* An edit to the grid of `text' (thSessionEdit, `kind' its Kind): {text}
+ * made, "" if refused; {why} for the refusal; and {warn}, which stops an
+ * edit not `confirmed' before it is made, for the page to ask first. */
+EMSCRIPTEN_KEEPALIVE const char *tw_session_edit (const char *text, int kind,
+                                                  const char *section,
+                                                  const char *row,
+                                                  const char *name,
+                                                  const char *length,
+                                                  const char *after,
+                                                  double value, int set,
+                                                  int confirmed)
+{
+    thSession grid;
+    thSessionEdit e;
+    std::string why, warn, out;
+    std::string &o = sessionJson_;
+
+    e.kind = (thSessionEdit::Kind)kind;
+    e.section = section ? section : "";
+    e.row = row ? row : "";
+    e.name = name ? name : "";
+    e.length = length ? length : "";
+    e.after = after ? after : "";
+    e.value = value;
+    e.set = set != 0;
+
+    if (text != NULL && writeFile(SESSION_SCRATCH, text) &&
+        session_.build(SESSION_SCRATCH, -1, -1, grid, why) &&
+        session_.propose(e, why, warn) && (warn.empty() || confirmed) &&
+        session_.apply(SESSION_SCRATCH, e, why) == thcGenEdit::OK)
+    {
+        FILE *f = fopen(SESSION_SCRATCH, "rb");
+        char buf[4096];
+        size_t got;
+
+        while (f != NULL && (got = fread(buf, 1, sizeof buf, f)) > 0)
+            out.append(buf, got);
+
+        if (f != NULL)
+            fclose(f);
+    }
+
+    remove(SESSION_SCRATCH);
+    o = "{\"text\":";
+    jsonString(o, out);
+    o += ",\"why\":";
+    jsonString(o, why);
+    o += ",\"warn\":";
+    jsonString(o, warn);
+    o += '}';
+    return o.c_str();
+}
+
+/* What a click on chain `chain''s cell in `section' sets it to
+ * (SessionModel::toggle), against the grid of `text'. */
+EMSCRIPTEN_KEEPALIVE double tw_session_toggle (const char *text,
+                                               const char *section,
+                                               const char *chain)
+{
+    thSession grid;
+    std::string why;
+
+    if (text == NULL || section == NULL || chain == NULL ||
+        !writeFile(SESSION_SCRATCH, text))
+        return NAN;
+
+    const bool built = session_.build(SESSION_SCRATCH, -1, -1, grid, why);
+
+    remove(SESSION_SCRATCH);
+
+    return built ? session_.toggle(section, chain).value : NAN;
 }
 
 /* Why the last tw_gen_freeze wrote nothing. */

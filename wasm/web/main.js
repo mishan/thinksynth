@@ -70,6 +70,7 @@ import { createComposerView } from './composerview.js';
 import { createEvolve } from './evolveui.js';
 import { createGrow } from './growui.js';
 import { createSeqView } from './seqview.js';
+import { LEVEL, createSessionView } from './sessionview.js';
 import { createSynth } from './host.js';
 import { TextHistory } from './history.js';
 import { micAvailable, openMic } from './mic.js';
@@ -145,10 +146,10 @@ const VELOCITY = 100;
  * The room page keeps a list of its own, and panecheck.mjs holds the two
  * against each other where they overlap.
  */
-const PANES = ['roll', 'bandview', 'seqview', 'composerview', 'knobs',
-               'channelbox', 'paramview', 'nodeview', 'keyboard', 'patchsource',
-               'growview', 'piecesource', 'detail', 'packs', 'videoview',
-               'cameraview'];
+const PANES = ['roll', 'bandview', 'seqview', 'composerview', 'sessionview',
+               'knobs', 'channelbox', 'paramview', 'nodeview', 'keyboard',
+               'patchsource', 'growview', 'piecesource', 'detail', 'packs',
+               'videoview', 'cameraview'];
 
 /* Which of them belong to which mode. Everything not named here is in
    all of them -- the keys, the parameters, the graph, the numbers.
@@ -158,12 +159,13 @@ const PANES = ['roll', 'bandview', 'seqview', 'composerview', 'knobs',
    .gen it came out as. What it deliberately has not got is the composer
    canvas -- somebody laying down a pattern does not need to be shown
    that it is a chain of stages, and the mode exists to not tell them. */
-const PIECE_PANES = ['roll', 'seqview', 'composerview', 'knobs',
-                     'channelbox', 'piecesource'];
+const PIECE_PANES = ['roll', 'seqview', 'composerview', 'sessionview',
+                     'knobs', 'channelbox', 'piecesource'];
 const SEQ_PANES = ['roll', 'seqview', 'channelbox', 'piecesource'];
 
 /* The band is a piece as its players: their pane, and what is playing. */
-const BAND_PANES = ['roll', 'bandview', 'knobs', 'channelbox', 'piecesource'];
+const BAND_PANES = ['roll', 'bandview', 'sessionview', 'knobs', 'channelbox',
+                    'piecesource'];
 const PATCH_PANES = ['patchsource'];
 const GROW_PANES = ['patchsource', 'growview'];
 
@@ -233,7 +235,7 @@ const BAND_LAYOUT = {
         { dir: 'col', size: [0.36, 0.28, 0.36], kids: [
             { tabs: ['keyboard'] },
             { tabs: ['roll'] },
-            { tabs: ['knobs', 'channelbox', 'paramview',
+            { tabs: ['knobs', 'sessionview', 'channelbox', 'paramview',
                      'piecesource'] }] }],
 };
 
@@ -244,7 +246,7 @@ const PIECE_LAYOUT = {
                a tab apart: what somebody opens a piece to do is play
                with it, and the canvas is what they look at once they
                want to know how it is put together. */
-            { tabs: ['seqview', 'composerview'] },
+            { tabs: ['seqview', 'composerview', 'sessionview'] },
             { tabs: ['roll'] }] },
         { dir: 'col', size: [0.26, 0.24, 0.26, 0.24], kids: [
             { tabs: ['knobs'] },
@@ -299,12 +301,14 @@ const phoneLayouts = (keys = keysShare()) => ({
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
 
     /* The players are what the band is for; the keys are a tab. */
-    band: { tabs: ['bandview', 'keyboard', 'roll', 'knobs', 'channelbox'] },
+    band: { tabs: ['bandview', 'keyboard', 'roll', 'knobs', 'sessionview',
+                   'channelbox'] },
 
     /* The roll in front: what the piece is doing is what a phone is
        for watching; the knobs are a tab away. */
     piece: { dir: 'col', size: [1 - keys, keys], kids: [
-        { tabs: ['roll', 'knobs', 'seqview', 'channelbox', 'paramview'] },
+        { tabs: ['roll', 'knobs', 'seqview', 'sessionview', 'channelbox',
+                 'paramview'] },
         { tabs: ['keyboard'] }] },
 });
 
@@ -316,9 +320,9 @@ const SIDEWAYS_LAYOUTS = {
     patch: { tabs: ['keyboard', 'paramview', 'nodeview'] },
     grow: { tabs: ['growview', 'keyboard', 'paramview', 'nodeview'] },
     seq: { tabs: ['seqview', 'keyboard', 'paramview', 'roll'] },
-    band: { tabs: ['bandview', 'keyboard', 'roll', 'knobs'] },
-    piece: { tabs: ['roll', 'keyboard', 'knobs', 'seqview', 'channelbox',
-                    'paramview'] },
+    band: { tabs: ['bandview', 'keyboard', 'roll', 'knobs', 'sessionview'] },
+    piece: { tabs: ['roll', 'keyboard', 'knobs', 'seqview', 'sessionview',
+                    'channelbox', 'paramview'] },
 };
 
 /* The two popovers, which live in the layout's overlay and are moved to
@@ -724,6 +728,7 @@ function pickChannel (c, { chosen = false, canvas = false } = {})
 
     showKeyChannels(c);
     showChannels({ tracks: false });
+    session.draw(sessionGrid, c);
     paramsWanted = c;
     paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
 }
@@ -1435,6 +1440,9 @@ function forgetHistory ()
     const h = history();
 
     h?.clear();
+
+    /* And the session grid's remembered levels. */
+    synth?.sessionForget();
 
     /* And the graph's, for the instruments of the piece that went. */
     for (const [key, graph] of nodeHistories)
@@ -2508,10 +2516,116 @@ async function followPiece ()
         keysWhereTheySound();
         showChannels();
         showNodes();
+        await showSession();
         await showParams();
     })();
 
     await drawn;
+}
+
+/* ---- the session grid ----
+ *
+ * The piece's sections as columns and its chains and knobs as rows
+ * (sessionview.js), read by the worklet from the text loaded. An edit is
+ * made to that text there and goes in as any other (applyText), so while
+ * the piece plays it stays where it is.
+ */
+let sessionGrid = null;
+let sessionDrawn = Promise.resolve();
+let sessionEditing = Promise.resolve();
+
+const session = createSessionView({
+    root: $('sessiongrid'),
+    said: $('sessionsaid'),
+
+    /* Playing, for the end of the section playing or with Shift the next
+       bar line; stopped, there. */
+    onCue: (section, bar) =>
+    {
+        if (lastTape?.running === true)
+        {
+            synth?.transport(bar ? 'cueBar' : 'cueEnd', section);
+            session.say(`${sessionGrid.columns[section].name} cued for ` +
+                        (bar ? 'the next bar' : 'the end of this section'));
+        }
+        else
+            synth?.transport('seekSection', section);
+    },
+
+    onEdit: (edit) => sessionWork(() => sessionEdit(edit)),
+
+    onToggle: (section, chain) => sessionWork(async () =>
+    {
+        const was = loadedText;
+        const { value } = await synth.sessionToggle(was, section, chain);
+
+        if (was === loadedText && Number.isFinite(value))
+            await sessionEdit({ kind: LEVEL, section, row: chain, value });
+    }),
+
+    onPick: (c) => pickChannel(c, { chosen: true }),
+});
+
+/* A click's edit, one after another and something settled() waits for. */
+function sessionWork (fn)
+{
+    sessionEditing = sessionEditing.catch(() => {}).then(fn);
+    return sessionEditing;
+}
+
+/* The grid of the piece loaded, drawn again. */
+function showSession ()
+{
+    if (synth === null)
+        return sessionDrawn;
+
+    const text = loadedText;
+    const playing = lastTape?.section ?? -1;
+    const cued = lastTape?.sectionCued ?? -1;
+
+    sessionDrawn = sessionDrawn.catch(() => {}).then(async () =>
+    {
+        const { grid } = await synth.session(text, playing, cued);
+
+        if (text === loadedText)
+        {
+            sessionGrid = piece === null ? null : grid;
+            session.draw(sessionGrid, keyChannel());
+        }
+    });
+
+    return sessionDrawn;
+}
+
+/* On moveStage's terms about text that was never loaded; one that warns
+   first goes in only if the person says so. */
+async function sessionEdit (edit)
+{
+    const was = $('gen').value;
+
+    if (was !== loadedText || loading > 0)
+    {
+        status('The text has changes that are not loaded; load them ' +
+               'before changing the session.', true);
+        return;
+    }
+
+    let r = await synth.sessionEdit(was, edit);
+
+    if (r.text === '' && r.warn !== '' && confirm(`${r.warn}. Go ahead?`))
+        r = await synth.sessionEdit(was, edit, true);
+
+    if (r.text === '' || $('gen').value !== was || loadedText !== was ||
+        loading > 0)
+    {
+        if (r.text === '' && r.warn === '')
+            session.say(r.why === '' ? 'That did not change the piece'
+                                     : r.why);
+        await showSession();
+        return;
+    }
+
+    await applyText(r.text);
 }
 
 /* ---- the sequence ----
@@ -3574,6 +3688,9 @@ async function start ()
                                                 feeds it: without this
                                                 the scope stays blank. */
                                              nodes?.feed(m.probes);
+                                             session.at(m.section,
+                                                        m.sectionCued,
+                                                        m.running === true);
                                              band.at(m.section, m.running,
                                                      m.now, m.sectionStart,
                                                      m.sectionLength);
@@ -4493,16 +4610,22 @@ window.solo = {
 
     settled: async () =>
     {
-        for (let was = null, drew = null, chose = null, ed = null, pd = null;
+        for (let was = null, drew = null, chose = null, ed = null, pd = null,
+                 sd = null, se = null;
              was !== quiet || drew !== drawn || chose !== picking ||
-             ed !== editing || pd !== paramsDrawn; )
+             ed !== editing || pd !== paramsDrawn || sd !== sessionDrawn ||
+             se !== sessionEditing; )
         {
+            se = sessionEditing;
+            await sessionEditing.catch(() => {});
             was = quiet;
             drew = drawn;
             chose = picking;
             ed = editing;
             pd = paramsDrawn;
+            sd = sessionDrawn;
 
+            await sessionDrawn.catch(() => {});
             await picking;
             await quiet;
             await editing;
