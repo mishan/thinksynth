@@ -1664,6 +1664,239 @@ static double bin (const vector<float> &v, size_t from, size_t n, double hz)
     return 2.0 * sqrt(re * re + im * im) / (double)n;
 }
 
+static double dB (double linear);
+static double meanOf (const vector<float> &v, size_t from);
+static double hannBin (const vector<float> &v, size_t from, size_t n,
+                       double hz);
+
+/* The pitch of `v' from `from' for `n' samples: the autocorrelation's
+   peak between a period of `lo' and of `hi' Hz, normalized so a longer
+   lag is not favoured, and the peak placed between samples by a parabola. */
+static double pitchOf (const vector<float> &v, size_t from, size_t n,
+                       double lo, double hi)
+{
+    const int R = TH_DEFAULT_SAMPLES;
+    const size_t most = (size_t)(R / lo) + 2, least = (size_t)(R / hi);
+    vector<double> ac(most + 2, 0);
+
+    if (from + n + most + 2 > v.size())
+        return 0;
+
+    for (size_t lag = least > 1 ? least - 1 : 1; lag <= most + 1; lag++)
+    {
+        double sum = 0, e0 = 0, e1 = 0;
+
+        for (size_t i = 0; i < n; i++)
+        {
+            sum += (double)v[from + i] * v[from + i + lag];
+            e0 += (double)v[from + i] * v[from + i];
+            e1 += (double)v[from + i + lag] * v[from + i + lag];
+        }
+
+        ac[lag] = e0 > 0 && e1 > 0 ? sum / sqrt(e0 * e1) : 0;
+    }
+
+    /* The first lag within 1% of the best, so a period's double is not
+       taken for it. */
+    double best = 0;
+
+    for (size_t lag = least; lag <= most; lag++)
+        best = fmax(best, ac[lag]);
+
+    size_t k = least;
+
+    for (size_t lag = least; lag <= most; lag++)
+        if (ac[lag] >= best * 0.99 && ac[lag] >= ac[lag - 1] &&
+            ac[lag] >= ac[lag + 1])
+        {
+            k = lag;
+            break;
+        }
+
+    const double a = ac[k - 1], b = ac[k], c = ac[k + 1];
+    const double d = a - 2 * b + c;
+
+    return R / ((double)k + (d != 0 ? 0.5 * (a - c) / d : 0));
+}
+
+/* osc::reed at `freq', `pressure' and `position', breath noise 0. */
+static vector<NodeSpec> reedGraph (float freq, float pressure, float position,
+                                   float stiffness = 0.5f, float noise = 0)
+{
+    NodeSpec reed;
+
+    reed.name = "reed";
+    reed.spelling = "osc/reed";
+    reed.values.push_back(Value{ "freq", freq });
+    reed.values.push_back(Value{ "pressure", pressure });
+    reed.values.push_back(Value{ "position", position });
+    reed.values.push_back(Value{ "stiffness", stiffness });
+    reed.values.push_back(Value{ "noise", noise });
+
+    return { reed };
+}
+
+static void checkReed (const string &pluginPath)
+{
+    const int R = TH_DEFAULT_SAMPLES;
+    auto play = [&] (const vector<NodeSpec> &spec, unsigned n,
+                     vector<float> &got)
+    {
+        vector<Watch> watch = { Watch{ "reed", "out" } };
+        vector< vector<float> > out;
+        string why;
+
+        if (!render(pluginPath, spec, watch, 256, n, out, why))
+        {
+            fail("osc::reed renders", why);
+            return false;
+        }
+
+        got = out[0];
+        return true;
+    };
+    const auto hz = [] (int note) { return 440 * pow(2.0, (note - 69) / 12.0); };
+
+    /* In tune: a clarinet from C2 to C7 and a saxophone from G#2 to E5,
+       every fifth, within 5 cents. */
+    {
+        double worst = 0;
+        string said;
+
+        for (int note = 36; note <= 96; note += 7)
+            for (float pos : { 0.5f, 0.2f })
+            {
+                if (pos < 0.3f && (note < 44 || note > 76))
+                    continue;
+
+                vector<float> got;
+
+                if (!play(reedGraph((float)hz(note), 0.6f, pos), R, got))
+                    continue;
+
+                const double f = pitchOf(got, R * 2 / 5, R / 5, 20, 4000);
+                const double cents = f > 0 ? 1200 * log2(f / hz(note)) : 1e9;
+
+                if (fabs(cents) > worst)
+                {
+                    worst = fabs(cents);
+                    said = "note " + num(note) + " at position " + num(pos) +
+                           ": " + num(cents) + " cents";
+                }
+            }
+
+        okOrFail(worst < 5, "osc::reed: in tune within 5 cents", said);
+    }
+
+    /* It speaks, and it does not: under the threshold breath the loop dies
+       away; at 0.6 it is sounding within 100 ms. */
+    {
+        vector<float> under, over;
+
+        if (play(reedGraph(220, 0.3f, 0.5f), R * 2, under) &&
+            play(reedGraph(220, 0.6f, 0.5f), R / 2, over))
+        {
+            const double quiet = rms(under, R);
+            double early = 0;
+
+            for (int i = R / 20; i < R / 10; i++)
+                early += (double)over[i] * over[i];
+
+            early = sqrt(early / (R / 20));
+            okOrFail(quiet < 1e-3 && early > 0.05,
+                     "osc::reed: under its breath it does not speak; over it, "
+                     "at once",
+                     "under " + num(quiet) + ", over " + num(early));
+        }
+    }
+
+    /* A cylinder's odd harmonics, a cone's every one. */
+    {
+        vector<float> clarinet, sax;
+
+        if (play(reedGraph(147, 0.6f, 0.5f), R, clarinet) &&
+            play(reedGraph(147, 0.6f, 0.2f), R, sax))
+        {
+            const double f = pitchOf(clarinet, R / 2, R / 5, 50, 500);
+            const double c1 = hannBin(clarinet, R / 2, R / 4, f);
+            const double c2 = hannBin(clarinet, R / 2, R / 4, 2 * f);
+            const double c3 = hannBin(clarinet, R / 2, R / 4, 3 * f);
+            const double g = pitchOf(sax, R / 2, R / 5, 50, 500);
+            const double s1 = hannBin(sax, R / 2, R / 4, g);
+            const double s2 = hannBin(sax, R / 2, R / 4, 2 * g);
+
+            okOrFail(dB(c3 / c2) > 10 && dB(c1 / c2) > 10 && dB(s2 / s1) > -10,
+                     "osc::reed: a clarinet's odd harmonics, a saxophone's "
+                     "every one",
+                     "clarinet 3rd over 2nd " + num(dB(c3 / c2)) +
+                     " dB, sax 2nd under 1st " + num(dB(s2 / s1)) + " dB");
+        }
+    }
+
+    /* No DC: the breath is a steady push, and none of it comes out as an
+       offset. */
+    {
+        vector<float> clarinet, sax;
+
+        if (play(reedGraph(220, 0.7f, 0.5f), R, clarinet) &&
+            play(reedGraph(220, 0.7f, 0.2f), R, sax))
+            okOrFail(fabs(meanOf(clarinet, R / 2)) < 1e-3 &&
+                     fabs(meanOf(sax, R / 2)) < 1e-3,
+                     "osc::reed: no DC", num(meanOf(clarinet, R / 2)) +
+                     " and " + num(meanOf(sax, R / 2)));
+    }
+
+    /* Whatever it is asked: finite, and bounded. */
+    {
+        uint32_t lcg = 5;
+        auto any = [&lcg] ()
+        {
+            lcg = lcg * 1664525u + 1013904223u;
+            return (float)(lcg >> 8) / (float)(1u << 24);
+        };
+        double worst = 0;
+        bool finite = true;
+
+        for (int k = 0; k < 60; k++)
+        {
+            vector<float> got;
+
+            if (!play(reedGraph(30 + 3000 * any() * any(), any(),
+                                0.2f + 0.3f * any(), any(), any()), R / 4,
+                      got))
+                continue;
+
+            finite = finite && allFinite(got);
+            worst = fmax(worst, peak(got, 0));
+        }
+
+        okOrFail(finite && worst < 1.2, "osc::reed: any breath, reed and note "
+                                        "finite and bounded",
+                 "peak " + num(worst));
+    }
+
+    /* Nothing that is not a number gets out. */
+    {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        bool fine = true;
+
+        for (int which = 0; which < 5; which++)
+        {
+            vector<NodeSpec> spec = reedGraph(220, 0.6f, 0.5f);
+            vector<float> got;
+
+            spec[0].values[which].value = nan;
+            fine = fine && play(spec, R / 4, got) && allFinite(got);
+        }
+
+        okOrFail(fine, "osc::reed: a NaN in any input, finite out", "");
+    }
+
+    windowsAgree(pluginPath, reedGraph(220, 0.6f, 0.3f, 0.5f, 0.3f), "reed",
+                 "out", "osc::reed: one sample at a time and five hundred "
+                 "agree", 6000);
+}
+
 static void checkChorus (const string &pluginPath)
 {
     /* A whole second of a 441 Hz sine and a 3 Hz sweep: both are a whole
@@ -13495,6 +13728,7 @@ int main (int argc, char **argv)
     checkSlew(pluginPath);
     checkMetals(pluginPath);
     checkSvf(pluginPath);
+    checkReed(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);

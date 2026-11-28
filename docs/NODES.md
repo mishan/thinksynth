@@ -1373,6 +1373,20 @@ Phase distortion: a cosine read through a bent phase
 | `edge` | out | On the sample the cycle wraps, how far past it the wrap falls, 0 to 1; 0 elsewhere. A slave's `reset' |  | 0 to 1 | samples |  |
 | `state` | state |  |  |  |  |  |
 
+### osc::reed
+
+Reed (a single reed blown into a bore)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `freq` | in | The note |  |  | Hz |  |
+| `pressure` | in | Breath: under about 0.5 it does not speak, more is louder and brighter |  | 0 to 1 |  |  |
+| `stiffness` | in | The reed's: stiffer is brighter and needs more breath | 0.5 | 0 to 1 |  |  |
+| `noise` | in | Breath noise in the pressure |  | 0 to 1 |  |  |
+| `position` | in | Where along the bore the reed sits: 0.5 a clarinet, 0.2 toward a saxophone | 0.5 | 0.2 to 0.5 |  |  |
+| `out` | out | The bore's sound at the reed |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::sample
 
 Sample Player (a wav at a voice's pitch)
