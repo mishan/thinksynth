@@ -43,7 +43,7 @@ think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
                                    inkshape rds ds dshape divbuf res1pole
                                    res2pole res2pole2 resgrav moog svf eq
                                    vowel pianostring sympathetic bar bell
-                                   plate membrane)
+                                   plate membrane lpg)
 
 think_add_plugin_category(impulse  sine parabola square blackman)
 

@@ -1920,6 +1920,233 @@ static void checkFold (const string &pluginPath)
                  "dist::fold: one sample at a time and five hundred agree");
 }
 
+/* filt::lpg after a source: a sine, a saw (waveform 1), or a constant
+   (freq 0, the oscillator's DC through `amp' at its first sample: use
+   `constant' for that instead). */
+static vector<NodeSpec> lpgGraph (float freq, int waveform, float control,
+                                  float strike, float mode,
+                                  float open = 5, float close = 150)
+{
+    NodeSpec src, gate;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+    src.values.push_back(Value{ "freq", freq });
+    src.values.push_back(Value{ "amp", 0.5f });
+    src.values.push_back(Value{ "waveform", (float)waveform });
+
+    gate.name = "gate";
+    gate.spelling = "filt/lpg";
+    gate.values.push_back(Value{ "control", control });
+    gate.values.push_back(Value{ "strike", strike });
+    gate.values.push_back(Value{ "mode", mode });
+    gate.values.push_back(Value{ "open", open });
+    gate.values.push_back(Value{ "close", close });
+    gate.wires.push_back(Wire{ "in", "src", "out" });
+
+    return { src, gate };
+}
+
+static void checkLpg (const string &pluginPath)
+{
+    const int R = TH_DEFAULT_SAMPLES;
+    auto play = [&] (const vector<NodeSpec> &spec, unsigned n,
+                     vector< vector<float> > &got)
+    {
+        vector<Watch> watch = { Watch{ "src", "out" }, Watch{ "gate", "out" },
+                                Watch{ "gate", "play" } };
+        string why;
+
+        if (!render(pluginPath, spec, watch, 256, n, got, why))
+        {
+            fail("filt::lpg renders", why);
+            return false;
+        }
+
+        return true;
+    };
+
+    /* The vactrol, seen through the gain alone (mode 2) on a held level:
+       v^2 is what comes out, so v is its root. A strike charges it to
+       `level' however slow it is to open, it falls in about `close',
+       slower near shut, and `play' ends once it has rung out. */
+    {
+        bool full = true;
+        string said;
+
+        for (float open : { 5.0f, 50.0f })
+        {
+            vector<NodeSpec> spec = lpgGraph(0, 0, 0, 1, 2, open, 150);
+            NodeSpec dc;
+
+            dc.name = "src";
+            dc.spelling = "math/add";
+            dc.values.push_back(Value{ "in0", 0.5f });
+            dc.values.push_back(Value{ "in1", 0 });
+            spec[0] = dc;
+
+            vector< vector<float> > got;
+
+            if (!play(spec, R * 6, got))
+            {
+                full = false;
+                continue;
+            }
+
+            size_t top = 0;
+
+            for (size_t i = 0; i < got[1].size(); i++)
+                if (got[1][i] > got[1][top])
+                    top = i;
+
+            const double vTop = sqrt(got[1][top] / 0.5);
+            auto when = [&] (double share)
+            {
+                for (size_t i = top; i < got[1].size(); i++)
+                    if (sqrt(got[1][i] / 0.5) <= vTop * share)
+                        return (double)(i - top) / R;
+
+                return 1e9;
+            };
+            const double half = when(0.5), quarter = when(0.25) - half;
+            size_t ended = got[2].size();
+
+            for (size_t i = got[2].size(); i > 0; i--)
+                if (got[2][i - 1] > 0)
+                {
+                    ended = i;
+                    break;
+                }
+
+            full = full && vTop > 0.985 && half < quarter &&
+                   half > 0.05 && half < 0.3 && ended < got[2].size() &&
+                   got[2][got[2].size() - 1] == 0;
+            said += "open " + num(open) + ": peak " + num(vTop) +
+                    ", to half " + num(half) + " s, half to a quarter " +
+                    num(quarter) + " s, rung out at " +
+                    num((double)ended / R) + " s; ";
+        }
+
+        okOrFail(full, "filt::lpg: a strike charges it full, it falls slower "
+                       "near shut, and `play' ends when it has rung out",
+                 said);
+    }
+
+    /* Struck in mode 0, a saw gets darker as it fades: the share of its
+       energy above 2 kHz falls from the first 30 ms to 200 ms on. */
+    {
+        vector< vector<float> > got;
+
+        if (play(lpgGraph(220, 1, 0, 1, 0), R, got))
+        {
+            auto bright = [&] (size_t from)
+            {
+                double hi = 0, all = 0;
+
+                for (int h = 1; h <= 40; h++)
+                {
+                    const double e = pow(bin(got[1], from, 1323, 220.0 * h), 2);
+
+                    all += e;
+                    if (220.0 * h > 2000)
+                        hi += e;
+                }
+
+                return hi / all;
+            };
+            const double early = bright(441), late = bright(R / 5);
+
+            okOrFail(late < early * 0.5, "filt::lpg: a struck note darkens as "
+                                         "it fades",
+                     num(early) + " of it above 2 kHz early, " + num(late) +
+                     " later");
+        }
+    }
+
+    /* Each mode, held open: 0 and 1 a low pass at 20 kHz (a 200 Hz sine
+       through at unity), 2 no filter at all (out is in, sample for sample);
+       held shut, mode 0 and 2 silence, and mode 1 the filter alone at
+       20 Hz, the sine dark but not gone. */
+    {
+        vector< vector<float> > a, b, c, shut0, shut1, shut2;
+        const bool rendered =
+            play(lpgGraph(200, 0, 1, 0, 0), R / 2, a) &&
+            play(lpgGraph(200, 0, 1, 0, 1), R / 2, b) &&
+            play(lpgGraph(200, 1, 1, 0, 2), R / 2, c) &&
+            play(lpgGraph(200, 0, 0, 0, 0), R / 2, shut0) &&
+            play(lpgGraph(200, 0, 0, 0, 1), R / 2, shut1) &&
+            play(lpgGraph(200, 0, 0, 0, 2), R / 2, shut2);
+        bool same = rendered;
+
+        for (size_t i = R / 10; same && i < c[1].size(); i++)
+            same = fabsf(c[1][i] - c[0][i]) < 1e-5f;
+
+        okOrFail(rendered && same &&
+                 fabs(bin(a[1], R / 10, 4410, 200) / 0.5 - 1) < 0.01 &&
+                 fabs(bin(b[1], R / 10, 4410, 200) / 0.5 - 1) < 0.01 &&
+                 peak(shut0[1], 0) == 0 && peak(shut2[1], 0) == 0 &&
+                 bin(shut1[1], R / 10, 4410, 200) < 0.05 &&
+                 bin(shut1[1], R / 10, 4410, 200) > 1e-4,
+                 "filt::lpg: each mode open and shut",
+                 rendered ? "open 0: " + num(bin(a[1], R / 10, 4410, 200)) +
+                            ", open 1: " + num(bin(b[1], R / 10, 4410, 200)) +
+                            ", shut 1: " +
+                            num(bin(shut1[1], R / 10, 4410, 200))
+                          : "");
+    }
+
+    /* Opened and shut a thousand times a second: finite and bounded. */
+    {
+        vector<NodeSpec> spec = lpgGraph(330, 1, 0, 0, 0, 0.1f, 0.1f);
+        NodeSpec sq;
+
+        sq.name = "sq";
+        sq.spelling = "osc/simple";
+        sq.values.push_back(Value{ "freq", 1000 });
+        sq.values.push_back(Value{ "amp", 1 });
+        sq.values.push_back(Value{ "waveform", 2 });
+        spec.push_back(sq);
+        spec[1].values.erase(spec[1].values.begin());
+        spec[1].wires.push_back(Wire{ "control", "sq", "out" });
+
+        vector< vector<float> > got;
+
+        if (play(spec, R, got))
+            okOrFail(allFinite(got[1]) && peak(got[1], 0) <= 1,
+                     "filt::lpg: opened and shut at 1 kHz, finite and bounded",
+                     num(peak(got[1], 0)));
+    }
+
+    /* Nothing that is not a number gets out. */
+    {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        bool fine = true;
+
+        for (int which = 0; which < 4; which++)
+        {
+            vector<NodeSpec> spec = lpgGraph(330, 1, 0.5f, 1, 0);
+
+            if (which == 0)
+                spec[1].values[0].value = nan;          /* control */
+            else if (which == 1)
+                spec[1].values.push_back(Value{ "level", nan });
+            else if (which == 2)
+                spec[1].values.push_back(Value{ "res", nan });
+            else
+                spec[0].values[1].value = nan;          /* the source */
+
+            vector< vector<float> > got;
+
+            fine = fine && play(spec, R / 4, got) && allFinite(got[1]);
+        }
+
+        okOrFail(fine, "filt::lpg: a NaN in any input, finite out", "");
+    }
+
+    windowsAgree(pluginPath, lpgGraph(330, 1, 0.2f, 1, 0), "gate", "out",
+                 "filt::lpg: one sample at a time and five hundred agree");
+}
+
 static void checkChorus (const string &pluginPath)
 {
     /* A whole second of a 441 Hz sine and a 3 Hz sweep: both are a whole
@@ -13752,6 +13979,7 @@ int main (int argc, char **argv)
     checkMetals(pluginPath);
     checkSvf(pluginPath);
     checkFold(pluginPath);
+    checkLpg(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);
