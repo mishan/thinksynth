@@ -3786,6 +3786,7 @@ try
         await settled();
 
         const graphBefore = await page.inputValue('#nodefile');
+        const voiceOn = await page.evaluate(() => window.solo.node()?.channel);
 
         await page.click('#play');
 
@@ -3795,6 +3796,7 @@ try
             .then(() => true, () => false);
 
         const graphAfter = await page.inputValue('#nodefile');
+        const graphOn = await page.evaluate(() => window.solo.node()?.channel);
 
         await page.click('#stop');
         await settled();
@@ -3802,9 +3804,11 @@ try
         check(before === 'voice, the piece\'s' && swapped,
               'a swap while the piece plays is named on its channel\'s row: ' +
               `${before}, then ${await own()}`);
-        check(graphBefore === 'amb01.dsp' && graphAfter === 'organ0.dsp',
-              'and Patch graph follows it to the instrument now there: ' +
-              `${graphBefore}, then ${graphAfter}`);
+        check(graphBefore === 'amb01.dsp' && graphAfter === 'organ0.dsp' &&
+              graphOn === voiceOn,
+              'and Patch graph follows it to the instrument now there, live ' +
+              'on the channel holding it: ' +
+              `${graphBefore} on ${voiceOn}, then ${graphAfter} on ${graphOn}`);
 
         await page.selectOption('#paramchan', { value: keysWere });
         await settled();

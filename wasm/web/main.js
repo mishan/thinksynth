@@ -4268,11 +4268,18 @@ function nodeChannel ()
     if (playsPatch())
         return PATCH_CHANNEL;
 
-    const on = (piece?.instruments ?? []).filter(
-        (i) => i.dsp === $('nodefile').value);
+    /* The .dsp a channel plays now: the instrument a swap put there, or
+       the one declared on it. */
+    const insts = piece?.instruments ?? [];
+    const on = (c) => insts.find((i) => i.name === (holding[c] ||
+        insts.find((d) => d.channel === c)?.name))?.dsp;
+    const file = $('nodefile').value;
 
-    return (on.find((i) => i.channel === keyChannel()) ?? on[0])?.channel ??
-           -1;
+    if (on(keyChannel()) === file)
+        return keyChannel();
+
+    return [...insts.map((i) => i.channel), ...holding.keys()]
+        .find((c) => on(c) === file) ?? -1;
 }
 
 /* The graph of the current channel's instrument -- the one it holds now,
