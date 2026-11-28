@@ -9,6 +9,7 @@ b32504b1b640679d  bass.dsp
 1a0f0cfeff0bb98d  bdshaped.dsp
 1181ad71330433e9  bed.dsp
 5bc3a74d67cf7265  bend.dsp
+a11a6a60612fc295  bongo.dsp
 4272dc38171f5855  bowl.dsp
 db33994f4b82398d  brass.dsp
 d89609cf920c240d  breakloop.dsp
@@ -161,3 +162,4 @@ aa30bd76de657875  templebell.dsp
 63044c9d9069d975  ts2.dsp
 754c6810a061caa5  violins.dsp
 848c05386ff5d575  waveguide.dsp
+0569d5b05aa5e51d  wcdrone.dsp
