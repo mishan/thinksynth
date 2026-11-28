@@ -1772,10 +1772,25 @@ try
         const typed = [await line('intro'), await line('verse'),
                        await line('chorus')];
 
+        /* Opened on a value finer than the cell shows and let go of
+           with Enter: the value as it was, not as shown. */
+        await page.focus(cell(1, 2));
+        await page.keyboard.press('Enter');
+        await page.keyboard.type('0.12345');
+        await page.keyboard.press('Enter');
+        await settled();
+        await page.focus(cell(1, 2));
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Enter');
+        await settled();
+        typed.push(await line('verse'));
+
         check(!/@k/.test(typed[0]) && /\{ @k = 0\.6; \}/.test(typed[1]) &&
-              /kick = 1\.2;/.test(typed[2]),
+              /kick = 1\.2;/.test(typed[2]) &&
+              /kick = 0\.12345;/.test(typed[3]),
               'a value typed into a cell, and a knob\'s taken out with ' +
-              `Delete, go into the text: ${JSON.stringify(typed)}`);
+              'Delete, go into the text, and one opened and kept stays ' +
+              `as it was: ${JSON.stringify(typed)}`);
 
         /* Arrows from the knob's first cell: up to the chain, right to
            its next section; one cell in the tab order. */
@@ -1932,11 +1947,11 @@ try
               'muting the chain a cue knob follows asks first: ' +
               JSON.stringify({ asked, kept, muted }));
 
-        const findings = (await axeFindings(page, ['#evolve']))
-            .filter((f) => /session/.test(f));
+        const findings = await axeFindings(page, ['#evolve']);
 
         check(findings.length === 0,
-              `the session grid has no accessibility findings: ${findings}`);
+              'the page has no accessibility findings with the session ' +
+              `grid on it: ${findings}`);
 
         await page.click('#rewind');
         await load(was);

@@ -100,7 +100,7 @@ export function createSessionView ({ root, said, onCue, onEdit, onToggle,
         const section = grid.columns[column].name;
 
         input.inputMode = 'decimal';
-        input.value = cell === null ? '' : shown(cell);
+        input.value = cell === null ? '' : String(cell);
         input.setAttribute('aria-label',
             `${row.knob ? '@' : ''}${row.name} in ${section}`);
 
@@ -136,6 +136,9 @@ export function createSessionView ({ root, said, onCue, onEdit, onToggle,
         input.addEventListener('keydown', (e) =>
         {
             e.stopPropagation();
+
+            if (e.isComposing)
+                return;
 
             if (e.key === 'Enter')
                 finish(true);
