@@ -1,0 +1,63 @@
+# tables.gen -- three wavetables, each moved by something else.
+#
+# Every voice here is osc::wavetable: single cycles laid end to end, a
+# note's timbre where in them it sits. wtvowels.dsp is a 110 Hz voice
+# through five vowels, and a random walk moves its `vowel' chanarg, so
+# the chords change what they say without changing a note. wtsweep.dsp
+# adds a saw's partials one at a time under an envelope: a pluck that
+# opens. wtpwm.dsp is a band-limited pulse whose width breathes under its
+# own LFO. Nothing is filtered to get its colour but the bass; the colour is
+# the table.
+#
+# Seeded, so it plays the same twice, and the browser renders it bit for
+# bit against the desktop (wasm/compare.mjs).
+
+name "Tables";
+author "Misha Nasledov";
+description "Three wavetable voices, the timbre of each moved by a walk, an envelope and an LFO.";
+category "Timbre as material";
+
+seed 2611;
+tempo 84;
+
+scale aminor "A2 C3 D3 E3 G3 A3 C4 D4 E4 G4 A4";
+
+instrument voice { dsp "wtvowels.dsp"; amp = -10 dB; a = 400 ms; r = 1200 ms; };
+instrument pluck { dsp "wtsweep.dsp"; amp = -8 dB; to = 0.9; settle = 0.3; };
+instrument bass  { dsp "wtpwm.dsp"; amp = -4 dB; cutoff = 320; };
+
+chain chords {
+    stage src gen::eno_line {
+        notes = "A3 C4 E4 G4";
+        period = 2 beats; jitter = 0.5 beats;
+        prob = 0.9; hold = 3 beats; vel = 70; vel_jitter = 8;
+    };
+    sink { instrument = voice; };
+};
+
+chain vowels {
+    stage src gen::walk {
+        min = 0; max = 1;
+        step = 0.08;
+        period = 1 beats;
+    };
+    sink { instrument = voice; chanarg = "vowel"; };
+};
+
+chain plucks {
+    stage src gen::euclid {
+        steps = 16; fills = 7; rotate = 2;
+        notes = aminor;
+        period = 0.25 beats; hold = 0.2 beats; vel = 84;
+    };
+    sink { instrument = pluck; };
+};
+
+chain bassline {
+    stage src gen::euclid {
+        steps = 8; fills = 3; rotate = 0;
+        notes = "A1 A1 E1 G1";
+        period = 0.5 beats; hold = 0.4 beats; vel = 96;
+    };
+    sink { instrument = bass; };
+};

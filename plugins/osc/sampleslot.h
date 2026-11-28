@@ -95,6 +95,10 @@ struct thSampleData
     thSampleHits hits;
     std::vector<size_t> hitAt;
     unsigned fileRate = 0, rate = 0;
+
+    /* The length of one cycle a wavetable's chunks give (`clm ', `srge',
+       `uhWT'), 0 for a file that says none. */
+    unsigned cycle = 0;
 };
 
 /* A `cuts' text as a node gives it: frames of the file as recorded, in
@@ -308,14 +312,18 @@ struct thWavIn
     }
 };
 
-/* Reads a wav from `in' into `out', mono, resampled to `rate'. `fileBytes'
-   is how many bytes `in' holds, so that a `data' chunk header claiming
-   more than there is cannot size an allocation. False and an empty `out'
-   on anything it does not understand; `why' says which. */
+/* Reads a wav from `in' into `out', mono, resampled to `rate' -- or, for
+   a `rate' of 0, as recorded, with no hits looked for: a wavetable, whose
+   frames are cycles at any rate. `fileBytes' is how many bytes `in' holds,
+   so that a `data' chunk header claiming more than there is cannot size an
+   allocation. False and an empty `out' on anything it does not understand;
+   `why' says which. A wavetable's chunks are read when they come before
+   its data, which is where the editors that write them put them. */
 static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
                                thSampleData &out, std::string &why)
 {
     out.frames.clear();
+    out.cycle = 0;
 
     unsigned char head[12];
 
@@ -377,6 +385,42 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
 
             continue;
         }
+
+        /* `clm ' is text, `<!>2048 ...', not always ended within the
+           chunk; `srge' is a version and the length, two little-endian
+           words; `uhWT' means 2048. `clm ' first, where a file has two. */
+        const bool clm = memcmp(ch, "clm ", 4) == 0;
+        const bool srge = memcmp(ch, "srge", 4) == 0;
+
+        if ((clm || srge) && len < 0x7ffffffful)
+        {
+            unsigned char text[16] = { 0 };
+            const unsigned long want = len < sizeof(text) ? len : sizeof(text);
+
+            if (in.read(text, want) != want)
+                break;
+
+            if (clm && want > 3 && memcmp(text, "<!>", 3) == 0)
+            {
+                unsigned long n = 0;
+
+                for (unsigned long k = 3; k < want && k < 10 &&
+                     text[k] >= '0' && text[k] <= '9'; k++)
+                    n = n * 10 + (unsigned long)(text[k] - '0');
+
+                out.cycle = (unsigned)n;
+            }
+            else if (srge && want >= 8 && out.cycle == 0)
+                out.cycle = (unsigned)thWavU32(text + 4);
+
+            if (!in.skip((long)(len - want + (len & 1))))
+                break;
+
+            continue;
+        }
+
+        if (memcmp(ch, "uhWT", 4) == 0 && out.cycle == 0)
+            out.cycle = 2048;
 
         if (memcmp(ch, "data", 4) == 0)
         {
@@ -490,10 +534,12 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
             /* Found before the frames are resampled, so the cuts are the
                file's whatever the engine's rate; kept only once nothing
                below has refused it. */
+            const bool asRecorded = rate == 0;
             const unsigned recorded = fileRate ? (unsigned)fileRate : rate;
             thSampleHits found;
 
-            thSampleFindHits(raw.data(), raw.size(), recorded, found);
+            if (!asRecorded)
+                thSampleFindHits(raw.data(), raw.size(), recorded, found);
 
             auto keep = [&] ()
             {
@@ -507,7 +553,7 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
                         thSampleEngineFrame(hit.frame, rate, recorded));
             };
 
-            if (fileRate == 0 || fileRate == rate || raw.empty())
+            if (asRecorded || fileRate == 0 || fileRate == rate || raw.empty())
             {
                 out.frames.swap(raw);
                 keep();

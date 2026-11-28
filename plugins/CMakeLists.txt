@@ -9,9 +9,9 @@
 #   - fft/dsp.c is not a plugin: no module_init, no
 #     module_callback, just fir_filter/iir_filter/gaussian/fft lifted from
 #     Embree & Kimble's C Language Algorithms for DSP. Nothing in the tree
-#     builds it; osc::pad carries its own copy of the fft, with the two
-#     faults below taken out. docs/VISUALIZERS.md says why the visualizers did not
-#     reuse its FFT: it keeps its twiddle table in a function-static keyed on
+#     builds it; osc/realfft.h is its fft, which osc::pad and
+#     osc::wavetable share, with the two faults below taken out.
+#     docs/VISUALIZERS.md says why the visualizers did not reuse its FFT: it keeps its twiddle table in a function-static keyed on
 #     the last size asked for, and it calls exit(1) when a calloc fails --
 #     which is a library killing the host process, the exact pattern
 #     that was removed from the parser years ago.
@@ -61,7 +61,7 @@ think_add_plugin_category(mixer    add fade mul pan widen)
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
                                    fmop blep sample grain stretch pad speak
                                    bandosc shapeo multiwave multisined window
-                                   noise unison pd)
+                                   noise unison pd wavetable)
 
 # Visualizers. Not DSP plugins: a different ABI, loaded by the GUI rather than
 # by the parser, drawing with cairo and linking neither libthink nor sigc++.

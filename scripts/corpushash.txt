@@ -161,3 +161,6 @@ aa30bd76de657875  templebell.dsp
 63044c9d9069d975  ts2.dsp
 754c6810a061caa5  violins.dsp
 848c05386ff5d575  waveguide.dsp
+6f949081ba8179a5  wtpwm.dsp
+9220230ed896f8ed  wtsweep.dsp
+76c2130b1b6050dd  wtvowels.dsp
