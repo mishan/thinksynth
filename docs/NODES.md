@@ -215,6 +215,18 @@ Bit crusher (fewer bits, a lower sample rate)
 | `out` | out | The input, crushed |  | -1 to 1 | full scale |  |
 | `state` | state |  |  |  |  |  |
 
+### dist::fold
+
+Wavefolder (a sine fold, antialiased)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `drive` | in | How far past the top it is pushed: 1 a gentle shaping, 8 folded four times each way; 0 silence | 1 | 0 to 16 |  |  |
+| `symmetry` | in | Moves the fold off centre, for even harmonics |  | -1 to 1 |  |  |
+| `out` | out | The folded signal, its DC taken out |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### dist::inksat
 
 Applies x^(1/y) saturation
@@ -280,6 +292,8 @@ AD Envelope Generator
 | `d` | in | Decay; when it ends, so does the note |  |  | samples |  |
 | `p` | in | Peak level | 1 | 0 to 1 | full scale |  |
 | `reset` | in | Start again from the attack |  | 0 to 1 |  |  |
+| `loop` | in | Above 0, the attack again at the end of the decay, for as long as it stays up; a voice whose play is this never ends while it does |  | 0 to 1 |  |  |
+| `cycle` | out | 1 on the last sample of a cycle a loop starts again after |  | 0 to 1 |  |  |
 
 ### env::adsfr
 
@@ -633,6 +647,24 @@ INK Filter ][
 | `cutoff` | in | Cutoff, 0 to 1 -- a spring constant, not hertz |  | 0 to 1 | spring constant |  |
 | `res` | in | Resonance, 0 to 1; 1 is the edge of the stable region |  | 0 to 1 |  |  |
 | `shaper` | in | How hard a large step is squashed; 0 is not at all |  |  | exponent |  |
+
+### filt::lpg
+
+Low-pass gate (a vactrol's filter and gain)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `control` | in | How open, held: 0 shut, 1 open |  | 0 to 1 |  |  |
+| `strike` | in | Rising above 0, pings it open to `level', and lets it fall |  | 0 to 1 |  |  |
+| `level` | in | How far a strike opens it | 1 | 0 to 1 |  |  |
+| `open` | in | How long it takes to open | 5 | 0.1 to 1000 | ms |  |
+| `close` | in | How long it takes to close from open; slower near shut | 150 | 0.1 to 10000 | ms |  |
+| `mode` | in | 0 filter and gain together, 1 the filter alone, 2 the gain alone |  | 0 to 2 |  |  |
+| `res` | in | The low pass's resonance | 0.1 | 0 to 0.95 |  |  |
+| `out` | out | The signal, gated |  | -1 to 1 | full scale |  |
+| `play` | out | 1 until it has rung out: a struck voice's length |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
 
 ### filt::membrane
 

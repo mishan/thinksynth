@@ -95,6 +95,37 @@ struct thkAd
         return out;
     }
 
+    /* tick() looping, which env::ad's `loop' asks for: at the end of the
+       decay the attack again, at once, with `cycle' 1 for that last
+       sample; a loop raised after the envelope had finished starts it
+       again. Times of none are held to a sample each, so a cycle is two
+       samples at the least. Not what the voice compiler emits: it refuses
+       a looping env::ad. */
+    float tickLoop (Ctl c, float reset, float &play, float &cycle)
+    {
+        if (c.a < 1 && c.d < 1)
+            c = ctl(1, 1, c.peak);
+
+        if (phase == DONE)
+        {
+            phase = c.a > 0 ? ATTACK : DECAY;
+            position = 0;
+        }
+
+        const float out = tick(c, reset, play);
+
+        cycle = 0;
+
+        if (phase == DONE)
+        {
+            phase = c.a > 0 ? ATTACK : DECAY;
+            position = 0;
+            cycle = 1;
+        }
+
+        return out;
+    }
+
     /* `n' samples of tick() with the same reset, the same bits: each half
        a loop of its own arithmetic, silence once done, and tick() itself
        for a reset and times of none. */

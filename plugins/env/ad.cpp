@@ -34,9 +34,9 @@ void module_cleanup (thPlugin *plugin)
 {
 }
 
-enum { OUT_OUT,OUT_PLAY,INOUT_POSITION,IN_A,IN_D,IN_P,IN_RESET };
+enum { OUT_OUT,OUT_PLAY,INOUT_POSITION,IN_A,IN_D,IN_P,IN_RESET,IN_LOOP,OUT_CYCLE };
 
-std::atomic<int> args[IN_RESET + 1];
+std::atomic<int> args[OUT_CYCLE + 1];
 
 int module_init (thPlugin *plugin)
 {
@@ -70,6 +70,23 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_RESET], "Start again from the attack");
     plugin->setArgRange(args[IN_RESET], 0, 1);
 
+    /* Registered last, so every arg above keeps the index it had. A
+       function generator: looping, it rises and falls for as long as `loop'
+       stays up -- and has no release, so a voice whose `play' is a looping
+       env::ad never ends. */
+    args[IN_LOOP] = plugin->regArg("loop", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_LOOP],
+                       "Above 0, the attack again at the end of the decay, "
+                       "for as long as it stays up; a voice whose play is "
+                       "this never ends while it does");
+    plugin->setArgRange(args[IN_LOOP], 0, 1);
+    plugin->setArgStep(args[IN_LOOP], 1);
+    args[OUT_CYCLE] = plugin->regArg("cycle", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_CYCLE],
+                       "1 on the last sample of a cycle a loop starts again "
+                       "after");
+    plugin->setArgRange(args[OUT_CYCLE], 0, 1);
+
     return 0;
 }
 
@@ -80,6 +97,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_d = mod->getArg(node, args[IN_D]);
     thArg *in_p = mod->getArg(node, args[IN_P]);
     thArg *in_reset = mod->getArg(node, args[IN_RESET]);
+    thArg *in_loop = mod->getArg(node, args[IN_LOOP]);
     /* [0] the position in the stage, [1] the stage, [2] the position's
        remainder (thSplitCount). */
     thArg *inout_position = mod->getArg(node, args[INOUT_POSITION]);
@@ -92,24 +110,36 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *state = inout_position->allocate(3);
     float *out = mod->getArg(node, args[OUT_OUT])->allocate(windowlen);
     float *play = mod->getArg(node, args[OUT_PLAY])->allocate(windowlen);
+    float *cycle = mod->getArg(node, args[OUT_CYCLE])->allocate(windowlen);
 
     /* The times once a window while they hold still. */
     const bool still = in_a->len() <= 1 && in_d->len() <= 1 && in_p->len() <= 1;
     thkAd::Ctl c = thkAd::ctl((*in_a)[0], (*in_d)[0], (*in_p)[0] / TH_MAX);
 
-    /* A reset held through the window too: a half at a time. */
-    if (still && in_reset->len() <= 1)
+    const bool never = in_loop->len() <= 1 && !((*in_loop)[0] > 0);
+
+    /* A reset held through the window too, and no loop: a half at a time.
+       A loop restarts in the middle of what run() would write as silence,
+       so it goes a sample at a time. */
+    if (still && in_reset->len() <= 1 && never)
     {
         env.run(c, (*in_reset)[0], (int)windowlen, out, play);
         for (unsigned int i = 0; i < windowlen; i++)
+        {
             out[i] *= TH_MAX;
+            cycle[i] = 0;
+        }
     }
     else
         for (unsigned int i = 0; i < windowlen; i++)
         {
             if (!still)
                 c = thkAd::ctl((*in_a)[i], (*in_d)[i], (*in_p)[i] / TH_MAX);
-            out[i] = TH_MAX * env.tick(c, (*in_reset)[i], play[i]);
+            cycle[i] = 0;
+            out[i] = TH_MAX * ((*in_loop)[i] > 0
+                               ? env.tickLoop(c, (*in_reset)[i], play[i],
+                                              cycle[i])
+                               : env.tick(c, (*in_reset)[i], play[i]));
         }
 
     thSplitCount(env.position, state[0], state[2]);

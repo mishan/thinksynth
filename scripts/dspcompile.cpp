@@ -412,6 +412,21 @@ struct Compiler
             error = n->name() + " is " + spelled(n) + ", which has no kernel yet";
             return false;
         }
+
+        /* thkAd's tick, which a voice compiles to, does not loop; the
+           plugin's tickLoop is a sample at a time. */
+        if (spelled(n) == "env::ad")
+        {
+            thArg *loop = n->getArg("loop");
+
+            if (loop != NULL && !(loop->type() == thArg::ARG_VALUE &&
+                                  loop->len() <= 1 && !((*loop)[0] > 0)))
+            {
+                error = n->name() + " is a looping env::ad, which isn't "
+                        "compiled yet";
+                return false;
+            }
+        }
         placing.insert(n);
 
         bool ctl = k->pure, once = true;

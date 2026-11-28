@@ -31,7 +31,7 @@ think_add_plugin_category(analysis pitch yin)
 
 think_add_plugin_category(delay    echo fir allpass chorus fdn pitchshift varispeed reverse stutter)
 
-think_add_plugin_category(dist     clip saturate waveman inksat crush)
+think_add_plugin_category(dist     clip saturate waveman inksat crush fold)
 
 think_add_plugin_category(dyn      compressor)
 
@@ -43,7 +43,7 @@ think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
                                    inkshape rds ds dshape divbuf res1pole
                                    res2pole res2pole2 resgrav moog svf eq
                                    vowel pianostring sympathetic bar bell
-                                   plate membrane)
+                                   plate membrane lpg)
 
 think_add_plugin_category(impulse  sine parabola square blackman)
 

@@ -384,6 +384,12 @@ add_test(NAME dspcompile.beats
                  "${CMAKE_CURRENT_SOURCE_DIR}/compiled/beats.dsp" Beats)
 set_tests_properties(dspcompile.beats PROPERTIES
                      PASS_REGULAR_EXPRESSION "env.d is in beats")
+# A looping env::ad, which thkAd's tick does not do.
+add_test(NAME dspcompile.adloop
+         COMMAND dspcompile -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${CMAKE_CURRENT_SOURCE_DIR}/compiled/adloop.dsp" AdLoop)
+set_tests_properties(dspcompile.adloop PROPERTIES
+                     PASS_REGULAR_EXPRESSION "env is a looping env::ad, which isn't compiled yet")
 # And an effect's input past its channels, which the engine never writes.
 add_test(NAME dspcompile.inpast
          COMMAND dspcompile -p "${PROJECT_BINARY_DIR}/plugins/"
