@@ -1293,6 +1293,19 @@ Granular player (a file or a live ring)
 | `ring` | state |  |  |  |  |  |
 | `state` | state |  |  |  |  |  |
 
+### osc::jet
+
+Jet (an air jet blown into a flute's bore)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `freq` | in | The note, from C2 up |  |  | Hz |  |
+| `pressure` | in | Breath: under about 0.55 it does not speak (0.6 at C2), more is brighter |  | 0 to 1 |  |  |
+| `jet` | in | The jet's length against the bore's | 0.32 | 0.28 to 0.42 |  |  |
+| `noise` | in | Breath noise in the pressure |  | 0 to 1 |  |  |
+| `out` | out | The bore's sound |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::multisined
 
 Sums a sine and detuned ramps

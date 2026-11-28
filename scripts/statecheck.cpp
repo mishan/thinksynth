@@ -1886,15 +1886,241 @@ static void checkReed (const string &pluginPath)
             vector<float> got;
 
             spec[0].values[which].value = nan;
-            fine = fine && play(spec, R / 4, got) && allFinite(got);
+            fine = fine && play(spec, R / 4, got) && allFinite(got) &&
+                   peak(got, 0) == 0;
         }
 
-        okOrFail(fine, "osc::reed: a NaN in any input, finite out", "");
+        okOrFail(fine, "osc::reed: a NaN in any input, silence", "");
+    }
+
+    /* Breath noise is heard between the harmonics. */
+    {
+        vector<float> clean, noisy;
+
+        if (play(reedGraph(220, 0.6f, 0.5f), R, clean) &&
+            play(reedGraph(220, 0.6f, 0.5f, 0.5f, 0.5f), R, noisy))
+        {
+            const double gain = dB(hannBin(noisy, R / 2, R / 4, 330) /
+                                   hannBin(clean, R / 2, R / 4, 330));
+
+            okOrFail(gain > 10, "osc::reed: breath noise between the "
+                                "harmonics", num(gain) + " dB");
+        }
     }
 
     windowsAgree(pluginPath, reedGraph(220, 0.6f, 0.3f, 0.5f, 0.3f), "reed",
                  "out", "osc::reed: one sample at a time and five hundred "
                  "agree", 6000);
+}
+
+/* osc::jet at `freq', `pressure' and `jet'. */
+static vector<NodeSpec> jetGraph (float freq, float pressure, float jet,
+                                  float noise = 0)
+{
+    NodeSpec flute;
+
+    flute.name = "jet";
+    flute.spelling = "osc/jet";
+    flute.values.push_back(Value{ "freq", freq });
+    flute.values.push_back(Value{ "pressure", pressure });
+    flute.values.push_back(Value{ "jet", jet });
+    flute.values.push_back(Value{ "noise", noise });
+
+    return { flute };
+}
+
+static void checkJet (const string &pluginPath)
+{
+    const int R = TH_DEFAULT_SAMPLES;
+    auto play = [&] (const vector<NodeSpec> &spec, unsigned n,
+                     vector<float> &got)
+    {
+        vector<Watch> watch = { Watch{ "jet", "out" } };
+        vector< vector<float> > out;
+        string why;
+
+        if (!render(pluginPath, spec, watch, 256, n, out, why))
+        {
+            fail("osc::jet renders", why);
+            return false;
+        }
+
+        got = out[0];
+        return true;
+    };
+    const auto hz = [] (int note) { return 440 * pow(2.0, (note - 69) / 12.0); };
+
+    /* In tune from C2 to G#6, every fifth, at each end of `jet' and in the
+       middle; past either end of `jet' and under C2, held there. */
+    {
+        double worst = 0;
+        string said;
+
+        for (int note = 15; note <= 96; note += note < 36 ? 21 : 7)
+            for (float jet : { 0.2f, 0.28f, 0.32f, 0.42f, 0.6f })
+            {
+                const double want = hz(note < 36 ? 36 : note);
+                vector<float> got;
+
+                if (!play(jetGraph(note < 36 ? 20.0f : (float)want, 0.85f,
+                                   jet), R, got))
+                    continue;
+
+                const double f = pitchOf(got, R * 2 / 5, R / 5, want / 2,
+                                         want * 2);
+                const double cents = f > 0 ? 1200 * log2(f / want) : 1e9;
+
+                if (fabs(cents) > worst)
+                {
+                    worst = fabs(cents);
+                    said = "note " + num(note) + " at jet " + num(jet) +
+                           ": " + num(cents) + " cents";
+                }
+            }
+
+        okOrFail(worst < 5, "osc::jet: in tune within 5 cents", said);
+    }
+
+    /* It speaks, and it does not: under the threshold breath the loop dies
+       away; over it, it is sounding within 100 ms; and pressure is held to
+       1, so 3 speaks where a breath of 1.5 times the cubic's scale would
+       not. */
+    {
+        vector<float> under, held, over;
+
+        if (play(jetGraph(440, 0.4f, 0.32f), R * 2, under) &&
+            play(jetGraph(440, 3, 0.32f), R * 2, held) &&
+            play(jetGraph(440, 0.85f, 0.32f), R / 2, over))
+        {
+            const double quiet = rms(under, R);
+            double early = 0;
+
+            for (int i = R / 20; i < R / 10; i++)
+                early += (double)over[i] * over[i];
+
+            early = sqrt(early / (R / 20));
+            okOrFail(quiet < 1e-3 && rms(held, R) > 0.05 && early > 0.05,
+                     "osc::jet: under its breath it does not speak; over it, "
+                     "at once, and pressure is held to 1",
+                     "under " + num(quiet) + ", held " + num(rms(held, R)) +
+                     ", over " + num(early));
+        }
+    }
+
+    /* A flute's even harmonics, and its odd ones growing with breath. */
+    {
+        vector<float> soft, full;
+
+        if (play(jetGraph(440, 0.65f, 0.32f), R, soft) &&
+            play(jetGraph(440, 0.85f, 0.32f), R, full))
+        {
+            auto over = [] (const vector<float> &v, double k)
+            {
+                return dB(hannBin(v, R / 2, R / 4, 440 * k) /
+                          hannBin(v, R / 2, R / 4, 440));
+            };
+
+            okOrFail(over(soft, 2) > -32 && over(full, 2) > -32 &&
+                     over(full, 5) > over(soft, 5) + 3,
+                     "osc::jet: even harmonics, and odd ones growing with "
+                     "breath",
+                     "2nd " + num(over(soft, 2)) + " and " +
+                     num(over(full, 2)) + " dB, 5th " + num(over(soft, 5)) +
+                     " to " + num(over(full, 5)) + " dB");
+        }
+    }
+
+    /* No DC: the jet's cubic makes some, and the blocker takes it out. */
+    {
+        vector<float> got;
+
+        if (play(jetGraph(220, 0.85f, 0.32f), R * 2, got))
+            okOrFail(fabs(meanOf(got, R)) < 1e-3, "osc::jet: no DC",
+                     num(meanOf(got, R)));
+    }
+
+    /* Whatever it is asked: finite, and bounded. */
+    {
+        uint32_t lcg = 7;
+        auto any = [&lcg] ()
+        {
+            lcg = lcg * 1664525u + 1013904223u;
+            return (float)(lcg >> 8) / (float)(1u << 24);
+        };
+        double worst = 0;
+        bool finite = true;
+
+        for (int k = 0; k < 60; k++)
+        {
+            vector<float> got;
+
+            if (!play(jetGraph(20 + 6000 * any() * any(), 1.5f * any(),
+                               0.1f + 0.5f * any(), any()), R / 4, got))
+                continue;
+
+            finite = finite && allFinite(got);
+            worst = fmax(worst, peak(got, 0));
+        }
+
+        okOrFail(finite && worst < 1.2, "osc::jet: any breath, jet and note, "
+                                        "in range or past it, finite and "
+                                        "bounded",
+                 "peak " + num(worst));
+    }
+
+    /* Nothing that is not a number gets out. */
+    {
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        bool fine = true;
+
+        for (int which = 0; which < 4; which++)
+        {
+            vector<NodeSpec> spec = jetGraph(440, 0.85f, 0.32f);
+            vector<float> got;
+
+            spec[0].values[which].value = nan;
+            fine = fine && play(spec, R / 4, got) && allFinite(got) &&
+                   peak(got, 0) == 0;
+        }
+
+        okOrFail(fine, "osc::jet: a NaN in any input, silence", "");
+    }
+
+    /* Breath noise is heard between the harmonics. */
+    {
+        vector<float> clean, noisy;
+
+        if (play(jetGraph(440, 0.85f, 0.32f), R, clean) &&
+            play(jetGraph(440, 0.85f, 0.32f, 0.5f), R, noisy))
+        {
+            const double gain = dB(hannBin(noisy, R / 2, R / 4, 660) /
+                                   hannBin(clean, R / 2, R / 4, 660));
+
+            okOrFail(gain > 10, "osc::jet: breath noise between the "
+                                "harmonics", num(gain) + " dB");
+        }
+    }
+
+    /* A glide: the loop's lengths follow the note within a window. */
+    {
+        vector<NodeSpec> spec = jetGraph(0, 0.85f, 0.32f);
+        NodeSpec ramp;
+
+        ramp.name = "ramp";
+        ramp.spelling = "env/ad";
+        ramp.values.push_back(Value{ "a", R });
+        ramp.values.push_back(Value{ "d", 10 * R });
+        ramp.values.push_back(Value{ "p", 440 });
+        spec[0].values.erase(spec[0].values.begin());
+        spec[0].wires.push_back(Wire{ "freq", "ramp", "out" });
+        spec.insert(spec.begin(), ramp);
+        windowsAgree(pluginPath, spec, "jet", "out", "osc::jet: a glide, one "
+                     "sample at a time and five hundred agree", R);
+    }
+
+    windowsAgree(pluginPath, jetGraph(440, 0.85f, 0.35f, 0.3f), "jet", "out",
+                 "osc::jet: one sample at a time and five hundred agree",
+                 6000);
 }
 
 static void checkChorus (const string &pluginPath)
@@ -13729,6 +13955,7 @@ int main (int argc, char **argv)
     checkMetals(pluginPath);
     checkSvf(pluginPath);
     checkReed(pluginPath);
+    checkJet(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);
