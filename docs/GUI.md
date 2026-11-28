@@ -42,6 +42,7 @@ leaves the layout but keeps its place for when that mode comes back.
 | `midimap` | MIDI routing | - | all |
 | `controller` | Controller | - | all |
 | `knobs` | - | The piece's knobs | piece, band |
+| `sessionview` | - | Session | piece, band |
 | `piecesource` | - | Piece source (.gen) | sequence, piece, band |
 | `patchsource` | - | Patch source (.dsp) | patch, growing |
 | `growview` | - | Grow | growing |
@@ -92,6 +93,7 @@ pick.
 | A Channels row, the keys' channel control | the one picked |
 | A press on a sequencer track, or a key its grid uses | that track's notes channel, from `ComposerCanvas::channelOf` |
 | A press on a canvas chain, stage or notes sink | its notes channel from the same rule; nothing for an instrument that plays over MIDI out |
+| A press on a chain's name in Session | its notes channel from the same rule; nothing for a knob's row |
 | A sequence loaded | the last track's channel; this pick doesn't count as the person's own choice |
 | A piece loaded that doesn't listen on the keys' channel, in a mode nobody picked a channel in | the first channel it listens on; not the person's choice either |
 
@@ -181,15 +183,16 @@ these are the rules across panes.
 ## 7. Not done yet
 
 - Both: the Keys pane as a short strip, with the device setup moved out of it.
+- Desktop: the Session pane.
 - Browser: Patch graph follows the current channel, as Patch params does,
   instead of its own File list.
 - Browser: no stepper buttons on a parameter's number box.
 - Both: the patch editor (graph, params, the header strip) opened for the
   current channel from any mode, instead of from patch mode only. Decided:
   - **One action**, Edit instrument, on anything with a channel (a Channels
-    row, a track, a canvas chain, the keys). It picks the channel through the
-    one writer and brings Patch params and Patch graph into view where they
-    are. A pane the mode's layout has no place for opens, the first time, in
+    row, a track, a canvas chain, a Session row, the keys). It picks the
+    channel through the one writer and brings Patch params and Patch graph
+    into view where they are. A pane the mode's layout has no place for opens, the first time, in
     a slot the layout data names. No temporary layout and no mode switch: the
     piece keeps playing.
   - **Three owners.** Which `.dsp` is on a channel is the piece's on its

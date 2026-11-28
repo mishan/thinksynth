@@ -1965,3 +1965,26 @@ body.tiled #cameracanvas { flex: 1 1 0; min-height: 90px; max-height: none; }
 .formrows .learned { outline: 2px solid var(--held); }
 #phonetext label, #phonetext textarea,
 #cameratext label, #cameratext textarea { display: block; }
+
+/* The session grid (sessionview.js): the playing section filled, the cued
+   one dashed, as the band's scenes are; a cell turned off and one the
+   section does not write dimmed. */
+.sessiongrid { overflow: auto; }
+.sessiongrid table { border-collapse: collapse; }
+.sessiongrid caption { text-align: start; color: var(--dim); }
+.sessiongrid th, .sessiongrid td { border: 1px solid var(--dim);
+                                   padding: 0.2rem 0.5rem; min-width: 3rem;
+                                   min-height: 24px; text-align: center; }
+.sessiongrid thead th { cursor: pointer; }
+.sessiongrid thead .name { display: block; }
+.sessiongrid thead .length { display: block; font-weight: normal;
+                             font-size: 0.75rem; color: var(--dim); }
+.sessiongrid th.playing { --on: color-mix(in srgb, var(--held) 85%, #000);
+                          background: var(--on); color: #fff; }
+.sessiongrid th.playing .length { color: inherit; }
+.sessiongrid th.cued { outline: 2px dashed var(--held); outline-offset: -2px; }
+.sessiongrid tbody th { text-align: start; cursor: pointer; }
+.sessiongrid th.quiet, .sessiongrid td.unset, .sessiongrid td.off
+    { color: var(--dim); }
+.sessiongrid td { cursor: pointer; font-variant-numeric: tabular-nums; }
+.sessiongrid td input { width: 4rem; }

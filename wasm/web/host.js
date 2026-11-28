@@ -420,6 +420,9 @@ export async function createSynth (ctx, { windowlen = 128,
             case 'genops':
             case 'genmove':
             case 'gensection':
+            case 'session':
+            case 'sessionedit':
+            case 'sessiontoggle':
             case 'geninstrument':
             case 'genfreeze':
             case 'genknob':
@@ -951,6 +954,26 @@ export async function createSynth (ctx, { windowlen = 128,
         genSetSection: (text, sectionName, chainName, level) =>
             ask({ type: 'gensection', text, section: sectionName,
                   chain: chainName, level }),
+
+        /* The session grid of `text' (thinkweb.cpp, tw_session_json),
+           with the scheduler's `playing' and `cued' section indices.
+           Resolves to { grid }. */
+        session: (text, playing = -1, cued = -1) =>
+            ask({ type: 'session', text, playing, cued }),
+
+        /* An edit to that grid, a thSessionEdit by name with `kind' its
+           Kind. Resolves to { text, why, warn }: text "" when refused,
+           or when it warns and was not `confirmed'. */
+        sessionEdit: (text, edit, confirmed = false) =>
+            ask({ type: 'sessionedit', text, edit, confirmed }),
+
+        /* What a click on a chain's cell sets it to. Resolves to
+           { value }. */
+        sessionToggle: (text, section, chain) =>
+            ask({ type: 'sessiontoggle', text, section, chain }),
+
+        /* Another piece: no level remembered from this one. */
+        sessionForget: () => post({ type: 'sessionforget' }),
 
         /* How fast the clock runs, as a multiple of real time, at a
            transport time or -1 for the next window. Everything moves with
