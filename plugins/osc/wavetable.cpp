@@ -316,7 +316,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *in_phase = mod->getArg(node, args[IN_PHASE]);
     thArg *inout_state = mod->getArg(node, args[INOUT_STATE]);
 
-    double phase = (*inout_state)[0];
+    /* In float, and stepped in float, as osc::sample's playhead is: kept
+       in a float between windows, a phase stepped in double inside one
+       would round at every window boundary, and a graph rendered in
+       windows of another length would sound different. */
+    float phase = (*inout_state)[0];
     float lastReset = (*inout_state)[1];
     float *state = inout_state->allocate(2);
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
@@ -381,11 +385,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         out[i] = TH_MAX * (lo + (hi - lo) * up);
 
-        phase += (double)hz / samples;
-        phase -= floor(phase);
+        phase += hz / (float)samples;
+        phase -= floorf(phase);
     }
 
-    state[0] = (float)phase;
+    state[0] = phase;
     state[1] = lastReset;
 
     return 0;
