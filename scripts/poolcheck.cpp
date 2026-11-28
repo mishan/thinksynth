@@ -91,6 +91,22 @@ void *operator new (size_t size)
 
 void *operator new[] (size_t size) { return operator new(size); }
 
+/* And the forms that answer NULL rather than throw, which the library uses
+   for scratch (std::stable_sort's buffer): left to the library's, they
+   would hand free() below a block that was not malloc'd. */
+void *operator new (size_t size, const std::nothrow_t &) noexcept
+{
+    if (counting.load(std::memory_order_relaxed))
+        allocations++;
+
+    return malloc(size ? size : 1);
+}
+
+void *operator new[] (size_t size, const std::nothrow_t &t) noexcept
+{
+    return operator new(size, t);
+}
+
 /* GCC pairs a new-expression with delete and not with the free() these
    resolve to. */
 #if defined(__GNUC__) && !defined(__clang__)
