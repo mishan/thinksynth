@@ -9653,6 +9653,8 @@ static void checkWavetable (const string &pluginPath)
             { 1, 0, slow, 3, 3, 0, "1 the last" },
             { 0, 0.25f, slow, 0, 0, 0, "`reset' starts it at `phase'" },
             { 0, 0, -slow, 0, 0, 0, "a negative `freq' runs it backward" },
+            { 0, 0.25f, 0, 0, 0, 0, "a `freq' of 0 holds the wave where it "
+              "is" },
         };
 
         for (const auto &c : cases)

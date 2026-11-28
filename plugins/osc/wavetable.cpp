@@ -88,7 +88,7 @@ struct WtEntry
 
 struct WtMap
 {
-    std::map<std::string, const WtEntry *> files;
+    std::map<std::string, WtEntry *> files;
 };
 
 struct WtSlot
@@ -142,11 +142,19 @@ static const WtEntry *wtFile (WtSlot *slot, const std::string &name)
 
     if (i != map->files.end())
     {
-        if (i->second->generation == generation ||
-            (i->second->table.frames > 0 &&
-             thUtil::dataFileGeneration("samples/" + name) <=
-                 i->second->generation))
-            return i->second;
+        WtEntry *kept = i->second;
+
+        if (kept->generation == generation)
+            return kept;
+
+        /* Checked again, and unchanged: so marked, as osc::sample does,
+           or every load from here on would ask the file again. */
+        if (kept->table.frames > 0 &&
+            thUtil::dataFileGeneration("samples/" + name) <= kept->generation)
+        {
+            kept->generation = generation;
+            return kept;
+        }
     }
 
     WtEntry *entry = new WtEntry();
@@ -334,8 +342,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         const float hz = (*in_freq)[i];
 
-        if (t == NULL || t->frames == 0 || !(fabsf(hz) < samples * 0.5f) ||
-            hz == 0)
+        if (t == NULL || t->frames == 0 || !(fabsf(hz) < samples * 0.5f))
         {
             out[i] = 0;
             continue;
@@ -343,9 +350,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         /* How many harmonics fit under Nyquist, and the half-octave level
            that holds no more: x = 2 log2(H / fit), level ceil(x) and the one
-           above it, crossfaded so a glide is continuous. */
-        const double fit = samples * 0.5 / fabs((double)hz);
-        const double x = 2 * log2((double)t->levels[0].harmonics / fit);
+           above it, crossfaded so a glide is continuous. A freq of 0 holds
+           the wave where it is, every harmonic fitting, so FM through zero
+           does not drop to nothing for a sample. */
+        const double x = hz == 0 ? -1
+            : 2 * log2((double)t->levels[0].harmonics * fabs((double)hz) /
+                       (samples * 0.5));
         const long k0 = (long)ceil(x);
         const float up = (float)(1 - ((double)k0 - x));
 
