@@ -1,0 +1,55 @@
+# westcoast.gen -- folded, struck and breathing.
+#
+# Everything here is the West Coast's: no oscillator is filtered down from
+# bright. bongo.dsp is an FM pair folded by dist::fold and struck through
+# filt::lpg, the vactrol gate that closes the filter and the gain together,
+# so each note goes dark as it goes quiet; two Euclidean lines of it, five
+# against seven, over a pentatonic scale, the second thinned by chance.
+# wcdrone.dsp holds a low fifth underneath, its fold drifting on its own and
+# its gate opened and closed by a looping env::ad -- a function generator --
+# so the drone breathes.
+#
+# Seeded, so it plays the same twice, and the browser renders it against
+# the desktop (wasm/compare.mjs).
+
+name "West Coast";
+author "Misha Nasledov";
+description "Folded FM bongos struck through a low-pass gate, over a breathing folded drone.";
+category "Timbre as material";
+
+seed 4127;
+tempo 92;
+
+scale penta "D3 E3 G3 A3 C4 D4 E4 G4 A4 C5";
+
+instrument bongo { dsp "bongo.dsp"; amp = -3 dB; };
+instrument high  { dsp "bongo.dsp"; amp = -6 dB; ratio = 2.3; timbre = 4; };
+instrument drone { dsp "wcdrone.dsp"; amp = -6 dB; };
+
+chain low {
+    stage src gen::euclid {
+        steps = 16; fills = 5; rotate = 0;
+        notes = "D3 A3 G3 E3";
+        period = 0.25 beats; hold = 0.2 beats; vel = 96;
+    };
+    sink { instrument = bongo; };
+};
+
+chain answer {
+    stage src gen::euclid {
+        steps = 14; fills = 7; rotate = 3;
+        notes = penta;
+        period = 0.25 beats; hold = 0.15 beats; vel = 78;
+    };
+    stage thin xform::chance { prob = 0.7; };
+    sink { instrument = high; };
+};
+
+chain under {
+    stage src gen::eno_line {
+        notes = "D2 A1";
+        period = 8 beats; jitter = 1 beats;
+        prob = 1; hold = 12 beats; vel = 70; vel_jitter = 4;
+    };
+    sink { instrument = drone; };
+};
