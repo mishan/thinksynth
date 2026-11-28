@@ -1395,9 +1395,12 @@ Sample Player (a wav at a voice's pitch)
 | `play` | out | 1 while there is file left, so a one-shot's note can be the sample's own length |  | 0 to 1 |  |  |
 | `state` | state |  |  |  |  |  |
 | `xfade` | in | How long the loop's seam crossfades; 0 is a jump |  |  | samples |  |
-| `slices` | in | How many equal parts the file is cut into; 0 plays it whole |  | 0 to 256 |  |  |
+| `slices` | in | How many equal parts the file is cut into, 0 plays it whole; with `cut = 1', how many of the strongest hits, 0 all of them |  | 0 to 256 |  |  |
 | `slice` | in | Which part plays, from 0, read at the trigger and wrapping past the last |  |  |  |  |
 | `reverse` | in | Above 0, play from the end back, as a one-shot |  | 0 to 1 |  |  |
+| `cut` | in | Where slices start: 0 equal parts, 1 at the hits the file has, 2 at the frames `cuts' lists |  | 0 to 2 |  |  |
+| `sensitivity` | in | With `cut = 1', how faint a hit still starts a slice: 0 none, 1 every one found | 0.5 | 0 to 1 |  |  |
+| `cuts` | in | With `cut = 2', where slices start: frames of the file as recorded, `0 10912 22140' |  |  |  |  |
 
 ### osc::shapeo
 

@@ -65,6 +65,7 @@
  * does and no worse than it.
  */
 
+#include <algorithm>
 #include <atomic>
 #include <map>
 #include <math.h>
@@ -77,6 +78,8 @@
 
 #include "thUtil.h"
 
+#include "samplehits.h"
+
 #define THINK_SAMPLE_SLOTS 64
 
 /* One wav, mono, at the synth's rate. `frames' empty is a file that
@@ -85,6 +88,20 @@ struct thSampleData
 {
     std::vector<float> frames;
     unsigned generation = 0;    /* thUtil::dataFilesGeneration, checked at */
+
+    /* Where its hits start (samplehits.h), found from the frames as
+       recorded, and each one's engine frame; the file's rate and the
+       engine's, for a list of cuts given in the file's frames. */
+    thSampleHits hits;
+    std::vector<size_t> hitAt;
+    unsigned fileRate = 0, rate = 0;
+};
+
+/* A `cuts' text as a node gives it: frames of the file as recorded, in
+   order, each once. */
+struct thSampleCuts
+{
+    std::vector<size_t> frames;
 };
 
 /* One recording of a zoned `file', and the frequency it was made at. */
@@ -109,6 +126,7 @@ struct thSampleTable
 {
     std::map<std::string, thSampleData *> files;
     std::map<std::string, thSampleText *> texts;
+    std::map<std::string, thSampleCuts *> cuts;
 };
 
 struct thSampleSlot
@@ -124,6 +142,7 @@ struct thSampleSlot
     std::vector<thSampleTable *> tables;
     std::vector<thSampleData *> files;
     std::vector<thSampleText *> texts;
+    std::vector<thSampleCuts *> cuts;
 };
 
 static thSampleSlot thSampleSlots[THINK_SAMPLE_SLOTS];
@@ -149,9 +168,13 @@ static inline void thSampleFree (thSampleSlot *slot)
     for (thSampleText *t : slot->texts)
         delete t;
 
+    for (thSampleCuts *c : slot->cuts)
+        delete c;
+
     slot->tables.clear();
     slot->files.clear();
     slot->texts.clear();
+    slot->cuts.clear();
     slot->table.store(NULL, std::memory_order_release);
 }
 
@@ -464,9 +487,30 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
 
             in.close();
 
+            /* Found before the frames are resampled, so the cuts are the
+               file's whatever the engine's rate; kept only once nothing
+               below has refused it. */
+            const unsigned recorded = fileRate ? (unsigned)fileRate : rate;
+            thSampleHits found;
+
+            thSampleFindHits(raw.data(), raw.size(), recorded, found);
+
+            auto keep = [&] ()
+            {
+                out.fileRate = recorded;
+                out.rate = rate;
+                out.hits = std::move(found);
+                out.hitAt.clear();
+
+                for (const thSampleHit &hit : out.hits.hits)
+                    out.hitAt.push_back(
+                        thSampleEngineFrame(hit.frame, rate, recorded));
+            };
+
             if (fileRate == 0 || fileRate == rate || raw.empty())
             {
                 out.frames.swap(raw);
+                keep();
                 return true;
             }
 
@@ -500,6 +544,7 @@ static inline bool thWavParse (thWavIn &in, long fileBytes, unsigned rate,
                 out.frames[i] = a + (b - a) * (float)(at - (double)k);
             }
 
+            keep();
             return true;
         }
 
@@ -784,6 +829,147 @@ static inline void thSamplePrime (const thPlugin *plugin,
 
     for (const thSampleZone &zone : entry->zones)
         thSampleFile(slot, zone.file, rate);
+}
+
+/* Holding `adding'. The table's entry for the `cuts' text `text': its
+   words that are frame numbers, sorted, each once. */
+static inline thSampleCuts *thSampleCutsFor (thSampleSlot *slot,
+                                             const std::string &text)
+{
+    const thSampleTable *table = slot->table.load(std::memory_order_relaxed);
+    const auto i = table->cuts.find(text);
+
+    if (i != table->cuts.end())
+        return i->second;
+
+    thSampleCuts *entry = new thSampleCuts();
+    size_t at = 0;
+
+    slot->cuts.push_back(entry);
+
+    while (at < text.size())
+    {
+        const size_t end = text.find_first_of(" \t\n,", at);
+        const std::string word =
+            text.substr(at, end == std::string::npos ? std::string::npos
+                                                     : end - at);
+
+        if (!word.empty())
+        {
+            if (word.find_first_not_of("0123456789") == std::string::npos &&
+                word.size() < 16)
+                entry->frames.push_back((size_t)strtoull(word.c_str(), NULL,
+                                                         10));
+            else
+                fprintf(stderr, "osc::sample: cut '%s' is not a frame\n",
+                        word.c_str());
+        }
+
+        if (end == std::string::npos)
+            break;
+        at = end + 1;
+    }
+
+    std::sort(entry->frames.begin(), entry->frames.end());
+    entry->frames.erase(std::unique(entry->frames.begin(),
+                                    entry->frames.end()),
+                        entry->frames.end());
+
+    thSampleTable *next = new thSampleTable(*table);
+
+    next->cuts[text] = entry;
+    thSamplePublish(slot, next);
+
+    return entry;
+}
+
+/* Audio thread. The entry for `text', parsed here if nobody primed it. */
+static inline const thSampleCuts *thSampleCutsGet (const thPlugin *plugin,
+                                                   const std::string &text)
+{
+    thSampleSlot *slot = thSampleSlotFor(plugin);
+    const thSampleTable *table =
+        slot ? slot->table.load(std::memory_order_acquire) : NULL;
+
+    if (table == NULL)
+        return NULL;
+
+    const auto i = table->cuts.find(text);
+
+    if (i != table->cuts.end())
+        return i->second;
+
+    std::lock_guard<std::mutex> hold(slot->adding);
+
+    return thSampleCutsFor(slot, text);
+}
+
+/* Loading thread: `text' parsed, so a trigger reads it rather than
+   parsing it. */
+static inline void thSamplePrimeCuts (const thPlugin *plugin,
+                                      const std::string &text)
+{
+    thSampleSlot *slot = thSampleSlotFor(plugin);
+
+    if (slot == NULL)
+        return;
+
+    std::lock_guard<std::mutex> hold(slot->adding);
+
+    if (slot->table.load(std::memory_order_relaxed) != NULL)
+        thSampleCutsFor(slot, text);
+}
+
+/* Where slices start in `d' for `cut' 1 (its hits at `sensitivity', the
+   `slices' strongest, and its lead-in) or 2 (`cuts'), in engine frames,
+   in order, each inside the file. How many there are; with `want' below
+   that, its start in `lo' and the next's, or the file's end, in `hi'.
+   Called once to count and once to find, so a trigger allocates nothing. */
+static inline size_t thSampleSlices (const thSampleData &d,
+                                     const thSampleCuts *cuts, int cut,
+                                     double sensitivity, int slices,
+                                     size_t want, size_t &lo, size_t &hi)
+{
+    const size_t len = d.frames.size();
+    size_t count = 0, last = 0;
+    bool found = false;
+
+    /* Past the end, or on the frame of the one before -- two cuts a frame
+       apart in a file at a higher rate than the engine's: none. */
+    auto start = [&] (size_t at)
+    {
+        if (at >= len || (count > 0 && at <= last))
+            return;
+
+        last = at;
+
+        if (found && hi == len)
+            hi = at;
+
+        if (count == want)
+        {
+            lo = at;
+            hi = len;
+            found = true;
+        }
+
+        count++;
+    };
+
+    if (cut == 1)
+    {
+        if (d.hits.leadIn)
+            start(0);
+
+        for (size_t k = 0; k < d.hitAt.size(); k++)
+            if (thSampleHitUsed(d.hits.hits[k], sensitivity, slices))
+                start(d.hitAt[k]);
+    }
+    else if (cut == 2 && cuts != NULL)
+        for (size_t f : cuts->frames)
+            start(thSampleEngineFrame(f, d.rate, d.fileRate));
+
+    return count;
 }
 
 /* Audio thread. Counts a trigger once across every voice using this
