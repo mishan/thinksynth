@@ -1671,6 +1671,62 @@ try
               'a key played while a piece is loading plays the new piece: ' +
               midLoad);
 
+        /* Patch graph shows the current channel's instrument, live on that
+           channel, whichever of two playing one file it is. */
+        {
+            const chain = (n, to) => `chain ${n} { stage g gen::euclid { ` +
+                'steps = 4; fills = 1; notes = "C4"; period = 0.5 s; ' +
+                `hold = 0.1 s; }; sink { instrument = ${to}; }; };\n`;
+            const seen = [];
+            const keysWere = await page.inputValue('#keychan');
+            const three = 'tempo 120;\n' +
+                'instrument one { dsp "organ0.dsp"; };\n' +
+                'instrument two { dsp "amb01.dsp"; };\n' +
+                'instrument three { dsp "organ0.dsp"; };\n' +
+                chain('a', 'one') + chain('b', 'two') + chain('c', 'three');
+
+            await load(three);
+
+            for (const inst of await page.evaluate(() =>
+                     window.solo.instruments()))
+            {
+                await page.selectOption('#paramchan',
+                                        { value: String(inst.channel) });
+                await page.evaluate(() => window.solo.settled());
+                seen.push({ ...inst,
+                            graph: await page.inputValue('#nodefile'),
+                            on: await page.evaluate(() =>
+                                window.solo.node()?.channel) });
+            }
+
+            check(seen.length === 3 &&
+                  seen.every((s) => s.graph === s.dsp && s.on === s.channel),
+                  'Patch graph shows the current channel\'s instrument, live ' +
+                  `on that channel: ${JSON.stringify(seen)}`);
+
+            /* ...and a file picked in its File list stays through a load of
+               the same piece, as after a graph edit. */
+            const other = seen[seen.length - 1].dsp === 'amb01.dsp'
+                ? 'organ0.dsp' : 'amb01.dsp';
+
+            /* The pane is in the drawer here, so as its change would. */
+            await page.$eval('#nodefile', (s, v) =>
+            {
+                s.value = v;
+                s.dispatchEvent(new Event('change'));
+            }, other);
+            await load(three);
+
+            const kept = await page.inputValue('#nodefile');
+
+            check(kept === other,
+                  'a file picked in the graph\'s File list stays through a ' +
+                  `load of the same piece: picked ${other}, shown ${kept}`);
+
+            await page.selectOption('#paramchan', { value: keysWere });
+            await page.evaluate(() => window.solo.settled());
+        }
+
         await load(was);
 
         /* Each half on a channel of its own: the two instruments'. */
@@ -3882,6 +3938,21 @@ try
 
     check(graph.boxes > 0 && offered.length > 0,
           `${offered.join(', ')} drew ${graph.boxes} boxes`);
+
+    /* A number beside a slider has no stepper buttons, the slider and the
+       arrow keys step it; a number with no slider keeps them. */
+    {
+        const looks = await page.evaluate(() =>
+            [...document.querySelectorAll('.panelrow input.value')].map((i) =>
+                [i.closest('.panelcontrol') !== null,
+                 getComputedStyle(i).appearance]));
+
+        check(looks.some(([beside]) => beside) &&
+              looks.every(([beside, look]) =>
+                  (look === 'textfield') === beside),
+              'a parameter\'s number box beside its slider has no stepper ' +
+              `buttons: ${JSON.stringify(looks)}`);
+    }
 
     /* And it opens at 1:1 rather than fitted. A patch is wide -- ts1 is
        1888 pixels of graph -- so fitting it into a page-width box halves

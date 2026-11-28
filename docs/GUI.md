@@ -77,16 +77,16 @@ and Keys.
 
 ## 3. The current channel
 
-A **current channel** is what Patch params, the tuning control and the keys
-show and play, on both sides. So does Patch graph on the desktop. On the
-browser page Patch graph shows the file chosen in its File list, live on the
-channel that file plays on (the first instrument naming it); following the
-current channel is **not done yet** (section 7). A pane that shows "the
-channel" reads the current channel and has no channel selector of its own. It
-has one writer: `MainSynthWindow::selectChannel` on the desktop, `pickChannel`
-on the browser page. Every source below calls that writer; the browser page's
-mode switch restores the mode's own channel without one, as it is not a new
-pick.
+A **current channel** is what Patch params, Patch graph, the tuning control
+and the keys show and play, on the desktop and the solo browser page. On the
+solo page Patch graph shows the current channel's instrument where the page
+has its `.dsp` (a piece's; a sequence's channels have none it can edit yet),
+and its File list reaches the piece's other files; a file picked there stays
+until the channel or its instrument changes. A pane that shows "the channel"
+reads the current channel and has no channel selector of its own. It has one
+writer: `MainSynthWindow::selectChannel` on the desktop, `pickChannel` on the
+browser page. Every source below calls that writer; the browser page's mode
+switch restores the mode's own channel without one, as it is not a new pick.
 
 | Source | Channel |
 |---|---|
@@ -177,16 +177,12 @@ these are the rules across panes.
   Change DSP discards it. The browser page has no Save, since the text is the
   file, so there the rule is only that a rebuild keeps the history.
 - **A number beside a slider has no stepper buttons**; a number with no slider
-  keeps them. The browser page's parameter panel still shows native spinners;
-  **not done yet** (section 7).
+  keeps them.
 
 ## 7. Not done yet
 
 - Both: the Keys pane as a short strip, with the device setup moved out of it.
 - Desktop: the Session pane.
-- Browser: Patch graph follows the current channel, as Patch params does,
-  instead of its own File list.
-- Browser: no stepper buttons on a parameter's number box.
 - Both: the patch editor (graph, params, the header strip) opened for the
   current channel from any mode, instead of from patch mode only. Decided:
   - **One action**, Edit instrument, on anything with a channel (a Channels

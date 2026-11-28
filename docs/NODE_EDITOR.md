@@ -36,8 +36,8 @@ registers nor owns the result, so looking at a DSP cannot disturb the tree a
 channel is playing.
 
 **The browser's editor** is the page's Patch graph pane, on the solo page and
-in a room. For now its File list, not the current channel, picks what it
-shows ([GUI.md](GUI.md) 7): the `.dsp` files the page has: the one playing in
+in a room. On the solo page it shows the current channel's instrument
+([GUI.md](GUI.md) 3). Its File list is the `.dsp` files the page has: the one playing in
 patch mode, or the ones a piece's instruments name. An edit is spliced into
 that text with the same `NodeEdit::Text` and `NodeLayout::Text` calls the
 desktop makes; on the solo page the patch then loads again, and in a room the
