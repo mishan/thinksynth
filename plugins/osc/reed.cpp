@@ -71,6 +71,22 @@ std::atomic<int> args[INOUT_STATE + 1];
 /* The head of the state, before the two lines. */
 enum { S_WRITE, S_PREV, S_NOISE, S_SIZE, S_HEAD };
 
+/* Each line, long enough for the lowest note. */
+static unsigned lineSize (unsigned int samples)
+{
+    return (unsigned)((float)samples / REED_LOWEST) + 8;
+}
+
+/* A voice about to start: its lines, sized here and not in its first
+   window. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_HEAD +
+                                                      2 * lineSize(samples));
+}
+
 void module_cleanup (thPlugin *plugin)
 {
     (void)plugin;
@@ -147,7 +163,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
 
     const float rate = (float)samples;
-    const unsigned size = (unsigned)(rate / REED_LOWEST) + 8;
+    const unsigned size = lineSize(samples);
     const bool kept = inout_state->len() == S_HEAD + 2 * size &&
                       (unsigned)(*inout_state)[S_SIZE] == size;
 

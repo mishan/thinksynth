@@ -88,6 +88,23 @@ std::atomic<int> args[INOUT_STATE + 1];
 /* The head of the state, before the bore line and the jet line. */
 enum { S_WRITE, S_LOW, S_DCIN, S_DCOUT, S_NOISE, S_SIZE, S_HEAD };
 
+/* Each line, long enough for the bore at the lowest note: two periods,
+   sharpened at most 33 cents, over 1 + JET_SHORT. */
+static unsigned lineSize (unsigned int samples)
+{
+    return (unsigned)((float)samples / JET_LOWEST * 1.65f) + 8;
+}
+
+/* A voice about to start: its lines, sized here and not in its first
+   window. */
+void module_prepare (thNode *node, thSynthTree *mod, unsigned int samples,
+                     int voice)
+{
+    if (voice)
+        mod->getArg(node, args[INOUT_STATE])->reserve(S_HEAD +
+                                                      2 * lineSize(samples));
+}
+
 void module_cleanup (thPlugin *plugin)
 {
     (void)plugin;
@@ -156,9 +173,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out = mod->getArg(node, args[OUT_ARG])->allocate(windowlen);
 
     const float rate = (float)samples;
-    /* The bore at the lowest note: two periods, sharpened at most 33
-       cents, over 1 + JET_SHORT. */
-    const unsigned size = (unsigned)(rate / JET_LOWEST * 1.65f) + 8;
+    const unsigned size = lineSize(samples);
     const bool kept = inout_state->len() == S_HEAD + 2 * size &&
                       (unsigned)(*inout_state)[S_SIZE] == size;
 
