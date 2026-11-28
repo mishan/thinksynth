@@ -2443,5 +2443,6 @@ export async function createNodeView ({ files, history = null,
              zoom: () => M._tw_node_canvas_zoom(),
              held: () => M._tw_node_canvas_selection_count(),
              hit: (x, y) => M._tw_node_canvas_hit(x, y) !== 0,
-             selected: () => selected };
+             selected: () => selected,
+             channel: () => channel };
 }

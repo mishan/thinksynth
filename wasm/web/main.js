@@ -722,13 +722,20 @@ function pickChannel (c, { chosen = false, canvas = false } = {})
         keysChosen.add(keysMode);
 
     /* Against what the panel shows, not the selectors: a mode's restore
-       moves the keys' selector without drawing the panel. */
+       moves the keys' selector without drawing the panel. A person's pick
+       of it still brings its graph back. */
     if (c === keyChannel() && params?.channel === c && paramsWanted === c)
+    {
+        if (chosen)
+            nodesFollow(true);
+
         return;
+    }
 
     showKeyChannels(c);
     showChannels({ tracks: false });
     session.draw(sessionGrid, c);
+    nodesFollow(chosen);
     paramsWanted = c;
     paramsDrawn = paramsDrawn.catch(() => {}).then(() => showParams());
 }
@@ -3705,6 +3712,7 @@ async function start ()
                                              ({ names: loaded,
                                                 holding } = m);
                                              showChannels();
+                                             nodesFollow();
                                          },
                                          onRecorded: (m) =>
                                              takes.recorded(m),
@@ -4254,14 +4262,49 @@ $('dsp').undo = (back) =>
 
 /* Which channel what the canvas is showing is playing on, and so which
    one a probe is armed on: patch mode has one, and in piece mode the
-   piece says. */
+   piece says -- the current channel, where its instrument plays the file. */
 function nodeChannel ()
 {
     if (playsPatch())
         return PATCH_CHANNEL;
 
-    return piece?.instruments?.find(
-        (i) => i.dsp === $('nodefile').value)?.channel ?? -1;
+    const on = (piece?.instruments ?? []).filter(
+        (i) => i.dsp === $('nodefile').value);
+
+    return (on.find((i) => i.channel === keyChannel()) ?? on[0])?.channel ??
+           -1;
+}
+
+/* The graph of the current channel's instrument -- the one it holds now,
+   which a swap changes while the piece plays -- where the page has its
+   file; the File list picks among the rest, and a file picked there stays
+   until the channel or its instrument changes, or the channel is picked
+   again (`again'). */
+let nodesFollowed = '';
+
+function nodesFollow (again = false)
+{
+    if (nodes === null)
+        return;
+
+    const declared = piece?.instruments?.find(
+        (i) => i.channel === keyChannel());
+    const inst = piece?.instruments?.find(
+        (i) => i.name === holding[keyChannel()]) ?? declared;
+    const dsp = playsPatch() ? undefined : inst?.dsp;
+    const now = `${keyChannel()} ${inst?.name} ${dsp}`;
+    const moved = again || now !== nodesFollowed;
+
+    nodesFollowed = now;
+
+    if (moved && dsp !== undefined && dsp !== $('nodefile').value &&
+        nodeFiles.names().includes(dsp))
+    {
+        $('nodefile').value = dsp;
+        nodes.showFile(dsp);
+    }
+
+    nodes.onChannel(nodeChannel());
 }
 
 function showNodes ()
@@ -4270,7 +4313,7 @@ function showNodes ()
         return;
 
     nodes.offer(nodeFiles.names());
-    nodes.onChannel(nodeChannel());
+    nodesFollow();
     nodes.show(panes.visible('nodeview'));
 }
 
@@ -4536,6 +4579,10 @@ window.solo = {
        is and how tall the grid behind it said to be. */
     tracks: () => seq?.tracks() ?? [],
 
+    /* The piece's instruments and the channel each was given. */
+    instruments: () => (piece?.instruments ?? []).map(
+        ({ name, dsp, channel }) => ({ name, dsp, channel })),
+
     /* The notes the tape has carried, in transport seconds. What a
        harness about the tempo has to read: a control that moved a number
        in a box and nothing else would pass every check that asks the
@@ -4697,6 +4744,7 @@ window.solo = {
         held: nodes.held(),
         hit: (x, y) => nodes.hit(x, y),
         box: (i) => nodes.boxAt(i),
+        channel: nodes.channel(),
     }),
 };
 

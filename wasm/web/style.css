@@ -1258,6 +1258,20 @@ body:has(#joinrow:not([hidden])) #roomdrawer { display: none; }
     text-align: right;
 }
 
+/* Beside a slider, which steps it, a number's own stepper is a second pair
+   of arrows in the width the number needs. */
+.panelcontrol input.value
+{
+    appearance: textfield;
+}
+
+.panelcontrol input.value::-webkit-inner-spin-button,
+.panelcontrol input.value::-webkit-outer-spin-button
+{
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 /* A value and the menus that qualify it: which unit a composer's duration
    is written in, which knob it is read through. One cell of the row, so the
    menus do not fall into the next row's name column. */
