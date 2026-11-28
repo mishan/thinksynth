@@ -31,7 +31,7 @@ think_add_plugin_category(analysis pitch yin)
 
 think_add_plugin_category(delay    echo fir allpass chorus fdn pitchshift varispeed reverse stutter)
 
-think_add_plugin_category(dist     clip saturate waveman inksat crush)
+think_add_plugin_category(dist     clip saturate waveman inksat crush fold)
 
 think_add_plugin_category(dyn      compressor)
 

@@ -79,6 +79,7 @@
 #include "thUtil.h"
 
 #include "think.h"
+#include "../plugins/dist/fold.h"
 #include "../plugins/osc/samplehits.h"
 
 using std::string;
@@ -1662,6 +1663,261 @@ static double bin (const vector<float> &v, size_t from, size_t n, double hz)
     }
 
     return 2.0 * sqrt(re * re + im * im) / (double)n;
+}
+
+static double meanOf (const vector<float> &v, size_t from);
+
+/* dist::fold after a sine: `drive', `symmetry', and the sine's `freq'
+   and `amp'. */
+static vector<NodeSpec> foldGraph (float freq, float amp, float drive,
+                                   float symmetry)
+{
+    NodeSpec src, fold;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+    src.values.push_back(Value{ "freq", freq });
+    src.values.push_back(Value{ "amp", amp });
+    src.values.push_back(Value{ "waveform", 0 });
+
+    fold.name = "fold";
+    fold.spelling = "dist/fold";
+    fold.values.push_back(Value{ "drive", drive });
+    fold.values.push_back(Value{ "symmetry", symmetry });
+    fold.wires.push_back(Wire{ "in", "src", "out" });
+
+    return { src, fold };
+}
+
+/* J_n(x), by its series: what sin(a sin t) is made of, 2 J_n(a) at each
+   odd n. */
+static double besselJ (int n, double x)
+{
+    double sum = 0, term = 1;
+
+    for (int k = 1; k <= n; k++)
+        term *= x / 2 / k;
+
+    for (int m = 0; m < 40; m++)
+    {
+        sum += term;
+        term *= -(x / 2) * (x / 2) / ((m + 1) * (double)(m + 1 + n));
+    }
+
+    return sum;
+}
+
+static void checkFold (const string &pluginPath)
+{
+    const int R = TH_DEFAULT_SAMPLES;
+    auto play = [&] (const vector<NodeSpec> &spec, vector<float> &in,
+                     vector<float> &out)
+    {
+        vector<Watch> watch = { Watch{ "src", "out" }, Watch{ "fold", "out" } };
+        vector< vector<float> > got;
+        string why;
+
+        if (!render(pluginPath, spec, watch, 256, R + 2000, got, why))
+        {
+            fail("dist::fold renders", why);
+            return false;
+        }
+
+        in.assign(got[0].begin() + 2000, got[0].end());
+        out.assign(got[1].begin() + 2000, got[1].end());
+        return true;
+    };
+
+    /* At drive 1, a full-scale sine is sin(pi/2 sin t): its odd harmonics
+       2 J_n(pi/2), and no others. */
+    {
+        vector<float> in, out;
+
+        if (play(foldGraph(441, 1, 1, 0), in, out))
+        {
+            const double h1 = bin(out, 0, R, 441), h3 = bin(out, 0, R, 1323);
+            const double h2 = bin(out, 0, R, 882);
+            const double w1 = 2 * besselJ(1, M_PI / 2);
+            const double w3 = 2 * besselJ(3, M_PI / 2);
+
+            okOrFail(fabs(h1 / w1 - 1) < 0.01 && fabs(h3 / w3 - 1) < 0.02 &&
+                     h2 < 1e-4,
+                     "dist::fold: drive 1 shapes a sine as sin(pi/2 sin t)",
+                     num(h1) + " and " + num(h3) + ", not " + num(w1) +
+                     " and " + num(w3) + "; second " + num(h2));
+        }
+    }
+
+    /* Folded hard, a sine's harmonics run far past Nyquist and fold back
+       between the ones under it, where they can be told apart (whole Hz,
+       a whole second: no leakage): the second-order ADAA's images 17 dB
+       under the same fold's without it at 2 kHz and drive 16, and 15 dB at
+       5 kHz and drive 8 -- 19.7 and 17.2 measured; first order manages
+       13.3 and 13.5, which these fail. */
+    for (const auto &c : { std::make_pair(2000.0f, 16.0f),
+                           std::make_pair(5000.0f, 8.0f) })
+    {
+        vector<float> in, out;
+
+        if (!play(foldGraph(c.first, 1, c.second, 0), in, out))
+            continue;
+
+        vector<float> naive(in.size());
+
+        for (size_t i = 0; i < in.size(); i++)
+            naive[i] = (float)sin(c.second * (double)in[i] * M_PI / 2);
+
+        double adaa = 0, plain = 0;
+
+        for (int k = 1; k <= 400; k++)
+        {
+            double f = fmod((double)c.first * k, (double)R);
+
+            if (f > R / 2.0)
+                f = R - f;
+
+            /* The harmonics themselves, and what lands on them, left out. */
+            if (fabs(f - c.first * floor(f / c.first + 0.5)) < 1)
+                continue;
+
+            adaa += pow(bin(out, 0, R, f), 2);
+            plain += pow(bin(naive, 0, R, f), 2);
+        }
+
+        const double db = 10 * log10(adaa / plain);
+        const double want = c.first < 3000 ? -17 : -15;
+
+        okOrFail(db < want, "dist::fold: folded hard at " + num(c.first) +
+                            " Hz, drive " + num(c.second) + ", its images " +
+                            num(-want) + " dB under a naive fold's",
+                 num(db) + " dB");
+    }
+
+    /* Even harmonics only off centre; no DC either way. */
+    {
+        vector<float> in, centred, off;
+
+        if (play(foldGraph(441, 1, 4, 0), in, centred) &&
+            play(foldGraph(441, 1, 4, 0.3f), in, off))
+        {
+            const double even0 = bin(centred, 0, R, 882) + bin(centred, 0, R, 1764);
+            const double even3 = bin(off, 0, R, 882) + bin(off, 0, R, 1764);
+
+            okOrFail(even0 < 1e-4 && even3 > 0.01 &&
+                     fabs(meanOf(centred, R / 4)) < 1e-3 &&
+                     fabs(meanOf(off, R / 4)) < 1e-3,
+                     "dist::fold: even harmonics only off centre, and no DC",
+                     "even " + num(even0) + " and " + num(even3) + ", mean " +
+                     num(meanOf(off, R / 4)));
+        }
+    }
+
+    /* Swept: drive moved between 1 and 12, twenty times a second, steps no
+       further from one sample to the next than a drive of 12 held does. */
+    {
+        vector<NodeSpec> held = foldGraph(441, 1, 12, 0);
+        vector<NodeSpec> swept = foldGraph(441, 1, 0, 0);
+        NodeSpec lfo, around;
+
+        lfo.name = "lfo";
+        lfo.spelling = "osc/simple";
+        lfo.values.push_back(Value{ "freq", 20 });
+        lfo.values.push_back(Value{ "amp", 5.5f });
+        around.name = "around";
+        around.spelling = "math/add";
+        around.values.push_back(Value{ "in1", 6.5f });
+        around.wires.push_back(Wire{ "in0", "lfo", "out" });
+        swept.push_back(lfo);
+        swept.push_back(around);
+        swept[1].values.clear();
+        swept[1].values.push_back(Value{ "symmetry", 0 });
+        swept[1].wires.push_back(Wire{ "drive", "around", "out" });
+
+        vector<float> in, a, b;
+
+        if (play(held, in, a) && play(swept, in, b))
+        {
+            double stepA = 0, stepB = 0;
+
+            for (size_t i = 1; i < a.size(); i++)
+            {
+                stepA = fmax(stepA, fabs(a[i] - a[i - 1]));
+                stepB = fmax(stepB, fabs(b[i] - b[i - 1]));
+            }
+
+            okOrFail(stepB <= stepA * 1.1 && allFinite(b),
+                     "dist::fold: drive swept at audio rate never steps",
+                     "largest step " + num(stepB) + " swept, " + num(stepA) +
+                     " held at 12");
+        }
+    }
+
+    /* Nothing that is not a number gets out, or into what follows. */
+    {
+        vector<float> in, out;
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+
+        if (play(foldGraph(441, 1, nan, 0), in, out))
+            okOrFail(allFinite(out) && peak(out, 0) == 0,
+                     "dist::fold: a NaN drive is silence, and finite", "");
+
+        if (play(foldGraph(441, 1, 4, nan), in, out))
+            okOrFail(allFinite(out) && peak(out, 0) == 0,
+                     "dist::fold: a NaN symmetry is silence, and finite", "");
+    }
+
+    /* The ADAA is the mean of sin over the triangle three samples' u span:
+       against its definition at random points, and at points a hair apart
+       -- where the series takes over, and the definition has no digits
+       left -- against the series' limit. */
+    {
+        /* Twice the second divided difference of -sin, in long double and
+           straight from its definition: a reference with digits to spare
+           wherever the points are not close, which is where it is asked. */
+        auto mean = [] (double u0, double u1, double u2)
+        {
+            auto d1 = [] (long double a, long double b)
+            {
+                return -(sinl(a) - sinl(b)) / (a - b);
+            };
+
+            return (double)(2 * (d1(u0, u1) - d1(u1, u2)) /
+                            ((long double)u0 - u2));
+        };
+        uint32_t lcg = 11;
+        auto any = [&lcg] (double span)
+        {
+            lcg = lcg * 1664525u + 1013904223u;
+            return span * ((double)(lcg >> 8) / (double)(1u << 23) - 1);
+        };
+        double worst = 0, hair = 0;
+
+        for (int k = 0; k < 60; k++)
+        {
+            const double c = any(20), s = k < 30 ? 1.5 : 12;
+            const double u0 = c + any(s);
+            /* The last twenty: u0 and u2 close, where the series takes over
+               however far u1 is, and the reference still has its digits. */
+            const double u2 = k < 40 ? c + any(s) : u0 + 0.004 + any(0.002);
+
+            if (fabs(u0 - c) < 0.05 || fabs(u2 - c) < 0.05 ||
+                (k < 40 && fabs(u0 - u2) < 0.05))
+                continue;
+
+            worst = fmax(worst, fabs(foldAdaa(u0, c, u2) - mean(u0, c, u2)));
+        }
+
+        for (double d : { 1e-3, 1e-7, 1e-11 })
+            hair = fmax(hair, fabs(foldAdaa(1 + d, 1, 1 - d) -
+                                   sin(1.0) * (1 - d * d / 12)));
+
+        okOrFail(worst < 1e-9 && hair < 1e-12,
+                 "dist::fold: the ADAA is the mean of sin over its triangle",
+                 "off by " + num(worst) + ", near-equal by " + num(hair));
+    }
+
+    windowsAgree(pluginPath, foldGraph(441, 1, 5, 0.3f), "fold", "out",
+                 "dist::fold: one sample at a time and five hundred agree");
 }
 
 static void checkChorus (const string &pluginPath)
@@ -13495,6 +13751,7 @@ int main (int argc, char **argv)
     checkSlew(pluginPath);
     checkMetals(pluginPath);
     checkSvf(pluginPath);
+    checkFold(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);

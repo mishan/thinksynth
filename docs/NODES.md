@@ -215,6 +215,18 @@ Bit crusher (fewer bits, a lower sample rate)
 | `out` | out | The input, crushed |  | -1 to 1 | full scale |  |
 | `state` | state |  |  |  |  |  |
 
+### dist::fold
+
+Wavefolder (a sine fold, antialiased)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `drive` | in | How far past the top it is pushed: 1 a gentle shaping, 8 folded four times each way; 0 silence | 1 | 0 to 16 |  |  |
+| `symmetry` | in | Moves the fold off centre, for even harmonics |  | -1 to 1 |  |  |
+| `out` | out | The folded signal, its DC taken out |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### dist::inksat
 
 Applies x^(1/y) saturation
