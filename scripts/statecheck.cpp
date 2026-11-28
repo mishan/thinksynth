@@ -80,6 +80,7 @@
 
 #include "think.h"
 #include "../plugins/osc/samplehits.h"
+#include "../plugins/osc/wavetable.h"
 
 using std::string;
 using std::vector;
@@ -9496,6 +9497,311 @@ static void checkSample (const string &pluginPath)
     std::filesystem::remove_all(dir, ec);
 }
 
+/* osc::wavetable, rendered: the frames where `position' says, from where
+   `reset' says, at the pitch `freq' says, never aliasing, and continuous
+   across every level and frame it crossfades. */
+static vector<NodeSpec> wavetableGraph (const char *file, float freq,
+                                        float position, float phase)
+{
+    vector<NodeSpec> spec;
+    NodeSpec wt;
+
+    wt.name = "wt";
+    wt.spelling = "osc/wavetable";
+    wt.texts.push_back(Text{ "file", file });
+    wt.values.push_back(Value{ "freq", freq });
+    wt.values.push_back(Value{ "position", position });
+    wt.values.push_back(Value{ "phase", phase });
+    wt.values.push_back(Value{ "reset", 1 });
+    spec.push_back(wt);
+
+    return spec;
+}
+
+static bool renderWavetable (const string &pluginPath, const char *file,
+                             float freq, float position, float phase,
+                             unsigned samples, vector<float> &got,
+                             int rate = TH_DEFAULT_SAMPLES)
+{
+    vector<Watch> watch = { Watch{ "wt", "out" } };
+    vector< vector<float> > out;
+    string why;
+
+    if (!render(pluginPath, wavetableGraph(file, freq, position, phase),
+                watch, 256, samples, out, why, rate))
+    {
+        fail("osc::wavetable renders", why);
+        return false;
+    }
+
+    got = out[0];
+    return true;
+}
+
+/* The worst bin of `y' that is not a harmonic of `hz', against its
+   fundamental, in dB: Blackman-Harris windowed, so a harmonic's leakage is
+   not taken for an image. */
+static double imagesDb (vector<float> y, double hz, int rate)
+{
+    const size_t n = 1 << 14;
+    vector<double> re(n, 0.0), im(n, 0.0);
+    const thWaveTwiddles &tw = thWaveTwiddleTable();
+
+    for (size_t i = 0; i < n && i < y.size(); i++)
+    {
+        const double a = 2 * M_PI * (double)i / n;
+
+        re[i] = y[i] * (0.35875 - 0.48829 * cos(a) + 0.14128 * cos(2 * a) -
+                        0.01168 * cos(3 * a));
+    }
+
+    thRealFft(re, im, 14, tw.wr, tw.wi, 1);
+
+    const double binHz = (double)rate / n;
+    double fundamental = 0, worst = 0;
+
+    for (size_t b = 1; b < n / 2; b++)
+    {
+        const double mag = sqrt(re[b] * re[b] + im[b] * im[b]);
+        const double f = b * binHz;
+        const double near = fabs(f / hz - floor(f / hz + 0.5)) * hz;
+
+        if (fabs(f - hz) < 2 * binHz)
+            fundamental = fmax(fundamental, mag);
+        else if (near > 6 * binHz)
+            worst = fmax(worst, mag);
+    }
+
+    return 20 * log10(worst / fundamental);
+}
+
+static void checkWavetable (const string &pluginPath)
+{
+    const string dir = thUtil::tempFile("statecheck-wavetables-");
+    std::error_code ec;
+
+    std::filesystem::remove(dir);
+    std::filesystem::create_directories(dir + "/samples", ec);
+
+    if (dir.empty() || ec)
+    {
+        fail("osc::wavetable: could not make a scratch directory", "");
+        return;
+    }
+
+#ifdef _WIN32
+    _putenv_s("THINK_DSP_PATH", dir.c_str());
+#else
+    setenv("THINK_DSP_PATH", dir.c_str(), 1);
+#endif
+
+    /* Four frames of 2048: a sine, a saw of 20, a square of 20, the second
+       harmonic. As functions of the phase, for what each should sound. */
+    const size_t n = 2048;
+    auto wave = [] (int frame, double ph)
+    {
+        double v = 0;
+
+        if (frame == 0)
+            v = sin(2 * M_PI * ph);
+        else if (frame == 3)
+            v = sin(4 * M_PI * ph);
+        else
+            for (int h = 1; h <= 20; h++)
+                if (frame == 1 || h % 2)
+                    v += 0.5 * sin(2 * M_PI * h * ph) / h;
+
+        return v;
+    };
+    vector<float> four, saw;
+
+    for (int f = 0; f < 4; f++)
+        for (size_t t = 0; t < n; t++)
+            four.push_back((float)wave(f, (double)t / n));
+
+    for (size_t t = 0; t < n; t++)
+    {
+        double v = 0;
+
+        for (int h = 1; h <= 1023; h++)
+            v += 0.5 * sin(2 * M_PI * (double)((h * t) % n) / n) / h;
+
+        saw.push_back((float)v);
+    }
+
+    if (!writeWav(dir + "/samples/four.wav", four, 44100) ||
+        !writeWav(dir + "/samples/saw.wav", saw, 44100))
+    {
+        fail("osc::wavetable: could not write the scratch tables", "");
+        std::filesystem::remove_all(dir, ec);
+        return;
+    }
+
+    const int R = TH_DEFAULT_SAMPLES;
+    /* Low enough that level 0 alone plays, and a step of one sample of it
+       a frame, so the read lands on its samples. */
+    const float slow = (float)R / 4096;
+
+    /* `position' through the frames, from `reset' at `phase'. */
+    {
+        const struct { float position, phase, freq;
+                       double a, b, mix; const char *what; } cases[] = {
+            { 0, 0, slow, 0, 0, 0, "position 0 is the first frame" },
+            { 1.0f / 3, 0, slow, 1, 1, 0, "1/3 the second" },
+            { 1.0f / 6, 0, slow, 0, 1, 0.5, "1/6 halfway from the first "
+              "to the second" },
+            { 1, 0, slow, 3, 3, 0, "1 the last" },
+            { 0, 0.25f, slow, 0, 0, 0, "`reset' starts it at `phase'" },
+            { 0, 0, -slow, 0, 0, 0, "a negative `freq' runs it backward" },
+        };
+
+        for (const auto &c : cases)
+        {
+            vector<float> got;
+
+            if (!renderWavetable(pluginPath, "four.wav", c.freq, c.position,
+                                 c.phase, 600, got))
+                continue;
+
+            double worst = 0;
+
+            for (size_t i = 0; i < got.size(); i++)
+            {
+                double ph = c.phase + (double)i * c.freq / R;
+
+                ph -= floor(ph);
+
+                const double want = wave((int)c.a, ph) +
+                    (wave((int)c.b, ph) - wave((int)c.a, ph)) * c.mix;
+
+                worst = fmax(worst, fabs(got[i] - want));
+            }
+
+            okOrFail(worst < 2e-3, string("osc::wavetable: ") + c.what,
+                     "off by " + num(worst));
+        }
+    }
+
+    /* What it should not play: NaN `position' is 0; NaN, 0 and past
+       Nyquist `freq' silence; a note under Nyquist and over every level
+       finite. */
+    {
+        vector<float> nanPos, zeroPos, nanHz, over, high, none;
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const bool rendered =
+            renderWavetable(pluginPath, "four.wav", 440, nan, 0, 400, nanPos) &&
+            renderWavetable(pluginPath, "four.wav", 440, 0, 0, 400, zeroPos) &&
+            renderWavetable(pluginPath, "four.wav", nan, 0, 0, 400, nanHz) &&
+            renderWavetable(pluginPath, "four.wav", 30000, 0, 0, 400, over) &&
+            renderWavetable(pluginPath, "saw.wav", 21000, 0, 0, 400, high) &&
+            renderWavetable(pluginPath, "nosuch.wav", 440, 0, 0, 400, none);
+
+        okOrFail(rendered && nanPos == zeroPos && peak(nanHz, 0) == 0 &&
+                 peak(over, 0) == 0 && allFinite(high) &&
+                 peak(high, 0) <= 1.3 && peak(none, 0) == 0,
+                 "osc::wavetable: NaN `position' is 0; NaN `freq', past "
+                 "Nyquist and no file are silent; just under Nyquist is "
+                 "finite", "");
+    }
+
+    /* No aliasing: a saw of every harmonic a frame can hold, at three
+       pitches, nothing but its harmonics over the line. */
+    for (double hz : { 344.0, 5000.0, 10000.0 })
+    {
+        vector<float> got;
+
+        if (!renderWavetable(pluginPath, "saw.wav", (float)hz, 0, 0,
+                             1 << 14, got))
+            continue;
+
+        const double db = imagesDb(got, hz, R);
+
+        okOrFail(db < -75, "osc::wavetable: a saw at " + num(hz) +
+                           " Hz has nothing but its harmonics over -75 dB",
+                 num(db) + " dB");
+    }
+
+    /* Continuous across every level boundary (where a half-octave more
+       stops fitting) and across a frame boundary: just either side, the
+       same wave. */
+    {
+        double worstLevel = 0;
+
+        for (int m = 0; m < 16; m++)
+        {
+            const double fit = 511.0 / pow(2.0, m / 2.0);
+            const double hz = R * 0.5 / fit;
+
+            if (hz >= R * 0.45)
+                break;
+
+            vector<float> below, above;
+
+            if (!renderWavetable(pluginPath, "saw.wav", (float)(hz * 0.99999),
+                                 0, 0, 256, below) ||
+                !renderWavetable(pluginPath, "saw.wav", (float)(hz * 1.00001),
+                                 0, 0, 256, above))
+                continue;
+
+            /* The phases part by 1e-5 a cycle a cycle: a few periods. */
+            for (size_t i = 0; i < 64; i++)
+                worstLevel = fmax(worstLevel, fabs(below[i] - above[i]));
+        }
+
+        vector<float> before, after;
+        const bool framed =
+            renderWavetable(pluginPath, "four.wav", 440, 1.0f / 3 - 1e-6f, 0,
+                            256, before) &&
+            renderWavetable(pluginPath, "four.wav", 440, 1.0f / 3 + 1e-6f, 0,
+                            256, after);
+        double worstFrame = 0;
+
+        for (size_t i = 0; framed && i < before.size(); i++)
+            worstFrame = fmax(worstFrame, fabs(before[i] - after[i]));
+
+        okOrFail(worstLevel < 5e-3 && framed && worstFrame < 1e-4,
+                 "osc::wavetable: continuous across every level and frame "
+                 "it crossfades",
+                 "levels " + num(worstLevel) + ", frames " + num(worstFrame));
+    }
+
+    /* A note too high for any harmonic but its first still has that one
+       whole: the saw's, half full scale. */
+    {
+        vector<float> got;
+        double sum = 0;
+
+        if (renderWavetable(pluginPath, "saw.wav", 18000, 0, 0, 4096, got))
+            for (size_t i = 256; i < got.size(); i++)
+                sum += (double)got[i] * got[i];
+
+        const double rms = sqrt(sum / (got.size() > 256 ? got.size() - 256
+                                                        : 1));
+
+        okOrFail(fabs(rms - 0.5 / sqrt(2.0)) < 0.02,
+                 "osc::wavetable: at 18 kHz the fundamental plays whole",
+                 "RMS " + num(rms));
+    }
+
+    /* A table is cycles at any rate: in an engine at 48 kHz, 440 Hz is
+       440 cycles a second. */
+    {
+        vector<float> got;
+        int up = 0;
+
+        if (renderWavetable(pluginPath, "four.wav", 440, 0, 0, 48000, got,
+                            48000))
+            for (size_t i = 1; i < got.size(); i++)
+                up += got[i - 1] < 0 && got[i] >= 0;
+
+        okOrFail(up >= 439 && up <= 441,
+                 "osc::wavetable: a 44.1 kHz table at 440 Hz in a 48 kHz "
+                 "engine", num((double)up) + " cycles");
+    }
+
+    std::filesystem::remove_all(dir, ec);
+}
+
 /* Zones, and a file that arrives late. Each wav is one constant level, so
    which zone played is the level that came out. */
 static vector<NodeSpec> zoneGraph (const char *file, float freq)
@@ -13528,6 +13834,7 @@ int main (int argc, char **argv)
     checkYin(pluginPath);
     checkAdsrGated(pluginPath);
     checkSample(pluginPath);
+    checkWavetable(pluginPath);
     checkSampleZones(pluginPath);
     checkStretch(pluginPath);
     checkGrain(pluginPath);

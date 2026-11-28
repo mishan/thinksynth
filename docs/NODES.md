@@ -1534,6 +1534,20 @@ Detuned band-limited saws, the center and a side each above and below
 | `out_right` | out | The mean of the center and the voices below it |  | -1 to 1 | full scale |  |
 | `state` | state |  |  |  |  |  |
 
+### osc::wavetable
+
+Wavetable oscillator (single cycles, morphed)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `file` | in | The table: single cycles laid end to end, under samples/ on THINK_DSP_PATH; their length from the file's `clm ' or `srge', else 2048, or the whole file when it is one cycle |  |  |  |  |
+| `freq` | in | The note; negative runs the cycle backward |  |  | Hz |  |
+| `position` | in | Which frame: 0 the first, 1 the last, the two between crossfaded |  | 0 to 1 |  |  |
+| `reset` | in | Rising above 0, start the cycle again at `phase' |  | 0 to 1 |  |  |
+| `phase` | in | Where in the cycle `reset' starts it |  | 0 to 1 |  |  |
+| `out` | out | The wave |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::window
 
 Unipolar oscillator, for windowing
