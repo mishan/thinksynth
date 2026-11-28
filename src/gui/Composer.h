@@ -87,6 +87,22 @@ public:
     void start (void);
     bool started (void) const { return started_; }
 
+    /* A key into the chains that take `input midi' on `chan': whether one
+       did. Its release goes to keyOff, so a chain that took the press
+       hears the end of it. */
+    bool keyOn (int chan, float note, float veloc);
+    void keyOff (int chan, float note) { injectOff(chan, note); }
+
+    /* Whether a chain takes `input midi' on `channel'. */
+    bool listensOn (int channel) const;
+
+    /* After each parse of the piece, its instruments on their channels. */
+    sigc::signal<void ()> &signal_parsed (void) { return parsed_; }
+
+    /* windowcheck's way to the scheduler and the reload of the composer
+       the window made. */
+    friend struct ComposerPeek;
+
     /* Where instruments that name a MIDI port play; set before start(). */
     void setMidiOut (gthMidiOut *out) { midiOut_ = out; }
 
@@ -141,7 +157,7 @@ public:
     Gtk::Widget &settingsView (void) { return editorScroll_; }
     Gtk::Widget &selectionView (void) { return selScroll_; }
 
-    /* The transport and the Kbd input toggle, and the line that says what
+    /* The transport, and the line that says what
        is playing: for a title bar. Managed, so the host's packing owns
        them -- they are the host's to pack, or they are never freed. */
     Gtk::Widget &transport (void) { return *transport_; }
@@ -564,6 +580,7 @@ protected:
     sigc::signal<void ()> fileCommand_;
     sigc::signal<void (std::string)> chooseEffect_;
     sigc::signal<void (std::vector<thMidiRoute>)> midiRoutes_;
+    sigc::signal<void ()> parsed_;
 
     /* The document up, and what the other one was left holding: its file,
        its work text and whether that had unsaved edits. `held' false for
@@ -655,21 +672,16 @@ protected:
     std::string evolveGraph_;
     bool evolvePending_ = false;
 
-    /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd
-       input toggle -- the on-screen keyboard's hop into the same place. */
+    /* The live MIDI hop into injectMidiEvent. */
     sigc::connection midiOnConn_;
     sigc::connection midiOffConn_;
-    sigc::connection kbdOnConn_;
-    sigc::connection kbdOffConn_;
-    Gtk::ToggleButton *kbdBtn_;
 
-    /* MIDI in and the on-screen keyboard onto the roll, as played keys:
-       always, as both always reach the synth, whatever the toggle says;
-       and the keyboard's reset, which ends them all. */
+    /* MIDI in and the on-screen keyboard onto the roll, as played keys,
+       whichever way they went; and the keyboard's reset, which ends them
+       all. */
     sigc::connection playedConns_[5];
 
     void buildActions (void);
-    void onKbdToggle (void);
     void injectOn (int chan, float note, float veloc);
     void injectOff (int chan, float note);
     void playedOn (int chan, float note, float veloc);

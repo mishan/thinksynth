@@ -14,7 +14,7 @@
 # what plays them, which is the whole point of a scratch pad.
 #
 # THE KEYS TRACK LISTENS. Its chain declares `input midi', so notes from
-# the Keyboard window (once Kbd input is on) or from a MIDI port land on
+# the on-screen keys (on its channel) or from a MIDI port land on
 # the grid, quantized to the nearest step of the row their pitch names.
 # Play a phrase and watch it draw itself, then loop. A pitch the ladder
 # cannot spell has no row and is dropped rather than approximated, so

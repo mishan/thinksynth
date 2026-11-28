@@ -2,7 +2,7 @@
 
 A visual editor for `.dsp` files: nodes, typed ports, wires, and the controls
 that drive them. It is the main window's **Patch graph** pane, showing the
-channel picked in Channels. Its palette and parameter panel start collapsed;
+current channel ([GUI.md](GUI.md) 3). Its palette and parameter panel start collapsed;
 the first two toggles on its toolbar open them.
 
 The format rules a writer has to obey — the grammar's constraints, what the
@@ -36,7 +36,8 @@ registers nor owns the result, so looking at a DSP cannot disturb the tree a
 channel is playing.
 
 **The browser's editor** is the page's Patch graph pane, on the solo page and
-in a room. Its File list is the `.dsp` files the page has: the one playing in
+in a room. For now its File list, not the current channel, picks what it
+shows ([GUI.md](GUI.md) 7): the `.dsp` files the page has: the one playing in
 patch mode, or the ones a piece's instruments name. An edit is spliced into
 that text with the same `NodeEdit::Text` and `NodeLayout::Text` calls the
 desktop makes; on the solo page the patch then loads again, and in a room the
@@ -507,7 +508,7 @@ keyboard's sliders have always used: a single atomic store, no reallocation, saf
 to call from the GUI thread while the audio thread reads.
 
 The editor has to be attached to a channel for this, so Patch graph opens on
-the channel picked in Channels, and the status bar says `live on channel 3` or
+the current channel ([GUI.md](GUI.md) 3), and the status bar says `live on channel 3` or
 `not attached to a channel`.
 
 Three kinds of edit, and they behave differently:

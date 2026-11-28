@@ -2,9 +2,8 @@
 #
 # Nothing here generates anything on its own. Every chain begins with
 # `input midi;', which means it is fed by whatever arrives on its sink's
-# channel -- hardware MIDI always, and the on-screen Keyboard window too
-# once the toolbar's Kbd input is switched on. Press Play, hold a chord
-# on channel 1, and the arpeggiator breaks it.
+# channel -- hardware MIDI, and the on-screen keys on that channel.
+# Press Play, hold a chord on channel 1, and the arpeggiator breaks it.
 #
 # This is the one thing duration-carrying events cannot say. A composed
 # note declares how long it lasts and the scheduler derives the off; a
@@ -32,7 +31,7 @@
 # slower, as a shadow underneath.
 #
 # Aim channel 1 at something plucked, channel 2 at keys, channel 3 at a
-# pad. Then turn on Kbd input and play.
+# pad. Then play.
 
 name "Hands";
 author "Misha Nasledov";

@@ -28,6 +28,7 @@
 
 #include <glibmm/dispatcher.h>
 
+#include "gthKeyRoute.h"
 #include "thhPane.h"
 #include "thhReader.h"
 #include "thhSession.h"
@@ -38,7 +39,7 @@ class thSynth;
    played in patch mode: each read on its own thread, mapped by the
    player's profile (hid/index in the configuration directory, on the
    controllers' own), and played on the GUI thread the way the on-screen
-   keyboard plays, so the roll and a piece's Kbd input hear them too.
+   keyboard plays: through route(), and the roll hears them either way.
 
    One controller alone plays the profile's either-hand block, whichever
    hand it is; a pair play it each with its own hand's block on top, and
@@ -60,6 +61,9 @@ public:
     std::string status () const;
     std::string path () const { return path_; }
     int channel () const { return channel_(); }
+
+    /* Where a note goes instead of the channel's instrument. */
+    gthKeyRoute &route () { return route_; }
     bool hasArg (int channel, const std::string &arg) const;
     bool reload (std::string &err);
     bool canSwapHands () const { return session_.canSwapHands(); }
@@ -93,6 +97,8 @@ private:
     std::string           path_;
     unsigned              generation_;
     std::string           said_;
+
+    gthKeyRoute           route_;
 
     /* Ticked while it has loops. */
     thhSession       session_;

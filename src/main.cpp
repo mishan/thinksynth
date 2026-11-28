@@ -590,6 +590,8 @@ int main (int argc, char *argv[])
         return synthWindow->keyboardChannel();
     });
 
+    hid->route().set(sigc::mem_fun(*synthWindow, &MainSynthWindow::keyOn),
+                     sigc::mem_fun(*synthWindow, &MainSynthWindow::keyOff));
     synthWindow->setController(hid);
 #endif
 

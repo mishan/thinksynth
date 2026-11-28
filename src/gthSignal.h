@@ -30,8 +30,7 @@ extern sigNoteClear m_sigNoteClear;
 /* The on-screen keyboard's presses, as a separate pair rather than
  * folded into m_sigNoteOn: that one means "MIDI arrived" and *lights*
  * the keyboard, so emitting it from the keyboard would echo. The
- * composer's roll listens here, and its chains do when its Kbd input
- * toggle is on. */
+ * composer's roll listens here. */
 extern sigNoteOn  m_sigKbdNoteOn;
 extern sigNoteOff m_sigKbdNoteOff;
 

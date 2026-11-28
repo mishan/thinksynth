@@ -25,17 +25,16 @@
  * host and no toolkit at all.
  *
  * That gap had a crash in it. `rebuildEditor' nulls the pointers to the
- * widgets it is about to destroy, and someone had added `kbdBtn_' to
- * that list -- but Kbd input lives in the *transport*, which rebuildEditor
- * never touches. So opening the Edit panel left a live, still-connected
- * button behind a null pointer, and the next click on it went through
- * `onKbdToggle' straight into a null dereference. Every part of that is
- * ordinary; what made it survive is that nothing ever pressed the
+ * widgets it is about to destroy, and someone had added one that lived in
+ * the *transport*, which rebuildEditor never touches. So opening the Edit
+ * panel left a live, still-connected button behind a null pointer, and
+ * the next click on it went into a null dereference. Every part of that
+ * is ordinary; what made it survive is that nothing ever pressed the
  * buttons.
  *
  * So this presses them. Build the composer, bring its settings into view
- * and out again, toggle Kbd input, toggle it back, pump the main loop
- * between each so the handlers actually run. It asserts almost nothing about what the
+ * and out again, pump the main loop between each so the handlers
+ * actually run. It asserts almost nothing about what the
  * widgets *say* -- that is what a screenshot would be for. What it
  * asserts is that the program is still alive afterwards, which for this
  * class of bug is the whole of the question.
@@ -79,8 +78,7 @@
 /* The five application-wide signals gthSignal.h declares, defined here
  * because main.cpp defines them there and this harness is not main.cpp.
  * Empty and never emitted: what is under test is the window's own
- * wiring, and a keyboard that never plays is exactly the state the Kbd
- * input toggle has to survive. */
+ * wiring. */
 sigNoteOn    m_sigNoteOn;
 sigNoteOff   m_sigNoteOff;
 sigNoteClear m_sigNoteClear;
@@ -143,7 +141,6 @@ public:
     /* How many times the Selection pane has been asked for. */
     int selectionShown_ = 0;
 
-    using Composer::kbdBtn_;
     using Composer::canvas_;
     using Composer::canvasScroll_;
     using Composer::doc_;
@@ -418,13 +415,6 @@ run (const std::string &pluginPath, const char *genFile)
     else
         ok("Save starts greyed out");
 
-    if (win->kbdBtn_ == NULL)
-    {
-        fail("the transport's toggle exists");
-        delete win;
-        return failures;
-    }
-
     /* The piece's settings and the selection coming into view and going
        out of it, which is what builds and clears them and nulls the
        pointers. Twice, because the second build is the one that runs
@@ -461,29 +451,6 @@ run (const std::string &pluginPath, const char *genFile)
         win->setEditing(false);
         pump(4);
     }
-
-    /* And now the button the panel is not allowed to have forgotten.
-       This is the crash: before the fix, the first press here went
-       through a null kbdBtn_ and took the process with it. */
-    win->kbdBtn_->set_active(true);
-    pump(4);
-    win->kbdBtn_->set_active(false);
-    pump(4);
-
-    ok("kbd input toggles after the edit panel has been rebuilt");
-
-    /* The other order too, in case a future rebuild only forgets on one
-       of the two paths. */
-    win->setEditing(true);
-    pump(4);
-    win->kbdBtn_->set_active(true);
-    pump(4);
-    win->setEditing(false);
-    pump(4);
-    win->kbdBtn_->set_active(false);
-    pump(4);
-
-    ok("kbd input toggles with the edit panel open");
 
     /* The zoom the canvas inherited from GraphCanvas. What is asserted
        is the arithmetic, not the picture: a zoom that clamps, a fit that

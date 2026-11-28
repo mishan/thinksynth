@@ -391,6 +391,9 @@ void MainSynthWindow::buildPanes (void)
     /* The keys play the channel picked in Channels (selectChannel aims
        them). */
     kbPanel_ = manage(new KeyboardPanel(thSynth::instance()));
+
+    kbPanel_->route().set(sigc::mem_fun(*this, &MainSynthWindow::keyOn),
+                          sigc::mem_fun(*this, &MainSynthWindow::keyOff));
     patchSel_ = manage(new PatchSelPanel(thSynth::instance()));
     midiMap_ = manage(new MidiMap(thSynth::instance()));
     controller_ = manage(new ControllerPane());
@@ -427,6 +430,8 @@ void MainSynthWindow::buildPanes (void)
        selectChannel tells every pane that shows it. */
     composer_->signal_channel_picked().connect(
         sigc::mem_fun(*this, &MainSynthWindow::selectChannel));
+    composer_->signal_parsed().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::aimKeysAtPiece));
     composer_->sequencer().signal_picked().connect(
         sigc::mem_fun(*this, &MainSynthWindow::selectChannel));
     kbPanel_->signal_channel_picked().connect(
@@ -568,7 +573,25 @@ void MainSynthWindow::setDesktopMode (const string &mode, bool keep)
     if (mode == mode_)
         return;
 
+    if (isMode(mode_))
+        modeChans_[mode_] = chan_;
+
+    views_++;
+
     mode_ = mode;
+
+    /* Each mode's own channel: a pick in one is not a reason to move
+       another's. A mode not visited yet starts on the one it came from.
+       Before the document and the layout, whose parse and panes can aim
+       the keys: an aim has the last word over a channel put back. */
+    const std::map<string, int>::const_iterator was = modeChans_.find(mode);
+
+    if (was != modeChans_.end())
+    {
+        aiming_ = true;
+        selectChannel(was->second);
+        aiming_ = false;
+    }
 
     for (size_t i = 0; i < G_N_ELEMENTS(PIECE_PANES); i++)
         panes_->setAvailable(PIECE_PANES[i], inMode(PIECE_PANES[i], mode));
@@ -637,7 +660,25 @@ void MainSynthWindow::aimKeysAtSequence (void)
         return;
 
     keysAimed_ = true;
+    aiming_ = true;
     selectChannel(seq.trackChannel(n - 1));
+    aiming_ = false;
+}
+
+void MainSynthWindow::aimKeysAtPiece (void)
+{
+    if (mode_ != PIECE_MODE || chosen_.count(mode_) || tearingDown_ ||
+        composer_ == NULL || composer_->listensOn(chan_))
+        return;
+
+    for (int c = 0; c < (int)holders_.size(); c++)
+        if (composer_->listensOn(c))
+        {
+            aiming_ = true;
+            selectChannel(c);
+            aiming_ = false;
+            return;
+        }
 }
 
 void MainSynthWindow::onPaneShown (const string &id, bool visible)
@@ -1860,17 +1901,17 @@ void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
        dropped if another has been put on the channel since. */
     item("Open _scale (.scl)...", true, [this, chan]
     {
-        const unsigned gen = generationOf(chan);
+        const unsigned gen = generationOf(chan), view = views_;
 
-        askTuningFile(false, sigc::track_obj([this, chan, gen] (string p)
-                      { onTuningFile(chan, gen, false, p); }, *this));
+        askTuningFile(false, sigc::track_obj([this, chan, gen, view] (string p)
+                      { onTuningFile(chan, gen, view, false, p); }, *this));
     });
     item("Open _keyboard map (.kbm)...", !now.empty(), [this, chan]
     {
-        const unsigned gen = generationOf(chan);
+        const unsigned gen = generationOf(chan), view = views_;
 
-        askTuningFile(true, sigc::track_obj([this, chan, gen] (string p)
-                      { onTuningFile(chan, gen, true, p); }, *this));
+        askTuningFile(true, sigc::track_obj([this, chan, gen, view] (string p)
+                      { onTuningFile(chan, gen, view, true, p); }, *this));
     });
     item("_No keyboard map", !now.keymap.empty(), [this, chan, now]
     {
@@ -1886,14 +1927,16 @@ void MainSynthWindow::appendTuningControls (Gtk::Box *row, int chan)
 }
 
 /* A .scl or a .kbm read into the values form the patch keeps, the other
- * half of the tuning as it was. */
+ * half of the tuning as it was: unless the patch was replaced, or the
+ * current channel or the mode moved, since it was asked for. */
 void MainSynthWindow::onTuningFile (int chan, unsigned generation,
-                                    bool keymap, string path)
+                                    unsigned view, bool keymap, string path)
 {
     gthPatchManager::PatchFile *patch =
         gthPatchManager::instance()->getPatch(chan);
 
-    if (path.empty() || patch == NULL || patch->generation != generation)
+    if (path.empty() || patch == NULL || patch->generation != generation ||
+        view != views_)
         return;
 
     std::ifstream in(path);
@@ -2415,7 +2458,9 @@ void MainSynthWindow::onPatchesChanged (void)
 
     populate();
 
+    aiming_ = true;
     selectChannel(chan_);
+    aiming_ = false;
 
     /* Once the change is done: a piece records which channels it filled
        after the load that rebuilt these pages. */
@@ -2575,6 +2620,20 @@ MainSynthWindow::signal_midi_routes (void)
     return composer_->signal_midi_routes();
 }
 
+/* Into the piece where it listens on the channel, outside patch mode;
+   anywhere else a key plays the channel's instrument. */
+bool MainSynthWindow::keyOn (int chan, int note, float veloc)
+{
+    return mode_ != PATCH_MODE && composer_ != NULL &&
+           composer_->keyOn(chan, note, veloc);
+}
+
+void MainSynthWindow::keyOff (int chan, int note)
+{
+    if (composer_ != NULL)
+        composer_->keyOff(chan, note);
+}
+
 int MainSynthWindow::keyboardChannel (void) const
 {
     return kbPanel_ ? kbPanel_->channel() : 0;
@@ -2584,6 +2643,12 @@ void MainSynthWindow::selectChannel (int chan)
 {
     if (chan < 0 || chan >= (int)holders_.size())
         chan = 0;
+
+    if (chan != chan_)
+        views_++;
+
+    if (!aiming_ && isMode(mode_))
+        chosen_.insert(mode_);
 
     chan_ = chan;
 

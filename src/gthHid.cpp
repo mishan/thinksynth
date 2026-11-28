@@ -308,7 +308,21 @@ gthHid::looping ()
 void
 gthHid::sound (const std::vector<thhAction> &acts)
 {
-    thhPlay(*synth_, acts, [](const thhAction &a) {
+    std::vector<thhAction> direct;
+
+    for (const thhAction &a : acts)
+    {
+        if (a.kind == thhAction::NOTE_ON &&
+            route_.press(a.channel, a.note, a.vel))
+            m_sigKbdNoteOn(a.channel, a.note, a.vel);
+        else if (a.kind == thhAction::NOTE_OFF &&
+                 route_.release(a.channel, a.note))
+            m_sigKbdNoteOff(a.channel, a.note);
+        else
+            direct.push_back(a);
+    }
+
+    thhPlay(*synth_, direct, [](const thhAction &a) {
         if (a.kind == thhAction::NOTE_ON)
             m_sigKbdNoteOn(a.channel, a.note, a.vel);
         else

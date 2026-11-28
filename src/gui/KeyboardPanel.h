@@ -21,6 +21,8 @@
 
 #include <mutex>
 
+#include "gthKeyRoute.h"
+
 /* The on-screen keyboard and its channel and transpose controls, as a
    strip along the bottom of the main window (MainSynthWindow). It was a
    window of its own, which put the keys a window away from the channel
@@ -45,6 +47,9 @@ public:
     {
         return channelPicked_;
     }
+
+    /* Where a key goes instead of the channel's instrument. */
+    gthKeyRoute &route (void) { return route_; }
 
 protected:
     void eventNoteOn (int chan, int note, float veloc);
@@ -73,6 +78,8 @@ private:
 
     sigc::signal<void (int)> channelPicked_;
     bool setting_ = false;
+
+    gthKeyRoute route_;
 
     Keyboard *keyboard_;
 

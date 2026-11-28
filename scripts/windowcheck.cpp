@@ -76,6 +76,17 @@ sigNoteOff   m_sigKbdNoteOff;
 
 /* A subclass, for the reason composercheck has one: what the window keeps
  * is its own business, and there is no call to widen it for a test. */
+/* The composer's scheduler and its reload, which the window does not
+   hand out. */
+struct ComposerPeek {
+    static thcScheduler *sched (Composer *c) { return c->sched_; }
+    static void loadPiece (Composer *c) { c->loadPiece(); }
+    static std::string &heldPiece (Composer *c)
+    {
+        return c->held_[Composer::PIECE].text;
+    }
+};
+
 class TestWindow : public MainSynthWindow {
 public:
     TestWindow (void) : MainSynthWindow(NULL) { }
@@ -986,6 +997,44 @@ checkTuning (TestWindow *win, const std::string &dsp)
           "one");
     win->heldTuning = sigc::slot<void (std::string)>();
 
+    /* ...and so is one answered after the current channel or the mode
+       moved, even back again: it was asked of what was in view. */
+    {
+        const char *const acts[] = { "another channel and back",
+                                     "another mode and back" };
+
+        for (const char *act : acts)
+        {
+            win->selectChannel(2);
+            win->tuningAnswer = (dir / "edo19.scl").string();
+            win->holdTuning = true;
+            press(win, 2, "Open _scale (.scl)...");
+            pump(4);
+            win->holdTuning = false;
+
+            if (act == acts[0])
+            {
+                win->selectChannel(0);
+                win->selectChannel(2);
+            }
+            else
+            {
+                pickMode(win, "piece");
+                pickMode(win, "patch");
+            }
+
+            if (win->heldTuning)
+                win->heldTuning(win->tuningAnswer);
+
+            pump(4);
+
+            check(win->heldTuning && soundsAt(2, 61) == 61,
+                  (std::string("a scale chosen before ") + act +
+                   " is not taken").c_str());
+            win->heldTuning = sigc::slot<void (std::string)>();
+        }
+    }
+
     edit(2, "pw1", 0.42f);
     win->tuningAnswer = (dir / "edo19.scl").string();
     press(win, 2, "Open _scale (.scl)...");
@@ -1617,6 +1666,75 @@ run (const std::string &pluginPath, const std::string &dsp)
         checkAgree(win, seq.trackChannel(2), "a row in Channels");
     }
 
+    /* The keys go into the piece on a channel it listens on, and play the
+       instrument anywhere else; a key is let go the way it was pressed,
+       whatever the window is in by then. scratch.gen's keys track (4)
+       takes `input midi', its bassline (3) does not. */
+    {
+        thcScheduler *sched = ComposerPeek::sched(win->composer_);
+        Keyboard *keys = findUnder<Keyboard>(win->kbPanel_);
+        const int listening = seq.trackChannel(4);
+        const int deaf = seq.trackChannel(3);
+        int heard = 0;
+        bool sounded = false;
+        sigc::connection count = sched->sigDelivered.connect(
+            [&heard, sched] (const thcEvent &)
+            { if (sched->deliveringChain() >= 0) heard++; });
+
+        /* Pressed and released on `chan', in `mode', and what the piece
+           heard of it. */
+        auto play = [&] (int chan, bool between, const char *mode = "seq")
+        {
+            pickMode(win, mode);
+            win->selectChannel(chan);
+            pump(2);
+
+            const int before = heard;
+
+            keys->signal_note_on().emit(chan, 60, 100);
+            pump(2);
+
+            const int on = heard - before;
+
+            /* A window of sound, which is what takes a queued note on. */
+            thSynth::instance()->process();
+
+            const thMidiChan *mc = thSynth::instance()->getChannel(chan);
+
+            sounded = mc != NULL && mc->sounding();
+
+            if (between)
+                pickMode(win, "patch");
+
+            keys->signal_note_off().emit(chan, 60);
+            pump(2);
+
+            pickMode(win, "seq");
+
+            return std::make_pair(on, heard - before - on);
+        };
+
+        const std::pair<int, int> into = play(listening, false);
+        const std::pair<int, int> past = play(deaf, false);
+        const bool deafSounded = sounded;
+        const std::pair<int, int> held = play(listening, true);
+        const std::pair<int, int> patch = play(listening, false, "patch");
+        const bool patchSounded = sounded;
+
+        count.disconnect();
+
+        check(into.first > 0 && into.second > 0,
+              "a key on a channel the piece listens on goes into the piece, "
+              "press and release");
+        check(deafSounded && past.first == 0 && past.second == 0,
+              "...and on one it does not, past it, to the instrument");
+        check(held.first > 0 && held.second > 0,
+              "...and a key pressed into the piece is let go into it after "
+              "a trip to patch mode");
+        check(patchSounded && patch.first == 0 && patch.second == 0,
+              "...and in patch mode, on that same channel, to the instrument");
+    }
+
     /* A sequence's channels are the person's, instruments and tuning
        alike: the menu is live on a track's channel, a tuning taken there
        is kept through a reload of the sequence, and 12-TET puts it back. */
@@ -1707,14 +1825,17 @@ run (const std::string &pluginPath, const std::string &dsp)
           "the Sequencer's tick in patch mode goes to sequence mode");
 
     /* The keys went to the last track the first time; a channel picked
-       after that is somebody's, and stays through a trip elsewhere. */
+       after that is somebody's, and stays through a trip elsewhere --
+       where another picked is that mode's own. */
     win->selectChannel(0);
     pickMode(win, "piece");
+    turnKeys(win, 6);
     pickMode(win, "seq");
-
-    check(win->chan_ == 0,
-          "...and a channel picked there is kept through a trip to "
-          "another mode");
+    checkAgree(win, 0, "a channel picked in sequence mode, back from piece "
+                       "mode with another picked there");
+    pickMode(win, "piece");
+    checkAgree(win, 6, "...and piece mode's own, back in piece mode");
+    pickMode(win, "seq");
 
     /* A change to sequence mode's layout, for the section that keeps
        them. */
@@ -1863,6 +1984,66 @@ run (const std::string &pluginPath, const std::string &dsp)
 
     win->setDesktopMode("patch");
     pump(4);
+
+    /* A piece loaded where the keys reach nothing aims them at a channel
+       it listens on, until somebody picks one in piece mode. hands.gen
+       listens on its first three channels and nothing else. */
+    delete win;
+    pump(4);
+
+    {
+        const std::string gens = Glib::getenv("THINK_GEN_PATH");
+        const std::filesystem::path dir =
+            std::filesystem::temp_directory_path() /
+            ("windowcheck-hands-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+
+        std::filesystem::create_directories(dir);
+        std::filesystem::copy_file(std::filesystem::path(gens) / "hands.gen",
+                                   dir / "airports.gen");
+        Glib::setenv("THINK_GEN_PATH", dir.string());
+
+        win = new TestWindow;
+        win->set_visible(true);
+        pump(8);
+        win->selectChannel(9);
+        win->setDesktopMode("piece");
+        pump(8);
+        checkAgree(win, 0, "a piece the keys reach nothing in aims them at a "
+                           "channel it listens on");
+
+        /* ...and the piece parsed on the way back into piece mode, now
+           listening on channel 5 only, still does: the channel put back
+           for the mode does not undo it. */
+        {
+            win->setDesktopMode("seq");
+            pump(8);
+
+            std::string &held = ComposerPeek::heldPiece(win->composer_);
+            const std::string was = held;
+
+            for (const char *from : { "channel = 1;", "channel = 2;",
+                                      "channel = 3;" })
+                for (size_t at; (at = held.find(from)) != std::string::npos; )
+                    held.replace(at, strlen(from), "channel = 5;");
+
+            win->setDesktopMode("piece");
+            pump(8);
+            checkAgree(win, 4, "...and one parsed on the way back into piece "
+                               "mode, past the channel put back for it");
+            ComposerPeek::heldPiece(win->composer_) = was;
+        }
+
+        turnKeys(win, 9);
+        ComposerPeek::loadPiece(win->composer_);
+        pump(8);
+        checkAgree(win, 9, "...and a reload leaves one somebody picked there");
+
+        win->setDesktopMode("patch");
+        pump(4);
+        Glib::setenv("THINK_GEN_PATH", gens);
+        std::filesystem::remove_all(dir);
+    }
 
     /* ...and a kept layout that is no layout is the first one. */
     delete win;

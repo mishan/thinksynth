@@ -20,6 +20,7 @@
 #define MAIN_SYNTH_WINDOW_H
 
 #include <memory>
+#include <set>
 #include <vector>
 
 #include "thMidiRoutes.h"
@@ -55,6 +56,11 @@ public:
 
     /* The channel the keyboard plays, 0-based. */
     int keyboardChannel (void) const;
+
+    /* A key, from the keys or the controller, into the piece: whether it
+       took it (GUI.md 4). One it took is let go through keyOff. */
+    bool keyOn (int chan, int note, float veloc);
+    void keyOff (int chan, int note);
 
     /* The composer's piece routes, for live MIDI input to follow. */
     sigc::signal<void (std::vector<thMidiRoute>)> &signal_midi_routes (void);
@@ -125,8 +131,8 @@ protected:
        Greyed on a channel the open piece filled, whose tuning is the
        piece's (updateTuningOwned). */
     void appendTuningControls (Gtk::Box *row, int chan);
-    void onTuningFile (int chan, unsigned generation, bool keymap,
-                       string path);
+    void onTuningFile (int chan, unsigned generation, unsigned view,
+                       bool keymap, string path);
     void setChannelTuning (int chan, const thTuningText &tuning);
     void updateTuningOwned (void);
 
@@ -222,6 +228,22 @@ protected:
     /* The keys to the sequence's last track, the first time it has one. */
     void aimKeysAtSequence (void);
     bool keysAimed_ = false;
+
+    /* The keys to a channel a piece listens on, where they reach nothing
+       and nobody has picked one in piece mode. */
+    void aimKeysAtPiece (void);
+
+    /* The modes somebody picked a channel in; and set around a pick that
+       is the window's, not theirs. */
+    std::set<string> chosen_;
+    bool aiming_ = false;
+
+    /* The current channel each mode had when it was left. */
+    std::map<string, int> modeChans_;
+
+    /* Moved on each change of the current channel or the mode, so an
+       answer asked of one view knows it is late. */
+    unsigned views_ = 0;
 
     /* The layout, kept in panes.ini beside thinkrc: written a moment after
        the last change rather than on every step of a divider's drag, and
