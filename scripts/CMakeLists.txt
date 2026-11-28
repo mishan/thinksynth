@@ -464,6 +464,10 @@ think_harness(wavcheck)
 # known frames, the principles over random ones, and the shipped break.
 think_harness(samplehitscheck)
 
+# osc::wavetable's tables: each level's harmonics, the reader's chunks, and
+# how far under a note the 4-point read's images are.
+think_harness(wavetablecheck)
+
 # The .gen and .dsp readers, and what a room does with what they read, on
 # changed copies of every shipped file.
 think_harness(parsecheck COMPOSERHOST)
@@ -1273,6 +1277,7 @@ add_test(NAME soundfeatcheck
          COMMAND soundfeatcheck ${PROJECT_BINARY_DIR}/plugins/ ${PROJECT_SOURCE_DIR}/dsp)
 add_test(NAME wavcheck COMMAND wavcheck "${PROJECT_BINARY_DIR}/wavcheck")
 add_test(NAME samplehitscheck COMMAND samplehitscheck "${PROJECT_SOURCE_DIR}/dsp")
+add_test(NAME wavetablecheck COMMAND wavetablecheck "${PROJECT_BINARY_DIR}")
 # A second normally; a chunk length read as a backwards seek is a loop, and
 # this makes it a failure in half a minute rather than ten.
 set_tests_properties(wavcheck PROPERTIES TIMEOUT 30)

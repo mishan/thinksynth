@@ -81,8 +81,8 @@
  * different stretch of the same noise-like wave: the same pad,
  * decorrelated, for a stereo pair from one table.
  *
- * THE TRANSFORM is the radix-2 decimation-in-frequency FFT in
- * plugins/fft/dsp.c, Embree and Kimble's, with its two faults taken out:
+ * THE TRANSFORM is osc/realfft.h, the radix-2 decimation-in-frequency FFT
+ * in plugins/fft/dsp.c, Embree and Kimble's, with its two faults taken out:
  * the twiddle factors are the caller's rather than a function-static
  * keyed on the last size asked for, and computed in double rather than
  * by a float recurrence that has drifted a long way by the end of a
@@ -103,6 +103,8 @@
 #include <vector>
 
 #include "think.h"
+
+#include "realfft.h"
 
 enum {IN_FREQ, IN_PARTIALS, IN_BANDWIDTH, IN_BWSCALE, IN_TILT, IN_STRETCH,
       OUT_ARG, OUT_ARG2, INOUT_STATE};
@@ -269,55 +271,7 @@ static const PadConst &padConst (void)
 
 static void padFft (std::vector<double> &re, std::vector<double> &im, int m)
 {
-    const size_t n = (size_t)1 << m;
-    const std::vector<double> &wr = padConst().wr, &wi = padConst().wi;
-
-    size_t le = n, windex = 1;
-
-    for (int l = 0; l < m; l++)
-    {
-        const size_t increment = le;
-
-        le >>= 1;
-
-        /* Block by block, each run of butterflies along the arrays rather
-           than across them: the same arithmetic in another order, three
-           times as fast for the cache. */
-        for (size_t b = 0; b < n; b += increment)
-            for (size_t j = 0; j < le; j++)
-            {
-                const double ur = wr[j * windex], ui = wi[j * windex];
-                const size_t i = b + j, ip = i + le;
-                const double tr = re[i] - re[ip], ti = im[i] - im[ip];
-
-                re[i] += re[ip];
-                im[i] += im[ip];
-                re[ip] = tr * ur - ti * ui;
-                im[ip] = tr * ui + ti * ur;
-            }
-
-        windex <<= 1;
-    }
-
-    /* Bit-reversed order back to natural, as the original does after. */
-    for (size_t i = 1, j = 0; i < n - 1; i++)
-    {
-        size_t k = n >> 1;
-
-        while (k <= j)
-        {
-            j -= k;
-            k >>= 1;
-        }
-
-        j += k;
-
-        if (i < j)
-        {
-            std::swap(re[i], re[j]);
-            std::swap(im[i], im[j]);
-        }
-    }
+    thRealFft(re, im, m, padConst().wr, padConst().wi, 1);
 }
 
 /* One table: see the head. Peak-normalized to 1, since the shape of the
